@@ -1296,9 +1296,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '2_step two'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                        and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1443,9 +1446,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '2_step two'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1590,9 +1596,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '2_step two'), 0), 1)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1739,9 +1748,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '3_step three'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                          and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1886,9 +1898,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '3_step three'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2033,9 +2048,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '3_step three'), 0), 1)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2182,9 +2200,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '4_step four'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                         and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2329,9 +2350,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '4_step four'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2476,9 +2500,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '4_step four'), 0), 1)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2688,7 +2715,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -2718,9 +2745,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '2_/2'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2854,7 +2884,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -2885,9 +2915,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '2_/2'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                  and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3007,7 +3040,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -3038,9 +3071,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '3_/3'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                  and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3173,7 +3209,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -3203,9 +3239,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '2_/2'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3347,7 +3386,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -3378,9 +3417,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE ifNull(equals(path_key, '2_/2'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3718,9 +3760,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3962,9 +4007,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4206,9 +4254,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4450,9 +4501,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4844,9 +4898,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4991,9 +5048,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5220,9 +5280,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5449,9 +5512,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5596,9 +5662,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5743,9 +5812,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '3_/3'), 0), ifNull(equals(path_key, '4_/4'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -13150,9 +13222,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '2_step two'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                        and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -13297,9 +13372,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '2_step two'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -13444,9 +13522,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '2_step two'), 0), 1)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -13593,9 +13674,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '3_step three'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                          and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -13740,9 +13824,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '3_step three'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -13887,9 +13974,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '3_step three'), 0), 1)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -14036,9 +14126,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '4_step four'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                         and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -14183,9 +14276,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '4_step four'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -14330,9 +14426,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '4_step four'), 0), 1)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -14542,7 +14641,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -14572,9 +14671,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '2_/2'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -14708,7 +14810,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -14739,9 +14841,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '2_/2'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                  and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -14861,7 +14966,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -14892,9 +14997,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(path_dropoff_key, '3_/3'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
                                                                                                                  and isNull(path_key)))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -15027,7 +15135,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -15057,9 +15165,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE ifNull(equals(path_key, '2_/2'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -15201,7 +15312,7 @@
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT person.id AS id,
-            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
+            toTimeZone(person.created_at, 'UTC') AS created_at
      FROM person
      WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
@@ -15232,9 +15343,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE ifNull(equals(path_key, '2_/2'), 0)
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -15572,9 +15686,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -15816,9 +15933,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -16060,9 +16180,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -16304,9 +16427,12 @@
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                                                          WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
                                                    WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -16698,9 +16824,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -16845,9 +16974,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -17074,9 +17206,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -17303,9 +17438,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -17450,9 +17588,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -17597,9 +17738,12 @@
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                          JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
                                                    WHERE and(ifNull(equals(last_path_key, '3_/3'), 0), ifNull(equals(path_key, '4_/4'), 0))
-                                                   GROUP BY person_id) AS source)))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+                                                   GROUP BY person_id) AS source)), ifNull(in(tuple(person.id, person.version),
+                                                                                                (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                                                                 FROM person AS aggregation_optimization
+                                                                                                 WHERE equals(aggregation_optimization.team_id, 2)
+                                                                                                 GROUP BY aggregation_optimization.id
+                                                                                                 HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
