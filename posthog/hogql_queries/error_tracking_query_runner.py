@@ -278,7 +278,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return ast.Array(exprs=exprs)
 
     def extracted_exception_list_property(self, property):
-        return parse_expr(f"JSON_VALUE(any(properties.$exception_list), '$[0].{property}')")
+        return ast.Call(
+            name="JSON_VALUE",
+            args=[
+                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_list"])]),
+                ast.Constant(value=f"$[0].{property}"),
+            ],
+        )
 
     def extracted_fingerprint_property(self):
         return ast.Call(
