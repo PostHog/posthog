@@ -287,11 +287,12 @@ export class HogExecutor {
                           invocation.functionToExecute[0], // name
                           invocation.functionToExecute[1] // args
                       )
-                    : { bytecodes: { root: { bytecode: invocation.hogFunction.bytecode, globals } } })
+                    : invocation.hogFunction.bytecode)
 
             try {
                 let hogLogs = 0
                 execRes = execHog(invocationInput, {
+                    globals: invocation.functionToExecute ? undefined : globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
