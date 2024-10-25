@@ -7,6 +7,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { tryJsonParse, uuid } from 'lib/utils'
 
 export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
+export const SHORT_CODE_REGEX_MATCH_GROUPS = '([0-9a-zA-Z]*)(.*)'
 export const UUID_REGEX_MATCH_GROUPS = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(.*)'
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
