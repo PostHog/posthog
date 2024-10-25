@@ -8,6 +8,7 @@ from posthog.models.integration import GoogleCloudIntegration
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-google-cloud-storage",
     name="Google Cloud Storage",
     description="Send data to GCS. This creates a file per event.",

@@ -6,6 +6,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-customerio",
     name="Customer.io",
     description="Identify or track events against customers in Customer.io",
