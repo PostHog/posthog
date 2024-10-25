@@ -292,7 +292,7 @@ class TrendsAgentToolkit:
         Retrieve properties for an event.
         """
         runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return "Properties have not been found."
@@ -352,7 +352,7 @@ class TrendsAgentToolkit:
             return f"The property {property_name} does not exist in the taxonomy."
 
         runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The event {event_name} does not exist in the taxonomy."
@@ -426,7 +426,7 @@ class TrendsAgentToolkit:
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
         response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
