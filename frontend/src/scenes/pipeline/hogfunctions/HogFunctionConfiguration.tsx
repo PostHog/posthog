@@ -493,7 +493,6 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             )}
 
                             {!id || id === 'new' ? <HogFunctionTestPlaceholder /> : <HogFunctionTest id={id} />}
-
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>
