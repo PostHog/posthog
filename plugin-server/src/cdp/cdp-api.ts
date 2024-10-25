@@ -112,12 +112,6 @@ export class CdpApi {
                 ...(configuration ?? {}),
             }
 
-            // The "email" destination is exported as a function. Explicitly call the function when testing.
-            let functionToExecute: undefined | [string, any[]] = undefined
-            if (hogFunction.type === 'email') {
-                functionToExecute = ['sendEmail', [globals.email]]
-            }
-
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
             let lastResponse: HogFunctionInvocationResult | null = null
@@ -145,7 +139,8 @@ export class CdpApi {
                             },
                         },
                         compoundConfiguration,
-                        functionToExecute
+                        // The "email" hog functions export a "sendEmail" function that we must explicitly call
+                        hogFunction.type === 'email' ? ['sendEmail', [globals.email]] : undefined
                     )
 
                 if (invocation.queue === 'fetch') {

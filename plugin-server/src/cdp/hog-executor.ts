@@ -16,7 +16,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
-import { convertToHogFunctionFilterGlobal, invokeExportedFunction } from './utils'
+import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal } from './utils'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -280,12 +280,12 @@ export class HogExecutor {
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
             const invocationInput =
                 invocation.vmState ??
-                (invocation.executeExportedFunction
-                    ? invokeExportedFunction(
+                (invocation.functionToExecute
+                    ? buildExportedFunctionInvoker(
                           invocation.hogFunction.bytecode,
                           globals,
-                          invocation.executeExportedFunction[0],
-                          invocation.executeExportedFunction[1]
+                          invocation.functionToExecute[0], // name
+                          invocation.functionToExecute[1] // args
                       )
                     : invocation.hogFunction.bytecode)
 
