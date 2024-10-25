@@ -18,9 +18,9 @@ import {
 } from './types'
 import { convertToHogFunctionFilterGlobal } from './utils'
 
-const MAX_ASYNC_STEPS = 5
-const MAX_HOG_LOGS = 25
-const MAX_LOG_LENGTH = 10000
+export const MAX_ASYNC_STEPS = 5
+export const MAX_HOG_LOGS = 25
+export const MAX_LOG_LENGTH = 10000
 export const DEFAULT_TIMEOUT_MS = 100
 
 const hogExecutionDuration = new Histogram({
@@ -114,7 +114,7 @@ export class HogExecutor {
         nonMatchingFunctions: HogFunctionType[]
         erroredFunctions: HogFunctionType[]
     } {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []

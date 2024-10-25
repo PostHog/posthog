@@ -50,8 +50,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.54
-    version: 1.0.54(luxon@3.5.0)
+    specifier: ^1.0.55
+    version: 1.0.55(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.8.5
     version: 0.8.5(react-dom@18.2.0)(react@18.2.0)
@@ -281,8 +281,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.175.0
-    version: 1.175.0
+    specifier: 1.176.0
+    version: 1.176.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -386,7 +386,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -5412,8 +5412,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.54(luxon@3.5.0):
-    resolution: {integrity: sha512-vHYdiFcIvJ3CxYd/8rSZoUk8ZkeHETGb1dbBhURLejxp9dMyWC1qJnmcIlkH/vsbed/4hVUtFMqtp4bnQSmi2g==}
+  /@posthog/hogvm@1.0.55(luxon@3.5.0):
+    resolution: {integrity: sha512-cjF3lrA62aaqoERiVJHpkkRBS6QJ1rH4xYwiOMOs8ZQKNNRofeqth4NJzhJReXA0Wlf99l8hDt2lgFgLaDBI1w==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -13126,7 +13126,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -17773,8 +17772,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.175.0:
-    resolution: {integrity: sha512-ZPdM7/azh90gqqlYSJ3RIBJVViER8JDR7LtHWatVt2UCsIRvV+FSRQd85n770TFLDQSKAekFVcwCC9t+syTJJA==}
+  /posthog-js@1.176.0:
+    resolution: {integrity: sha512-T5XKNtRzp7q6CGb7Vc7wAI76rWap9fiuDUPxPsyPBPDkreKya91x9RIsSapAVFafwD1AEin1QMczCmt9Le9BWw==}
     dependencies:
       core-js: 3.38.1
       fflate: 0.4.8
@@ -18380,7 +18379,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.143.0
+      unlayer-types: 1.149.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20927,8 +20926,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.143.0:
-    resolution: {integrity: sha512-htP+Nszxkc+aEn0b3lFUIgs6ktO5wPrX6ZYLYjv2RR85rZnQktzVUVX9h+XwVBkBcCVaxWqBWymp74Ghuz3heQ==}
+  /unlayer-types@1.149.0:
+    resolution: {integrity: sha512-jObzEj+kHRs36/Mc0ERugnWKjoyQKVzc14CEYGNVrDWQ/eTPMf432ObwfNSbJV1J2G9KqLsiUxZGYj9LSuGTHw==}
     dev: false
 
   /unpipe@1.0.0:

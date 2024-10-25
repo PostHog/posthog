@@ -548,7 +548,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                             try {
                                 const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
 
-                                if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
+                                if (!this.hogFunctionManager.teamHasHogDestinations(clickHouseEvent.team_id)) {
                                     // No need to continue if the team doesn't have any functions
                                     return
                                 }
