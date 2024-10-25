@@ -126,7 +126,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
 
     if (callStack.length === 0) {
         callStack.push({
-            ip: 0, //rootBytecode[0] === '_H' ? 2 : 1,
+            ip: 0,
             chunk: 'root',
             stackStart: 0,
             argCount: 0,
