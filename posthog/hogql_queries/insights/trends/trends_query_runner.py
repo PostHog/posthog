@@ -1073,7 +1073,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return res_breakdown
 
-    def _is_other_breakdown(self, breakdown: BreakdownItem | list[BreakdownItem]) -> bool:
+    def _is_other_breakdown(self, breakdown: str | list[str]) -> bool:
         return (
             breakdown == BREAKDOWN_OTHER_STRING_LABEL
             or isinstance(breakdown, list)
