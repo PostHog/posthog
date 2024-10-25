@@ -1108,6 +1108,19 @@ class QueryTiming(BaseModel):
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
 
 
+class RecordingOrder(StrEnum):
+    DURATION = "duration"
+    RECORDING_DURATION = "recording_duration"
+    INACTIVE_SECONDS = "inactive_seconds"
+    ACTIVE_SECONDS = "active_seconds"
+    START_TIME = "start_time"
+    CONSOLE_ERROR_COUNT = "console_error_count"
+    CLICK_COUNT = "click_count"
+    KEYPRESS_COUNT = "keypress_count"
+    MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
+    ACTIVITY_SCORE = "activity_score"
+
+
 class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5343,7 +5356,7 @@ class RecordingsQuery(BaseModel):
     )
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = None
-    order: Union[DurationType, str]
+    order: Optional[RecordingOrder] = None
     person_uuid: Optional[str] = None
     properties: Optional[
         list[
