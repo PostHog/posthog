@@ -43,9 +43,6 @@ pub fn match_property(
         )));
     }
 
-    println!("property: {:?}", property);
-    println!("matching_property_values: {:?}", matching_property_values);
-
     let key = &property.key;
     let operator = property.operator.clone().unwrap_or(OperatorType::Exact);
     let value = &property.value;
