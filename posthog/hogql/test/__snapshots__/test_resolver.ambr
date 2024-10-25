@@ -2986,7 +2986,7 @@
                 }
               }
             }
-            union_type: "UNION ALL"
+            set_operator: "UNION ALL"
           }
         ]
         type: {
@@ -6333,7 +6333,7 @@
             }
           }
         }
-        union_type: "UNION ALL"
+        set_operator: "UNION ALL"
       }
     ]
     type: {
