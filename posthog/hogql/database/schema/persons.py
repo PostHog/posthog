@@ -64,7 +64,11 @@ def select_from_persons_table(
         and_conditions.append(filter)
 
     # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
-    if hasattr(node.select_from.type, "table") and isinstance(node.select_from.type.table, PersonsTable):
+    if (
+        node.select_from
+        and getattr(node.select_from.type, "table", False)
+        and isinstance(node.select_from.type.table, PersonsTable)
+    ):
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)
