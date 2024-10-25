@@ -1,4 +1,5 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
@@ -102,6 +103,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AutocaptureSettings />,
             },
             {
+                id: 'autocapture-data-attributes',
+                title: 'Data attributes',
+                component: <DataAttributes />,
+            },
+            {
                 id: 'heatmaps',
                 title: 'Heatmaps',
                 component: <HeatmapsSettings />,
@@ -118,9 +124,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebVitalsAutocaptureSettings />,
             },
             {
-                id: 'autocapture-data-attributes',
-                title: 'Data attributes',
-                component: <DataAttributes />,
+                id: 'dead-clicks-autocapture',
+                title: 'Dead clicks autocapture',
+                component: <DeadClicksAutocaptureSettings />,
             },
         ],
     },
