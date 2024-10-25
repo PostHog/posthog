@@ -880,6 +880,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             api_key = request.data.get("api_key", "")
             site_name = request.data.get("site_name", "")
 
+            # Chargebee uses the term 'site' but it is effectively the subdomain
+            subdomain_regex = re.compile("^[a-zA-Z-]+$")
+            if not subdomain_regex.match(site_name):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Chargebee site name is incorrect"},
+                )
+
             if not validate_chargebee_credentials(api_key=api_key, site_name=site_name):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
