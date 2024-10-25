@@ -165,7 +165,7 @@ class TestExperimentCRUD(APILicensedTest):
                     ],
                     "properties": [],
                 },
-                "holdout": holdout_id,
+                "holdout_id": holdout_id,
             },
         )
 
@@ -202,7 +202,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": holdout_2_id},
+            {"holdout_id": holdout_2_id},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -262,7 +262,7 @@ class TestExperimentCRUD(APILicensedTest):
         # remove holdouts
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": None},
+            {"holdout_id": None},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -276,7 +276,7 @@ class TestExperimentCRUD(APILicensedTest):
         # try adding invalid holdout
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": 123456},
+            {"holdout_id": 123456},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], 'Invalid pk "123456" - object does not exist.')
@@ -284,7 +284,7 @@ class TestExperimentCRUD(APILicensedTest):
         # add back holdout
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": holdout_2_id},
+            {"holdout_id": holdout_2_id},
         )
 
         # launch experiment and try updating holdouts again
@@ -297,7 +297,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": holdout_id},
+            {"holdout_id": holdout_id},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
