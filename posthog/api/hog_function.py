@@ -138,16 +138,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     {"template_id": "The Data Pipelines addon is required for this template."}
                 )
 
-            if attrs.get("hog"):
-                raise serializers.ValidationError(
-                    {"hog": "The Data Pipelines addon is required to create custom functions."}
-                )
-
-            if attrs.get("inputs_schema"):
-                raise serializers.ValidationError(
-                    {"inputs_schema": "The Data Pipelines addon is required to create custom functions."}
-                )
-
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog

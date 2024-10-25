@@ -102,9 +102,10 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 ],
             }
         )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
+        new_response = response.json()
+        # These did not change
+        assert new_response["hog"] == template_slack.hog
+        assert new_response["inputs_schema"] == template_slack.inputs_schema
 
     def test_free_users_cannot_use_without_template(self):
         response = self._create_slack_function({"template_id": None})
