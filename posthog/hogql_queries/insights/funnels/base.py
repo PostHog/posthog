@@ -89,6 +89,25 @@ class FunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
+    # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
+    # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
+    # arrayRotateRight turns [1,2,3] into [3,1,2]
+    # arrayRotateLeft turns [1,2,3] into [2,3,1]
+    # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
+    def _udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
+        return f"""arrayFilter(
+                    (x, x_before, x_after) -> not (
+                        length(x.{steps_index}) <= 1
+                        and x.{steps_index} == x_before.{steps_index}
+                        and x.{steps_index} == x_after.{steps_index}
+                        and x.{prop_val_index} == x_before.{prop_val_index}
+                        and x.{prop_val_index} == x_after.{prop_val_index}
+                        and x.{timestamp_index} > x_before.{timestamp_index}
+                        and x.{timestamp_index} < x_after.{timestamp_index}),
+                    events_array,
+                    arrayRotateRight(events_array, 1),
+                    arrayRotateLeft(events_array, 1))"""
+
     @cached_property
     def breakdown_cohorts(self) -> list[Cohort]:
         team, breakdown = self.context.team, self.context.breakdown
@@ -304,7 +323,7 @@ class FunnelBase(ABC):
                 "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
             )
         else:
-            action = Action.objects.get(pk=step.id)
+            action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
             action_id = step.id
             type = "actions"
@@ -676,7 +695,7 @@ class FunnelBase(ABC):
 
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
-            action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+            action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
             raise ValidationError(

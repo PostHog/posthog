@@ -18,8 +18,11 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.product_intent import ProductIntent
+from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
@@ -1147,7 +1150,7 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
     """
     This is a helper that just creates a team. It currently uses the orm, but we
     could use either the api, or django admin to create, to get better parity
-    with real world  scenarios.
+    with real world scenarios.
     """
     return Team.objects.create(
         organization=organization,
@@ -1160,4 +1163,45 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
-    pass
+    def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scoped_teams=[other_team_in_project.id],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {other_team_in_project.id},
+            "Only the scoped team listed here, the other two should be excluded",
+        )
+
+    def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
+        other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scoped_organizations=[other_org.id],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {team_in_other_org.id},
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
+        )

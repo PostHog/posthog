@@ -95,7 +95,8 @@ export function getParent(element: HTMLElement): HTMLElement | null {
     return null
 }
 
-export function trimElement(element: HTMLElement): HTMLElement | null {
+export function trimElement(element: HTMLElement, selector?: string): HTMLElement | null {
+    const target_selector = selector || CLICK_TARGET_SELECTOR
     if (!element) {
         return null
     }
@@ -123,7 +124,7 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
         }
 
         // return when we find a click target
-        if (loopElement.matches?.(CLICK_TARGET_SELECTOR)) {
+        if (loopElement.matches?.(target_selector)) {
             return loopElement
         }
 
@@ -168,7 +169,7 @@ export function getAllClickTargets(
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
         .reduce((a, b) => [...a, ...b], [])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
-        .map((e) => trimElement(e))
+        .map((e) => trimElement(e, targetSelector))
         .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 

@@ -11,6 +11,10 @@ from posthog.temporal.data_imports.workflow_activities.check_billing_limits impo
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
 )
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
+    SyncNewSchemasActivityInputs,
+    sync_new_schemas_activity,
+)
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -26,6 +30,7 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
 from posthog.warehouse.external_data_source.jobs import (
+    aget_running_job_for_schema,
     aupdate_external_job_status,
 )
 from posthog.warehouse.models import (
@@ -46,9 +51,8 @@ Non_Retryable_Schema_Errors = [
 
 @dataclasses.dataclass
 class UpdateExternalDataJobStatusInputs:
-    id: str
     team_id: int
-    run_id: str
+    job_id: str | None
     schema_id: str
     status: str
     internal_error: str | None
@@ -58,6 +62,16 @@ class UpdateExternalDataJobStatusInputs:
 @activity.defn
 async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
+    if inputs.job_id is None:
+        job: ExternalDataJob | None = await aget_running_job_for_schema(inputs.schema_id)
+        if job is None:
+            logger.info("No job to update status on")
+            return
+
+        job_id = str(job.pk)
+    else:
+        job_id = inputs.job_id
 
     if inputs.internal_error:
         logger.exception(
@@ -70,14 +84,14 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             await aupdate_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
     await aupdate_external_job_status(
-        job_id=inputs.id,
+        job_id=job_id,
         status=inputs.status,
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )
 
     logger.info(
-        f"Updated external data job with for external data source {inputs.run_id} to status {inputs.status}",
+        f"Updated external data job with for external data source {job_id} to status {inputs.status}",
     )
 
 
@@ -145,44 +159,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         assert inputs.external_data_schema_id is not None
 
-        # create external data job and trigger activity
-        create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
-            team_id=inputs.team_id,
-            schema_id=inputs.external_data_schema_id,
-            source_id=inputs.external_data_source_id,
-        )
-
-        # TODO: split out the creation of the external data job model from schema getting to seperate out exception handling
-        job_id, incremental = await workflow.execute_activity(
-            create_external_data_job_model_activity,
-            create_external_data_job_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=3,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
-            ),
-        )
-
-        # Check billing limits
-        hit_billing_limit = await workflow.execute_activity(
-            check_billing_limits_activity,
-            CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
-            start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=3,
-            ),
-        )
-
-        if hit_billing_limit:
-            return
-
         update_inputs = UpdateExternalDataJobStatusInputs(
-            id=job_id,
-            run_id=job_id,
+            job_id=None,
             status=ExternalDataJob.Status.COMPLETED,
             latest_error=None,
             internal_error=None,
@@ -191,6 +169,53 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         try:
+            # create external data job and trigger activity
+            create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
+                team_id=inputs.team_id,
+                schema_id=inputs.external_data_schema_id,
+                source_id=inputs.external_data_source_id,
+            )
+
+            job_id, incremental = await workflow.execute_activity(
+                create_external_data_job_model_activity,
+                create_external_data_job_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+
+            update_inputs.job_id = job_id
+
+            # Check billing limits
+            hit_billing_limit = await workflow.execute_activity(
+                check_billing_limits_activity,
+                CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=3,
+                ),
+            )
+
+            if hit_billing_limit:
+                update_inputs.status = ExternalDataJob.Status.CANCELLED
+                return
+
+            await workflow.execute_activity(
+                sync_new_schemas_activity,
+                SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=3,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
+                ),
+            )
+
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
                 run_id=job_id,

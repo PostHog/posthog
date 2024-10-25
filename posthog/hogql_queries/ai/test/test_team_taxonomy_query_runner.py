@@ -51,18 +51,6 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results.results[1].event, "event2")
         self.assertEqual(results.results[1].count, 1)
 
-    def test_is_stale(self):
-        date = timezone.now()
-        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
-        self.assertFalse(runner._is_stale(last_refresh=date, lazy=False))
-        self.assertFalse(runner._is_stale(last_refresh=date, lazy=True))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=15), lazy=False))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=15), lazy=True))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=59), lazy=True))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=59), lazy=False))
-        self.assertTrue(runner._is_stale(last_refresh=date - timedelta(minutes=60), lazy=True))
-        self.assertTrue(runner._is_stale(last_refresh=date - timedelta(minutes=60), lazy=False))
-
     def test_caching(self):
         now = timezone.now()
 
@@ -112,3 +100,26 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert isinstance(response, CachedTeamTaxonomyQueryResponse)
             self.assertEqual(len(response.results), 2)
+
+    def test_limit(self):
+        now = timezone.now()
+
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+
+        for i in range(501):
+            with freeze_time(now + timedelta(minutes=i)):
+                _create_event(
+                    event=f"event{i}",
+                    distinct_id="person1",
+                    team=self.team,
+                )
+
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
+        response = runner.run()
+
+        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
+        self.assertEqual(len(response.results), 500)

@@ -87,7 +87,7 @@ class RetentionQueryRunner(QueryRunner):
 
     def _get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
         if entity.type == EntityType.ACTIONS and entity.id:
-            action = Action.objects.get(pk=int(entity.id))
+            action = Action.objects.get(pk=int(entity.id), team__project_id=self.team.project_id)
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
 

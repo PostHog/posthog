@@ -7,8 +7,8 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
-from posthog.hogql_queries.insights.funnels.funnel_strict_persons import FunnelStrictActors
-from posthog.hogql_queries.insights.funnels.funnel_unordered_persons import FunnelUnorderedActors
+from posthog.hogql_queries.insights.funnels.funnel_strict_actors import FunnelStrictActors
+from posthog.hogql_queries.insights.funnels.funnel_unordered_actors import FunnelUnorderedActors
 from posthog.models.action.action import Action
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
@@ -830,7 +830,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         events: set[str] = set()
         for entity in self.funnels_query.series:
             if isinstance(entity, ActionsNode):
-                action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+                action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
                 events.update([x for x in action.get_step_events() if x])
             elif isinstance(entity, EventsNode):
                 if entity.event is not None:

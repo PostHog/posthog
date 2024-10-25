@@ -53,8 +53,8 @@ dependencies:
     specifier: ^1.0.54
     version: 1.0.54(luxon@3.5.0)
   '@posthog/icons':
-    specifier: 0.8.1
-    version: 0.8.1(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.8.5
+    version: 0.8.5(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -253,6 +253,9 @@ dependencies:
   lodash.merge:
     specifier: ^4.6.2
     version: 4.6.2
+  lodash.uniqby:
+    specifier: ^4.7.0
+    version: 4.7.0
   maplibre-gl:
     specifier: ^3.5.1
     version: 3.5.1
@@ -278,8 +281,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.167.0
-    version: 1.167.0
+    specifier: 1.176.0
+    version: 1.176.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -518,6 +521,9 @@ devDependencies:
   '@types/lodash.merge':
     specifier: ^4.6.9
     version: 4.6.9
+  '@types/lodash.uniqby':
+    specifier: ^4.7.9
+    version: 4.7.9
   '@types/node':
     specifier: ^18.11.9
     version: 18.11.9
@@ -5414,8 +5420,8 @@ packages:
       luxon: 3.5.0
     dev: false
 
-  /@posthog/icons@0.8.1(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-/ryXgFnWGzHmwijHE/0gQcEyAD/WkKuwf3NCMG4ibmGMpEqm/d12/+Ccuf3Zj2VZuc+0atGCHkHOiSNJ8dw97A==}
+  /@posthog/icons@0.8.5(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-bFPMgnR3ZaNnMQ81OznYFQRd7KaCqXcI8xS3qS49UBkSZpKeJgH86JbWXBXI2q2GZWX00gc+gZxEo5EBkY7KcQ==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -8397,6 +8403,12 @@ packages:
       '@types/lodash': 4.14.188
     dev: true
 
+  /@types/lodash.uniqby@4.7.9:
+    resolution: {integrity: sha512-rjrXji/seS6BZJRgXrU2h6FqxRVufsbq/HE0Tx0SdgbtlWr2YmD/M64BlYEYYlaMcpZwy32IYVkMfUMYlPuv0w==}
+    dependencies:
+      '@types/lodash': 4.14.188
+    dev: true
+
   /@types/lodash@4.14.188:
     resolution: {integrity: sha512-zmEmF5OIM3rb7SbLCFYoQhO4dGt2FRM9AMkxvA3LaADOF1n8in/zGJlWji9fmafLoNyz+FoL6FE0SLtGIArD7w==}
     dev: true
@@ -10624,6 +10636,11 @@ packages:
 
   /core-js@3.32.0:
     resolution: {integrity: sha512-rd4rYZNlF3WuoYuRIDEmbR/ga9CeuWX9U05umAvgrrZoHY4Z++cp/xwPQMvUpBB4Ag6J8KfD80G0zwCyaSxDww==}
+    requiresBuild: true
+    dev: false
+
+  /core-js@3.38.1:
+    resolution: {integrity: sha512-OP35aUorbU3Zvlx7pjsFdu1rGNnD4pgw/CWoYzRY3t2EzoVT7shKHY1dlAy3f41cGIO7ZDPQimhGFTlEYkG/Hw==}
     requiresBuild: true
     dev: false
 
@@ -13937,7 +13954,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.24.2
+      preact: 10.24.3
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -15685,6 +15702,10 @@ packages:
 
   /lodash.uniq@4.5.0:
     resolution: {integrity: sha512-xfBaXQd9ryd9dlSDvnvI0lvxfLJlYAZzXomUYzLKtUeOQvOP5piqAWuGtrhWeqaXK9hhoM/iyJc5AV+XfsX3HQ==}
+    dev: false
+
+  /lodash.uniqby@4.7.0:
+    resolution: {integrity: sha512-e/zcLx6CSbmaEgFHCA7BnoQKyCtKMxnuWrJygbwPs/AIn+IMKl66L8/s+wBUn5LRw2pZx3bUHibiV1b6aTWIww==}
     dev: false
 
   /lodash@4.17.21:
@@ -17752,20 +17773,21 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.167.0:
-    resolution: {integrity: sha512-/zXQ6tuJgiF1d4mgg3UsAi/uoyg7UnfFNQtikuALmaE53xFExpcAKbMfHPG/f54QgTvLxSHyGL1kFl/1uspkGg==}
+  /posthog-js@1.176.0:
+    resolution: {integrity: sha512-T5XKNtRzp7q6CGb7Vc7wAI76rWap9fiuDUPxPsyPBPDkreKya91x9RIsSapAVFafwD1AEin1QMczCmt9Le9BWw==}
     dependencies:
+      core-js: 3.38.1
       fflate: 0.4.8
-      preact: 10.24.2
-      web-vitals: 4.2.3
+      preact: 10.24.3
+      web-vitals: 4.2.4
     dev: false
 
   /potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.24.2:
-    resolution: {integrity: sha512-1cSoF0aCC8uaARATfrlz4VCBqE8LwZwRfLgkxJOQwAlQt6ayTmi0D9OF7nXid1POI5SZidFuG9CnlXbDfLqY/Q==}
+  /preact@10.24.3:
+    resolution: {integrity: sha512-Z2dPnBnMUfyQfSQ+GBdsGa16hz35YmLmtTLhM169uW944hYL6xzTYkJjC07j+Wosz733pMWx0fgON3JNw1jJQA==}
     dev: false
 
   /prelude-ls@1.2.1:
@@ -18358,7 +18380,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.103.0
+      unlayer-types: 1.149.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20905,8 +20927,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.103.0:
-    resolution: {integrity: sha512-aVZS7g5F6dWEoxc0dhSDqYYncu+LIMB/SerJi6u5FKVSfTWnzA2MTpjFCbGkOOi8rUiIOabeuEOfyO/WDnarJg==}
+  /unlayer-types@1.149.0:
+    resolution: {integrity: sha512-jObzEj+kHRs36/Mc0ERugnWKjoyQKVzc14CEYGNVrDWQ/eTPMf432ObwfNSbJV1J2G9KqLsiUxZGYj9LSuGTHw==}
     dev: false
 
   /unpipe@1.0.0:
@@ -21237,8 +21259,8 @@ packages:
       '@zxing/text-encoding': 0.9.0
     dev: true
 
-  /web-vitals@4.2.3:
-    resolution: {integrity: sha512-/CFAm1mNxSmOj6i0Co+iGFJ58OS4NRGVP+AWS/l509uIK5a1bSoIVaHz/ZumpHTfHSZBpgrJ+wjfpAOrTHok5Q==}
+  /web-vitals@4.2.4:
+    resolution: {integrity: sha512-r4DIlprAGwJ7YM11VZp4R884m0Vmgr6EAKe3P+kO0PPj3Unqyvv59rczf6UiGcb9Z8QxZVcqKNwv/g0WNdWwsw==}
     dev: false
 
   /webidl-conversions@3.0.1:

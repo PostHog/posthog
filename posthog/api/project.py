@@ -15,6 +15,7 @@ from posthog.api.team import (
     TeamSerializer,
     validate_team_attrs,
 )
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -297,7 +298,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
                     item_id="#",
                     activity="updated",
                     detail=Detail(
-                        name="Survey Config",
+                        name="global survey appearance",
                         changes=survey_config_changes_between,
                     ),
                 )
@@ -397,6 +398,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
+        queryset = queryset.filter(id__in=visible_teams_ids)
+        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
+                queryset = queryset.filter(organization_id__in=scoped_organizations)
         return queryset.filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:

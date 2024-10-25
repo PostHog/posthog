@@ -4,14 +4,13 @@ from math import exp, lgamma, log, ceil
 
 from flaky import flaky
 
-from posthog.constants import ExperimentSignificanceCode
-from posthog.hogql_queries.experiments.funnel_statistics import (
+from posthog.hogql_queries.experiments.funnels_statistics import (
     are_results_significant,
     calculate_expected_loss,
     calculate_probabilities,
     calculate_credible_intervals as calculate_funnel_credible_intervals,
 )
-from posthog.schema import ExperimentVariantFunnelResult
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantFunnelsBaseStats
 
 Probability = float
 
@@ -26,7 +25,7 @@ def logbeta(x: int, y: int) -> float:
 
 
 def calculate_probability_of_winning_for_target(
-    target_variant: ExperimentVariantFunnelResult, other_variants: list[ExperimentVariantFunnelResult]
+    target_variant: ExperimentVariantFunnelsBaseStats, other_variants: list[ExperimentVariantFunnelsBaseStats]
 ) -> Probability:
     """
     Calculates the probability of winning for target variant.
@@ -147,8 +146,8 @@ def probability_D_beats_A_B_and_C(
 @flaky(max_runs=10, min_passes=1)
 class TestFunnelExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
-        variant_test = ExperimentVariantFunnelResult(key="A", success_count=100, failure_count=10)
-        variant_control = ExperimentVariantFunnelResult(key="B", success_count=100, failure_count=18)
+        variant_test = ExperimentVariantFunnelsBaseStats(key="A", success_count=100, failure_count=10)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="B", success_count=100, failure_count=18)
 
         _, probability = calculate_probabilities(variant_control, [variant_test])
         self.assertAlmostEqual(probability, 0.918, places=2)
@@ -165,8 +164,8 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test.key][1], 0.9494, places=3)
 
     def test_simulation_result_is_close_to_closed_form_solution(self):
-        variant_test = ExperimentVariantFunnelResult(key="A", success_count=100, failure_count=10)
-        variant_control = ExperimentVariantFunnelResult(key="B", success_count=100, failure_count=18)
+        variant_test = ExperimentVariantFunnelsBaseStats(key="A", success_count=100, failure_count=10)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="B", success_count=100, failure_count=18)
 
         _, probability = calculate_probabilities(variant_control, [variant_test])
         self.assertAlmostEqual(probability, 0.918, places=1)
@@ -175,9 +174,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probability, alternative_probability, places=1)
 
     def test_calculate_results_for_two_test_variants(self):
-        variant_test_1 = ExperimentVariantFunnelResult(key="A", success_count=100, failure_count=10)
-        variant_test_2 = ExperimentVariantFunnelResult(key="B", success_count=100, failure_count=3)
-        variant_control = ExperimentVariantFunnelResult(key="C", success_count=100, failure_count=18)
+        variant_test_1 = ExperimentVariantFunnelsBaseStats(key="A", success_count=100, failure_count=10)
+        variant_test_2 = ExperimentVariantFunnelsBaseStats(key="B", success_count=100, failure_count=3)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="C", success_count=100, failure_count=18)
 
         probabilities = calculate_probabilities(variant_control, [variant_test_1, variant_test_2])
         self.assertAlmostEqual(sum(probabilities), 1)
@@ -211,9 +210,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.9894, places=3)
 
     def test_calculate_results_for_two_test_variants_almost_equal(self):
-        variant_test_1 = ExperimentVariantFunnelResult(key="A", success_count=120, failure_count=60)
-        variant_test_2 = ExperimentVariantFunnelResult(key="B", success_count=110, failure_count=52)
-        variant_control = ExperimentVariantFunnelResult(key="C", success_count=130, failure_count=65)
+        variant_test_1 = ExperimentVariantFunnelsBaseStats(key="A", success_count=120, failure_count=60)
+        variant_test_2 = ExperimentVariantFunnelsBaseStats(key="B", success_count=110, failure_count=52)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="C", success_count=130, failure_count=65)
 
         probabilities = calculate_probabilities(variant_control, [variant_test_1, variant_test_2])
         self.assertAlmostEqual(sum(probabilities), 1)
@@ -246,8 +245,8 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.7460, places=3)
 
     def test_absolute_loss_less_than_one_percent_but_not_significant(self):
-        variant_test_1 = ExperimentVariantFunnelResult(key="A", success_count=286, failure_count=2014)
-        variant_control = ExperimentVariantFunnelResult(key="B", success_count=267, failure_count=2031)
+        variant_test_1 = ExperimentVariantFunnelsBaseStats(key="A", success_count=286, failure_count=2014)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="B", success_count=267, failure_count=2031)
 
         probabilities = calculate_probabilities(variant_control, [variant_test_1])
         self.assertAlmostEqual(sum(probabilities), 1)
@@ -268,10 +267,10 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.1384, places=3)
 
     def test_calculate_results_for_three_test_variants(self):
-        variant_test_1 = ExperimentVariantFunnelResult(key="A", success_count=100, failure_count=10)
-        variant_test_2 = ExperimentVariantFunnelResult(key="B", success_count=100, failure_count=3)
-        variant_test_3 = ExperimentVariantFunnelResult(key="C", success_count=100, failure_count=30)
-        variant_control = ExperimentVariantFunnelResult(key="D", success_count=100, failure_count=18)
+        variant_test_1 = ExperimentVariantFunnelsBaseStats(key="A", success_count=100, failure_count=10)
+        variant_test_2 = ExperimentVariantFunnelsBaseStats(key="B", success_count=100, failure_count=3)
+        variant_test_3 = ExperimentVariantFunnelsBaseStats(key="C", success_count=100, failure_count=30)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="D", success_count=100, failure_count=18)
 
         probabilities = calculate_probabilities(variant_control, [variant_test_1, variant_test_2, variant_test_3])
         self.assertAlmostEqual(sum(probabilities), 1)
@@ -314,10 +313,10 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_3.key][1], 0.8332, places=3)
 
     def test_calculate_results_for_three_test_variants_almost_equal(self):
-        variant_test_1 = ExperimentVariantFunnelResult(key="A", success_count=120, failure_count=60)
-        variant_test_2 = ExperimentVariantFunnelResult(key="B", success_count=110, failure_count=52)
-        variant_test_3 = ExperimentVariantFunnelResult(key="C", success_count=100, failure_count=46)
-        variant_control = ExperimentVariantFunnelResult(key="D", success_count=130, failure_count=65)
+        variant_test_1 = ExperimentVariantFunnelsBaseStats(key="A", success_count=120, failure_count=60)
+        variant_test_2 = ExperimentVariantFunnelsBaseStats(key="B", success_count=110, failure_count=52)
+        variant_test_3 = ExperimentVariantFunnelsBaseStats(key="C", success_count=100, failure_count=46)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="D", success_count=130, failure_count=65)
 
         probabilities = calculate_probabilities(variant_control, [variant_test_1, variant_test_2, variant_test_3])
         self.assertAlmostEqual(sum(probabilities), 1)
@@ -358,10 +357,10 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_3.key][1], 0.7547, places=3)
 
     def test_calculate_results_for_three_test_variants_much_better_than_control(self):
-        variant_test_1 = ExperimentVariantFunnelResult(key="A", success_count=130, failure_count=60)
-        variant_test_2 = ExperimentVariantFunnelResult(key="B", success_count=135, failure_count=62)
-        variant_test_3 = ExperimentVariantFunnelResult(key="C", success_count=132, failure_count=60)
-        variant_control = ExperimentVariantFunnelResult(key="D", success_count=80, failure_count=65)
+        variant_test_1 = ExperimentVariantFunnelsBaseStats(key="A", success_count=130, failure_count=60)
+        variant_test_2 = ExperimentVariantFunnelsBaseStats(key="B", success_count=135, failure_count=62)
+        variant_test_3 = ExperimentVariantFunnelsBaseStats(key="C", success_count=132, failure_count=60)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="D", success_count=80, failure_count=65)
 
         probabilities = calculate_probabilities(variant_control, [variant_test_1, variant_test_2, variant_test_3])
         self.assertAlmostEqual(sum(probabilities), 1)
@@ -393,14 +392,14 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_3.key][1], 0.7488, places=3)
 
     def test_calculate_results_for_seven_test_variants(self):
-        variant_test_1 = ExperimentVariantFunnelResult(key="A", success_count=100, failure_count=17)
-        variant_test_2 = ExperimentVariantFunnelResult(key="B", success_count=100, failure_count=16)
-        variant_test_3 = ExperimentVariantFunnelResult(key="C", success_count=100, failure_count=30)
-        variant_test_4 = ExperimentVariantFunnelResult(key="D", success_count=100, failure_count=31)
-        variant_test_5 = ExperimentVariantFunnelResult(key="E", success_count=100, failure_count=29)
-        variant_test_6 = ExperimentVariantFunnelResult(key="F", success_count=100, failure_count=32)
-        variant_test_7 = ExperimentVariantFunnelResult(key="G", success_count=100, failure_count=33)
-        variant_control = ExperimentVariantFunnelResult(key="H", success_count=100, failure_count=18)
+        variant_test_1 = ExperimentVariantFunnelsBaseStats(key="A", success_count=100, failure_count=17)
+        variant_test_2 = ExperimentVariantFunnelsBaseStats(key="B", success_count=100, failure_count=16)
+        variant_test_3 = ExperimentVariantFunnelsBaseStats(key="C", success_count=100, failure_count=30)
+        variant_test_4 = ExperimentVariantFunnelsBaseStats(key="D", success_count=100, failure_count=31)
+        variant_test_5 = ExperimentVariantFunnelsBaseStats(key="E", success_count=100, failure_count=29)
+        variant_test_6 = ExperimentVariantFunnelsBaseStats(key="F", success_count=100, failure_count=32)
+        variant_test_7 = ExperimentVariantFunnelsBaseStats(key="G", success_count=100, failure_count=33)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="H", success_count=100, failure_count=18)
 
         probabilities = calculate_probabilities(
             variant_control,
@@ -488,8 +487,8 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_7.key][1], 0.8174, places=3)
 
     def test_calculate_results_control_is_significant(self):
-        variant_test = ExperimentVariantFunnelResult(key="test", success_count=100, failure_count=18)
-        variant_control = ExperimentVariantFunnelResult(key="control", success_count=100, failure_count=10)
+        variant_test = ExperimentVariantFunnelsBaseStats(key="test", success_count=100, failure_count=18)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="control", success_count=100, failure_count=10)
 
         probabilities = calculate_probabilities(variant_control, [variant_test])
 
@@ -508,13 +507,13 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test.key][1], 0.9010, places=3)
 
     def test_calculate_results_many_variants_control_is_significant(self):
-        variant_test_1 = ExperimentVariantFunnelResult(key="test_1", success_count=100, failure_count=20)
-        variant_test_2 = ExperimentVariantFunnelResult(key="test_2", success_count=100, failure_count=21)
-        variant_test_3 = ExperimentVariantFunnelResult(key="test_3", success_count=100, failure_count=22)
-        variant_test_4 = ExperimentVariantFunnelResult(key="test_4", success_count=100, failure_count=23)
-        variant_test_5 = ExperimentVariantFunnelResult(key="test_5", success_count=100, failure_count=24)
-        variant_test_6 = ExperimentVariantFunnelResult(key="test_6", success_count=100, failure_count=25)
-        variant_control = ExperimentVariantFunnelResult(key="control", success_count=100, failure_count=10)
+        variant_test_1 = ExperimentVariantFunnelsBaseStats(key="test_1", success_count=100, failure_count=20)
+        variant_test_2 = ExperimentVariantFunnelsBaseStats(key="test_2", success_count=100, failure_count=21)
+        variant_test_3 = ExperimentVariantFunnelsBaseStats(key="test_3", success_count=100, failure_count=22)
+        variant_test_4 = ExperimentVariantFunnelsBaseStats(key="test_4", success_count=100, failure_count=23)
+        variant_test_5 = ExperimentVariantFunnelsBaseStats(key="test_5", success_count=100, failure_count=24)
+        variant_test_6 = ExperimentVariantFunnelsBaseStats(key="test_6", success_count=100, failure_count=25)
+        variant_control = ExperimentVariantFunnelsBaseStats(key="control", success_count=100, failure_count=10)
 
         variants_test = [
             variant_test_1,

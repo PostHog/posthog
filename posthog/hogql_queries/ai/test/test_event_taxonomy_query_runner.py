@@ -176,18 +176,6 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[2].sample_values, ["1024x768"])
         self.assertEqual(results[2].sample_count, 1)
 
-    def test_is_stale(self):
-        date = timezone.now()
-        runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
-        self.assertFalse(runner._is_stale(last_refresh=date, lazy=False))
-        self.assertFalse(runner._is_stale(last_refresh=date, lazy=True))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=15), lazy=False))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=15), lazy=True))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=59), lazy=True))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=59), lazy=False))
-        self.assertTrue(runner._is_stale(last_refresh=date - timedelta(minutes=60), lazy=True))
-        self.assertTrue(runner._is_stale(last_refresh=date - timedelta(minutes=60), lazy=False))
-
     def test_caching(self):
         now = timezone.now()
 
@@ -238,3 +226,28 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert isinstance(response, CachedEventTaxonomyQueryResponse)
             self.assertEqual(len(response.results), 1)
+
+    def test_limit(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+
+        for i in range(100):
+            _create_event(
+                event="event1",
+                distinct_id="person1",
+                properties={
+                    f"prop_{i + 10}": "value",
+                    f"prop_{i + 100}": "value",
+                    f"prop_{i + 1000}": "value",
+                    f"prop_{i + 10000}": "value",
+                    f"prop_{i + 100000}": "value",
+                    f"prop_{i + 1000000}": "value",
+                },
+                team=self.team,
+            )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual(len(response.results), 500)

@@ -72,7 +72,7 @@ mod test {
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
     const MINIFIED: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js.map");
-    const EXAMPLE_EXCEPTION: &str = include_str!("../tests/static/raw_ch_exception.json");
+    const EXAMPLE_EXCEPTION: &str = include_str!("../tests/static/raw_ch_exception_list.json");
 
     #[tokio::test]
     async fn end_to_end_resolver_test() {
@@ -91,8 +91,12 @@ mod test {
 
         let exception: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
         let props: ErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
-        let mut test_stack: Vec<RawFrame> =
-            serde_json::from_str(props.exception_stack_trace_raw.as_ref().unwrap()).unwrap();
+        let mut test_stack: Vec<RawFrame> = props.exception_list.unwrap()[0]
+            .stacktrace
+            .as_ref()
+            .unwrap()
+            .frames
+            .clone();
 
         // We're going to pretend out stack consists exclusively of JS frames whose source
         // we have locally
