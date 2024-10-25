@@ -269,3 +269,13 @@ Here is the new plan:
 trends_question_prompt = """
 Answer to this question: {{question}}
 """
+
+trends_failover_prompt = """
+The result of your previous generatin raised the Pydantic validation exception:
+
+```
+{{exception_message}}
+```
+
+Fix the error and return the correct response.
+"""
