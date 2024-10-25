@@ -86,7 +86,6 @@ posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression 
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "CTE")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "CTE")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "OrderExpr", variable has type "CTE")  [assignment]
-posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "CTE")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "WindowExpr", variable has type "CTE")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "FieldAliasType", variable has type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Type", variable has type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType")  [assignment]
