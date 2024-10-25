@@ -163,50 +163,17 @@ export const maxLogic = kea<maxLogicType>([
  * Parses the generation result from the API. Some generation chunks might be sent in batches.
  * @param response
  */
-function parseResponse(response: string, recursive = true): RootAssistantMessage | null {
+function parseResponse(response: string): RootAssistantMessage | null {
+    const lastResponse = response.split('data: ').pop()?.trim()
+
+    if (!lastResponse) {
+        return null
+    }
+
     try {
-        const parsed = JSON.parse(response)
+        const parsed = JSON.parse(lastResponse)
         return parsed as RootAssistantMessage
     } catch {
-        if (!recursive) {
-            return null
-        }
-
-        const results: [number, number][] = []
-        let pair: [number, number] = [0, 0]
-        let seq = 0
-
-        for (let i = 0; i < response.length; i++) {
-            const char = response[i]
-
-            if (char === '{') {
-                if (seq === 0) {
-                    pair[0] = i
-                }
-
-                seq += 1
-            }
-
-            if (char === '}') {
-                seq -= 1
-                if (seq === 0) {
-                    pair[1] = i
-                }
-            }
-
-            if (seq === 0) {
-                results.push(pair)
-                pair = [0, 0]
-            }
-        }
-
-        const lastPair = results.pop()
-
-        if (lastPair) {
-            const [left, right] = lastPair
-            return parseResponse(response.slice(left, right + 1), false)
-        }
-
         return null
     }
 }
