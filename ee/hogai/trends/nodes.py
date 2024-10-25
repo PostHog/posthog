@@ -136,7 +136,11 @@ class CreateTrendsPlanNode(AssistantNode):
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
             raise ValueError("Failed to generate events prompt.")
 
-        events = [item.event for item in response.results]
+        events: list[str] = []
+        for item in response.results:
+            if len(response.results) > 25 and item.count <= 3:
+                continue
+            events.append(item.event)
 
         # default for null in the
         tags: list[str] = ["all events"]
