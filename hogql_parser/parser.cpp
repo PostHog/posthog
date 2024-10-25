@@ -94,13 +94,6 @@ PyObject* X_PyList_FromStrings(const vector<string>& items) {
   return list;
 }
 
-void to_uppercase(char str[]) {
-  for (int i = 0; str[i] != '\0'; ++i) {
-    str[i] = std::toupper(static_cast<unsigned char>(str[i]));
-  }
-}
-
-
 // PARSING AND AST CONVERSION
 
 class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
