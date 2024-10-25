@@ -1,11 +1,10 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { broadcastsLogic } from 'scenes/messaging/broadcastsLogic'
+import { FunctionsTable } from 'scenes/messaging/FunctionsTable'
 import { MessagingTabs } from 'scenes/messaging/MessagingTabs'
-import { DestinationsTable } from 'scenes/pipeline/destinations/Destinations'
-import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,9 +32,7 @@ export function Broadcasts(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <BindLogic logic={pipelineDestinationsLogic} props={{ type: 'broadcast' }}>
-                <DestinationsTable />
-            </BindLogic>
+            <FunctionsTable type="broadcast" />
         </>
     )
 }

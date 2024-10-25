@@ -288,10 +288,11 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
 
                             {showPersonsCount && (
                                 <div className="relative border bg-bg-light rounded p-3 space-y-2">
-                                    <LemonLabel>Matching persons</LemonLabel>
+                                    <div>
+                                        <LemonLabel>Matching persons</LemonLabel>
+                                    </div>
                                     {personsCount && !personsCountLoading ? (
                                         <>
-                                            {' '}
                                             Found{' '}
                                             <Link
                                                 to={
