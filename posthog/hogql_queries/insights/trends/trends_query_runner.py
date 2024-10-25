@@ -294,13 +294,16 @@ class TrendsQueryRunner(QueryRunner):
     def calculate(self):
         queries = self.to_queries()
 
-        if len(queries) == 1:
-            response_hogql_query = queries[0]
+        if len(queries) == 0:
+            response_hogql = ""
         else:
-            response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
+            if len(queries) == 1:
+                response_hogql_query = queries[0]
+            else:
+                response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
-        with self.timings.measure("printing_hogql_for_response"):
-            response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
+            with self.timings.measure("printing_hogql_for_response"):
+                response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
         timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
