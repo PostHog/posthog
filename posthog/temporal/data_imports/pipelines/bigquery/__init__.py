@@ -2,7 +2,6 @@ from collections import defaultdict
 import contextlib
 from google.oauth2 import service_account
 from google.cloud import bigquery
-
 from posthog.warehouse.types import IncrementalFieldType
 
 # Actual data ingestion happens via the `sql_database` source. This is more for BigQuery utils
@@ -30,6 +29,13 @@ def bigquery_client(project_id: str, private_key: str, private_key_id: str, clie
         yield client
     finally:
         client.close()
+
+
+def delete_table(
+    table_id: str, project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str
+) -> None:
+    with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
+        bq.delete_table(table_id, not_found_ok=True)
 
 
 def get_schemas(

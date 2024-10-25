@@ -6,6 +6,7 @@ from .customerio.template_customerio import template as customerio, TemplateCust
 from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
+from .june.template_june import template as june
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .discord.template_discord import template as discord
@@ -28,6 +29,7 @@ from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
 from .google_ads.template_google_ads import template as google_ads
 from .attio.template_attio import template as attio
+from .mailchimp.template_mailchimp import template as mailchimp
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
 from .klaviyo.template_klaviyo import template_user as klaviyo_user, template_event as klaviyo_event
 from .google_cloud_storage.template_google_cloud_storage import (
@@ -55,10 +57,12 @@ HOG_FUNCTION_TEMPLATES = [
     google_pubsub,
     hubspot,
     intercom,
+    june,
     klaviyo_event,
     klaviyo_user,
     knock,
     loops,
+    mailchimp,
     mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,

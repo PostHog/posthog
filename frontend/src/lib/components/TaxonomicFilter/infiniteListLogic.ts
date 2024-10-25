@@ -69,7 +69,7 @@ async function fetchCachedListResponse(path: string, searchParams: Record<string
 }
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
-    props({} as InfiniteListLogicProps),
+    props({ showNumericalPropsOnly: false } as InfiniteListLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
     connect((props: InfiniteListLogicProps) => ({
@@ -310,15 +310,34 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         items: [
-            (s) => [s.remoteItems, s.localItems],
-            (remoteItems, localItems) => ({
-                results: [...localItems.results, ...remoteItems.results],
-                count: localItems.count + remoteItems.count,
-                searchQuery: localItems.searchQuery,
-                expandedCount: remoteItems.expandedCount,
-                queryChanged: remoteItems.queryChanged,
-                first: localItems.first && remoteItems.first,
-            }),
+            (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
+            (remoteItems, localItems, showNumericalPropsOnly) => {
+                const results = [...localItems.results, ...remoteItems.results].filter((n) => {
+                    if (!showNumericalPropsOnly) {
+                        return true
+                    }
+
+                    if ('is_numerical' in n) {
+                        return !!n.is_numerical
+                    }
+
+                    if ('property_type' in n) {
+                        const property_type = n.property_type as string // Data warehouse props dont conformt to PropertyType for some reason
+                        return property_type === 'Integer' || property_type === 'Float'
+                    }
+
+                    return true
+                })
+
+                return {
+                    results,
+                    count: results.length,
+                    searchQuery: localItems.searchQuery,
+                    expandedCount: remoteItems.expandedCount,
+                    queryChanged: remoteItems.queryChanged,
+                    first: localItems.first && remoteItems.first,
+                }
+            },
         ],
         totalResultCount: [(s) => [s.items], (items) => items.count || 0],
         totalExtraCount: [

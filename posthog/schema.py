@@ -32,7 +32,7 @@ class ActorsPropertyTaxonomyResponse(BaseModel):
         extra="forbid",
     )
     sample_count: int
-    sample_values: list[str]
+    sample_values: list[Union[str, float, bool, int]]
 
 
 class AggregationAxisFormat(StrEnum):
@@ -61,6 +61,20 @@ class AlertState(StrEnum):
     NOT_FIRING = "Not firing"
     ERRORED = "Errored"
     SNOOZED = "Snoozed"
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["ai"] = "ai"
+
+
+class AssistantMessageType(StrEnum):
+    HUMAN = "human"
+    AI = "ai"
+    AI_VIZ = "ai/viz"
 
 
 class Kind(StrEnum):
@@ -749,6 +763,14 @@ class HogQueryResponse(BaseModel):
     coloredBytecode: Optional[list] = None
     results: Any
     stdout: Optional[str] = None
+
+
+class HumanMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["human"] = "human"
 
 
 class Compare(StrEnum):
@@ -4454,6 +4476,7 @@ class DataWarehouseNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4544,6 +4567,7 @@ class EntityNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4622,6 +4646,7 @@ class EventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -4703,6 +4728,7 @@ class FunnelExclusionActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4771,6 +4797,7 @@ class FunnelExclusionEventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -5030,7 +5057,6 @@ class AIActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5049,6 +5075,7 @@ class AIActionsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -5057,7 +5084,6 @@ class AIActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5078,7 +5104,6 @@ class AIEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5097,6 +5122,7 @@ class AIEventsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -5105,7 +5131,6 @@ class AIEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5156,6 +5181,7 @@ class ActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -5236,7 +5262,6 @@ class ExperimentalAITrendsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5480,6 +5505,16 @@ class TrendsQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[ExperimentalAITrendsQuery] = None
+    plan: Optional[str] = None
+    reasoning_steps: Optional[list[str]] = None
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class ErrorTrackingQuery(BaseModel):
@@ -5982,6 +6017,10 @@ class QueryResponseAlternative(
         QueryResponseAlternative40,
         QueryResponseAlternative41,
     ]
+
+
+class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage]]):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage]
 
 
 class DatabaseSchemaQueryResponse(BaseModel):

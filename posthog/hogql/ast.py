@@ -409,6 +409,14 @@ class DateTimeType(ConstantType):
 
 
 @dataclass(kw_only=True)
+class IntervalType(ConstantType):
+    data_type: ConstantDataType = field(default="unknown", init=False)
+
+    def print_type(self) -> str:
+        return "IntervalType"
+
+
+@dataclass(kw_only=True)
 class UUIDType(ConstantType):
     data_type: ConstantDataType = field(default="uuid", init=False)
 
@@ -629,6 +637,18 @@ class CompareOperationOp(StrEnum):
     IRegex = "=~*"
     NotRegex = "!~"
     NotIRegex = "!~*"
+
+
+NEGATED_COMPARE_OPS: list[CompareOperationOp] = [
+    CompareOperationOp.NotEq,
+    CompareOperationOp.NotLike,
+    CompareOperationOp.NotILike,
+    CompareOperationOp.NotIn,
+    CompareOperationOp.GlobalNotIn,
+    CompareOperationOp.NotInCohort,
+    CompareOperationOp.NotRegex,
+    CompareOperationOp.NotIRegex,
+]
 
 
 @dataclass(kw_only=True)

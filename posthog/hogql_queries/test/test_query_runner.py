@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.core.cache import cache
 from freezegun import freeze_time
 from pydantic import BaseModel
 
@@ -28,6 +29,10 @@ class TestQuery(BaseModel):
 
 class TestQueryRunner(BaseTest):
     maxDiff = None
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
 
     def setup_test_query_runner_class(self):
         """Setup required methods and attributes of the abstract base class."""

@@ -11,6 +11,7 @@ from posthog.hogql.ast import (
     DateTimeType,
     DateType,
     FloatType,
+    IntervalType,
     StringType,
     TupleType,
     IntegerType,
@@ -57,6 +58,7 @@ AnyConstantType = (
     | UnknownType
     | IntegerType
     | FloatType
+    | IntervalType
 )
 
 
@@ -124,6 +126,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ),
             ((DateTimeType(), IntegerType()), DateTimeType()),
             ((IntegerType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+            ((IntervalType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "minus": HogQLFunctionMeta(
@@ -143,6 +147,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ),
             ((DateTimeType(), IntegerType()), DateTimeType()),
             ((IntegerType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+            ((IntervalType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "multiply": HogQLFunctionMeta(
@@ -565,14 +571,70 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "toModifiedJulianDay": HogQLFunctionMeta("toModifiedJulianDayOrNull", 1, 1),
     "fromModifiedJulianDay": HogQLFunctionMeta("fromModifiedJulianDayOrNull", 1, 1),
-    "toIntervalSecond": HogQLFunctionMeta("toIntervalSecond", 1, 1),
-    "toIntervalMinute": HogQLFunctionMeta("toIntervalMinute", 1, 1),
-    "toIntervalHour": HogQLFunctionMeta("toIntervalHour", 1, 1),
-    "toIntervalDay": HogQLFunctionMeta("toIntervalDay", 1, 1),
-    "toIntervalWeek": HogQLFunctionMeta("toIntervalWeek", 1, 1),
-    "toIntervalMonth": HogQLFunctionMeta("toIntervalMonth", 1, 1),
-    "toIntervalQuarter": HogQLFunctionMeta("toIntervalQuarter", 1, 1),
-    "toIntervalYear": HogQLFunctionMeta("toIntervalYear", 1, 1),
+    "toIntervalSecond": HogQLFunctionMeta(
+        "toIntervalSecond",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalMinute": HogQLFunctionMeta(
+        "toIntervalMinute",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalHour": HogQLFunctionMeta(
+        "toIntervalHour",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalDay": HogQLFunctionMeta(
+        "toIntervalDay",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalWeek": HogQLFunctionMeta(
+        "toIntervalWeek",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalMonth": HogQLFunctionMeta(
+        "toIntervalMonth",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalQuarter": HogQLFunctionMeta(
+        "toIntervalQuarter",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
+    "toIntervalYear": HogQLFunctionMeta(
+        "toIntervalYear",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
     # strings
     "left": HogQLFunctionMeta("left", 2, 2),
     "right": HogQLFunctionMeta("right", 2, 2),
@@ -830,7 +892,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "coalesce": HogQLFunctionMeta("coalesce", 1, None, case_sensitive=False),
     "ifnull": HogQLFunctionMeta("ifNull", 2, 2, case_sensitive=False),
     "nullif": HogQLFunctionMeta("nullIf", 2, 2, case_sensitive=False),
-    "assumeNotNull": HogQLFunctionMeta("assumeNotNull", 1, 1),
+    "assumeNotNull": HogQLFunctionMeta(
+        "assumeNotNull",
+        1,
+        1,
+        signatures=[
+            ((DateTimeType(),), DateTimeType()),
+        ],
+    ),
     "toNullable": HogQLFunctionMeta("toNullable", 1, 1),
     # tuples
     "tuple": HogQLFunctionMeta("tuple", 0, None),

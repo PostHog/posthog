@@ -381,8 +381,8 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Redshift")
     await logger.ainfo(
         "Batch exporting range %s - %s to Redshift: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.database,
         inputs.schema,
         inputs.table_name,
@@ -537,11 +537,12 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: RedshiftBatchExportInputs):
         """Workflow implementation to export data to Redshift."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -576,7 +577,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             schema=inputs.schema,
             table_name=inputs.table_name,
             has_self_signed_cert=inputs.has_self_signed_cert,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,

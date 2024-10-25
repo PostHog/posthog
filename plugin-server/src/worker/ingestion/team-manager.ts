@@ -161,6 +161,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
                 api_token,
                 slack_incoming_webhook,
                 session_recording_opt_in,
+                person_processing_opt_out,
                 heatmaps_opt_in,
                 ingested_event,
                 person_display_name_properties,
@@ -187,6 +188,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
                 api_token,
                 slack_incoming_webhook,
                 session_recording_opt_in,
+                person_processing_opt_out,
                 heatmaps_opt_in,
                 ingested_event,
                 test_account_filters

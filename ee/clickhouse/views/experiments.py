@@ -19,6 +19,7 @@ from ee.clickhouse.queries.experiments.trend_experiment_result import (
     ClickhouseTrendExperimentResult,
 )
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -27,7 +28,7 @@ from posthog.api.utils import action
 from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.filters.filter import Filter
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -156,6 +157,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
+    holdout = ExperimentHoldoutSerializer(read_only=True)
+    holdout_id = serializers.PrimaryKeyRelatedField(
+        queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
+    )
 
     class Meta:
         model = Experiment
@@ -167,6 +172,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "end_date",
             "feature_flag_key",
             "feature_flag",
+            "holdout",
+            "holdout_id",
             "exposure_cohort",
             "parameters",
             "secondary_metrics",
@@ -183,6 +190,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "updated_at",
             "feature_flag",
             "exposure_cohort",
+            "holdout",
         ]
 
     def validate_parameters(self, value):
@@ -221,6 +229,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if properties:
             raise ValidationError("Experiments do not support global filter properties")
 
+        holdout_groups = None
+        if validated_data.get("holdout"):
+            holdout_groups = validated_data["holdout"].filters
+
         default_variants = [
             {"key": "control", "name": "Control Group", "rollout_percentage": 50},
             {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
@@ -230,6 +242,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "groups": [{"properties": properties, "rollout_percentage": 100}],
             "multivariate": {"variants": variants or default_variants},
             "aggregation_group_type_index": aggregation_group_type_index,
+            "holdout_groups": holdout_groups,
         }
 
         feature_flag_serializer = FeatureFlagSerializer(
@@ -263,6 +276,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "parameters",
             "archived",
             "secondary_metrics",
+            "holdout",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -273,7 +287,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if extra_keys:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
-        # if an experiment has launched, we cannot edit its variants anymore.
+        # if an experiment has launched, we cannot edit its variants or holdout anymore.
         if not instance.is_draft:
             if "feature_flag_variants" in validated_data.get("parameters", {}):
                 if len(validated_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
@@ -285,13 +299,19 @@ class ExperimentSerializer(serializers.ModelSerializer):
                         != 1
                     ):
                         raise ValidationError("Can't update feature_flag_variants on Experiment")
+            if "holdout" in validated_data and validated_data["holdout"] != instance.holdout:
+                raise ValidationError("Can't update holdout on running Experiment")
 
         properties = validated_data.get("filters", {}).get("properties")
         if properties:
             raise ValidationError("Experiments do not support global filter properties")
 
         if instance.is_draft:
-            # if feature flag variants have changed, update the feature flag.
+            # if feature flag variants or holdout have changed, update the feature flag.
+            holdout_groups = instance.holdout.filters if instance.holdout else None
+            if "holdout" in validated_data:
+                holdout_groups = validated_data["holdout"].filters if validated_data["holdout"] else None
+
             if validated_data.get("parameters"):
                 variants = validated_data["parameters"].get("feature_flag_variants", [])
                 aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
@@ -312,6 +332,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     "groups": [{"properties": properties, "rollout_percentage": 100}],
                     "multivariate": {"variants": variants or default_variants},
                     "aggregation_group_type_index": aggregation_group_type_index,
+                    "holdout_groups": holdout_groups,
                 }
 
                 existing_flag_serializer = FeatureFlagSerializer(
@@ -322,6 +343,17 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 )
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
+            else:
+                # no parameters provided, just update the holdout if necessary
+                if "holdout" in validated_data:
+                    existing_flag_serializer = FeatureFlagSerializer(
+                        feature_flag,
+                        data={"filters": {**feature_flag.filters, "holdout_groups": holdout_groups}},
+                        partial=True,
+                        context=self.context,
+                    )
+                    existing_flag_serializer.is_valid(raise_exception=True)
+                    existing_flag_serializer.save()
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
@@ -336,7 +368,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by").all()
+    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by", "holdout").all()
     ordering = "-created_at"
 
     # ******************************************
