@@ -185,7 +185,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             last_message = None
             for message in assistant.stream(validated_body):
                 last_message = message
-                yield last_message
+                yield f"data: {message}\n\n"
 
             human_message = validated_body.messages[-1].root
             if isinstance(human_message, HumanMessage):

@@ -45,6 +45,7 @@ describe('Hog Executor', () => {
         reloadAllHogFunctions: jest.fn(),
         getTeamHogDestinations: jest.fn(),
         getTeamHogFunction: jest.fn(),
+        getTeamHogEmailProvider: jest.fn(),
     }
 
     beforeEach(async () => {
@@ -212,6 +213,70 @@ describe('Hog Executor', () => {
                   "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
+        })
+    })
+
+    describe('email provider functions', () => {
+        let hogFunction: HogFunctionType
+        let providerFunction: HogFunctionType
+        beforeEach(() => {
+            providerFunction = createHogFunction({
+                name: 'Test hog function',
+                ...HOG_EXAMPLES.export_send_email,
+                ...HOG_INPUTS_EXAMPLES.none,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            hogFunction = createHogFunction({
+                name: 'Test hog function',
+                ...HOG_EXAMPLES.import_send_email,
+                ...HOG_INPUTS_EXAMPLES.email,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([hogFunction, providerFunction])
+            mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
+            mockFunctionManager.getTeamHogEmailProvider.mockReturnValue(providerFunction)
+        })
+
+        it('can execute an invocation', () => {
+            const invocation = createInvocation(hogFunction)
+            const result = executor.execute(invocation)
+            expect(result).toEqual({
+                capturedPostHogEvents: [],
+                invocation: {
+                    id: expect.any(String),
+                    teamId: 1,
+                    priority: 0,
+                    globals: invocation.globals,
+                    hogFunction: invocation.hogFunction,
+                    queue: 'hog',
+                    timings: [
+                        {
+                            kind: 'hog',
+                            duration_ms: 0,
+                        },
+                    ],
+                    vmState: expect.any(Object),
+                },
+                finished: true,
+                logs: [
+                    {
+                        level: 'debug',
+                        message: 'Executing function',
+                        timestamp: expect.any(Object),
+                    },
+                    {
+                        level: 'info',
+                        message:
+                            '{"to":"test@posthog.com","body":"Hello Pumpkin !\\n\\nThis is a broadcast","from":"info@posthog.com","html":"<html></html>","subject":"Hello test@posthog.com"}',
+                        timestamp: expect.any(Object),
+                    },
+                    {
+                        level: 'debug',
+                        message: expect.stringContaining('Function completed in'),
+                        timestamp: expect.any(Object),
+                    },
+                ],
+            })
         })
     })
 

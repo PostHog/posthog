@@ -275,7 +275,7 @@ export const prepareLogEntriesForClickhouse = (
 export function createInvocation(
     globals: HogFunctionInvocationGlobals,
     hogFunction: HogFunctionType,
-    executeExportedFunction?: [string, any[]]
+    functionToExecute?: [string, any[]]
 ): HogFunctionInvocation {
     // Add the source of the trigger to the globals
     const modifiedGlobals: HogFunctionInvocationGlobals = {
@@ -294,7 +294,7 @@ export function createInvocation(
         queue: 'hog',
         priority: 1,
         timings: [],
-        executeExportedFunction,
+        functionToExecute,
     }
 }
 
@@ -382,9 +382,10 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
     }
 }
 
-export function invokeExportedFunction(
-    sourceBytecode: any[],
-    globals: any,
+/** Build bytecode that calls a function in another imported bytecode */
+export function buildExportedFunctionInvoker(
+    exportBytecode: any[],
+    exportGlobals: any,
     functionName: string,
     args: any[]
 ): Bytecodes {
@@ -418,8 +419,8 @@ export function invokeExportedFunction(
     ]
     return {
         bytecodes: {
-            x: { bytecode: sourceBytecode, globals: { ...globals, __args: args } },
-            root: { bytecode },
+            x: { bytecode: exportBytecode, globals: exportGlobals },
+            root: { bytecode, globals: { __args: args } },
         },
     }
 }
