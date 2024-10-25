@@ -495,7 +495,7 @@ export class HogExecutor {
             result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event.url}'`,
+                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event?.url}'`,
                 err
             )
         }
