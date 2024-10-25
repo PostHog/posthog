@@ -1878,7 +1878,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(person.id, tuple(1, 2, 3)))"
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(person.id, tuple(1, 2, 3))"
             in printed
         )
 

@@ -101,9 +101,7 @@ def select_from_persons_table(
 
     if filter is not None:
         if select.where:
-            cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = ast.And(
-                exprs=[select.where, filter]
-            )
+            select.where = And(exprs=[filter, select.where])
         else:
             select.where = filter
 
