@@ -106,10 +106,11 @@ def process_query_model(
 
             try:
                 hog_result = execute_hog(query.code or "", team=team)
+                bytecode = hog_result.bytecodes.get("root", None)
                 result = HogQueryResponse(
                     results=hog_result.result,
-                    bytecode=hog_result.bytecode,
-                    coloredBytecode=color_bytecode(hog_result.bytecode),
+                    bytecode=bytecode,
+                    coloredBytecode=color_bytecode(bytecode),
                     stdout="\n".join(hog_result.stdout),
                 )
             except Exception as e:
