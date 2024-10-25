@@ -78,7 +78,7 @@ class WhereClauseExtractor(CloningVisitor):
         if not select_query.where and not select_query.prewhere:
             return None
 
-        if select_query.select_from.next_join:
+        if select_query.select_from and select_query.select_from.next_join:
             self.is_join = True
 
         # visit the where clause
