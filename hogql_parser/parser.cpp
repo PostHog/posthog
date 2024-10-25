@@ -862,50 +862,36 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectSetStmt) {
-    PyObject* initial_query = NULL;
+    PyObject* initial_query = visitAsPyObject(ctx->selectStmtWithParens());
     PyObject* select_query = NULL;
     PyObject* select_queries = PyList_New(0);
     if (!select_queries) {
       throw PyInternalError();
     }
-    string set_operator = "";
 
-    for (auto child : ctx->children) {
-      if (auto token = dynamic_cast<antlr4::tree::TerminalNode*>(child)) {
-        if (set_operator == "") {
-          set_operator += child->getText();
+    try {
+      for (auto subsequent : ctx->subsequentSelectSetStmt()) {
+        char* set_operator;
+        if (subsequent->UNION() && subsequent->ALL()) {
+            set_operator = "UNION ALL";
+        } else if (subsequent->INTERSECT()) {
+            set_operator = "INTERSECT";
+        } else if (subsequent->EXCEPT()) {
+            set_operator = "EXCEPT";
         } else {
-          set_operator += " " + child->getText();
+            throw SyntaxError("Set operator must be one of UNION ALL, INTERSECT, and EXCEPT");
         }
-        continue;
-      }
-      try {
-        if (auto token = dynamic_cast<HogQLParser::SelectStmtWithParensContext*>(child)) {
-          select_query = visitAsPyObject(token);
-        } else if (auto token = dynamic_cast<HogQLParser::SelectSetStmtContext*>(child)) {
-          select_query = visitAsPyObject(token);
-        } else {
-          throw ParsingError("Unexpected node type: " + child->getText());
-        }
-      } catch (...) {
-        Py_XDECREF(initial_query);
-        Py_DECREF(select_queries);
-        throw;
-      }
-      if (initial_query == NULL) {
-        initial_query = select_query;
-      } else {
-        auto data = set_operator.data();
-        to_uppercase(data);
-        PyObject* query = build_ast_node("SelectSetNode", "{s:N,s:N}", "select_query", select_query, "set_operator", PyUnicode_FromStringAndSize(data, set_operator.size()));
+        select_query = visitAsPyObject(subsequent->selectStmtWithParens());
+        PyObject* query = build_ast_node("SelectSetNode", "{s:N,s:N}", "select_query", select_query, "set_operator", PyUnicode_FromString(set_operator));
         if (!query) {
-          Py_XDECREF(initial_query);
-          Py_DECREF(select_queries);
           throw PyInternalError();
         }
         PyList_Append(select_queries, query);
-        set_operator = "";
       }
+    } catch (...) {
+        Py_DECREF(select_queries);
+        Py_DECREF(initial_query);
+        throw;
     }
 
     if (PyList_Size(select_queries) == 0) {
