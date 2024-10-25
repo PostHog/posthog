@@ -44,12 +44,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             source: {
                 kind: NodeKind.EventsQuery,
                 select: defaultDataTableColumns(NodeKind.EventsQuery),
-                event: '',
+                event: definition.name,
             },
             full: true,
             showEventFilter: false,
         }),
-        []
+        [definition.name]
     )
 
     if (definitionLoading) {
