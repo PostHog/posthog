@@ -1,48 +1,9 @@
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;
 
+use crate::cohort_models::{Cohort, CohortId, CohortOrEmpty, CohortRow, InnerCohortProperty};
 use crate::{api::FlagError, database::Client as DatabaseClient, flag_definitions::PropertyFilter};
-
-#[derive(Debug, FromRow)]
-pub struct CohortRow {
-    pub id: i32,
-    pub name: String,
-    pub description: Option<String>,
-    pub team_id: i32,
-    pub deleted: bool,
-    pub filters: serde_json::Value,
-    pub query: Option<serde_json::Value>,
-    pub version: Option<i32>,
-    pub pending_version: Option<i32>,
-    pub count: Option<i32>,
-    pub is_calculating: bool,
-    pub is_static: bool,
-    pub errors_calculating: Option<i32>, // I think this has a null constraint, so maybe it shouldn't be optional
-    pub groups: serde_json::Value,
-    pub created_by_id: Option<i32>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Cohort {
-    pub id: i32,
-    pub name: String,
-    pub description: Option<String>,
-    pub team_id: i32,
-    pub deleted: bool,
-    pub filters: serde_json::Value,
-    pub query: Option<serde_json::Value>,
-    pub version: Option<i32>,
-    pub pending_version: Option<i32>,
-    pub count: Option<i32>,
-    pub is_calculating: bool,
-    pub is_static: bool,
-    pub errors_calculating: Option<i32>,
-    pub groups: serde_json::Value,
-    pub created_by_id: Option<i32>,
-}
 
 impl Cohort {
     /// Returns a cohort from postgres given a cohort_id and team_id
@@ -104,33 +65,6 @@ impl Cohort {
     }
 }
 
-pub type CohortId = i32;
-
-// Assuming CohortOrEmpty is an enum or struct representing a Cohort or an empty value
-pub enum CohortOrEmpty {
-    Cohort(Cohort),
-    Empty,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum CohortPropertyType {
-    AND,
-    OR,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CohortProperty {
-    properties: InnerCohortProperty,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct InnerCohortProperty {
-    #[serde(rename = "type")]
-    prop_type: CohortPropertyType,
-    values: Vec<CohortValues>,
-}
-
 impl InnerCohortProperty {
     pub fn to_property_filters(&self) -> Vec<PropertyFilter> {
         self.values
@@ -139,13 +73,6 @@ impl InnerCohortProperty {
             .cloned()
             .collect()
     }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CohortValues {
-    #[serde(rename = "type")]
-    prop_type: String,
-    values: Vec<PropertyFilter>,
 }
 
 /// Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
@@ -257,9 +184,12 @@ pub fn sort_cohorts_topologically(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{
-        insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
-        setup_pg_writer_client,
+    use crate::{
+        cohort_models::{CohortPropertyType, CohortValues},
+        test_utils::{
+            insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
+            setup_pg_writer_client,
+        },
     };
     use serde_json::json;
 
@@ -306,7 +236,7 @@ mod tests {
             count: None,
             is_calculating: false,
             is_static: false,
-            errors_calculating: None,
+            errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
         };
@@ -336,7 +266,7 @@ mod tests {
                 count: None,
                 is_calculating: false,
                 is_static: false,
-                errors_calculating: None,
+                errors_calculating: 0,
                 groups: json!({}),
                 created_by_id: None,
             }),
@@ -354,7 +284,7 @@ mod tests {
             count: None,
             is_calculating: false,
             is_static: false,
-            errors_calculating: None,
+            errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
         }));
@@ -371,7 +301,7 @@ mod tests {
             count: None,
             is_calculating: false,
             is_static: false,
-            errors_calculating: None,
+            errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
         }));

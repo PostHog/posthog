@@ -6,7 +6,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    cohort_definitions::CohortRow,
+    cohort_models::CohortRow,
     config::{Config, DEFAULT_TEST_CONFIG},
     database::{get_pool, Client, CustomDatabaseError},
     flag_definitions::{self, FeatureFlag, FeatureFlagRow},
@@ -378,7 +378,7 @@ pub async fn insert_cohort_for_team_in_pg(
         count: None,
         is_calculating: false,
         is_static,
-        errors_calculating: Some(0),
+        errors_calculating: 0,
         groups: serde_json::json!([]),
         created_by_id: None,
     };
@@ -401,7 +401,7 @@ pub async fn insert_cohort_for_team_in_pg(
     .bind(cohort_row.count)
     .bind(cohort_row.is_calculating)
     .bind(cohort_row.is_static)
-    .bind(cohort_row.errors_calculating.unwrap_or(0))
+    .bind(cohort_row.errors_calculating)
     .bind(&cohort_row.groups)
     .bind(cohort_row.created_by_id)
     .fetch_one(&mut *conn)

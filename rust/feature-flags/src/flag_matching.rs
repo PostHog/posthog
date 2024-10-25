@@ -1,12 +1,13 @@
 use crate::{
     api::{FlagError, FlagValue, FlagsResponse},
-    cohort_definitions::{sort_cohorts_topologically, Cohort, CohortId, CohortOrEmpty},
+    cohort_models::{Cohort, CohortId, CohortOrEmpty},
+    cohort_operations::sort_cohorts_topologically,
     database::Client as DatabaseClient,
     feature_flag_match_reason::FeatureFlagMatchReason,
     flag_definitions::{FeatureFlag, FeatureFlagList, FlagGroupType, OperatorType, PropertyFilter},
     metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER},
+    metrics_utils::parse_exception_for_prometheus_label,
     property_matching::match_property,
-    utils::parse_exception_for_prometheus_label,
 };
 use anyhow::Result;
 use common_metrics::inc;

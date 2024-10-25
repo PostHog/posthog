@@ -1,5 +1,6 @@
 pub mod api;
-pub mod cohort_definitions;
+pub mod cohort_models;
+pub mod cohort_operations;
 pub mod config;
 pub mod database;
 pub mod feature_flag_match_reason;
@@ -9,13 +10,13 @@ pub mod flag_matching;
 pub mod flag_request;
 pub mod geoip;
 pub mod metrics_consts;
+pub mod metrics_utils;
 pub mod property_matching;
 pub mod redis;
 pub mod request_handler;
 pub mod router;
 pub mod server;
 pub mod team;
-pub mod utils;
 pub mod v0_endpoint;
 
 // Test modules don't need to be compiled with main binary

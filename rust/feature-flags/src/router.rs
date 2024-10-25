@@ -12,8 +12,8 @@ use crate::{
     config::{Config, TeamIdsToTrack},
     database::Client as DatabaseClient,
     geoip::GeoIpClient,
+    metrics_utils::team_id_label_filter,
     redis::Client as RedisClient,
-    utils::team_id_label_filter,
     v0_endpoint,
 };
 
