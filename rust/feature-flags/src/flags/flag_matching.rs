@@ -25,7 +25,7 @@ use anyhow::Result;
 use common_metrics::inc;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{postgres::PgQueryResult, Acquire};
+use sqlx::{postgres::PgQueryResult, Acquire, Row};
 use std::fmt::Write;
 use std::{
     collections::{HashMap, HashSet},
@@ -808,15 +808,23 @@ impl FeatureFlagMatcher {
         }
     }
 
+    /// Evaluates a set of cohort filters against target properties.
+    ///
+    /// This function serves as an entry point for cohort filter evaluation,
+    /// wrapping the recursive evaluation in a `Box::pin()` to enable async recursion.
     pub async fn evaluate_cohort_filters(
         &self,
         filters: &[PropertyFilter],
         target_properties: &HashMap<String, Value>,
     ) -> Result<bool, FlagError> {
-        Box::pin(self.evaluate_potentially_nested_cohort_filters(filters, target_properties)).await
+        Box::pin(self.evaluate_cohort_filters_recursively(filters, target_properties)).await
     }
 
-    async fn evaluate_potentially_nested_cohort_filters(
+    /// Recursively evaluates cohort filters, handling both direct property filters and nested cohort filters.
+    ///
+    /// This function separates cohort filters from non-cohort filters, evaluates non-cohort filters immediately,
+    /// and then processes cohort filters, potentially recursing into nested cohorts.
+    async fn evaluate_cohort_filters_recursively(
         &self,
         filters: &[PropertyFilter],
         target_properties: &HashMap<String, Value>,
@@ -825,6 +833,12 @@ impl FeatureFlagMatcher {
         let mut non_cohort_filters = Vec::new();
 
         // Separate cohort filters from non-cohort filters
+        //
+        // We do this separation because:
+        // 1. Non-cohort filters can be evaluated immediately without database queries.
+        // 2. As we recursively evaluate cohorts that depend on other cohorts, we may encounter
+        //    a set of filters that are all property filters. In such cases, we want to
+        //    evaluate these property filters first and short-circuit if any of them don't match.
         for filter in filters {
             if filter.prop_type == "cohort" {
                 cohort_filters.push(filter);
@@ -833,7 +847,9 @@ impl FeatureFlagMatcher {
             }
         }
 
-        // Evaluate non-cohort filters
+        // Evaluate non-cohort filters first
+        // This allows for early exit if any non-cohort filter doesn't match,
+        // potentially saving unnecessary database queries for cohort evaluation.
         for filter in &non_cohort_filters {
             if !match_property(filter, target_properties, false).unwrap_or(false) {
                 return Ok(false);
@@ -842,30 +858,49 @@ impl FeatureFlagMatcher {
 
         // Evaluate cohort filters
         if !cohort_filters.is_empty() {
+            // Extract unique cohort IDs from the filters
             let cohort_ids: HashSet<CohortId> = cohort_filters
                 .iter()
                 .filter_map(|f| f.value.as_i64().map(|id| id as CohortId))
                 .collect();
 
-            let cohorts = self.fetch_cohorts(cohort_ids.clone()).await?;
+            // Fetch cohort definitions from the database
+            let cohorts = Cohort::list_from_pg(
+                self.postgres_reader.clone(),
+                &cohort_ids.clone().into_iter().collect::<Vec<_>>(),
+                self.team_id,
+            )
+            .await?;
+
+            // Create a cache of fetched cohorts for efficient lookup
             let seen_cohorts_cache: HashMap<CohortId, CohortOrEmpty> = cohorts
                 .into_iter()
                 .map(|cohort| (cohort.id, CohortOrEmpty::Cohort(cohort)))
                 .collect();
 
+            // Sort cohorts topologically to handle nested cohort dependencies
             let sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, &seen_cohorts_cache);
 
+            // Evaluate each cohort in the sorted order
             for cohort_id in sorted_cohort_ids {
                 if let Some(CohortOrEmpty::Cohort(cohort)) = seen_cohorts_cache.get(&cohort_id) {
-                    let cohort_property_filters = cohort.parse_filters()?; // TODO error handle
-                    let cohort_match = self
-                        .evaluate_cohort_filters(&cohort_property_filters, target_properties)
-                        .await?;
+                    let cohort_match = if cohort.is_static {
+                        // Static cohorts are evaluated by querying the `posthog_cohortpeople` table.
+                        self.evaluate_static_cohort_filter(cohort_id).await?
+                    } else {
+                        // For dynamic cohorts, recursively evaluate their filters
+                        let cohort_property_filters = cohort.parse_filters()?;
+                        self.evaluate_cohort_filters(&cohort_property_filters, target_properties)
+                            .await?
+                    };
 
+                    // Find the corresponding filter for this cohort
                     let filter = cohort_filters
                         .iter()
                         .find(|f| f.value.as_i64() == Some(cohort_id as i64))
                         .unwrap();
+
+                    // Apply the cohort filter based on its operator
                     match filter.operator {
                         Some(OperatorType::In) if !cohort_match => return Ok(false),
                         Some(OperatorType::NotIn) if cohort_match => return Ok(false),
@@ -875,16 +910,43 @@ impl FeatureFlagMatcher {
             }
         }
 
+        // If we've made it this far, all filters (both cohort and non-cohort) have matched
         Ok(true)
     }
 
-    async fn fetch_cohorts(&self, cohort_ids: HashSet<CohortId>) -> Result<Vec<Cohort>, FlagError> {
-        let mut cohorts = Vec::new();
-        for &id in &cohort_ids {
-            let cohort = Cohort::from_pg(self.postgres_reader.clone(), id, self.team_id).await?;
-            cohorts.push(cohort);
-        }
-        Ok(cohorts)
+    /// Check if a person is in a static cohort.
+    ///
+    /// This function checks if a person is in a static cohort by querying the `posthog_cohortpeople` table.
+    async fn evaluate_static_cohort_filter(&self, cohort_id: CohortId) -> Result<bool, FlagError> {
+        let mut conn = self.postgres_reader.get_connection().await?;
+
+        let query = r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM posthog_cohortpeople
+                WHERE cohort_id = $1 AND person_id = (
+                    SELECT id
+                    FROM posthog_person
+                    WHERE team_id = $2 AND id = (
+                        SELECT person_id
+                        FROM posthog_persondistinctid
+                        WHERE team_id = $2 AND distinct_id = $3
+                        LIMIT 1
+                    )
+                    LIMIT 1
+                )
+            ) AS is_in_cohort
+        "#;
+
+        let row = sqlx::query(query)
+            .bind(cohort_id)
+            .bind(self.team_id)
+            .bind(&self.distinct_id)
+            .fetch_one(&mut *conn)
+            .await?;
+
+        let is_in_cohort: bool = row.get("is_in_cohort");
+        Ok(is_in_cohort)
     }
 
     /// Check if a super condition matches for a feature flag.
@@ -1526,7 +1588,8 @@ mod tests {
         properties::property_models::OperatorType,
         utils::test_utils::{
             insert_cohort_for_team_in_pg, insert_flag_for_team_in_pg, insert_new_team_in_pg,
-            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            insert_person_for_team_in_pg, insert_user_into_static_cohort, setup_pg_reader_client,
+            setup_pg_writer_client,
         },
     };
 
@@ -3685,6 +3748,89 @@ mod tests {
 
         // The user does not match the cohort, and the flag is set to In, so it should evaluate to false
         assert!(!result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_match_static_cohort() -> Result<(), Box<dyn std::error::Error>> {
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
+
+        // Create a team
+        let team = insert_new_team_in_pg(postgres_writer.clone(), None).await?;
+
+        // Create a static cohort
+        let cohort = insert_cohort_for_team_in_pg(
+            postgres_writer.clone(),
+            team.id,
+            Some("Static Cohort".to_string()),
+            serde_json::json!({}),
+            true, // is_static
+        )
+        .await?;
+
+        // Create a person
+        let distinct_id = "test_user".to_string();
+        insert_person_for_team_in_pg(postgres_writer.clone(), team.id, distinct_id.clone(), None)
+            .await?;
+
+        // Get the person_id
+        let mut conn = postgres_reader.get_connection().await?;
+        let person_row: (i32,) = sqlx::query_as(
+          "SELECT person_id FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2"
+        )
+        .bind(team.id)
+        .bind(&distinct_id)
+        .fetch_one(&mut *conn)
+        .await?;
+
+        let person_id = person_row.0;
+
+        // Insert the person into the static cohort
+        insert_user_into_static_cohort(postgres_writer.clone(), cohort.id, person_id).await?;
+
+        // Create a feature flag that uses the static cohort
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            Some("Test Flag".to_string()),
+            Some("test_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort.id),
+                        operator: None,
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: None,
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            Some(false),
+            Some(true),
+            Some(false),
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        assert!(result.matches);
+
+        Ok(())
     }
 
     #[tokio::test]

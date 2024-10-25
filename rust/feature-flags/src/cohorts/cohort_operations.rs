@@ -9,33 +9,34 @@ use std::sync::Arc;
 use tracing::instrument;
 
 impl Cohort {
-    /// Returns a cohort from postgres given a cohort_id and team_id
+    /// Returns a list of cohorts from postgres given a list of cohort_ids and team_id
     #[instrument(skip_all)]
-    pub async fn from_pg(
+    pub async fn list_from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
-        cohort_id: i32,
+        cohort_ids: &[i32],
         team_id: i32,
-    ) -> Result<Cohort, FlagError> {
+    ) -> Result<Vec<Cohort>, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!("Failed to get database connection: {}", e);
             // TODO should I model my errors more generally?  Like, yes, everything behind this API is technically a FlagError,
             // but I'm not sure if accessing Cohort definitions should be a FlagError (vs idk, a CohortError?  A more general API error?)
+            tracing::error!("Failed to get database connection: {}", e);
             FlagError::DatabaseUnavailable
         })?;
 
-        let query = "SELECT id, name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id FROM posthog_cohort WHERE id = $1 AND team_id = $2";
-        let cohort_row = sqlx::query_as::<_, CohortRow>(query)
-            .bind(cohort_id)
+        let query = "SELECT id, name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id FROM posthog_cohort WHERE id = ANY($1) AND team_id = $2";
+        let cohort_rows = sqlx::query_as::<_, CohortRow>(query)
+            .bind(cohort_ids)
             .bind(team_id)
-            .fetch_optional(&mut *conn)
+            .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to fetch cohort from database: {}", e);
+                tracing::error!("Failed to fetch cohorts from database: {}", e);
                 FlagError::Internal(format!("Database query error: {}", e))
             })?;
 
-        match cohort_row {
-            Some(row) => Ok(Cohort {
+        let cohorts = cohort_rows
+            .into_iter()
+            .map(|row| Cohort {
                 id: row.id,
                 name: row.name,
                 description: row.description,
@@ -51,15 +52,14 @@ impl Cohort {
                 errors_calculating: row.errors_calculating,
                 groups: row.groups,
                 created_by_id: row.created_by_id,
-            }),
-            None => Err(FlagError::DatabaseError(format!(
-                "Cohort with id {} not found for team {}",
-                cohort_id, team_id
-            ))),
-        }
+            })
+            .collect();
+
+        Ok(cohorts)
     }
 
     /// Parses the filters JSON into a CohortProperty structure
+    // TODO: this needs to the deprecated "groups" field as well
     pub fn parse_filters(&self) -> Result<Vec<PropertyFilter>, FlagError> {
         let wrapper: serde_json::Value = serde_json::from_value(self.filters.clone())?;
         let cohort_property: InnerCohortProperty =
@@ -196,34 +196,6 @@ mod tests {
     };
     use serde_json::json;
 
-    #[tokio::test]
-    async fn test_cohort_from_pg() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .expect("Failed to insert team");
-
-        let cohort = insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team.id,
-            None,
-            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert cohort");
-
-        let fetched_cohort = Cohort::from_pg(postgres_reader, cohort.id, team.id)
-            .await
-            .expect("Failed to fetch cohort");
-
-        assert_eq!(fetched_cohort.id, cohort.id);
-        assert_eq!(fetched_cohort.name, "Test Cohort");
-        assert_eq!(fetched_cohort.team_id, team.id);
-    }
-
     #[test]
     fn test_cohort_parse_filters() {
         let cohort = Cohort {
@@ -347,5 +319,61 @@ mod tests {
         assert_eq!(result[0].value, json!("test@example.com"));
         assert_eq!(result[1].key, "age");
         assert_eq!(result[1].value, json!(25));
+    }
+
+    #[tokio::test]
+    async fn test_cohort_list_from_pg() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Insert first cohort
+        let cohort1 = insert_cohort_for_team_in_pg(
+            postgres_writer.clone(),
+            team.id,
+            Some("Test Cohort 1".to_string()),
+            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
+            false,
+        )
+        .await
+        .expect("Failed to insert cohort 1");
+
+        // Insert second cohort
+        let cohort2 = insert_cohort_for_team_in_pg(
+            postgres_writer.clone(),
+            team.id,
+            Some("Test Cohort 2".to_string()),
+            json!({"properties": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "email", "type": "person", "value": ["test@example.com"], "negation": false, "operator": "exact"}]}]}}),
+            false,
+        )
+        .await
+        .expect("Failed to insert cohort 2");
+
+        // Test case 1: List with multiple cohort IDs
+        let fetched_cohorts =
+            Cohort::list_from_pg(postgres_reader.clone(), &[cohort1.id, cohort2.id], team.id)
+                .await
+                .expect("Failed to fetch cohorts");
+
+        assert_eq!(fetched_cohorts.len(), 2);
+        assert_eq!(fetched_cohorts[0].id, cohort1.id);
+        assert_eq!(fetched_cohorts[0].name, "Test Cohort 1");
+        assert_eq!(fetched_cohorts[0].team_id, team.id);
+        assert_eq!(fetched_cohorts[1].id, cohort2.id);
+        assert_eq!(fetched_cohorts[1].name, "Test Cohort 2");
+        assert_eq!(fetched_cohorts[1].team_id, team.id);
+
+        // Test case 2: List with a single cohort ID
+        let fetched_single_cohort = Cohort::list_from_pg(postgres_reader, &[cohort1.id], team.id)
+            .await
+            .expect("Failed to fetch single cohort");
+
+        assert_eq!(fetched_single_cohort.len(), 1);
+        assert_eq!(fetched_single_cohort[0].id, cohort1.id);
+        assert_eq!(fetched_single_cohort[0].name, "Test Cohort 1");
+        assert_eq!(fetched_single_cohort[0].team_id, team.id);
     }
 }

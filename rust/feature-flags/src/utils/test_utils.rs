@@ -403,3 +403,25 @@ pub async fn insert_cohort_for_team_in_pg(
 
     Ok(CohortRow { id, ..cohort_row })
 }
+
+pub async fn insert_user_into_static_cohort(
+    client: Arc<dyn Client + Send + Sync>,
+    cohort_id: i32,
+    person_id: i32,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    let res = sqlx::query(
+        r#"
+        INSERT INTO posthog_cohortpeople
+        (cohort_id, person_id, version)
+        VALUES ($1, $2, 0)
+        "#,
+    )
+    .bind(cohort_id)
+    .bind(person_id)
+    .execute(&mut *conn)
+    .await?;
+
+    assert_eq!(res.rows_affected(), 1);
+    Ok(())
+}
