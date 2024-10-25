@@ -645,7 +645,9 @@ class CloningVisitor(Visitor[Any]):
         )
 
     def visit_limit_by_expr(self, node: ast.LimitByExpr) -> ast.LimitByExpr:
-        return ast.LimitByExpr(offset_value=node.offset_value, exprs=[self.visit(expr) for expr in node.exprs])
+        return ast.LimitByExpr(
+            offset_value=self.visit(node.offset_value), exprs=[self.visit(expr) for expr in node.exprs]
+        )
 
     def visit_join_constraint(self, node: ast.JoinConstraint) -> ast.JoinConstraint:
         return ast.JoinConstraint(expr=self.visit(node.expr), constraint_type=node.constraint_type)

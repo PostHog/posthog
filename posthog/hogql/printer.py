@@ -415,7 +415,7 @@ class _Printer(Visitor):
 
         if node.limit_by is not None:
             clauses.append(
-                f"LIMIT {node.limit_by.offset_value} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
+                f"LIMIT {self.visit(node.limit_by.offset_value)} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
             )
 
         if limit is not None:

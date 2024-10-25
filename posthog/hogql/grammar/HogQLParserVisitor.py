@@ -189,6 +189,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#limitByClause.
+    def visitLimitByClause(self, ctx:HogQLParser.LimitByClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#limitAndOffsetClause.
     def visitLimitAndOffsetClause(self, ctx:HogQLParser.LimitAndOffsetClauseContext):
         return self.visitChildren(ctx)
@@ -251,6 +256,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#sampleClause.
     def visitSampleClause(self, ctx:HogQLParser.SampleClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#limitExpr.
+    def visitLimitExpr(self, ctx:HogQLParser.LimitExprContext):
         return self.visitChildren(ctx)
 
 

@@ -1318,13 +1318,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1 from events LIMIT 1 OFFSET 3 BY 1, event"),
+                self._select("select 1 from events LIMIT 1 BY event LIMIT 1 OFFSET 3"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     limit=ast.Constant(value=1),
                     offset=ast.Constant(value=3),
-                    limit_by=ast.LimitByExpr(offset_value=1, exprs=[ast.Field(chain=["event"])]),
+                    limit_by=ast.LimitByExpr(offset_value=ast.Constant(value=1), exprs=[ast.Field(chain=["event"])]),
                 ),
             )
 

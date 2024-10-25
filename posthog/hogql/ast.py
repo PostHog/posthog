@@ -798,7 +798,7 @@ class WindowFunction(Expr):
 
 @dataclass(kw_only=True)
 class LimitByExpr(Expr):
-    offset_value: int
+    offset_value: Expr
     exprs: list[Expr]
 
 

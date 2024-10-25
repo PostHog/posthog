@@ -88,7 +88,7 @@ def select_from_persons_table(
             inner_select_where.append(extracted_where)
 
         if node.limit:
-            inner_select.limit_by = ast.LimitByExpr(offset_value=1, exprs=[ast.Field(chain=["id"])])
+            inner_select.limit_by = ast.LimitByExpr(offset_value=ast.Constant(value=1), exprs=[ast.Field(chain=["id"])])
             inner_select.limit = clone_expr(node.limit, clear_locations=True, clear_types=True)
             inner_select.order_by = (
                 [

@@ -361,6 +361,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
+            limit_by=self.visit(ctx.limitByClause()) if ctx.limitByClause() else None,
         )
 
         if window_clause := ctx.windowClause():
@@ -373,8 +374,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             select_query.limit = self.visit(limit_and_offset_clause.columnExpr(0))
             if offset := limit_and_offset_clause.columnExpr(1):
                 select_query.offset = self.visit(offset)
-            if limit_by_exprs := limit_and_offset_clause.columnExprList():
-                select_query.limit_by = self.visit(limit_by_exprs)
             if limit_and_offset_clause.WITH() and limit_and_offset_clause.TIES():
                 select_query.limit_with_ties = True
         elif offset_only_clause := ctx.offsetOnlyClause():
@@ -435,6 +434,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitOrderByClause(self, ctx: HogQLParser.OrderByClauseContext):
         return self.visit(ctx.orderExprList())
+
+    def visitLimitByClause(self, ctx: HogQLParser.LimitByClauseContext):
+        return ast.LimitByExpr(offset_value=self.visit(ctx.limitExpr()), exprs=self.visit(ctx.columnExprList()))
 
     def visitProjectionOrderByClause(self, ctx: HogQLParser.ProjectionOrderByClauseContext):
         raise NotImplementedError(f"Unsupported node: ProjectionOrderByClause")
