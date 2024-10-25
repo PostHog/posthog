@@ -42,11 +42,14 @@
      HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                       FROM person AS aggregation_optimization
+                                                       WHERE equals(aggregation_optimization.team_id, 2)
+                                                       GROUP BY aggregation_optimization.id
+                                                       HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1))
   GROUP BY fingerprint
   LIMIT 101
@@ -78,11 +81,14 @@
      HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                       FROM person AS aggregation_optimization
+                                                       WHERE equals(aggregation_optimization.team_id, 2)
+                                                       GROUP BY aggregation_optimization.id
+                                                       HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1), has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -156,17 +162,14 @@
      HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
-     WHERE and(equals(person.team_id, 2), in(person.id,
-                                               (SELECT persons_where_optimization.id AS id
-                                                FROM person AS persons_where_optimization
-                                                WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
-                                                                                                                 (SELECT person.id AS id
-                                                                                                                  FROM person
-                                                                                                                  WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'email@posthog.com'), 0)))))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                       FROM person AS aggregation_optimization
+                                                       WHERE equals(aggregation_optimization.team_id, 2)
+                                                       GROUP BY aggregation_optimization.id
+                                                       HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(equals(events__person.properties___email, 'email@posthog.com'), 0))
   GROUP BY fingerprint
   LIMIT 101
@@ -199,11 +202,14 @@
      HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                       FROM person AS aggregation_optimization
+                                                       WHERE equals(aggregation_optimization.team_id, 2)
+                                                       GROUP BY aggregation_optimization.id
+                                                       HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2022-01-11 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2022-01-10 00:00:00.000000', 6, 'UTC')), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1)), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0)))
   GROUP BY fingerprint
   LIMIT 101
@@ -236,11 +242,14 @@
      HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                       FROM person AS aggregation_optimization
+                                                       WHERE equals(aggregation_optimization.team_id, 2)
+                                                       GROUP BY aggregation_optimization.id
+                                                       HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1), and(or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0)), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0))))
   GROUP BY fingerprint
   LIMIT 101
