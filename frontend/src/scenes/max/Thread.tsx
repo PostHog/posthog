@@ -6,14 +6,21 @@ import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/componen
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
-import React, { useRef, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { AssistantMessage, NodeKind } from '~/queries/schema'
+import {
+    AssistantMessageType,
+    HumanMessage,
+    InsightVizNode,
+    NodeKind,
+    TrendsQuery,
+    VisualizationMessage,
+} from '~/queries/schema'
 
-import { maxLogic, ThreadMessage } from './maxLogic'
-import { isVisualizationMessage, parseVisualizationMessageContent } from './utils'
+import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { isHumanMessage, isVisualizationMessage } from './utils'
 
 export function Thread(): JSX.Element | null {
     const { thread, threadLoading } = useValues(maxLogic)
@@ -21,11 +28,11 @@ export function Thread(): JSX.Element | null {
     return (
         <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow m-4">
             {thread.map((message, index) => {
-                if (message.type === 'human') {
+                if (isHumanMessage(message)) {
                     return (
                         <Message
                             key={index}
-                            type={message.type}
+                            type="human"
                             className={message.status === 'error' ? 'border-danger' : undefined}
                         >
                             {message.content || <i>No text</i>}
@@ -33,8 +40,15 @@ export function Thread(): JSX.Element | null {
                     )
                 }
 
-                if (message.type === 'ai' && isVisualizationMessage(message.payload)) {
-                    return <Answer key={index} message={message} previousMessage={thread[index - 1]} />
+                if (isVisualizationMessage(message)) {
+                    return (
+                        <Answer
+                            key={index}
+                            message={message}
+                            status={message.status}
+                            previousMessage={thread[index - 1]}
+                        />
+                    )
                 }
 
                 return null
@@ -51,48 +65,59 @@ export function Thread(): JSX.Element | null {
     )
 }
 
-const Message = React.forwardRef<
-    HTMLDivElement,
-    React.PropsWithChildren<{ type: AssistantMessage['type']; className?: string }>
->(function Message({ type, children, className }, ref): JSX.Element {
-    if (type === 'human') {
+const Message = React.forwardRef<HTMLDivElement, React.PropsWithChildren<{ type: 'human' | 'ai'; className?: string }>>(
+    function Message({ type, children, className }, ref): JSX.Element {
+        if (type === AssistantMessageType.Human) {
+            return (
+                <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
+                    {children}
+                </div>
+            )
+        }
+
         return (
-            <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
+            <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
                 {children}
             </div>
         )
     }
+)
 
-    return (
-        <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
-            {children}
-        </div>
-    )
-})
+function Answer({
+    message,
+    status,
+    previousMessage,
+}: {
+    message: VisualizationMessage
+    status?: MessageStatus
+    previousMessage: ThreadMessage
+}): JSX.Element {
+    const query = useMemo<InsightVizNode | null>(() => {
+        if (message.answer) {
+            return {
+                kind: NodeKind.InsightVizNode,
+                source: message.answer as TrendsQuery,
+                showHeader: true,
+            }
+        }
 
-function Answer({ message, previousMessage }: { message: ThreadMessage; previousMessage: ThreadMessage }): JSX.Element {
-    const { reasoning_steps, answer } = parseVisualizationMessageContent(message.content)
-
-    const query = {
-        kind: NodeKind.InsightVizNode,
-        source: answer,
-        showHeader: true,
-    }
+        return null
+    }, [message])
 
     return (
         <>
-            {reasoning_steps && (
-                <Message type={message.type}>
+            {message.reasoning_steps && (
+                <Message type="ai">
                     <ul className="list-disc ml-4">
-                        {reasoning_steps.map((step, index) => (
+                        {message.reasoning_steps.map((step, index) => (
                             <li key={index}>{step}</li>
                         ))}
                     </ul>
                 </Message>
             )}
-            {message.status === 'completed' && query.source && (
+            {status === 'completed' && query && (
                 <>
-                    <Message type={message.type}>
+                    <Message type="ai">
                         <div className="h-96 flex">
                             <Query query={query} readOnly embedded />
                         </div>
@@ -113,7 +138,9 @@ function Answer({ message, previousMessage }: { message: ThreadMessage; previous
                             </div>
                         </div>
                     </Message>
-                    <AnswerActions message={message} previousMessage={previousMessage} />
+                    {isHumanMessage(previousMessage) && (
+                        <AnswerActions message={message} previousMessage={previousMessage} />
+                    )}
                 </>
             )}
         </>
@@ -124,8 +151,8 @@ function AnswerActions({
     message,
     previousMessage,
 }: {
-    message: ThreadMessage
-    previousMessage: ThreadMessage
+    message: VisualizationMessage
+    previousMessage: HumanMessage
 }): JSX.Element {
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
@@ -139,7 +166,7 @@ function AnswerActions({
         setRating(newRating)
         posthog.capture('chat rating', {
             question: previousMessage.content,
-            answer: message.content,
+            answer: JSON.stringify(message.answer),
             answer_rating: rating,
         })
         if (newRating === 'bad') {
@@ -153,7 +180,7 @@ function AnswerActions({
         }
         posthog.capture('chat feedback', {
             question: previousMessage.content,
-            answer: message.content,
+            answer: JSON.stringify(message.answer),
             feedback,
         })
         setFeedbackInputStatus('submitted')

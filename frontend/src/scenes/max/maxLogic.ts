@@ -3,7 +3,7 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { AssistantMessage, NodeKind, SuggestedQuestionsQuery } from '~/queries/schema'
+import { AssistantMessageType, NodeKind, RootAssistantMessage, SuggestedQuestionsQuery } from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
 
@@ -11,8 +11,10 @@ export interface MaxLogicProps {
     sessionId: string
 }
 
-export interface ThreadMessage extends AssistantMessage {
-    status?: 'loading' | 'completed' | 'error'
+export type MessageStatus = 'loading' | 'completed' | 'error'
+
+export type ThreadMessage = RootAssistantMessage & {
+    status?: MessageStatus
 }
 
 export const maxLogic = kea<maxLogicType>([
@@ -107,7 +109,7 @@ export const maxLogic = kea<maxLogicType>([
             actions.setVisibleSuggestions(allSuggestionsWithoutCurrentlyVisible.slice(0, 3))
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ type: 'human', content: prompt })
+            actions.addMessage({ type: AssistantMessageType.Human, content: prompt })
             const newIndex = values.thread.length
 
             try {
@@ -161,10 +163,10 @@ export const maxLogic = kea<maxLogicType>([
  * Parses the generation result from the API. Some generation chunks might be sent in batches.
  * @param response
  */
-function parseResponse(response: string, recursive = true): AssistantMessage | null {
+function parseResponse(response: string, recursive = true): RootAssistantMessage | null {
     try {
         const parsed = JSON.parse(response)
-        return parsed as AssistantMessage
+        return parsed as RootAssistantMessage
     } catch {
         if (!recursive) {
             return null

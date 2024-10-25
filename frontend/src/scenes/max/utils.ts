@@ -1,21 +1,11 @@
-import {
-    AssistantMessagePayload,
-    AssistantMessageType,
-    ExperimentalAITrendsQuery,
-    VisualizationMessagePayload,
-} from '~/queries/schema'
+import { AssistantMessageType, HumanMessage, RootAssistantMessage, VisualizationMessage } from '~/queries/schema'
 
 export function isVisualizationMessage(
-    payload: AssistantMessagePayload | undefined | null
-): payload is VisualizationMessagePayload {
-    return !!payload && payload.type === AssistantMessageType.Visualization
+    message: RootAssistantMessage | undefined | null
+): message is VisualizationMessage {
+    return message?.type === AssistantMessageType.Visualization
 }
 
-export interface VisualizationMessageContent {
-    reasoning_steps?: string[]
-    answer?: ExperimentalAITrendsQuery
-}
-
-export function parseVisualizationMessageContent(content: string): VisualizationMessageContent {
-    return JSON.parse(content)
+export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
+    return message?.type === AssistantMessageType.Human
 }
