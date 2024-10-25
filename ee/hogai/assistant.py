@@ -79,6 +79,9 @@ class Assistant:
 
         chunks = AIMessageChunk(content="")
 
+        # Send a chunk to establish the connection avoiding the worker's timeout.
+        yield ""
+
         for update in generator:
             if is_value_update(update):
                 _, state_update = update

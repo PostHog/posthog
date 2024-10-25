@@ -286,7 +286,10 @@ def get_decide(request: HttpRequest):
 
             response["surveys"] = True if team.surveys_opt_in else False
             response["heatmaps"] = True if team.heatmaps_opt_in else False
-            default_identified_only = team.pk >= settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN
+            try:
+                default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
+            except Exception:
+                default_identified_only = False
             response["defaultIdentifiedOnly"] = bool(default_identified_only)
 
             site_apps = []
