@@ -992,78 +992,64 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
     }
 
-    auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
-    if (limit_and_offset_clause_ctx) {
-      PyObject* limit;
+  auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
+  if (limit_and_offset_clause_ctx) {
+    PyObject* limit;
+    try {
+      limit = visitAsPyObject(limit_and_offset_clause_ctx->columnExpr(0));
+    } catch (...) {
+      Py_DECREF(select_query);
+      throw;
+    }
+    err_indicator = PyObject_SetAttrString(select_query, "limit", limit);
+    Py_DECREF(limit);
+    if (err_indicator == -1) {
+      Py_DECREF(select_query);
+      throw PyInternalError();
+    }
+    auto offset_ctx = limit_and_offset_clause_ctx->columnExpr(1);
+    if (offset_ctx) {
+      PyObject* offset;
       try {
-        limit = visitAsPyObject(limit_and_offset_clause_ctx->columnExpr(0));
+        offset = visitAsPyObject(offset_ctx);
       } catch (...) {
         Py_DECREF(select_query);
         throw;
       }
-      err_indicator = PyObject_SetAttrString(select_query, "limit", limit);
-      Py_DECREF(limit);
+      err_indicator = PyObject_SetAttrString(select_query, "offset", offset);
+      Py_DECREF(offset);
       if (err_indicator == -1) {
         Py_DECREF(select_query);
         throw PyInternalError();
       }
-      auto offset_ctx = limit_and_offset_clause_ctx->columnExpr(1);
-      if (offset_ctx) {
-        PyObject* offset;
-        try {
-          offset = visitAsPyObject(offset_ctx);
-        } catch (...) {
-          Py_DECREF(select_query);
-          throw;
-        }
-        err_indicator = PyObject_SetAttrString(select_query, "offset", offset);
-        Py_DECREF(offset);
-        if (err_indicator == -1) {
-          Py_DECREF(select_query);
-          throw PyInternalError();
-        }
-      }
-      auto limit_by_exprs_ctx = limit_and_offset_clause_ctx->columnExprList();
-      if (limit_by_exprs_ctx) {
-        PyObject* limit_by_exprs;
-        try {
-          limit_by_exprs = visitAsPyObject(limit_by_exprs_ctx);
-        } catch (...) {
-          Py_DECREF(select_query);
-          throw;
-        }
-        err_indicator = PyObject_SetAttrString(select_query, "limit_by", limit_by_exprs);
-        Py_DECREF(limit_by_exprs);
-        if (err_indicator == -1) {
-          Py_DECREF(select_query);
-          throw PyInternalError();
-        }
-      }
-      if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
-        err_indicator = PyObject_SetAttrString(select_query, "limit_with_ties", Py_True);
-        if (err_indicator == -1) {
-          Py_DECREF(select_query);
-          throw PyInternalError();
-        }
-      }
-    } else {
-      auto offset_only_clause_ctx = ctx->offsetOnlyClause();
-      if (offset_only_clause_ctx) {
-        PyObject* offset_only_clause;
-        try {
-          offset_only_clause = visitAsPyObject(offset_only_clause_ctx->columnExpr());
-        } catch (...) {
-          Py_DECREF(select_query);
-          throw;
-        }
-        err_indicator = PyObject_SetAttrString(select_query, "offset", offset_only_clause);
-        Py_DECREF(offset_only_clause);
-        if (err_indicator == -1) {
-          Py_DECREF(select_query);
-          throw PyInternalError();
-        }
+    }
+    if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
+      err_indicator = PyObject_SetAttrString(select_query, "limit_with_ties", Py_True);
+      if (err_indicator == -1) {
+        Py_DECREF(select_query);
+        throw PyInternalError();
       }
     }
+  }
+
+  // Handle limitByClause
+  auto limit_by_clause_ctx = ctx->limitByClause();
+  if (limit_by_clause_ctx) {
+    PyObject* limit_by_expr;
+    try {
+      limit_by_expr = visitAsPyObject(limit_by_clause_ctx);
+    } catch (...) {
+      Py_DECREF(select_query);
+      throw;
+    }
+    err_indicator = PyObject_SetAttrString(select_query, "limit_by", limit_by_expr);
+    Py_DECREF(limit_by_expr);
+    if (err_indicator == -1) {
+      Py_DECREF(select_query);
+      throw PyInternalError();
+    }
+  }
+
 
     auto array_join_clause_ctx = ctx->arrayJoinClause();
     if (array_join_clause_ctx) {
