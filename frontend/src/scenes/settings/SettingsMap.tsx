@@ -127,6 +127,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'dead-clicks-autocapture',
                 title: 'Dead clicks autocapture',
                 component: <DeadClicksAutocaptureSettings />,
+                flag: 'DEAD_CLICKS_AUTOCAPTURE',
             },
         ],
     },
