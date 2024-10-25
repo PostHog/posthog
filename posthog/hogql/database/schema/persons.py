@@ -64,6 +64,7 @@ def select_from_persons_table(
         and_conditions.append(filter)
 
     # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
+
     if (
         node.select_from
         and node.select_from.type
@@ -71,10 +72,46 @@ def select_from_persons_table(
         and node.select_from.type.table
         and isinstance(node.select_from.type.table, PersonsTable)
     ):
+        inner_select = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT id FROM raw_persons as where_optimization
+            """
+            ),
+        )
+        inner_select_where: list[ast.Expr] = []
+
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(join_or_table)
-        where = extractor.get_inner_where(node)
-        if where:
+        extracted_where = extractor.get_inner_where(node)
+        if extracted_where:
+            inner_select_where.append(extracted_where)
+
+        if node.limit:
+            inner_select.limit_by = ast.LimitByExpr(offset_value=1, exprs=[ast.Field(chain=["id"])])
+            inner_select.limit = clone_expr(node.limit, clear_locations=True, clear_types=True)
+            inner_select.order_by = (
+                [clone_expr(expr, clear_locations=True, clear_types=True) for expr in node.order_by]
+                if node.order_by
+                else None
+            )
+
+            if node.offset:
+                inner_select.offset = clone_expr(node.offset, clear_locations=True, clear_types=True)
+                # Note: we actually change the outer node's behaviour here. This only works because in the if statement above we check whether the query is a 'simple' query (ie no joins/not in a subquery). This would mess up if we tried this with ie events
+                node.offset = None
+
+            # This is safe to do, as there is never a case where one version is deleted but a later version isn't
+            inner_select_where.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["where_optimization", "id"]),
+                    right=parse_select("SELECT id FROM raw_persons as limit_delete_optimization WHERE is_deleted = 1"),
+                    op=ast.CompareOperationOp.NotIn,
+                )
+            )
+
+        if len(inner_select_where) > 0:
             select = argmax_select(
                 table_name="raw_persons",
                 select_fields=join_or_table.fields_accessed,
@@ -83,15 +120,12 @@ def select_from_persons_table(
                 deleted_field="is_deleted",
                 timestamp_field_to_clamp="created_at",
             )
-            inner_select = cast(
-                ast.SelectQuery,
-                parse_select(
-                    """
-                SELECT id FROM raw_persons as where_optimization
-                """
-                ),
-            )
-            inner_select.where = where
+
+            if len(inner_select_where) == 1:
+                inner_select.where = inner_select_where[0]
+            else:
+                inner_select.where = ast.And(exprs=inner_select_where)
+
             select.where = ast.CompareOperation(
                 left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
             )

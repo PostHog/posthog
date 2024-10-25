@@ -31,6 +31,102 @@
                      max_bytes_before_external_group_by=0
   '''
 # ---
+# name: TestPersonOptimization.test_limit_and_order_by
+  '''
+  SELECT persons.id AS id,
+         persons.`properties___$some_prop` AS `$some_prop`,
+         persons.created_at AS created_at
+  FROM
+    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$some_prop`,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT where_optimization.id AS id
+                                                FROM person AS where_optimization
+                                                WHERE and(equals(where_optimization.team_id, 2), notIn(where_optimization.id,
+                                                                                                         (SELECT limit_delete_optimization.id AS id
+                                                                                                          FROM person AS limit_delete_optimization
+                                                                                                          WHERE and(equals(limit_delete_optimization.team_id, 2), equals(limit_delete_optimization.is_deleted, 1)))))
+                                                ORDER BY toTimeZone(where_optimization.created_at, 'UTC') ASC
+                                                LIMIT 1 BY where_optimization.id
+                                                LIMIT 3)))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  ORDER BY persons.created_at ASC
+  LIMIT 3 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestPersonOptimization.test_limit_and_order_by.1
+  '''
+  SELECT persons.id AS id,
+         persons.`properties___$some_prop` AS `$some_prop`
+  FROM
+    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$some_prop`,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 2), in(id,
+                                               (SELECT where_optimization.id AS id
+                                                FROM person AS where_optimization
+                                                WHERE and(equals(where_optimization.team_id, 2), notIn(where_optimization.id,
+                                                                                                         (SELECT limit_delete_optimization.id AS id
+                                                                                                          FROM person AS limit_delete_optimization
+                                                                                                          WHERE and(equals(limit_delete_optimization.team_id, 2), equals(limit_delete_optimization.is_deleted, 1)))))
+                                                ORDER BY toTimeZone(where_optimization.created_at, 'UTC') ASC
+                                                LIMIT 1 BY where_optimization.id
+                                                LIMIT 2
+                                                OFFSET 1)))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  ORDER BY persons.created_at ASC
+  LIMIT 2 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestPersonOptimization.test_limit_and_order_by.2
+  '''
+  SELECT persons.id AS id,
+         persons.`properties___$some_prop` AS `$some_prop`
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  LEFT JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+     FROM person
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 2)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), persons.id)
+  WHERE and(equals(events.team_id, 2), ifNull(notEquals(persons.`properties___$some_prop`, 'something'), 1))
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0
+  '''
+# ---
 # name: TestPersonOptimization.test_simple_filter
   '''
   SELECT persons.id AS id,

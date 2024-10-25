@@ -1324,7 +1324,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     limit=ast.Constant(value=1),
                     offset=ast.Constant(value=3),
-                    limit_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
+                    limit_by=ast.LimitByExpr(offset_value=1, exprs=[ast.Field(chain=["event"])]),
                 ),
             )
 

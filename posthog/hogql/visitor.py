@@ -144,8 +144,7 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         for expr in node.order_by or []:
             self.visit(expr)
-        for expr in node.limit_by or []:
-            self.visit(expr)
+        self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
         for expr in (node.window_exprs or {}).values():
@@ -285,6 +284,10 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_program(self, node: ast.Program):
         for expr in node.declarations:
+            self.visit(expr)
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr):
+        for expr in node.exprs:
             self.visit(expr)
 
     def visit_statement(self, node: ast.Statement):
@@ -588,7 +591,7 @@ class CloningVisitor(Visitor[Any]):
             having=self.visit(node.having),
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
-            limit_by=[self.visit(expr) for expr in node.limit_by] if node.limit_by else None,
+            limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
@@ -640,6 +643,9 @@ class CloningVisitor(Visitor[Any]):
             frame_type=node.frame_type,
             frame_value=node.frame_value,
         )
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr) -> ast.LimitByExpr:
+        return ast.LimitByExpr(offset_value=node.offset_value, exprs=[self.visit(expr) for expr in node.exprs])
 
     def visit_join_constraint(self, node: ast.JoinConstraint) -> ast.JoinConstraint:
         return ast.JoinConstraint(expr=self.visit(node.expr), constraint_type=node.constraint_type)
