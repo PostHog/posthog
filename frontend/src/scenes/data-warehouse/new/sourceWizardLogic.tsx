@@ -628,6 +628,26 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         caption: '',
     },
+    Chargebee: {
+        name: 'Chargebee',
+        fields: [
+            {
+                name: 'api_key',
+                label: 'API key',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                type: 'text',
+                name: 'site_name',
+                label: 'Site name (subdomain)',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        caption: '',
+    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (
