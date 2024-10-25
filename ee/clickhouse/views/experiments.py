@@ -19,6 +19,7 @@ from ee.clickhouse.queries.experiments.trend_experiment_result import (
     ClickhouseTrendExperimentResult,
 )
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -27,7 +28,7 @@ from posthog.api.utils import action
 from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.filters.filter import Filter
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -158,6 +159,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
+    holdout = ExperimentHoldoutSerializer(read_only=True)
+    holdout_id = serializers.PrimaryKeyRelatedField(
+        queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
+    )
 
     class Meta:
         model = Experiment
@@ -170,6 +175,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "feature_flag_key",
             "feature_flag",
             "holdout",
+            "holdout_id",
             "exposure_cohort",
             "parameters",
             "secondary_metrics",
@@ -186,6 +192,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "updated_at",
             "feature_flag",
             "exposure_cohort",
+            "holdout",
         ]
 
     def validate_parameters(self, value):
@@ -363,7 +370,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by").all()
+    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by", "holdout").all()
     ordering = "-created_at"
 
     # ******************************************

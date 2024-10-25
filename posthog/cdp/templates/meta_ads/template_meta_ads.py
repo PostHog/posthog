@@ -2,6 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-meta-ads",
     name="Meta Ads Conversions",
     description="Send conversion events to Meta Ads",
