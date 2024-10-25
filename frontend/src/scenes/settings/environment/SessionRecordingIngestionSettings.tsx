@@ -238,6 +238,122 @@ function UrlTriggerOptions(): JSX.Element | null {
     )
 }
 
+function UrlBlocklistForm(): JSX.Element {
+    const { cancelProposingUrlBlocklist } = useActions(sessionReplayIngestionControlLogic)
+    const { isProposedUrlBlocklistSubmitting } = useValues(sessionReplayIngestionControlLogic)
+
+    return (
+        <Form
+            logic={sessionReplayIngestionControlLogic}
+            formKey="proposedUrlBlocklist"
+            enableFormOnSubmit
+            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
+        >
+            <div className="flex flex-row gap-2 w-full">
+                <LemonField name="matching">
+                    <LemonSelect options={[{ label: 'Regex', value: 'regex' }]} />
+                </LemonField>
+                <LemonField name="url" className="flex-1">
+                    <LemonInput autoFocus placeholder="Enter URL" data-attr="url-input" />
+                </LemonField>
+            </div>
+            <div className="flex justify-end gap-2 w-full">
+                <LemonButton type="secondary" onClick={cancelProposingUrlBlocklist}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    htmlType="submit"
+                    type="primary"
+                    disabledReason={isProposedUrlBlocklistSubmitting ? 'Saving url blocklist in progress' : undefined}
+                    data-attr="url-save"
+                >
+                    Save
+                </LemonButton>
+            </div>
+        </Form>
+    )
+}
+
+function UrlBlocklistRow({ trigger, index }: { trigger: SessionReplayUrlTriggerConfig; index: number }): JSX.Element {
+    const { editUrlBlocklistIndex } = useValues(sessionReplayIngestionControlLogic)
+    const { setEditUrlBlocklistIndex, removeUrlBlocklist } = useActions(sessionReplayIngestionControlLogic)
+
+    if (editUrlBlocklistIndex === index) {
+        return (
+            <div className="border rounded p-2 bg-bg-light">
+                <UrlBlocklistForm />
+            </div>
+        )
+    }
+
+    return (
+        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+            <span title={trigger.url} className="flex-1 truncate">
+                {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
+            </span>
+            <div className="Actions flex space-x-1 shrink-0">
+                <LemonButton
+                    icon={<IconPencil />}
+                    onClick={() => setEditUrlBlocklistIndex(index)}
+                    tooltip="Edit"
+                    center
+                />
+
+                <LemonButton
+                    icon={<IconTrash />}
+                    tooltip="Remove URL trigger"
+                    center
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: <>Remove URL trigger</>,
+                            description: `Are you sure you want to remove this URL trigger?`,
+                            primaryButton: {
+                                status: 'danger',
+                                children: 'Remove',
+                                onClick: () => removeUrlBlocklist(index),
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                        })
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
+
+function UrlBlocklistOptions(): JSX.Element | null {
+    const { isAddUrlBlocklistConfigFormVisible, urlBlocklistConfig } = useValues(sessionReplayIngestionControlLogic)
+    const { newUrlBlocklist } = useActions(sessionReplayIngestionControlLogic)
+
+    return (
+        <div className="flex flex-col space-y-2 mt-4">
+            <div className="flex items-center gap-2 justify-between">
+                <LemonLabel className="text-base">Block recordings when URL matches</LemonLabel>
+                <LemonButton
+                    onClick={() => {
+                        newUrlBlocklist()
+                    }}
+                    type="secondary"
+                    icon={<IconPlus />}
+                    data-attr="session-replay-add-url-blocklist"
+                >
+                    Add
+                </LemonButton>
+            </div>
+            <p>
+                Adding a URL blocklist means recording will be paused when the user visits a page that matches the URL.
+            </p>
+
+            {isAddUrlBlocklistConfigFormVisible && <UrlBlocklistForm />}
+            {urlBlocklistConfig?.map((trigger, index) => (
+                <UrlBlocklistRow key={`${trigger.url}-${trigger.matching}`} trigger={trigger} index={index} />
+            ))}
+        </div>
+    )
+}
+
 export function SessionRecordingIngestionSettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -394,6 +510,9 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                 <LinkedFlagSelector />
                 <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
                     <UrlTriggerOptions />
+                </FlaggedFeature>
+                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
+                    <UrlBlocklistOptions />
                 </FlaggedFeature>
             </>
         </PayGateMini>
