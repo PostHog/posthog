@@ -156,7 +156,14 @@ export function AuthorizedUrlList({
                                         <>
                                             <LemonButton
                                                 icon={<IconOpenInApp />}
-                                                to={launchUrl(keyedURL.url)}
+                                                to={
+                                                    // toolbar urls are sent through the backend to be validated
+                                                    // and have toolbar auth information added
+                                                    type === AuthorizedUrlListType.TOOLBAR_URLS
+                                                        ? launchUrl(keyedURL.url)
+                                                        : // other urls are simply opened directly
+                                                          keyedURL.url
+                                                }
                                                 targetBlank
                                                 tooltip={
                                                     type === AuthorizedUrlListType.TOOLBAR_URLS

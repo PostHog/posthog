@@ -32,7 +32,7 @@ class ActorsPropertyTaxonomyResponse(BaseModel):
         extra="forbid",
     )
     sample_count: int
-    sample_values: list[str]
+    sample_values: list[Union[str, float, bool, int]]
 
 
 class AggregationAxisFormat(StrEnum):
@@ -61,6 +61,20 @@ class AlertState(StrEnum):
     NOT_FIRING = "Not firing"
     ERRORED = "Errored"
     SNOOZED = "Snoozed"
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["ai"] = "ai"
+
+
+class AssistantMessageType(StrEnum):
+    HUMAN = "human"
+    AI = "ai"
+    AI_VIZ = "ai/viz"
 
 
 class Kind(StrEnum):
@@ -751,6 +765,14 @@ class HogQueryResponse(BaseModel):
     stdout: Optional[str] = None
 
 
+class HumanMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["human"] = "human"
+
+
 class Compare(StrEnum):
     CURRENT = "current"
     PREVIOUS = "previous"
@@ -1084,6 +1106,19 @@ class QueryTiming(BaseModel):
     )
     k: str = Field(..., description="Key. Shortened to 'k' to save on data.")
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
+
+
+class RecordingOrder(StrEnum):
+    DURATION = "duration"
+    RECORDING_DURATION = "recording_duration"
+    INACTIVE_SECONDS = "inactive_seconds"
+    ACTIVE_SECONDS = "active_seconds"
+    START_TIME = "start_time"
+    CONSOLE_ERROR_COUNT = "console_error_count"
+    CLICK_COUNT = "click_count"
+    KEYPRESS_COUNT = "keypress_count"
+    MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
+    ACTIVITY_SCORE = "activity_score"
 
 
 class RecordingPropertyFilter(BaseModel):
@@ -3810,6 +3845,69 @@ class QueryResponseAlternative36(BaseModel):
     types: Optional[list] = None
 
 
+class QueryResponseAlternative39(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[TeamTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative40(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[EventTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative41(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: ActorsPropertyTaxonomyResponse
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4391,6 +4489,7 @@ class DataWarehouseNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4481,6 +4580,7 @@ class EntityNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4559,6 +4659,7 @@ class EventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -4640,6 +4741,7 @@ class FunnelExclusionActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4708,6 +4810,7 @@ class FunnelExclusionEventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -4967,7 +5070,6 @@ class AIActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -4986,6 +5088,7 @@ class AIActionsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -4994,7 +5097,6 @@ class AIActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5015,7 +5117,6 @@ class AIEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5034,6 +5135,7 @@ class AIEventsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -5042,7 +5144,6 @@ class AIEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5093,6 +5194,7 @@ class ActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -5173,7 +5275,6 @@ class ExperimentalAITrendsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5255,7 +5356,7 @@ class RecordingsQuery(BaseModel):
     )
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = None
-    order: Union[DurationType, str]
+    order: Optional[RecordingOrder] = None
     person_uuid: Optional[str] = None
     properties: Optional[
         list[
@@ -5417,6 +5518,16 @@ class TrendsQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[ExperimentalAITrendsQuery] = None
+    plan: Optional[str] = None
+    reasoning_steps: Optional[list[str]] = None
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class ErrorTrackingQuery(BaseModel):
@@ -5872,6 +5983,9 @@ class QueryResponseAlternative(
             QueryResponseAlternative36,
             QueryResponseAlternative37,
             QueryResponseAlternative38,
+            QueryResponseAlternative39,
+            QueryResponseAlternative40,
+            QueryResponseAlternative41,
         ]
     ]
 ):
@@ -5912,7 +6026,14 @@ class QueryResponseAlternative(
         QueryResponseAlternative36,
         QueryResponseAlternative37,
         QueryResponseAlternative38,
+        QueryResponseAlternative39,
+        QueryResponseAlternative40,
+        QueryResponseAlternative41,
     ]
+
+
+class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage]]):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage]
 
 
 class DatabaseSchemaQueryResponse(BaseModel):
@@ -6401,6 +6522,9 @@ class QueryRequest(BaseModel):
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
         SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
     ] = Field(
         ...,
         description=(
@@ -6466,6 +6590,9 @@ class QuerySchemaRoot(
             FunnelCorrelationQuery,
             DatabaseSchemaQuery,
             SuggestedQuestionsQuery,
+            TeamTaxonomyQuery,
+            EventTaxonomyQuery,
+            ActorsPropertyTaxonomyQuery,
         ]
     ]
 ):
@@ -6505,6 +6632,9 @@ class QuerySchemaRoot(
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
         SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
     ] = Field(..., discriminator="kind")
 
 

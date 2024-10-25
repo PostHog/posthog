@@ -32,7 +32,8 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
     const { experiment } = useValues(experimentLogic({ experimentId: experimentId ?? 'new' }))
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
-    const { featureFlag, areVariantRolloutsValid, variantRolloutSum, featureFlagLoading } = useValues(_featureFlagLogic)
+    const { featureFlag, areVariantRolloutsValid, variantRolloutSum, featureFlagLoading, nonEmptyVariants } =
+        useValues(_featureFlagLogic)
     const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag, distributeVariantsEqually } =
         useActions(_featureFlagLogic)
 
@@ -143,6 +144,7 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                 id={`${experiment.feature_flag?.id}`}
                 filters={featureFlag?.filters ?? []}
                 onChange={setFeatureFlagFilters}
+                nonEmptyFeatureFlagVariants={nonEmptyVariants}
             />
             <LemonDivider />
             <div>
