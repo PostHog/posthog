@@ -7,28 +7,46 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     type="destination",
     id="template-loops",
     name="Loops",
-    description="Send events to Loops",
+    description="Update contacts in Loops.so",
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
     hog="""
-let apiKey := inputs.apiKey
+if (empty(inputs.email)) {
+    print('No email set. Skipping...')
+    return
+}
 
 let payload := {
-    'userId': event.distinct_id,
-    'eventName': event.event == '$set' ? '$identify' : event.event,
-    'email': person.properties.email
+    'email': inputs.email,
+    'userId': person.id,
 }
-for (let key, value in person.properties) {
-    payload[key] := value
+
+if (inputs.include_all_properties) {
+    for (let key, value in person.properties) {
+        if (not empty(value) and not key like '$%') {
+            payload[key] := value
+        }
+    }
 }
-fetch('https://app.loops.so/api/v1/events/send', {
+
+for (let key, value in inputs.properties) {
+    if (not empty(value)) {
+        payload[key] := value
+    }
+}
+
+let res := fetch('https://app.loops.so/api/v1/contacts/update', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',
-        'Authorization': f'Bearer {apiKey}',
+        'Authorization': f'Bearer {inputs.apiKey}',
     },
     'body': payload
 })
+
+if (res.status >= 400) {
+    throw Error(f'Error from app.loops.so (status {res.status}): {res.body}')
+}
 """.strip(),
     inputs_schema=[
         {
@@ -39,7 +57,37 @@ fetch('https://app.loops.so/api/v1/events/send', {
             "default": "",
             "secret": True,
             "required": True,
-        }
+        },
+        {
+            "key": "email",
+            "type": "string",
+            "label": "Email of the user",
+            "description": "Where to find the email of the user.",
+            "default": "{person.properties.email}",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "include_all_properties",
+            "type": "boolean",
+            "label": "Include all properties as attributes",
+            "description": "If set, all person properties will be included. Individual attributes can be overridden below.",
+            "default": False,
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "properties",
+            "type": "dictionary",
+            "label": "Property mapping",
+            "description": "Map of Loops.so properties and their values. You can use the filters section to filter out unwanted events.",
+            "default": {
+                "firstName": "{person.properties.firstname}",
+                "lastName": "{person.properties.lastname}",
+            },
+            "secret": False,
+            "required": False,
+        },
     ],
     filters={
         "events": [
