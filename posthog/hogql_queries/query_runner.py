@@ -95,8 +95,6 @@ class ExecutionMode(StrEnum):
     """Use cache for longer, kick off async calculation when results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = "force_cache"
     """Do not initiate calculation."""
-    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS = "async_except_on_cache_miss"
-    """Use cache, kick off async calculation when results are stale, but block on cache miss."""
 
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
