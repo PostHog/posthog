@@ -44,9 +44,6 @@ export function Holdouts(): JSX.Element {
         if (!holdout.name) {
             return 'Name is required'
         }
-        if (!holdout.description) {
-            return 'Description is required'
-        }
         if (holdout.filters?.[0]?.rollout_percentage === undefined) {
             return 'Rollout percentage is required'
         }

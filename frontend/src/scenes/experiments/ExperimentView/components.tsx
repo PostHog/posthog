@@ -52,7 +52,7 @@ export function VariantTag({
 }): JSX.Element {
     const { experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
 
-    if (variantKey === 'holdout') {
+    if (variantKey.startsWith('holdout-')) {
         return (
             <span className="flex items-center space-x-2">
                 <div
@@ -62,7 +62,7 @@ export function VariantTag({
                         backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
                     }}
                 />
-                <LemonTag type="option">Holdout group 1</LemonTag>
+                <LemonTag type="option">{variantKey}</LemonTag>
             </span>
         )
     }

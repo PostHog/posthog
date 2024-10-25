@@ -285,7 +285,7 @@ const StepGoal = (): JSX.Element => {
     )
 }
 
-const HoldoutSelector = (): JSX.Element => {
+export const HoldoutSelector = (): JSX.Element => {
     const { experiment, holdouts } = useValues(experimentLogic)
     const { setExperiment } = useActions(experimentLogic)
 

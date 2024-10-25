@@ -1,5 +1,4 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { actions, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -51,15 +50,6 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
             },
         ],
     }),
-    forms(({ actions }) => ({
-        holdout: {
-            defaults: { ...NEW_HOLDOUT } as Holdout,
-            errors: ({ name }) => ({
-                name: !name && 'Please enter a name',
-            }),
-            submit: () => actions.createHoldout(),
-        },
-    })),
     loaders(({ values }) => ({
         holdouts: [
             [] as Holdout[],
@@ -97,12 +87,6 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
             actions.loadHoldouts()
         },
     })),
-    selectors({
-        holdoutById: [
-            (s) => [s.holdouts],
-            (holdouts: Holdout[]) => (id: number | null) => holdouts.find((h) => h.id === id) || null,
-        ],
-    }),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadHoldouts()
