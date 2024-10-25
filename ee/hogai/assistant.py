@@ -89,8 +89,10 @@ class Assistant:
                     message = cast(VisualizationMessage, state_update[AssistantNodeName.GENERATE_TRENDS]["messages"][0])
                     yield message.model_dump_json()
             elif is_message_update(update):
-                langchain_message, _ = update[1]
-                if isinstance(langchain_message, AIMessageChunk):
+                langchain_message, langgraph_state = update[1]
+                if langgraph_state["langgraph_node"] == AssistantNodeName.GENERATE_TRENDS and isinstance(
+                    langchain_message, AIMessageChunk
+                ):
                     chunks += langchain_message  # type: ignore
                     parsed_message = GenerateTrendsNode.parse_output(chunks.tool_calls[0]["args"])
                     if parsed_message:
