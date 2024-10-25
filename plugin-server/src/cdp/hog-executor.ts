@@ -16,7 +16,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
-import { convertToHogFunctionFilterGlobal } from './utils'
+import { convertToHogFunctionFilterGlobal, invokeExportedFunction } from './utils'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -114,7 +114,7 @@ export class HogExecutor {
         nonMatchingFunctions: HogFunctionType[]
         erroredFunctions: HogFunctionType[]
     } {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(event.project.id)
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []
@@ -278,15 +278,58 @@ export class HogExecutor {
             }
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
+            const invocationInput =
+                invocation.vmState ??
+                (invocation.executeExportedFunction
+                    ? invokeExportedFunction(
+                          invocation.hogFunction.bytecode,
+                          globals,
+                          invocation.executeExportedFunction[0],
+                          invocation.executeExportedFunction[1]
+                      )
+                    : invocation.hogFunction.bytecode)
 
             try {
                 let hogLogs = 0
-                execRes = execHog(invocation.vmState ?? invocation.hogFunction.bytecode, {
+                execRes = execHog(invocationInput, {
                     globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
+                    },
+                    importBytecode: (module) => {
+                        // TODO: more than one hardcoded module
+                        if (module === 'provider/email') {
+                            const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
+                            if (!provider) {
+                                throw new Error('No email provider configured')
+                            }
+                            try {
+                                const providerGlobals = this.buildHogFunctionGlobals({
+                                    id: '',
+                                    teamId: invocation.teamId,
+                                    hogFunction: provider,
+                                    globals: {} as any,
+                                    queue: 'hog',
+                                    timings: [],
+                                    priority: 0,
+                                } satisfies HogFunctionInvocation)
+
+                                return {
+                                    bytecode: provider.bytecode,
+                                    globals: providerGlobals,
+                                }
+                            } catch (e) {
+                                result.logs.push({
+                                    level: 'error',
+                                    timestamp: DateTime.now(),
+                                    message: `Error building inputs: ${e}`,
+                                })
+                                throw e
+                            }
+                        }
+                        throw new Error(`Can't import unknown module: ${module}`)
                     },
                     functions: {
                         print: (...args) => {

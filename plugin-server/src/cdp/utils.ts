@@ -1,6 +1,7 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
+import { Bytecodes } from '@posthog/hogvm'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
@@ -273,7 +274,8 @@ export const prepareLogEntriesForClickhouse = (
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobals,
-    hogFunction: HogFunctionType
+    hogFunction: HogFunctionType,
+    executeExportedFunction?: [string, any[]]
 ): HogFunctionInvocation {
     // Add the source of the trigger to the globals
     const modifiedGlobals: HogFunctionInvocationGlobals = {
@@ -292,6 +294,7 @@ export function createInvocation(
         queue: 'hog',
         priority: 1,
         timings: [],
+        executeExportedFunction,
     }
 }
 
@@ -376,5 +379,47 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         queueParameters: params,
         vmState: parsedState.vmState,
         timings: parsedState.timings,
+    }
+}
+
+export function invokeExportedFunction(
+    sourceBytecode: any[],
+    globals: any,
+    functionName: string,
+    args: any[]
+): Bytecodes {
+    let argBytecodes: any[] = []
+    for (let i = 0; i < args.length; i++) {
+        argBytecodes = [
+            ...argBytecodes,
+            33, // integer
+            i + 1, // (index in args array)
+            32, // string
+            '__args',
+            1, // get global
+            2, // (chain length)
+        ]
+    }
+    const bytecode = [
+        '_H',
+        1,
+        ...argBytecodes,
+        32, // string
+        'x',
+        2, // call global
+        'import',
+        1, // (arg count)
+        32, // string
+        functionName,
+        45, // get property
+        54, // call local
+        args.length,
+        35, // pop
+    ]
+    return {
+        bytecodes: {
+            x: { bytecode: sourceBytecode, globals: { ...globals, __args: args } },
+            root: { bytecode },
+        },
     }
 }
