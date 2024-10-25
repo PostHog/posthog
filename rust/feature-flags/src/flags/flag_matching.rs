@@ -711,6 +711,7 @@ impl FeatureFlagMatcher {
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
 
+        // If there are no property filters, we just need to check the rollout, so we can return early
         if let Some(flag_property_filters) = &condition.properties {
             if flag_property_filters.is_empty() {
                 return self
@@ -718,42 +719,49 @@ impl FeatureFlagMatcher {
                     .await;
             }
 
-            // Separate cohort and non-cohort filters
+            // Separate cohort and non-cohort property filters
             let (cohort_filters, non_cohort_filters): (Vec<PropertyFilter>, Vec<PropertyFilter>) =
                 flag_property_filters
                     .iter()
                     .cloned()
                     .partition(|prop| prop.prop_type == "cohort");
 
-            // Evaluate non-cohort properties first to get properties_to_check
-            let properties_to_check = self
-                .get_properties_to_check(feature_flag, property_overrides, &non_cohort_filters)
+            // Get properties to check for the given person or group flags; this also incorporates any overrides
+            // NB: we only check non-cohort property filters here because cohort property filters are checked are
+            // handled separately via the evaluate_cohort_filters function
+            let person_or_group_properties = self
+                .get_person_or_group_properties(
+                    feature_flag,
+                    property_overrides,
+                    &non_cohort_filters,
+                )
                 .await?;
 
-            // Evaluate cohort conditions
+            // If we have cohort property filters, check them against the group or person properties
             if !cohort_filters.is_empty()
                 && !self
-                    .evaluate_cohort_filters(&cohort_filters, &properties_to_check)
+                    .evaluate_cohort_filters(&cohort_filters, &person_or_group_properties)
                     .await?
             {
                 return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
 
-            // Evaluate non-cohort properties
-            if !all_properties_match(&non_cohort_filters, &properties_to_check) {
+            // Check the non-cohort property filters against the properties we're checking
+            if !all_properties_match(&non_cohort_filters, &person_or_group_properties) {
                 return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
         }
 
+        // If we've made it this far, all non-cohort property filters have matched, so we just need to check the rollout
         self.check_rollout(feature_flag, rollout_percentage, hash_key_overrides)
             .await
     }
 
-    /// Get properties to check for a feature flag.
+    /// Get properties to check for a feature flag (either person or group properties).
     ///
     /// This function determines which properties to check based on the feature flag's group type index.
     /// If the flag is group-based, it fetches group properties; otherwise, it fetches person properties.
-    async fn get_properties_to_check(
+    async fn get_person_or_group_properties(
         &mut self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
@@ -901,6 +909,8 @@ impl FeatureFlagMatcher {
                         .unwrap();
 
                     // Apply the cohort filter based on its operator
+                    // NB: this gives us the ability to evaluate cohort membership without having to construct an inverse filter,
+                    // which gives us new functionality that our old flags service didn't have
                     match filter.operator {
                         Some(OperatorType::In) if !cohort_match => return Ok(false),
                         Some(OperatorType::NotIn) if cohort_match => return Ok(false),
