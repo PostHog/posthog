@@ -239,5 +239,43 @@ describe('CDP API', () => {
                 ],
             })
         })
+
+        it('call exported sendEmail for email provider functions', async () => {
+            hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.export_send_email,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            mockFetch.mockImplementationOnce(() =>
+                Promise.resolve({
+                    status: 201,
+                    text: () => Promise.resolve(JSON.stringify({ real: true })),
+                })
+            )
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals: { ...globals, email: { from: 'me@mycompany.com' } }, mock_async_functions: false })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({
+                status: 'success',
+                error: 'undefined',
+                logs: [
+                    {
+                        level: 'debug',
+                        message: 'Executing function',
+                    },
+                    {
+                        level: 'info',
+                        message: '{"from":"me@mycompany.com"}',
+                    },
+                    {
+                        level: 'debug',
+                        message: expect.stringContaining('Function completed in'),
+                    },
+                ],
+            })
+        })
     })
 })
