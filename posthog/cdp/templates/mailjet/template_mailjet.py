@@ -170,17 +170,17 @@ fun sendEmail(email) {
             'Messages': [
                 {
                     'From': {
-                        'Email': inputs.email.from,
+                        'Email': email.from,
                         'Name': ''
                     },
                     'To': [
                         {
-                            'Email': inputs.email.to,
+                            'Email': email.to,
                             'Name': ''
                         }
                     ],
-                    'Subject': inputs.email.subject,
-                    'HTMLPart': inputs.email.html
+                    'Subject': email.subject,
+                    'HTMLPart': email.html
                 }
             ]
         }
