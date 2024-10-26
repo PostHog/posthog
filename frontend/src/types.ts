@@ -40,6 +40,7 @@ import type {
     InsightVizNode,
     Node,
     QueryStatus,
+    RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
@@ -1109,6 +1110,7 @@ export type EntityFilter = {
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
+    math_property_type?: TaxonomicFilterGroupType
     math_group_type_index?: integer | null
     math_hogql?: string
     properties?: AnyPropertyFilter[]
@@ -4504,8 +4506,11 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+
 export type HogFunctionType = {
     id: string
+    type: HogFunctionTypeType
     icon_url?: string
     name: string
     description: string
@@ -4542,7 +4547,7 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
+    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
 > & {
     status: HogFunctionTemplateStatus
     sub_templates?: HogFunctionSubTemplateType[]
@@ -4635,9 +4640,10 @@ export type ReplayTemplateType = {
     key: string
     name: string
     description: string
-    variables: ReplayTemplateVariableType[]
+    variables?: ReplayTemplateVariableType[]
     categories: ReplayTemplateCategory[]
     icon?: React.ReactNode
+    order?: RecordingOrder
 }
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 

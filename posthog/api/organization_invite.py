@@ -59,7 +59,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
     def validate_private_project_access(
         self, private_project_access: Optional[list[dict[str, Any]]]
     ) -> Optional[list[dict[str, Any]]]:
-        team_error = "Team does not exist on this organization, or it is private and you do not have access to it."
+        team_error = "Project does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None
         for item in private_project_access:
@@ -78,15 +78,23 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             if not is_private:
                 continue
             try:
-                explicit_team_membership: ExplicitTeamMembership = ExplicitTeamMembership.objects.get(
+                team_membership: ExplicitTeamMembership | OrganizationMembership = ExplicitTeamMembership.objects.get(
                     team_id=item["id"],
                     parent_membership__user=self.context["request"].user,
                 )
             except ExplicitTeamMembership.DoesNotExist:
-                raise exceptions.ValidationError(
-                    team_error,
-                )
-            if explicit_team_membership.level < item["level"]:
+                try:
+                    # No explicit team membership. Try getting the implicit team membership - any org owners and admins can invite to any team
+                    team_membership = OrganizationMembership.objects.get(
+                        organization_id=self.context["organization_id"],
+                        user=self.context["request"].user,
+                        level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
+                    )
+                except OrganizationMembership.DoesNotExist:
+                    raise exceptions.ValidationError(
+                        team_error,
+                    )
+            if team_membership.level < item["level"]:
                 raise exceptions.ValidationError(
                     "You cannot invite to a private project with a higher level than your own.",
                 )
