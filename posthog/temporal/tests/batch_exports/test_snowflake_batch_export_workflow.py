@@ -394,6 +394,7 @@ async def test_snowflake_export_workflow_exports_events(
     count.
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     await generate_test_events_in_clickhouse(
@@ -451,12 +452,12 @@ async def test_snowflake_export_workflow_exports_events(
                 execute_calls = []
                 for cursor in fake_conn._cursors:
                     for call in cursor._execute_calls:
-                        execute_calls.append(call["query"])
+                        execute_calls.append(call["query"].strip())
 
                 execute_async_calls = []
                 for cursor in fake_conn._cursors:
                     for call in cursor._execute_async_calls:
-                        execute_async_calls.append(call["query"])
+                        execute_async_calls.append(call["query"].strip())
 
                 assert execute_async_calls[0:3] == [
                     f'USE DATABASE "{database}"',
@@ -467,8 +468,9 @@ async def test_snowflake_export_workflow_exports_events(
                 assert all(query.startswith("PUT") for query in execute_calls[0:9])
                 assert all(f"_{n}.jsonl" in query for n, query in enumerate(execute_calls[0:9]))
 
-                assert execute_async_calls[3].strip().startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
-                assert execute_async_calls[4].strip().startswith(f'COPY INTO "{table_name}"')
+                assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
+                assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
+                assert execute_async_calls[5].startswith(f'COPY INTO "{table_name}"')
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
     assert len(runs) == 1
