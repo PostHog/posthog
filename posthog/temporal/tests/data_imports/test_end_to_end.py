@@ -472,7 +472,6 @@ async def test_chargebee_customer(team, chargebee_customer):
         table_name="chargebee_customers",
         source_type="Chargebee",
         job_inputs={"api_key": "test-key", "site_name": "site-test"},
-        # TODO - not sure if best way to do this
         mock_data_response=[chargebee_customer["list"][0]["customer"]],
     )
 
