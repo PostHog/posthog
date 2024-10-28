@@ -261,6 +261,15 @@ class SnowflakeClient:
             results = cursor.fetchall()
         return results
 
+    async def aremove_internal_stage_files(self, table_name: str, table_stage_prefix: str) -> None:
+        """Asynchronously remove files from internal table stage.
+
+        Arguments:
+            table_name: The name of the table whose internal stage to clear.
+            table_stage_prefix: Prefix to path of internal stage files.
+        """
+        await self.execute_async_query(f"""REMOVE '@%"{table_name}"/{table_stage_prefix}'""")
+
     async def acreate_table(self, table_name: str, fields: list[SnowflakeField]) -> None:
         """Asynchronously create the table if it doesn't exist.
 
@@ -297,6 +306,7 @@ class SnowflakeClient:
     async def managed_table(
         self,
         table_name: str,
+        table_stage_prefix: str,
         fields: list[SnowflakeField],
         not_found_ok: bool = True,
         delete: bool = True,
@@ -305,6 +315,8 @@ class SnowflakeClient:
         """Manage a table in Snowflake by ensure it exists while in context."""
         if create:
             await self.acreate_table(table_name, fields)
+
+        await self.aremove_internal_stage_files(table_name, table_stage_prefix)
 
         try:
             yield table_name
@@ -315,6 +327,7 @@ class SnowflakeClient:
     async def put_file_to_snowflake_table(
         self,
         file: BatchExportTemporaryFile,
+        table_stage_prefix: str,
         table_name: str,
         file_no: int,
     ):
@@ -342,7 +355,9 @@ class SnowflakeClient:
         # We comply with the file-like interface of io.IOBase.
         # So we ask mypy to be nice with us.
         reader = io.BufferedReader(file)  # type: ignore
-        query = f'PUT file://{file.name}_{file_no}.jsonl @%"{table_name}"'
+        query = f"""
+        PUT file://{file.name}_{file_no}.jsonl '@%"{table_name}"/{table_stage_prefix}'
+        """
 
         with self.connection.cursor() as cursor:
             cursor = self.connection.cursor()
@@ -366,6 +381,7 @@ class SnowflakeClient:
     async def copy_loaded_files_to_snowflake_table(
         self,
         table_name: str,
+        table_stage_prefix: str,
     ) -> None:
         """Execute a COPY query in Snowflake to load any files PUT into the table.
 
@@ -377,6 +393,7 @@ class SnowflakeClient:
         """
         query = f"""
         COPY INTO "{table_name}"
+        FROM '@%"{table_name}"/{table_stage_prefix}'
         FILE_FORMAT = (TYPE = 'JSON')
         MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
         PURGE = TRUE
@@ -631,9 +648,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
         async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
             async with (
-                snow_client.managed_table(inputs.table_name, table_fields, delete=False) as snow_table,
                 snow_client.managed_table(
-                    stagle_table_name, table_fields, create=requires_merge, delete=requires_merge
+                    inputs.table_name, data_interval_end_str, table_fields, delete=False
+                ) as snow_table,
+                snow_client.managed_table(
+                    stagle_table_name, data_interval_end_str, table_fields, create=requires_merge, delete=requires_merge
                 ) as snow_stage_table,
             ):
                 record_columns = [field[0] for field in table_fields]
@@ -660,7 +679,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
                     table = snow_stage_table if requires_merge else snow_table
 
-                    await snow_client.put_file_to_snowflake_table(local_results_file, table, flush_counter)
+                    await snow_client.put_file_to_snowflake_table(
+                        local_results_file, data_interval_end_str, table, flush_counter
+                    )
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
@@ -678,7 +699,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                         await writer.write_record_batch(record_batch)
 
                 await snow_client.copy_loaded_files_to_snowflake_table(
-                    snow_stage_table if requires_merge else snow_table
+                    snow_stage_table if requires_merge else snow_table, data_interval_end_str
                 )
                 if requires_merge:
                     merge_key = (
