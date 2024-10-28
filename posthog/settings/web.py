@@ -247,7 +247,7 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
     os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
 ]
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
 
