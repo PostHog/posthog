@@ -1,10 +1,6 @@
 from posthog.temporal.data_imports.pipelines.chargebee.settings import (
     ENDPOINTS as CHARGEBEE_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.chargebee.settings import (
     INCREMENTAL_ENDPOINTS as CHARGEBEE_INCREMENTAL_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.chargebee.settings import (
     INCREMENTAL_FIELDS as CHARGEBEE_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.settings import (
@@ -12,37 +8,24 @@ from posthog.temporal.data_imports.pipelines.hubspot.settings import (
 )
 from posthog.temporal.data_imports.pipelines.salesforce.settings import (
     ENDPOINTS as SALESFORCE_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.salesforce.settings import (
     INCREMENTAL_ENDPOINTS as SALESFORCE_INCREMENTAL_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.salesforce.settings import (
     INCREMENTAL_FIELDS as SALESFORCE_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.pipelines.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.stripe.settings import (
     INCREMENTAL_ENDPOINTS as STRIPE_INCREMENTAL_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.stripe.settings import (
     INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.pipelines.vitally.settings import (
     ENDPOINTS as VITALLY_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.vitally.settings import (
     INCREMENTAL_ENDPOINTS as VITALLY_INCREMENTAL_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.vitally.settings import (
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
 )
-from posthog.temporal.data_imports.pipelines.zendesk.settings import BASE_ENDPOINTS, SUPPORT_ENDPOINTS
 from posthog.temporal.data_imports.pipelines.zendesk.settings import (
+    BASE_ENDPOINTS,
     INCREMENTAL_ENDPOINTS as ZENDESK_INCREMENTAL_ENDPOINTS,
-)
-from posthog.temporal.data_imports.pipelines.zendesk.settings import (
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,
+    SUPPORT_ENDPOINTS,
 )
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.types import IncrementalField
