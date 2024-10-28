@@ -9,12 +9,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import {
+    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     getCoreFilterDefinition,
-    NON_DOLLAR_POSTHOG_PROPERTY_KEYS,
     PROPERTY_KEYS,
 } from 'lib/taxonomy'
-import { isURL } from 'lib/utils'
+import { isObject, isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -180,6 +180,7 @@ function ValueDisplay({
         </div>
     )
 }
+
 interface PropertiesTableType extends BasePropertyType {
     properties?: Record<string, any> | Array<Record<string, any>>
     sortProperties?: boolean
@@ -200,7 +201,7 @@ export function PropertiesTable({
     properties,
     rootKey,
     onEdit,
-    sortProperties = false,
+    sortProperties = true,
     searchable = false,
     filterable = false,
     embedded = true,
@@ -218,22 +219,36 @@ export function PropertiesTable({
     const { isCloudOrDev } = useValues(preflightLogic)
 
     const objectProperties = useMemo(() => {
-        if (!properties || Array.isArray(properties)) {
+        if (!properties || Array.isArray(properties) || !isObject(properties)) {
             return []
         }
-        let entries = Object.entries(properties).sort((a, b) => {
-            // if this is a posthog property we want to sort by its label
-            const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
-            const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
 
-            if (left < right) {
-                return -1
-            }
-            if (left > right) {
-                return 1
-            }
-            return 0
-        })
+        let entries = Object.entries(properties)
+        if (sortProperties) {
+            entries = entries.sort((a, b) => {
+                // if this is a posthog property we want to sort by its label
+                const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
+                    [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+                    [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
+                    [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+                    [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
+                    [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+                }
+
+                const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
+
+                const left = getCoreFilterDefinition(a[0], propertyType)?.label || a[0]
+                const right = getCoreFilterDefinition(b[0], propertyType)?.label || b[0]
+
+                if (left < right) {
+                    return -1
+                }
+                if (left > right) {
+                    return 1
+                }
+                return 0
+            })
+        }
 
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
@@ -249,30 +264,13 @@ export function PropertiesTable({
 
         if (filterable && hidePostHogPropertiesInTable) {
             entries = entries.filter(([key]) => {
-                const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
-                const isNonDollarPostHogProperty = isCloudOrDev && NON_DOLLAR_POSTHOG_PROPERTY_KEYS.includes(key)
+                const isPostHogProperty = key.startsWith('$') || PROPERTY_KEYS.includes(key)
+                const isNonDollarPostHogProperty = isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
                 return !isPostHogProperty && !isNonDollarPostHogProperty
             })
         }
 
-        if (sortProperties) {
-            entries.sort(([aKey], [bKey]) => {
-                if (highlightedKeys) {
-                    const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
-                    const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
-                    if (aHighlightValue !== bHighlightValue) {
-                        return aHighlightValue - bHighlightValue
-                    }
-                }
-
-                if (aKey.startsWith('$') && !bKey.startsWith('$')) {
-                    return 1
-                } else if (!aKey.startsWith('$') && bKey.startsWith('$')) {
-                    return -1
-                }
-                return aKey.localeCompare(bKey)
-            })
-        } else if (highlightedKeys) {
+        if (highlightedKeys) {
             entries.sort(([aKey], [bKey]) => {
                 const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
                 const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
@@ -410,9 +408,10 @@ export function PropertiesTable({
                             {searchable && (
                                 <LemonInput
                                     type="search"
-                                    placeholder="Search for property keys and values"
+                                    placeholder="Search property keys and values"
                                     value={searchTerm || ''}
                                     onChange={setSearchTerm}
+                                    className="max-w-full w-64"
                                 />
                             )}
 

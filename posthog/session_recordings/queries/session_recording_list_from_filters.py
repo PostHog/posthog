@@ -370,9 +370,12 @@ class CohortPropertyGroupsSubQuery:
     _ttl_days: int
 
     raw_cohort_to_distinct_id = """
-    select distinct_id
-    from person_distinct_ids
-    where {cohort_predicate}
+    SELECT
+    distinct_id
+FROM raw_person_distinct_ids
+WHERE distinct_id in (SELECT distinct_id FROM raw_person_distinct_ids WHERE 1=1 AND {cohort_predicate})
+GROUP BY distinct_id
+HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
     """
 
     def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):

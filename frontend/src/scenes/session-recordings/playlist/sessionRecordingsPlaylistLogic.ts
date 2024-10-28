@@ -16,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { NodeKind, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
+import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
 import {
     EntityTypes,
     FilterLogicalOperator,
@@ -225,17 +225,11 @@ function combineLegacyRecordingFilters(
     }
 }
 
-function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQuery['order']): SessionRecordingType[] {
-    const orderKey:
-        | 'recording_duration'
-        | 'activity_score'
-        | 'active_seconds'
-        | 'inactive_seconds'
-        | 'console_error_count'
-        | 'click_count'
-        | 'keypress_count'
-        | 'mouse_activity_count'
-        | 'start_time' = order === 'duration' ? 'recording_duration' : order
+function sortRecordings(
+    recordings: SessionRecordingType[],
+    order: RecordingsQuery['order'] | 'duration' = 'start_time'
+): SessionRecordingType[] {
+    const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
         const orderA = a[orderKey]
@@ -696,7 +690,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ] => {
             const params: Params = objectClean({
                 ...router.values.searchParams,
-                filters: values.filters ?? undefined,
+                filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
@@ -740,6 +734,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             if (params.filters && !equal(params.filters, values.filters)) {
                 actions.setFilters(params.filters)
+            }
+            if (params.order && !equal(params.order, values.filters.order)) {
+                actions.setFilters({ ...values.filters, order: params.order })
             }
         }
         return {
