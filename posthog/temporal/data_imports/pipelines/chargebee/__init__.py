@@ -44,6 +44,151 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
+        # Note: it is possible to filter by event type, but for now we're
+        # fetching all events
+        "Events": {
+            "name": "Events",
+            "table_name": "events",
+            "primary_key": "id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].event",
+                "path": "/v2/events",
+                "params": {
+                    # the parameters below can optionally be configured
+                    "occurred_at[after]": {
+                        "type": "incremental",
+                        "cursor_path": "occurred_at",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
+                    "limit": 100,
+                },
+            },
+            "table_format": "delta",
+        },
+        "Invoices": {
+            "name": "Invoices",
+            "table_name": "invoices",
+            "primary_key": "id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].invoice",
+                "path": "/v2/invoices",
+                "params": {
+                    # the parameters below can optionally be configured
+                    "updated_at[after]": {
+                        "type": "incremental",
+                        "cursor_path": "updated_at",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
+                    "limit": 100,
+                    # by default, API does not return deleted resources
+                    "include_deleted": "true",
+                },
+            },
+            "table_format": "delta",
+        },
+        "Orders": {
+            "name": "Orders",
+            "table_name": "orders",
+            "primary_key": "id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].order",
+                "path": "/v2/orders",
+                "params": {
+                    # the parameters below can optionally be configured
+                    "updated_at[after]": {
+                        "type": "incremental",
+                        "cursor_path": "updated_at",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
+                    "limit": 100,
+                    # by default, API does not return deleted resources
+                    "include_deleted": "true",
+                },
+            },
+            "table_format": "delta",
+        },
+        "Subscriptions": {
+            "name": "Subscriptions",
+            "table_name": "subscriptions",
+            "primary_key": "id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].subscription",
+                "path": "/v2/subscriptions",
+                "params": {
+                    # the parameters below can optionally be configured
+                    "updated_at[after]": {
+                        "type": "incremental",
+                        "cursor_path": "updated_at",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
+                    "limit": 100,
+                    # by default, API does not return deleted resources
+                    "include_deleted": "true",
+                },
+            },
+            "table_format": "delta",
+        },
+        "Transactions": {
+            "name": "Transactions",
+            "table_name": "transactions",
+            "primary_key": "id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].transaction",
+                "path": "/v2/transactions",
+                "params": {
+                    # the parameters below can optionally be configured
+                    "updated_at[after]": {
+                        "type": "incremental",
+                        "cursor_path": "updated_at",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
+                    "limit": 100,
+                    # by default, API does not return deleted resources
+                    "include_deleted": "true",
+                },
+            },
+            "table_format": "delta",
+        },
     }
     return resources[name]
 
