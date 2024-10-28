@@ -163,6 +163,10 @@ export function ResultsQuery({
 
     const oldQueryTargetResults = targetResults as ExperimentResults['result']
 
+    if (!oldQueryTargetResults?.filters) {
+        return <></>
+    }
+
     return (
         <Query
             query={{
