@@ -9998,6 +9998,105 @@
                     },
                     "required": ["questions"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/TeamTaxonomyResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/EventTaxonomyResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
                 }
             ]
         },
@@ -10110,6 +10209,15 @@
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/TeamTaxonomyQuery"
+                },
+                {
+                    "$ref": "#/definitions/EventTaxonomyQuery"
+                },
+                {
+                    "$ref": "#/definitions/ActorsPropertyTaxonomyQuery"
                 }
             ],
             "required": ["kind"],
@@ -10214,6 +10322,21 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "RecordingOrder": {
+            "enum": [
+                "duration",
+                "recording_duration",
+                "inactive_seconds",
+                "active_seconds",
+                "start_time",
+                "console_error_count",
+                "click_count",
+                "keypress_count",
+                "mouse_activity_count",
+                "activity_score"
+            ],
+            "type": "string"
+        },
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -10303,35 +10426,7 @@
                     "$ref": "#/definitions/FilterLogicalOperator"
                 },
                 "order": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/DurationType"
-                        },
-                        {
-                            "const": "start_time",
-                            "type": "string"
-                        },
-                        {
-                            "const": "console_error_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "click_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "keypress_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "mouse_activity_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "activity_score",
-                            "type": "string"
-                        }
-                    ]
+                    "$ref": "#/definitions/RecordingOrder"
                 },
                 "person_uuid": {
                     "type": "string"
@@ -10355,7 +10450,7 @@
                     "type": "object"
                 }
             },
-            "required": ["kind", "order"],
+            "required": ["kind"],
             "type": "object"
         },
         "RecordingsQueryResponse": {
@@ -10381,6 +10476,10 @@
                 },
                 {
                     "const": "async",
+                    "type": "string"
+                },
+                {
+                    "const": "async_except_on_cache_miss",
                     "type": "string"
                 },
                 {

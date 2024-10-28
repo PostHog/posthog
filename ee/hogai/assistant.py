@@ -96,6 +96,11 @@ class Assistant:
             stream_mode=["messages", "values", "updates"],
         )
 
+        chunks = AIMessageChunk(content="")
+
+        # Send a chunk to establish the connection avoiding the worker's timeout.
+        yield ""
+
         for update in generator:
             if is_state_update(update):
                 _, new_state = update

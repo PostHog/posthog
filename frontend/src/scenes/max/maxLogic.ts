@@ -1,4 +1,5 @@
 import { shuffle } from 'd3'
+import { createParser } from 'eventsource-parser'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -83,9 +84,12 @@ export const maxLogic = kea<maxLogicType>([
             null as string[] | null,
             {
                 loadSuggestions: async () => {
-                    const response = await api.query<SuggestedQuestionsQuery>({
-                        kind: NodeKind.SuggestedQuestionsQuery,
-                    })
+                    const response = await api.query<SuggestedQuestionsQuery>(
+                        { kind: NodeKind.SuggestedQuestionsQuery },
+                        undefined,
+                        undefined,
+                        'async_except_on_cache_miss'
+                    )
                     return response.questions
                 },
             },
@@ -118,20 +122,22 @@ export const maxLogic = kea<maxLogicType>([
                     messages: values.thread.map(({ status, ...message }) => message),
                 })
                 const reader = response.body?.getReader()
+
+                if (!reader) {
+                    return
+                }
+
                 const decoder = new TextDecoder()
 
-                if (reader) {
-                    let firstChunk = true
+                let firstChunk = true
 
-                    while (true) {
-                        const { done, value } = await reader.read()
-                        if (done) {
-                            actions.setMessageStatus(newIndex, 'completed')
-                            break
+                const parser = createParser({
+                    onEvent: (event) => {
+                        const parsedResponse = parseResponse(event.data)
+
+                        if (!parsedResponse) {
+                            return
                         }
-
-                        const text = decoder.decode(value)
-                        const parsedResponse = parseResponse(text)
 
                         if (firstChunk) {
                             firstChunk = false
@@ -145,6 +151,17 @@ export const maxLogic = kea<maxLogicType>([
                                 status: 'loading',
                             })
                         }
+                    },
+                })
+
+                while (true) {
+                    const { done, value } = await reader.read()
+
+                    parser.feed(decoder.decode(value))
+
+                    if (done) {
+                        actions.setMessageStatus(newIndex, 'completed')
+                        break
                     }
                 }
             } catch {
@@ -163,50 +180,11 @@ export const maxLogic = kea<maxLogicType>([
  * Parses the generation result from the API. Some generation chunks might be sent in batches.
  * @param response
  */
-function parseResponse(response: string, recursive = true): RootAssistantMessage | null {
+function parseResponse(response: string): RootAssistantMessage | null | undefined {
     try {
         const parsed = JSON.parse(response)
-        return parsed as RootAssistantMessage
+        return parsed as RootAssistantMessage | null | undefined
     } catch {
-        if (!recursive) {
-            return null
-        }
-
-        const results: [number, number][] = []
-        let pair: [number, number] = [0, 0]
-        let seq = 0
-
-        for (let i = 0; i < response.length; i++) {
-            const char = response[i]
-
-            if (char === '{') {
-                if (seq === 0) {
-                    pair[0] = i
-                }
-
-                seq += 1
-            }
-
-            if (char === '}') {
-                seq -= 1
-                if (seq === 0) {
-                    pair[1] = i
-                }
-            }
-
-            if (seq === 0) {
-                results.push(pair)
-                pair = [0, 0]
-            }
-        }
-
-        const lastPair = results.pop()
-
-        if (lastPair) {
-            const [left, right] = lastPair
-            return parseResponse(response.slice(left, right + 1), false)
-        }
-
         return null
     }
 }

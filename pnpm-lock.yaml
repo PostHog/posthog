@@ -50,8 +50,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.55
-    version: 1.0.55(luxon@3.5.0)
+    specifier: ^1.0.56
+    version: 1.0.56(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.8.5
     version: 0.8.5(react-dom@18.2.0)(react@18.2.0)
@@ -193,6 +193,9 @@ dependencies:
   esbuild-sass-plugin:
     specifier: ^3.0.0
     version: 3.0.0(esbuild@0.19.8)
+  eventsource-parser:
+    specifier: ^3.0.0
+    version: 3.0.0
   expr-eval:
     specifier: ^2.0.2
     version: 2.0.2
@@ -5412,8 +5415,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.55(luxon@3.5.0):
-    resolution: {integrity: sha512-cjF3lrA62aaqoERiVJHpkkRBS6QJ1rH4xYwiOMOs8ZQKNNRofeqth4NJzhJReXA0Wlf99l8hDt2lgFgLaDBI1w==}
+  /@posthog/hogvm@1.0.56(luxon@3.5.0):
+    resolution: {integrity: sha512-28d2E3j2f4QJBJk/a3YTwFLEUodJ16s2hGhGVX4XsZ0qekkkich9vGsSYM3A8D6aAg/aZxAf78PtlakGyHyx1Q==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -12520,6 +12523,11 @@ packages:
     resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
     engines: {node: '>=0.8.x'}
     dev: true
+
+  /eventsource-parser@3.0.0:
+    resolution: {integrity: sha512-T1C0XCUimhxVQzW4zFipdx0SficT651NnkR0ZSH3yQwh+mFMdLfgjABVi4YtMTtaL4s168593DaoaRLMqryavA==}
+    engines: {node: '>=18.0.0'}
+    dev: false
 
   /execa@4.1.0:
     resolution: {integrity: sha512-j5W0//W7f8UxAn8hXVnwG8tLwdiUy4FJLcSupCg6maBYZDpyBvTApK7KyuI4bKj8KOh1r2YH+6ucuYtJv1bTZA==}
