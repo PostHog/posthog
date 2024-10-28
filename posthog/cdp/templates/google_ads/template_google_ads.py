@@ -2,12 +2,18 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-google-ads",
     name="Google Ads Conversions",
     description="Send conversion events to Google Ads",
     icon_url="/static/services/google-ads.png",
     category=["Advertisement"],
     hog="""
+if (empty(inputs.gclid)) {
+    print('Empty `gclid`. Skipping...')
+    return
+}
+
 let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(inputs.customerId, '-', '')}:uploadClickConversions', {
     'method': 'POST',
     'headers': {
@@ -71,7 +77,7 @@ if (res.status >= 400) {
             "type": "string",
             "label": "Google Click ID (gclid)",
             "description": "The Google click ID (gclid) associated with this conversion.",
-            "default": "{person.gclid}",
+            "default": "{person.properties.gclid ?? person.properties.$initial_gclid}",
             "secret": False,
             "required": True,
         },

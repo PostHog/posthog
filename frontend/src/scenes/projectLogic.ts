@@ -19,7 +19,7 @@ export const projectLogic = kea<projectLogicType>([
         deleteProjectFailure: true,
     }),
     connect(() => ({
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser', 'switchTeam']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -100,6 +100,11 @@ export const projectLogic = kea<projectLogicType>([
         },
         deleteProjectSuccess: () => {
             lemonToast.success('Project has been deleted')
+        },
+        createProjectSuccess: ({ currentProject }) => {
+            if (currentProject) {
+                actions.switchTeam(currentProject.id)
+            }
         },
     })),
     afterMount(({ actions }) => {

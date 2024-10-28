@@ -6,9 +6,13 @@ from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
 
 
-def clone_expr(expr: Expr, clear_types=False, clear_locations=False) -> Expr:
+def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> Expr:
     """Clone an expression node."""
-    return CloningVisitor(clear_types=clear_types, clear_locations=clear_locations).visit(expr)
+    return CloningVisitor(
+        clear_types=clear_types,
+        clear_locations=clear_locations,
+        inline_subquery_field_names=inline_subquery_field_names,
+    ).visit(expr)
 
 
 def clear_locations(expr: Expr) -> Expr:
@@ -236,6 +240,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_date_time_type(self, node: ast.DateTimeType):
         pass
 
+    def visit_interval_type(self, node: ast.IntervalType):
+        pass
+
     def visit_uuid_type(self, node: ast.UUIDType):
         pass
 
@@ -347,9 +354,11 @@ class CloningVisitor(Visitor[Any]):
         self,
         clear_types: Optional[bool] = True,
         clear_locations: Optional[bool] = False,
+        inline_subquery_field_names: Optional[bool] = False,
     ):
         self.clear_types = clear_types
         self.clear_locations = clear_locations
+        self.inline_subquery_field_names = inline_subquery_field_names
 
     def visit_cte(self, node: ast.CTE):
         return ast.CTE(
@@ -486,12 +495,20 @@ class CloningVisitor(Visitor[Any]):
         )
 
     def visit_field(self, node: ast.Field):
-        return ast.Field(
+        field = ast.Field(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             chain=node.chain.copy(),
         )
+        if (
+            self.inline_subquery_field_names
+            and isinstance(node.type, ast.PropertyType)
+            and node.type.joined_subquery is not None
+            and node.type.joined_subquery_field_name is not None
+        ):
+            field.chain = [node.type.joined_subquery_field_name]
+        return field
 
     def visit_placeholder(self, node: ast.Placeholder):
         return ast.Placeholder(

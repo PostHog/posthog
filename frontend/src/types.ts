@@ -25,6 +25,7 @@ import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
@@ -40,6 +41,7 @@ import type {
     InsightVizNode,
     Node,
     QueryStatus,
+    RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
@@ -678,6 +680,7 @@ export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
     Archived = 'archived',
+    Holdouts = 'holdouts',
 }
 
 export enum ActivityTab {
@@ -1109,6 +1112,7 @@ export type EntityFilter = {
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
+    math_property_type?: TaxonomicFilterGroupType
     math_group_type_index?: integer | null
     math_hogql?: string
     properties?: AnyPropertyFilter[]
@@ -3254,6 +3258,8 @@ export interface Experiment {
     created_at: string | null
     created_by: UserBasicType | null
     updated_at: string | null
+    holdout_id?: number | null
+    holdout?: Holdout
 }
 
 export interface FunnelExperimentVariant {
@@ -4243,7 +4249,7 @@ export type RawBatchExportRun = {
         | 'Running'
         | 'Starting'
     created_at: string
-    data_interval_start: string
+    data_interval_start?: string
     data_interval_end: string
     last_updated_at?: string
 }
@@ -4261,7 +4267,7 @@ export type BatchExportRun = {
         | 'Running'
         | 'Starting'
     created_at: Dayjs
-    data_interval_start: Dayjs
+    data_interval_start?: Dayjs
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
 }
@@ -4535,8 +4541,11 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+
 export type HogFunctionType = {
     id: string
+    type: HogFunctionTypeType
     icon_url?: string
     name: string
     description: string
@@ -4573,7 +4582,7 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
+    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
 > & {
     status: HogFunctionTemplateStatus
     sub_templates?: HogFunctionSubTemplateType[]
@@ -4666,9 +4675,10 @@ export type ReplayTemplateType = {
     key: string
     name: string
     description: string
-    variables: ReplayTemplateVariableType[]
+    variables?: ReplayTemplateVariableType[]
     categories: ReplayTemplateCategory[]
     icon?: React.ReactNode
+    order?: RecordingOrder
 }
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 

@@ -172,7 +172,7 @@ describe('CDP Processed Events Consumer', () => {
                     {
                         topic: 'log_entries_test',
                         value: {
-                            message: "Suspending function due to async function call 'fetch'. Payload: 1956 bytes",
+                            message: "Suspending function due to async function call 'fetch'. Payload: 2035 bytes",
                             log_source_id: fnFetchNoFilters.id,
                         },
                     },

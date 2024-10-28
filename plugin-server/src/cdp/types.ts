@@ -196,6 +196,7 @@ export type HogFunctionInvocation = {
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
     timings: HogFunctionTiming[]
+    functionToExecute?: [string, any[]]
 }
 
 export type HogFunctionAsyncFunctionRequest = {
@@ -239,7 +240,7 @@ export type HogFunctionInvocationSerializedCompressed = {
 
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -252,8 +253,11 @@ export type HogFunctionInputSchemaType = {
     integration_field?: 'slack_channel'
 }
 
+export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+
 export type HogFunctionType = {
     id: string
+    type: HogFunctionTypeType
     team_id: number
     name: string
     enabled: boolean

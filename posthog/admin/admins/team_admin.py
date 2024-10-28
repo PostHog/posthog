@@ -82,6 +82,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "autocapture_exceptions_opt_in",
                     "autocapture_web_vitals_opt_in",
                     "session_recording_opt_in",
+                    "person_processing_opt_out",
                     "capture_console_log_opt_in",
                     "capture_performance_opt_in",
                     "session_recording_sample_rate",
