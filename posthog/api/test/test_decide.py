@@ -335,6 +335,28 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "urlBlocklist": [],
         }
 
+
+    def test_session_recording_url_blocklist_patterns(self, *args):
+        self._update_team(
+            {
+                "session_recording_url_blocklist_config": [{"url": "/replay-examples/iframe", "matching": "regex"}],
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == {
+            "endpoint": "/s/",
+            "recorderVersion": "v2",
+            "consoleLogRecordingEnabled": True,
+            "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
+            "urlTriggers": [],
+            "urlBlocklist": [{"url": "/replay-examples/iframe", "matching": "regex"}],
+        }
+
     def test_session_recording_network_payload_capture_config(self, *args):
         # :TRICKY: Test for regression around caching
 
