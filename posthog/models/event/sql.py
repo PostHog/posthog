@@ -192,7 +192,7 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+    extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
     indexes="",
 )
