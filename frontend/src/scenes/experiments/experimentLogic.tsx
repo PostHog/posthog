@@ -28,7 +28,13 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema'
+import {
+    CachedExperimentFunnelsQueryResponse,
+    CachedExperimentTrendsQueryResponse,
+    FunnelsQuery,
+    InsightVizNode,
+    TrendsQuery,
+} from '~/queries/schema'
 import { isFunnelsQuery } from '~/queries/utils'
 import {
     ActionFilter as ActionFilterType,
@@ -765,10 +771,20 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         },
         experimentResults: [
-            // null as ExperimentResults['result'] | null,
-            null as any | null,
+            null as
+                | ExperimentResults['result']
+                | CachedExperimentTrendsQueryResponse
+                | CachedExperimentFunnelsQueryResponse
+                | null,
             {
-                loadExperimentResults: async (refresh?: boolean) => {
+                loadExperimentResults: async (
+                    refresh?: boolean
+                ): Promise<
+                    | ExperimentResults['result']
+                    | CachedExperimentTrendsQueryResponse
+                    | CachedExperimentFunnelsQueryResponse
+                    | null
+                > => {
                     if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                         console.log('yes hogql')
                         const query = values.experiment.metrics[0].query

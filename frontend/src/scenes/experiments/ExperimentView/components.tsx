@@ -133,7 +133,7 @@ export function ResultsQuery({
                             query: {
                                 kind: NodeKind.InsightVizNode,
                                 source: query,
-                            },
+                            } as InsightVizNode,
                             result: hogqlTargetResults?.insight,
                             disable_baseline: true,
                             last_refresh: hogqlTargetResults?.last_refresh,

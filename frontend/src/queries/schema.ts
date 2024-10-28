@@ -1621,7 +1621,7 @@ export enum ExperimentSignificanceCode {
     HighPValue = 'high_p_value',
 }
 
-export interface ExperimentTrendsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+export interface ExperimentTrendsQueryResponse {
     kind: NodeKind.ExperimentTrendsQuery
     insight: TrendsQueryResponse['results']
     count_query?: TrendsQuery
@@ -1636,7 +1636,7 @@ export interface ExperimentTrendsQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
 
-export interface ExperimentFunnelsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
+export interface ExperimentFunnelsQueryResponse {
     kind: NodeKind.ExperimentFunnelsQuery
     insight: FunnelsQueryResponse['results']
     funnels_query?: FunnelsQuery
