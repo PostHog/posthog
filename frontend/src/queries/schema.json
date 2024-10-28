@@ -10479,6 +10479,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "async_except_on_cache_miss",
+                    "type": "string"
+                },
+                {
                     "const": "blocking",
                     "type": "string"
                 },
