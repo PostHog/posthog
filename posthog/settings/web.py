@@ -96,7 +96,6 @@ MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
@@ -104,6 +103,7 @@ MIDDLEWARE = [
     "posthog.health.healthcheck_middleware",
     "posthog.middleware.ShortCircuitMiddleware",
     "posthog.middleware.AllowIPMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -247,7 +247,7 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
     os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
 ]
-STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
 
