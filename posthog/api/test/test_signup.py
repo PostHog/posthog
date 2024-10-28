@@ -699,7 +699,7 @@ class TestSignupAPI(APIBaseTest):
         """Test that users cannot sign up directly when SSO is enforced."""
 
         # Create an organization with SSO enforcement
-        organization = Organization.objects.create(name="Test Org", enforce_sso=True)
+        organization = Organization.objects.create(name="Test Org")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+sso@posthog.com", organization=organization
         )
