@@ -92,6 +92,13 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
             toolkit.retrieve_entity_properties("session"),
         )
 
+    def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
+        toolkit = TrendsAgentToolkit(self.team)
+        self.assertEqual(
+            toolkit.retrieve_entity_properties("person"),
+            "Properties do not exist in the taxonomy for the entity person.",
+        )
+
     def test_retrieve_entity_property_values(self):
         toolkit = TrendsAgentToolkit(self.team)
         self.assertEqual(
@@ -172,6 +179,13 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         GroupTypeMapping.objects.create(team=self.team, group_type_index=1, group_type="org")
         toolkit = TrendsAgentToolkit(self.team)
         self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
+
+    def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
+        toolkit = TrendsAgentToolkit(self.team)
+        self.assertEqual(
+            toolkit.retrieve_event_properties("pageview"),
+            "Properties do not exist in the taxonomy for the event pageview.",
+        )
 
     def test_empty_events(self):
         toolkit = TrendsAgentToolkit(self.team)
