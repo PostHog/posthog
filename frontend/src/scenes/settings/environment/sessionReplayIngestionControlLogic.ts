@@ -80,6 +80,12 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
             null as SessionReplayUrlTriggerConfig[] | null,
             {
                 setUrlBlocklistConfig: (_, { urlBlocklistConfig }) => urlBlocklistConfig,
+                addUrlBlocklist: (state, { urlBlocklistConfig }) => [...(state ?? []), urlBlocklistConfig],
+                updateUrlBlocklist: (state, { index, urlBlocklistConfig: newUrlBlocklistConfig }) =>
+                    (state ?? []).map((blocklistConfig, i) => (i === index ? newUrlBlocklistConfig : blocklistConfig)),
+                removeUrlBlocklist: (state, { index }) => {
+                    return (state ?? []).filter((_, i) => i !== index)
+                },
             },
         ],
         editUrlBlocklistIndex: [
