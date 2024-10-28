@@ -23,8 +23,8 @@ def create_session_id():
     return f"s{session_id_counter}"
 
 
-# only certain team ids can insert events into this legacy sessions table
-TEAM_ID = 1
+# only certain team ids can insert events into this legacy sessions table, see sessions/sql.py for more info
+TEAM_ID = 2
 TEAM = Team(id=TEAM_ID)
 
 

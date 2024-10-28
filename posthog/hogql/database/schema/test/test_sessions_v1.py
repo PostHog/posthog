@@ -19,7 +19,7 @@ from posthog.test.base import (
     ClickhouseDestroyTablesMixin,
 )
 
-# only some teams can use this table
+# only certain team ids can insert events into this legacy sessions table, see sessions/sql.py for more info
 ALLOWED_TEAM_ID = 2
 
 
