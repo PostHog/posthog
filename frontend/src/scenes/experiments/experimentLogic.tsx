@@ -1201,8 +1201,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         getIndexForVariant: [
-            (s) => [s.featureFlags],
-            (featureFlags) =>
+            (s) => [s.experimentInsightType],
+            (experimentInsightType) =>
                 (
                     experimentResults:
                         | Partial<ExperimentResults['result']>
@@ -1211,31 +1211,14 @@ export const experimentLogic = kea<experimentLogicType>([
                         | null,
                     variant: string
                 ): number | null => {
-                    let _experimentResults
-                    let insightType: InsightType | undefined
-
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        _experimentResults = experimentResults as unknown as
-                            | CachedExperimentTrendsQueryResponse
-                            | CachedExperimentFunnelsQueryResponse
-                        insightType =
-                            _experimentResults?.kind === NodeKind.ExperimentTrendsQuery
-                                ? InsightType.TRENDS
-                                : InsightType.FUNNELS
-                    } else {
-                        _experimentResults = experimentResults as Partial<ExperimentResults['result']>
-                        insightType = _experimentResults?.filters?.insight
-                    }
-
-                    // TODO: Would be nice for every secondary metric to have the same colour for variants
-                    let result: number | null = null
                     // Ensures we get the right index from results, so the UI can
                     // display the right colour for the variant
                     if (!experimentResults || !experimentResults.insight) {
                         return null
                     }
+
                     let index = -1
-                    if (insightType === InsightType.FUNNELS) {
+                    if (experimentInsightType === InsightType.FUNNELS) {
                         // Funnel Insight is displayed in order of decreasing count
                         index = (Array.isArray(experimentResults.insight) ? [...experimentResults.insight] : [])
                             .sort((a, b) => {
@@ -1255,10 +1238,10 @@ export const experimentLogic = kea<experimentLogicType>([
                             (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
                         )
                     }
-                    result = index === -1 ? null : index
+                    const result = index === -1 ? null : index
 
-                    if (result !== null && insightType === InsightType.FUNNELS) {
-                        result++
+                    if (result !== null && experimentInsightType === InsightType.FUNNELS) {
+                        return result + 1
                     }
                     return result
                 },
