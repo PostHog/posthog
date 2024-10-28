@@ -130,7 +130,7 @@ class CreateTrendsPlanNode(AssistantNode):
     @cached_property
     def _events_prompt(self) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
