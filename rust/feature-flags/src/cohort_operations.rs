@@ -57,6 +57,9 @@ impl Cohort {
     }
 
     /// Parses the filters JSON into a CohortProperty structure
+    // TODO: this doesn't handle the deprecated "groups" field, see
+    // https://github.com/PostHog/posthog/blob/feat/dynamic-cohorts-rust/posthog/models/cohort/cohort.py#L114-L169
+    // I'll handle that in a separate PR.
     pub fn parse_filters(&self) -> Result<Vec<PropertyFilter>, FlagError> {
         let wrapper: serde_json::Value = serde_json::from_value(self.filters.clone())?;
         let cohort_property: InnerCohortProperty =
