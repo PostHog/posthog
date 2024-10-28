@@ -335,7 +335,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "urlBlocklist": [],
         }
 
-
     def test_session_recording_url_blocklist_patterns(self, *args):
         self._update_team(
             {
