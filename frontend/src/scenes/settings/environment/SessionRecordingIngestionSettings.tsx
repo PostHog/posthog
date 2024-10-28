@@ -121,14 +121,19 @@ function LinkedFlagSelector(): JSX.Element | null {
     )
 }
 
-function UrlTriggerForm(): JSX.Element {
-    const { cancelProposingUrlTrigger } = useActions(sessionReplayIngestionControlLogic)
-    const { isProposedUrlTriggerSubmitting } = useValues(sessionReplayIngestionControlLogic)
-
+function UrlConfigForm({
+    type,
+    onCancel,
+    isSubmitting,
+}: {
+    type: 'trigger' | 'blocklist'
+    onCancel: () => void
+    isSubmitting: boolean
+}): JSX.Element {
     return (
         <Form
             logic={sessionReplayIngestionControlLogic}
-            formKey="proposedUrlTrigger"
+            formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
             enableFormOnSubmit
             className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
         >
@@ -141,13 +146,13 @@ function UrlTriggerForm(): JSX.Element {
                 </LemonField>
             </div>
             <div className="flex justify-end gap-2 w-full">
-                <LemonButton type="secondary" onClick={cancelProposingUrlTrigger}>
+                <LemonButton type="secondary" onClick={onCancel}>
                     Cancel
                 </LemonButton>
                 <LemonButton
                     htmlType="submit"
                     type="primary"
-                    disabledReason={isProposedUrlTriggerSubmitting ? 'Saving url trigger in progress' : undefined}
+                    disabledReason={isSubmitting ? `Saving url in progress` : undefined}
                     data-attr="url-save"
                 >
                     Save
@@ -157,14 +162,26 @@ function UrlTriggerForm(): JSX.Element {
     )
 }
 
-function UrlTriggerRow({ trigger, index }: { trigger: SessionReplayUrlTriggerConfig; index: number }): JSX.Element {
-    const { editUrlTriggerIndex } = useValues(sessionReplayIngestionControlLogic)
-    const { setEditUrlTriggerIndex, removeUrlTrigger } = useActions(sessionReplayIngestionControlLogic)
-
-    if (editUrlTriggerIndex === index) {
+// New shared row component
+function UrlConfigRow({
+    trigger,
+    index,
+    type,
+    editIndex,
+    onEdit,
+    onRemove,
+}: {
+    trigger: SessionReplayUrlTriggerConfig
+    index: number
+    type: 'trigger' | 'blocklist'
+    editIndex: number | null
+    onEdit: (index: number) => void
+    onRemove: (index: number) => void
+}): JSX.Element {
+    if (editIndex === index) {
         return (
             <div className="border rounded p-2 bg-bg-light">
-                <UrlTriggerForm />
+                <UrlConfigForm type={type} onCancel={() => onEdit(-1)} isSubmitting={false} />
             </div>
         )
     }
@@ -175,25 +192,19 @@ function UrlTriggerRow({ trigger, index }: { trigger: SessionReplayUrlTriggerCon
                 {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
             </span>
             <div className="Actions flex space-x-1 shrink-0">
-                <LemonButton
-                    icon={<IconPencil />}
-                    onClick={() => setEditUrlTriggerIndex(index)}
-                    tooltip="Edit"
-                    center
-                />
-
+                <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center />
                 <LemonButton
                     icon={<IconTrash />}
-                    tooltip="Remove URL trigger"
+                    tooltip={`Remove URL ${type}`}
                     center
                     onClick={() => {
                         LemonDialog.open({
-                            title: <>Remove URL trigger</>,
-                            description: `Are you sure you want to remove this URL trigger?`,
+                            title: <>Remove URL {type}</>,
+                            description: `Are you sure you want to remove this URL ${type}?`,
                             primaryButton: {
                                 status: 'danger',
                                 children: 'Remove',
-                                onClick: () => removeUrlTrigger(index),
+                                onClick: () => onRemove(index),
                             },
                             secondaryButton: {
                                 children: 'Cancel',
@@ -202,155 +213,110 @@ function UrlTriggerRow({ trigger, index }: { trigger: SessionReplayUrlTriggerCon
                     }}
                 />
             </div>
+        </div>
+    )
+}
+
+function UrlConfigSection({
+    type,
+    title,
+    description,
+    ...props
+}: {
+    type: 'trigger' | 'blocklist'
+    title: string
+    description: string
+    isAddFormVisible: boolean
+    config: SessionReplayUrlTriggerConfig[] | null
+    editIndex: number | null
+    isSubmitting: boolean
+    onAdd: () => void
+    onCancel: () => void
+    onEdit: (index: number) => void
+    onRemove: (index: number) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-col space-y-2 mt-4">
+            <div className="flex items-center gap-2 justify-between">
+                <LemonLabel className="text-base">{title}</LemonLabel>
+                <LemonButton
+                    onClick={props.onAdd}
+                    type="secondary"
+                    icon={<IconPlus />}
+                    data-attr={`session-replay-add-url-${type}`}
+                >
+                    Add
+                </LemonButton>
+            </div>
+            <p>{description}</p>
+
+            {props.isAddFormVisible && (
+                <UrlConfigForm type={type} onCancel={props.onCancel} isSubmitting={props.isSubmitting} />
+            )}
+            {props.config?.map((trigger, index) => (
+                <UrlConfigRow
+                    key={`${trigger.url}-${trigger.matching}`}
+                    trigger={trigger}
+                    index={index}
+                    type={type}
+                    editIndex={props.editIndex}
+                    onEdit={props.onEdit}
+                    onRemove={props.onRemove}
+                />
+            ))}
         </div>
     )
 }
 
 function UrlTriggerOptions(): JSX.Element | null {
-    const { isAddUrlTriggerConfigFormVisible, urlTriggerConfig } = useValues(sessionReplayIngestionControlLogic)
-    const { newUrlTrigger } = useActions(sessionReplayIngestionControlLogic)
-
-    return (
-        <div className="flex flex-col space-y-2 mt-4">
-            <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">Enable recordings when URL matches</LemonLabel>
-                <LemonButton
-                    onClick={() => {
-                        newUrlTrigger()
-                    }}
-                    type="secondary"
-                    icon={<IconPlus />}
-                    data-attr="session-replay-add-url-trigger"
-                >
-                    Add
-                </LemonButton>
-            </div>
-            <p>
-                Adding a URL trigger means recording will only be started when the user visits a page that matches the
-                URL.
-            </p>
-
-            {isAddUrlTriggerConfigFormVisible && <UrlTriggerForm />}
-            {urlTriggerConfig?.map((trigger, index) => (
-                <UrlTriggerRow key={`${trigger.url}-${trigger.matching}`} trigger={trigger} index={index} />
-            ))}
-        </div>
+    const { isAddUrlTriggerConfigFormVisible, urlTriggerConfig, editUrlTriggerIndex, isProposedUrlTriggerSubmitting } =
+        useValues(sessionReplayIngestionControlLogic)
+    const { newUrlTrigger, removeUrlTrigger, setEditUrlTriggerIndex, cancelProposingUrlTrigger } = useActions(
+        sessionReplayIngestionControlLogic
     )
-}
-
-function UrlBlocklistForm(): JSX.Element {
-    const { cancelProposingUrlBlocklist } = useActions(sessionReplayIngestionControlLogic)
-    const { isProposedUrlBlocklistSubmitting } = useValues(sessionReplayIngestionControlLogic)
 
     return (
-        <Form
-            logic={sessionReplayIngestionControlLogic}
-            formKey="proposedUrlBlocklist"
-            enableFormOnSubmit
-            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
-        >
-            <div className="flex flex-row gap-2 w-full">
-                <LemonField name="matching">
-                    <LemonSelect options={[{ label: 'Regex', value: 'regex' }]} />
-                </LemonField>
-                <LemonField name="url" className="flex-1">
-                    <LemonInput autoFocus placeholder="Enter URL" data-attr="url-input" />
-                </LemonField>
-            </div>
-            <div className="flex justify-end gap-2 w-full">
-                <LemonButton type="secondary" onClick={cancelProposingUrlBlocklist}>
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    htmlType="submit"
-                    type="primary"
-                    disabledReason={isProposedUrlBlocklistSubmitting ? 'Saving url blocklist in progress' : undefined}
-                    data-attr="url-save"
-                >
-                    Save
-                </LemonButton>
-            </div>
-        </Form>
-    )
-}
-
-function UrlBlocklistRow({ trigger, index }: { trigger: SessionReplayUrlTriggerConfig; index: number }): JSX.Element {
-    const { editUrlBlocklistIndex } = useValues(sessionReplayIngestionControlLogic)
-    const { setEditUrlBlocklistIndex, removeUrlBlocklist } = useActions(sessionReplayIngestionControlLogic)
-
-    if (editUrlBlocklistIndex === index) {
-        return (
-            <div className="border rounded p-2 bg-bg-light">
-                <UrlBlocklistForm />
-            </div>
-        )
-    }
-
-    return (
-        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
-            <span title={trigger.url} className="flex-1 truncate">
-                {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
-            </span>
-            <div className="Actions flex space-x-1 shrink-0">
-                <LemonButton
-                    icon={<IconPencil />}
-                    onClick={() => setEditUrlBlocklistIndex(index)}
-                    tooltip="Edit"
-                    center
-                />
-
-                <LemonButton
-                    icon={<IconTrash />}
-                    tooltip="Remove URL trigger"
-                    center
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: <>Remove URL trigger</>,
-                            description: `Are you sure you want to remove this URL trigger?`,
-                            primaryButton: {
-                                status: 'danger',
-                                children: 'Remove',
-                                onClick: () => removeUrlBlocklist(index),
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                            },
-                        })
-                    }}
-                />
-            </div>
-        </div>
+        <UrlConfigSection
+            type="trigger"
+            title="Enable recordings when URL matches"
+            description="Adding a URL trigger means recording will only be started when the user visits a page that matches the URL."
+            isAddFormVisible={isAddUrlTriggerConfigFormVisible}
+            config={urlTriggerConfig}
+            editIndex={editUrlTriggerIndex}
+            isSubmitting={isProposedUrlTriggerSubmitting}
+            onAdd={newUrlTrigger}
+            onCancel={cancelProposingUrlTrigger}
+            onEdit={setEditUrlTriggerIndex}
+            onRemove={removeUrlTrigger}
+        />
     )
 }
 
 function UrlBlocklistOptions(): JSX.Element | null {
-    const { isAddUrlBlocklistConfigFormVisible, urlBlocklistConfig } = useValues(sessionReplayIngestionControlLogic)
-    const { newUrlBlocklist } = useActions(sessionReplayIngestionControlLogic)
+    const {
+        isAddUrlBlocklistConfigFormVisible,
+        urlBlocklistConfig,
+        editUrlBlocklistIndex,
+        isProposedUrlBlocklistSubmitting,
+    } = useValues(sessionReplayIngestionControlLogic)
+    const { newUrlBlocklist, removeUrlBlocklist, setEditUrlBlocklistIndex, cancelProposingUrlBlocklist } = useActions(
+        sessionReplayIngestionControlLogic
+    )
 
     return (
-        <div className="flex flex-col space-y-2 mt-4">
-            <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">Block recordings when URL matches</LemonLabel>
-                <LemonButton
-                    onClick={() => {
-                        newUrlBlocklist()
-                    }}
-                    type="secondary"
-                    icon={<IconPlus />}
-                    data-attr="session-replay-add-url-blocklist"
-                >
-                    Add
-                </LemonButton>
-            </div>
-            <p>
-                Adding a URL blocklist means recording will be paused when the user visits a page that matches the URL.
-            </p>
-
-            {isAddUrlBlocklistConfigFormVisible && <UrlBlocklistForm />}
-            {urlBlocklistConfig?.map((trigger, index) => (
-                <UrlBlocklistRow key={`${trigger.url}-${trigger.matching}`} trigger={trigger} index={index} />
-            ))}
-        </div>
+        <UrlConfigSection
+            type="blocklist"
+            title="Block recordings when URL matches"
+            description="Adding a URL blocklist means recording will be paused when the user visits a page that matches the URL."
+            isAddFormVisible={isAddUrlBlocklistConfigFormVisible}
+            config={urlBlocklistConfig}
+            editIndex={editUrlBlocklistIndex}
+            isSubmitting={isProposedUrlBlocklistSubmitting}
+            onAdd={newUrlBlocklist}
+            onCancel={cancelProposingUrlBlocklist}
+            onEdit={setEditUrlBlocklistIndex}
+            onRemove={removeUrlBlocklist}
+        />
     )
 }
 
@@ -510,8 +476,6 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                 <LinkedFlagSelector />
                 <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
                     <UrlTriggerOptions />
-                </FlaggedFeature>
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
                     <UrlBlocklistOptions />
                 </FlaggedFeature>
             </>
