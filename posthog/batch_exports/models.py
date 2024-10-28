@@ -292,4 +292,10 @@ class BatchExportBackfill(UUIDModel):
         end_at = self.end_at and self.end_at.isoformat()
         start_at = self.start_at and self.start_at.isoformat()
 
+        if end_at.endswith("+00:00"):
+            end_at = end_at.replace("+00:00", "Z")
+
+        if start_at.endswith("+00:00"):
+            start_at = start_at.replace("+00:00", "Z")
+
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"
