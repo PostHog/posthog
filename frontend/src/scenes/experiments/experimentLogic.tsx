@@ -898,8 +898,13 @@ export const experimentLogic = kea<experimentLogicType>([
             (experimentId): Experiment['id'] => experimentId,
         ],
         experimentInsightType: [
-            (s) => [s.experiment],
-            (experiment): InsightType => {
+            (s) => [s.experiment, s.featureFlags],
+            (experiment, featureFlags): InsightType => {
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    const query = experiment?.metrics?.[0]?.query
+                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
+                }
+
                 return experiment?.filters?.insight || InsightType.FUNNELS
             },
         ],
@@ -947,38 +952,24 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentMathAggregationForTrends: [
             (s) => [s.experiment, s.featureFlags],
             (experiment, featureFlags) => (): PropertyMathType | CountPerActorMathType | undefined => {
+                let entities: { math?: string }[] = []
+
                 if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                     const query = experiment?.metrics?.[0]?.query as ExperimentTrendsQuery
                     if (!query) {
                         return undefined
                     }
-                    // Extract math from the deeper query structure
-                    const mathValue = query.count_query?.series?.[0]?.math
-
-                    // Apply the same filtering logic as the legacy path
-                    if (Object.values(CountPerActorMathType).includes(mathValue as CountPerActorMathType)) {
-                        return mathValue as CountPerActorMathType
+                    entities = query.count_query?.series || []
+                } else {
+                    const filters = experiment?.filters
+                    if (!filters) {
+                        return undefined
                     }
-
-                    const targetValues = Object.values(PropertyMathType).filter(
-                        (value) => value !== PropertyMathType.Sum
-                    )
-                    if (targetValues.includes(mathValue as PropertyMathType)) {
-                        return mathValue as PropertyMathType
-                    }
-
-                    return undefined
-                }
-
-                const filters = experiment?.filters
-                if (!filters) {
-                    return undefined
+                    entities = [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
                 }
 
                 // Find out if we're using count per actor math aggregates averages per user
-                const userMathValue = (
-                    [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
-                ).filter((entity) =>
+                const userMathValue = entities.filter((entity) =>
                     Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
                 )[0]?.math
 
@@ -987,9 +978,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 // since we can handle that as a regular case
                 const targetValues = Object.values(PropertyMathType).filter((value) => value !== PropertyMathType.Sum)
 
-                const propertyMathValue = (
-                    [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
-                ).filter((entity) => targetValues.includes(entity?.math as PropertyMathType))[0]?.math
+                const propertyMathValue = entities.filter((entity) =>
+                    targetValues.includes(entity?.math as PropertyMathType)
+                )[0]?.math
 
                 return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
             },

@@ -122,14 +122,14 @@ export function ResultsQuery({
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        const hogqlTargetResults = targetResults as unknown as
+        const newQueryResults = targetResults as unknown as
             | CachedExperimentTrendsQueryResponse
             | CachedExperimentFunnelsQueryResponse
 
         const query =
-            hogqlTargetResults.kind === NodeKind.ExperimentTrendsQuery
-                ? hogqlTargetResults.count_query
-                : hogqlTargetResults.funnels_query
+            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
+                ? newQueryResults.count_query
+                : newQueryResults.funnels_query
         const fakeInsightId = Math.random().toString(36).substring(2, 15)
 
         return (
@@ -150,9 +150,9 @@ export function ResultsQuery({
                                 kind: NodeKind.InsightVizNode,
                                 source: query,
                             } as InsightVizNode,
-                            result: hogqlTargetResults?.insight,
+                            result: newQueryResults?.insight,
                             disable_baseline: true,
-                            last_refresh: hogqlTargetResults?.last_refresh,
+                            last_refresh: newQueryResults?.last_refresh,
                         },
                         doNotLoad: true,
                     },
@@ -162,9 +162,9 @@ export function ResultsQuery({
         )
     }
 
-    const oldQueryTargetResults = targetResults as ExperimentResults['result']
+    const oldQueryResults = targetResults as ExperimentResults['result']
 
-    if (!oldQueryTargetResults?.filters) {
+    if (!oldQueryResults?.filters) {
         return <></>
     }
 
@@ -172,22 +172,22 @@ export function ResultsQuery({
         <Query
             query={{
                 kind: NodeKind.InsightVizNode,
-                source: filtersToQueryNode(transformResultFilters(oldQueryTargetResults?.filters ?? {})),
+                source: filtersToQueryNode(transformResultFilters(oldQueryResults?.filters ?? {})),
                 showTable,
                 showLastComputation: true,
                 showLastComputationRefresh: false,
             }}
             context={{
                 insightProps: {
-                    dashboardItemId: oldQueryTargetResults?.fakeInsightId as InsightShortId,
+                    dashboardItemId: oldQueryResults?.fakeInsightId as InsightShortId,
                     cachedInsight: {
-                        short_id: oldQueryTargetResults?.fakeInsightId as InsightShortId,
-                        query: oldQueryTargetResults?.filters
-                            ? queryFromFilters(transformResultFilters(oldQueryTargetResults.filters))
+                        short_id: oldQueryResults?.fakeInsightId as InsightShortId,
+                        query: oldQueryResults?.filters
+                            ? queryFromFilters(transformResultFilters(oldQueryResults.filters))
                             : null,
-                        result: oldQueryTargetResults?.insight,
+                        result: oldQueryResults?.insight,
                         disable_baseline: true,
-                        last_refresh: oldQueryTargetResults?.last_refresh,
+                        last_refresh: oldQueryResults?.last_refresh,
                     },
                     doNotLoad: true,
                 },
@@ -215,23 +215,23 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
 
     let query: InsightVizNode
     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        const hogqlTargetResults = experimentResults as unknown as
+        const newQueryResults = experimentResults as unknown as
             | CachedExperimentTrendsQueryResponse
             | CachedExperimentFunnelsQueryResponse
 
         const source =
-            hogqlTargetResults.kind === NodeKind.ExperimentTrendsQuery
-                ? hogqlTargetResults.count_query
-                : hogqlTargetResults.funnels_query
+            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
+                ? newQueryResults.count_query
+                : newQueryResults.funnels_query
 
         query = {
             kind: NodeKind.InsightVizNode,
             source: source as InsightQueryNode,
         }
     } else {
-        const oldQueryTargetResults = experimentResults as ExperimentResults['result']
+        const oldQueryResults = experimentResults as ExperimentResults['result']
 
-        if (!oldQueryTargetResults?.filters) {
+        if (!oldQueryResults?.filters) {
             return <></>
         }
 
@@ -239,8 +239,8 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
             kind: NodeKind.InsightVizNode,
             source: filtersToQueryNode(
                 transformResultFilters(
-                    oldQueryTargetResults?.filters
-                        ? { ...oldQueryTargetResults.filters, explicit_date: true }
+                    oldQueryResults?.filters
+                        ? { ...oldQueryResults.filters, explicit_date: true }
                         : filtersFromExperiment
                 )
             ),
