@@ -3,6 +3,8 @@ from django.contrib.postgres.fields import ArrayField
 from posthog.models.utils import UUIDModel
 from django.db import transaction
 from django.db.models import Q, QuerySet
+from posthog.models.team import Team
+from posthog.models.error_tracking.util import update_error_tracking_issue_fingerprint
 
 
 class ErrorTrackingGroup(UUIDModel):
@@ -12,7 +14,7 @@ class ErrorTrackingGroup(UUIDModel):
         RESOLVED = "resolved", "Resolved"
         PENDING_RELEASE = "pending_release", "Pending release"
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     fingerprint: ArrayField = ArrayField(models.TextField(null=False, blank=False), null=False, blank=False)
     merged_fingerprints: ArrayField = ArrayField(
@@ -39,7 +41,7 @@ class ErrorTrackingGroup(UUIDModel):
         return queryset.filter(query)
 
     @transaction.atomic
-    def merge(self, fingerprints: list[list[str]]) -> None:
+    def legacy_merge(self, fingerprints: list[list[str]]) -> None:
         if not fingerprints:
             return
 
@@ -50,7 +52,8 @@ class ErrorTrackingGroup(UUIDModel):
         merged_fingerprints = set(convert_fingerprints_to_tuples(self.merged_fingerprints))
         merged_fingerprints.update(convert_fingerprints_to_tuples(fingerprints))
 
-        merging_groups = ErrorTrackingGroup.objects.filter(team=self.team, fingerprint__in=fingerprints)
+        merging_groups = ErrorTrackingGroup.objects.filter(team=self.team.pk, fingerprint__in=fingerprints)
+
         for group in merging_groups:
             merged_fingerprints |= set(convert_fingerprints_to_tuples(group.merged_fingerprints))
 
@@ -58,6 +61,22 @@ class ErrorTrackingGroup(UUIDModel):
         # converting back to list of lists before saving
         self.merged_fingerprints = [list(f) for f in merged_fingerprints]
         self.save()
+
+    def merge(self, fingerprints: list[str]) -> None:
+        for fingerprint in fingerprints:
+            update_error_tracking_issue_fingerprint(team_id=self.team.pk, issue=self.id, fingerprint=fingerprint)
+
+        merging_groups = ErrorTrackingGroup.objects.filter(team=self.team, fingerprint__in=fingerprints)
+        merging_groups.delete()
+
+    def split(self, fingerprints: list[str]) -> None:
+        new_issue, _ = ErrorTrackingGroup.objects.get_or_create(
+            fingerprint=fingerprints[0],
+            team_id=self.team_id,
+        )
+
+        for fingerprint in fingerprints:
+            update_error_tracking_issue_fingerprint(team_id=self.team.pk, issue=new_issue.id, fingerprint=fingerprint)
 
 
 class ErrorTrackingIssueFingerprint(models.Model):

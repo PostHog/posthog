@@ -14,10 +14,12 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import Person, PersonDistinctId
+    from posthog.models.error_tracking import ErrorTrackingIssueFingerprint
     from posthog.models.early_access_feature import EarlyAccessFeature
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete(PersonDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete(ErrorTrackingIssueFingerprint.objects.filter(team_id__in=team_ids))
     _raw_delete(CohortPeople.objects.filter(cohort__team_id__in=team_ids))
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
     _raw_delete(Person.objects.filter(team_id__in=team_ids))

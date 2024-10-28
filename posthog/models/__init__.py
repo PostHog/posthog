@@ -29,7 +29,7 @@ from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import ErrorTrackingGroup
+from .error_tracking import ErrorTrackingGroup, ErrorTrackingIssueFingerprint
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -51,7 +51,7 @@ from .messaging import MessagingRecord
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
-from .organization_invite import OrganizationInvite, InviteExpiredException
+from .organization_invite import OrganizationInvite
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .plugin import (
@@ -100,6 +100,7 @@ __all__ = [
     "ElementGroup",
     "Entity",
     "ErrorTrackingGroup",
+    "ErrorTrackingIssueFingerprint",
     "Event",
     "EventBuffer",
     "EventDefinition",

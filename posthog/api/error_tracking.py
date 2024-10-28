@@ -46,6 +46,7 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         group: ErrorTrackingGroup = self.get_object()
         merging_fingerprints: list[list[str]] = request.data.get("merging_fingerprints", [])
         group.merge(merging_fingerprints)
+        group.legacy_merge(merging_fingerprints)
         return Response({"success": True})
 
     @action(methods=["POST"], detail=False)
