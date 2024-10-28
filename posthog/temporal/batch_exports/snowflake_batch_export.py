@@ -313,16 +313,18 @@ class SnowflakeClient:
         create: bool = True,
     ) -> collections.abc.AsyncGenerator[str, None]:
         """Manage a table in Snowflake by ensure it exists while in context."""
-        if create:
+        if create is True:
             await self.acreate_table(table_name, fields)
-
-        await self.aremove_internal_stage_files(table_name, table_stage_prefix)
+        else:
+            await self.aremove_internal_stage_files(table_name, table_stage_prefix)
 
         try:
             yield table_name
         finally:
             if delete is True:
                 await self.adelete_table(table_name, not_found_ok)
+            else:
+                await self.aremove_internal_stage_files(table_name, table_stage_prefix)
 
     async def put_file_to_snowflake_table(
         self,
