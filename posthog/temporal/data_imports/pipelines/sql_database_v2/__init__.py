@@ -220,10 +220,7 @@ def sql_database(
 
     # use provided tables or all tables
     if table_names:
-        tables = [
-            Table(name, metadata, inherit_cache=False, autoload_with=None if defer_table_reflect else engine)
-            for name in table_names
-        ]
+        tables = [Table(name, metadata, autoload_with=None if defer_table_reflect else engine) for name in table_names]
     else:
         if defer_table_reflect:
             raise ValueError("You must pass table names to defer table reflection")
@@ -232,7 +229,7 @@ def sql_database(
 
     for table in tables:
         yield sql_table(
-            credentials=credentials,
+            credentials=engine,
             table=table.name,
             schema=table.schema,
             metadata=metadata,

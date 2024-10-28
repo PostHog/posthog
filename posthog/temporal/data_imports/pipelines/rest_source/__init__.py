@@ -372,22 +372,3 @@ def _set_incremental_params(
     if incremental_param.end:
         params[incremental_param.end] = transform(incremental_object.end_value)
     return params
-
-
-# XXX: This is a workaround pass test_dlt_init.py
-# since the source uses dlt.source as a function
-# def _register_source(source_func: Callable[..., DltSource]) -> None:
-#     import inspect
-#     from dlt.common.configuration import get_fun_spec
-#     from dlt.common.source import _SOURCES, SourceInfo
-
-#     spec = get_fun_spec(source_func)
-#     func_module = inspect.getmodule(source_func)
-#     _SOURCES[source_func.__name__] = SourceInfo(
-#         SPEC=spec,
-#         f=source_func,
-#         module=func_module,
-#     )
-
-
-# _register_source(rest_api_source)
