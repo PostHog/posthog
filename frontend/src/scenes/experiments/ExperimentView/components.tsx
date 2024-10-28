@@ -111,6 +111,10 @@ export function ResultsQuery({
     targetResults: ExperimentResults['result'] | null
     showTable: boolean
 }): JSX.Element {
+    if (!targetResults?.filters) {
+        return <></>
+    }
+
     return (
         <Query
             query={{
