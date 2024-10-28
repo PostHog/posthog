@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableLambda
 
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, GenerateTrendsNode, GenerateTrendsToolsNode
 from ee.hogai.trends.utils import GenerateTrendOutputModel
+from ee.hogai.utils import AssistantNodeName
 from posthog.schema import AssistantMessage, ExperimentalAITrendsQuery, HumanMessage, VisualizationMessage
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -111,10 +112,12 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
                 },
                 {},
             )
-            self.assertNotIn("intermediate_steps", new_state)
             self.assertEqual(
-                new_state["messages"],
-                [VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"])],
+                new_state,
+                {
+                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"])],
+                    "intermediate_steps": None,
+                },
             )
 
     def test_agent_reconstructs_conversation(self):
@@ -241,6 +244,23 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("intermediate_steps", new_state)
             self.assertEqual(len(new_state["intermediate_steps"]), 1)
 
+    def test_node_leaves_failover(self):
+        node = GenerateTrendsNode(self.team)
+        with patch(
+            "ee.hogai.trends.nodes.GenerateTrendsNode._model",
+            return_value=RunnableLambda(
+                lambda _: GenerateTrendOutputModel(reasoning_steps=[], answer=self.schema).model_dump()
+            ),
+        ):
+            new_state = node.run(
+                {
+                    "messages": [HumanMessage(content="Text")],
+                    "intermediate_steps": [(AgentAction(tool="", tool_input="", log="exception"), "exception")],
+                },
+                {},
+            )
+            self.assertIsNone(new_state["intermediate_steps"])
+
     def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
         node = GenerateTrendsNode(self.team)
@@ -266,6 +286,15 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[3].type, "human")
         self.assertIn("Pydantic", history[3].content)
         self.assertIn("uniqexception", history[3].content)
+
+    def test_router(self):
+        node = GenerateTrendsNode(self.team)
+        state = node.router({"messages": [], "intermediate_steps": None})
+        self.assertEqual(state, AssistantNodeName.END)
+        state = node.router(
+            {"messages": [], "intermediate_steps": [(AgentAction(tool="", tool_input="", log=""), None)]}
+        )
+        self.assertEqual(state, AssistantNodeName.GENERATE_TRENDS_TOOLS)
 
 
 class TestGenerateTrendsToolsNode(ClickhouseTestMixin, APIBaseTest):

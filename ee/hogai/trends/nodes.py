@@ -281,11 +281,12 @@ class GenerateTrendsNode(AssistantNode):
                     reasoning_steps=message.reasoning_steps,
                     answer=message.answer,
                 )
-            ]
+            ],
+            "intermediate_steps": None,
         }
 
     def router(self, state: AssistantState):
-        if state.get("tool_argument") is not None:
+        if state.get("intermediate_steps") is not None:
             return AssistantNodeName.GENERATE_TRENDS_TOOLS
         return AssistantNodeName.END
 
