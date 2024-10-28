@@ -1,6 +1,7 @@
 import json
 from unittest.mock import patch
 
+import pytest
 from django.test import override_settings
 from langchain_core.runnables import RunnableLambda
 
@@ -15,6 +16,7 @@ from posthog.test.base import (
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestAssistant(NonAtomicBaseTest):
+    @pytest.mark.django_db(transaction=True)
     def test_assistant(self):
         mocked_planner_response = """
         Action:
@@ -37,6 +39,7 @@ class TestAssistant(NonAtomicBaseTest):
             generator = assistant.stream(
                 Conversation(messages=[HumanMessage(content="Launch the chain.")], session_id="id")
             )
+            self.assertEqual(next(generator), "")
             self.assertEqual(
                 json.loads(next(generator)),
                 VisualizationMessage(answer=None, reasoning_steps=[], plan="Plan").model_dump(),
