@@ -210,7 +210,7 @@ class TrendsAgentToolkit:
                         ```
 
                         Args:
-                            final_response: List all events, actions, and properties that you want to use to answer the question.
+                            final_response: List all events and properties that you want to use to answer the question.
                     """,
                 },
             ]
