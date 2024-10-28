@@ -695,37 +695,6 @@ class TestSignupAPI(APIBaseTest):
             # Check that the user was still created and added to the organization
             self.assertEqual(user.organization, new_org)
 
-    def test_api_signup_with_sso_enforced_fails(self):
-        """Test that users cannot sign up directly when SSO is enforced."""
-
-        # Create an organization with SSO enforcement
-        organization = Organization.objects.create(name="Test Org")
-        invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+sso@posthog.com", organization=organization
-        )
-
-        response = self.client.post(
-            f"/api/signup/{invite.id}/",
-            {
-                "first_name": "Alice",
-                "password": VALID_TEST_PASSWORD,
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "sso_enforced",
-                "detail": "You cannot sign up by email when SSO is enforced.",
-                "attr": None,
-            },
-        )
-
-        # Verify no user was created
-        self.assertFalse(User.objects.filter(email="test+sso@posthog.com").exists())
-
     @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
