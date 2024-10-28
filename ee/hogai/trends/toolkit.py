@@ -475,6 +475,7 @@ class GenerateTrendTool:
             "PersonPropertyFilter",
             "SessionPropertyFilter",
             "FeaturePropertyFilter",
+            "GroupPropertyFilter",
         )
 
         # Clean up the property filters
