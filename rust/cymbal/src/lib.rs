@@ -1,7 +1,6 @@
 pub mod app_context;
 pub mod config;
 pub mod error;
-pub mod frame_store;
 pub mod langs;
 pub mod metric_consts;
 pub mod symbol_store;
