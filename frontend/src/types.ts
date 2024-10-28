@@ -3294,7 +3294,7 @@ interface BaseExperimentResults {
 }
 
 export interface _TrendsExperimentResults extends BaseExperimentResults {
-    insight: TrendResult[]
+    insight: Record<string, any>[]
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
@@ -3302,7 +3302,7 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
-    insight: FunnelStep[][]
+    insight: Record<string, any>[]
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
     last_refresh?: string | null

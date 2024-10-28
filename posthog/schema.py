@@ -5366,6 +5366,16 @@ class TrendsQuery(BaseModel):
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[ExperimentalAITrendsQuery] = None
+    plan: Optional[str] = None
+    reasoning_steps: Optional[list[str]] = None
+    type: Literal["ai/viz"] = "ai/viz"
+
+
 class CachedExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5408,14 +5418,6 @@ class Response11(BaseModel):
     significance_code: ExperimentSignificanceCode
     significant: bool
     variants: list[ExperimentVariantTrendsBaseStats]
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: Optional[ExperimentalAITrendsQuery] = None
-    plan: Optional[str] = None
-    reasoning_steps: Optional[list[str]] = None
-    type: Literal["ai/viz"] = "ai/viz"
 
 
 class ErrorTrackingQuery(BaseModel):
@@ -5984,6 +5986,10 @@ class QueryResponseAlternative(
     ]
 
 
+class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage]]):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage]
+
+
 class CachedExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6024,8 +6030,6 @@ class Response10(BaseModel):
     significance_code: ExperimentSignificanceCode
     significant: bool
     variants: list[ExperimentVariantFunnelsBaseStats]
-class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage]]):
-    root: Union[VisualizationMessage, AssistantMessage, HumanMessage]
 
 
 class DatabaseSchemaQueryResponse(BaseModel):

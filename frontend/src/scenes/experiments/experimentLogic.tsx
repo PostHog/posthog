@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -22,7 +23,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -31,8 +31,10 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    ExperimentTrendsQuery,
     FunnelsQuery,
     InsightVizNode,
+    NodeKind,
     TrendsQuery,
 } from '~/queries/schema'
 import { isFunnelsQuery } from '~/queries/utils'
@@ -789,24 +791,22 @@ export const experimentLogic = kea<experimentLogicType>([
                     | CachedExperimentFunnelsQueryResponse
                     | null
                 > => {
-                    if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        console.log('yes hogql')
-                        const query = values.experiment.metrics[0].query
-
-                        const response: ExperimentResults = await api.create(
-                            `api/projects/${values.currentTeamId}/query`,
-                            { query }
-                        )
-
-                        return {
-                            ...response,
-                            fakeInsightId: Math.random().toString(36).substring(2, 15),
-                            last_refresh: response.last_refresh,
-                        }
-                    }
-
-                    console.log('no hogql')
                     try {
+                        if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            const query = values.experiment.metrics[0].query
+
+                            const response: ExperimentResults = await api.create(
+                                `api/projects/${values.currentTeamId}/query`,
+                                { query }
+                            )
+
+                            return {
+                                ...response,
+                                fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                last_refresh: response.last_refresh || '',
+                            } as unknown as CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse
+                        }
+
                         const refreshParam = refresh ? '?refresh=true' : ''
                         const response: ExperimentResults = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results${refreshParam}`
@@ -945,31 +945,54 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         experimentMathAggregationForTrends: [
-            () => [],
-            () =>
-                (filters?: FilterType): PropertyMathType | CountPerActorMathType | undefined => {
-                    // Find out if we're using count per actor math aggregates averages per user
-                    const userMathValue = (
-                        [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
-                    ).filter((entity) =>
-                        Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
-                    )[0]?.math
+            (s) => [s.experiment, s.featureFlags],
+            (experiment, featureFlags) => (): PropertyMathType | CountPerActorMathType | undefined => {
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    const query = experiment?.metrics?.[0]?.query as ExperimentTrendsQuery
+                    if (!query) {
+                        return undefined
+                    }
+                    // Extract math from the deeper query structure
+                    const mathValue = query.count_query?.series?.[0]?.math
 
-                    // alternatively, if we're using property math
-                    // remove 'sum' property math from the list of math types
-                    // since we can handle that as a regular case
+                    // Apply the same filtering logic as the legacy path
+                    if (Object.values(CountPerActorMathType).includes(mathValue as CountPerActorMathType)) {
+                        return mathValue as CountPerActorMathType
+                    }
+
                     const targetValues = Object.values(PropertyMathType).filter(
                         (value) => value !== PropertyMathType.Sum
                     )
-                    // sync with the backend at https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/trend_experiment_result.py#L44
-                    // the function uses_math_aggregation_by_user_or_property_value
+                    if (targetValues.includes(mathValue as PropertyMathType)) {
+                        return mathValue as PropertyMathType
+                    }
 
-                    const propertyMathValue = (
-                        [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
-                    ).filter((entity) => targetValues.includes(entity?.math as PropertyMathType))[0]?.math
+                    return undefined
+                }
 
-                    return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
-                },
+                const filters = experiment?.filters
+                if (!filters) {
+                    return undefined
+                }
+
+                // Find out if we're using count per actor math aggregates averages per user
+                const userMathValue = (
+                    [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
+                ).filter((entity) =>
+                    Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
+                )[0]?.math
+
+                // alternatively, if we're using property math
+                // remove 'sum' property math from the list of math types
+                // since we can handle that as a regular case
+                const targetValues = Object.values(PropertyMathType).filter((value) => value !== PropertyMathType.Sum)
+
+                const propertyMathValue = (
+                    [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
+                ).filter((entity) => targetValues.includes(entity?.math as PropertyMathType))[0]?.math
+
+                return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
+            },
         ],
         minimumDetectableEffect: [
             (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
@@ -1162,7 +1185,14 @@ export const experimentLogic = kea<experimentLogicType>([
         conversionRateForVariant: [
             () => [],
             () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variantKey: string): number | null => {
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null,
+                    variantKey: string
+                ): number | null => {
                     if (!experimentResults || !experimentResults.insight) {
                         return null
                     }
@@ -1180,11 +1210,33 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         getIndexForVariant: [
-            () => [],
-            () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
+            (s) => [s.featureFlags],
+            (featureFlags) =>
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
+                    variant: string
+                ): number | null => {
+                    let _experimentResults
+                    let insightType: InsightType | undefined
+
+                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                        _experimentResults = experimentResults as unknown as
+                            | CachedExperimentTrendsQueryResponse
+                            | CachedExperimentFunnelsQueryResponse
+                        insightType =
+                            _experimentResults?.kind === NodeKind.ExperimentTrendsQuery
+                                ? InsightType.TRENDS
+                                : InsightType.FUNNELS
+                    } else {
+                        _experimentResults = experimentResults as Partial<ExperimentResults['result']>
+                        insightType = _experimentResults?.filters?.insight
+                    }
+
                     // TODO: Would be nice for every secondary metric to have the same colour for variants
-                    const insightType = experimentResults?.filters?.insight
                     let result: number | null = null
                     // Ensures we get the right index from results, so the UI can
                     // display the right colour for the variant
@@ -1194,11 +1246,19 @@ export const experimentLogic = kea<experimentLogicType>([
                     let index = -1
                     if (insightType === InsightType.FUNNELS) {
                         // Funnel Insight is displayed in order of decreasing count
-                        index = ([...experimentResults.insight] as FunnelStep[][])
-                            .sort((a, b) => b[0]?.count - a[0]?.count)
-                            .findIndex(
-                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
-                            )
+                        index = (Array.isArray(experimentResults.insight) ? [...experimentResults.insight] : [])
+                            .sort((a, b) => {
+                                const aCount = (a && Array.isArray(a) && a[0]?.count) || 0
+                                const bCount = (b && Array.isArray(b) && b[0]?.count) || 0
+                                return bCount - aCount
+                            })
+                            .findIndex((variantFunnel) => {
+                                if (!Array.isArray(variantFunnel) || !variantFunnel[0]?.breakdown_value) {
+                                    return false
+                                }
+                                const breakdownValue = variantFunnel[0].breakdown_value
+                                return Array.isArray(breakdownValue) && breakdownValue[0] === variant
+                            })
                     } else {
                         index = (experimentResults.insight as TrendResult[]).findIndex(
                             (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
@@ -1215,10 +1275,15 @@ export const experimentLogic = kea<experimentLogicType>([
         countDataForVariant: [
             (s) => [s.experimentMathAggregationForTrends],
             (experimentMathAggregationForTrends) =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
-                    const usingMathAggregationType = experimentMathAggregationForTrends(
-                        experimentResults?.filters || {}
-                    )
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
+                    variant: string
+                ): number | null => {
+                    const usingMathAggregationType = experimentMathAggregationForTrends()
                     if (!experimentResults || !experimentResults.insight) {
                         return null
                     }

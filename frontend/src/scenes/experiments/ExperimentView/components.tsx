@@ -35,6 +35,7 @@ import {
     CachedExperimentTrendsQueryResponse,
     ExperimentFunnelsQueryResponse,
     ExperimentTrendsQueryResponse,
+    InsightQueryNode,
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema'
@@ -197,7 +198,7 @@ export function ResultsQuery({
 }
 
 export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element }): JSX.Element {
-    const { experimentResults, experiment } = useValues(experimentLogic)
+    const { experimentResults, experiment, featureFlags } = useValues(experimentLogic)
 
     // keep in sync with https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/funnel_experiment_result.py#L71
     // :TRICKY: In the case of no results, we still want users to explore the query, so they can debug further.
@@ -212,18 +213,41 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         properties: [],
     }
 
-    const query: InsightVizNode = {
-        kind: NodeKind.InsightVizNode,
-        source: filtersToQueryNode(
-            transformResultFilters(
-                experimentResults?.filters
-                    ? { ...experimentResults.filters, explicit_date: true }
-                    : filtersFromExperiment
-            )
-        ),
-        showTable: true,
-        showLastComputation: true,
-        showLastComputationRefresh: false,
+    let query: InsightVizNode
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+        const hogqlTargetResults = experimentResults as unknown as
+            | CachedExperimentTrendsQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+
+        const source =
+            hogqlTargetResults.kind === NodeKind.ExperimentTrendsQuery
+                ? hogqlTargetResults.count_query
+                : hogqlTargetResults.funnels_query
+
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: source as InsightQueryNode,
+        }
+    } else {
+        const oldQueryTargetResults = experimentResults as ExperimentResults['result']
+
+        if (!oldQueryTargetResults?.filters) {
+            return <></>
+        }
+
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: filtersToQueryNode(
+                transformResultFilters(
+                    oldQueryTargetResults?.filters
+                        ? { ...oldQueryTargetResults.filters, explicit_date: true }
+                        : filtersFromExperiment
+                )
+            ),
+            showTable: true,
+            showLastComputation: true,
+            showLastComputationRefresh: false,
+        }
     }
 
     return (
