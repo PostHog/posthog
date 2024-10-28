@@ -1255,7 +1255,14 @@ export const experimentLogic = kea<experimentLogicType>([
         exposureCountDataForVariant: [
             () => [],
             () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
+                    variant: string
+                ): number | null => {
                     if (!experimentResults || !experimentResults.variants) {
                         return null
                     }
@@ -1273,14 +1280,21 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         getHighestProbabilityVariant: [
             () => [],
-            () => (results: ExperimentResults['result'] | null) => {
-                if (results && results.probability) {
-                    const maxValue = Math.max(...Object.values(results.probability))
-                    return Object.keys(results.probability).find(
-                        (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
-                    )
-                }
-            },
+            () =>
+                (
+                    results:
+                        | ExperimentResults['result']
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null
+                ) => {
+                    if (results && results.probability) {
+                        const maxValue = Math.max(...Object.values(results.probability))
+                        return Object.keys(results.probability).find(
+                            (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
+                        )
+                    }
+                },
         ],
         sortedExperimentResultVariants: [
             (s) => [s.experimentResults, s.experiment],
