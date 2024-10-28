@@ -39,7 +39,7 @@ function SortedBy({
             },
             {
                 value: 'activity_score',
-                label: 'Activity score',
+                label: 'Activity',
             },
             {
                 value: 'console_error_count',

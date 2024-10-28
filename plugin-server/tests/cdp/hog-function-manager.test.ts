@@ -146,6 +146,9 @@ describe('HogFunctionManager', () => {
         expect(allFunctions.length).toEqual(2)
         expect(allFunctions.map((f) => f.type).sort()).toEqual(['destination', 'email'])
 
+        const emailProvider = manager.getTeamHogEmailProvider(teamId1)
+        expect(emailProvider.type).toEqual('email')
+
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated' WHERE id = $1`,

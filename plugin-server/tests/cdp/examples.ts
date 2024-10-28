@@ -5,8 +5,9 @@ import { HogFunctionType } from '../../src/cdp/types'
  * As such we have a bunch of prebuilt examples here for usage in tests.
  */
 
-export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecode'>> = {
+export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecode' | 'type'>> = {
     simple_fetch: {
+        type: 'destination',
         hog: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});\n\nprint('Fetch response:', res)",
         bytecode: [
             '_h',
@@ -57,6 +58,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
         ],
     },
     recursive_fetch: {
+        type: 'destination',
         hog: "for (let i := 0; i < 10; i := i + 1) {\n  fetch(inputs.url, {\n    'headers': inputs.headers,\n    'body': inputs.body,\n    'method': inputs.method\n  });\n}",
         bytecode: [
             '_h',
@@ -118,6 +120,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
         ],
     },
     malicious_function: {
+        type: 'destination',
         hog: "fn fibonacci(number) {\n    print('I AM FIBONACCI')\n    if (number < 2) {\n        return number;\n    } else {\n        return fibonacci(number - 1) + fibonacci(number - 2);\n    }\n}\nprint(f'fib {fibonacci(30)}');",
         bytecode: [
             '_h',
@@ -181,6 +184,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
     },
 
     input_printer: {
+        type: 'destination',
         hog: "// I print all of the inputs\n\nprint(inputs.input_1)\nprint({'nested': inputs.secret_input_2})\nprint(inputs.secret_input_2)\nprint(f'substring: {inputs.secret_input_3}')\nprint(inputs)",
         bytecode: [
             '_h',
@@ -244,6 +248,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
         ],
     },
     posthog_capture: {
+        type: 'destination',
         hog: "postHogCapture({\n    'event': f'{event.event} (copy)',\n    'distinct_id': event.distinct_id,\n    'properties': {}\n})",
         bytecode: [
             '_h',
@@ -276,6 +281,62 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             3,
             2,
             'postHogCapture',
+            1,
+            35,
+        ],
+    },
+    export_send_email: {
+        type: 'email',
+        hog: "fun sendEmail(email) { print(email) }; return { 'sendEmail': sendEmail }",
+        bytecode: [
+            '_H',
+            1,
+            52,
+            'sendEmail',
+            1,
+            0,
+            8,
+            36,
+            0,
+            2,
+            'print',
+            1,
+            35,
+            31,
+            38,
+            53,
+            0,
+            32,
+            'sendEmail',
+            36,
+            0,
+            42,
+            1,
+            38,
+            35,
+        ],
+    },
+    import_send_email: {
+        type: 'broadcast',
+        hog: "import('provider/email').sendEmail(inputs.email)",
+        bytecode: [
+            '_H',
+            1,
+            32,
+            'email',
+            32,
+            'inputs',
+            1,
+            2,
+            32,
+            'provider/email',
+            2,
+            'import',
+            1,
+            32,
+            'sendEmail',
+            45,
+            54,
             1,
             35,
         ],
@@ -364,6 +425,60 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
                 bytecode: { foo: ['_h', 32, 'bar'], null: ['_h', 32, null], bool: ['_h', 32, false] },
             },
             secret_input_3: { value: 'super secret', bytecode: ['_h', 32, 'super secret'] },
+        },
+    },
+    none: {
+        inputs_schema: [],
+        inputs: {},
+    },
+    email: {
+        inputs_schema: [{ key: 'email', type: 'string', label: 'Email', secret: false, required: true }],
+        inputs: {
+            email: {
+                value: {
+                    to: '{person.properties.email}',
+                    body: 'Hello {person.properties.first_name} {person.properties.last_name}!\n\nThis is a broadcast',
+                    from: 'info@posthog.com',
+                    html: '<html></html>',
+                    design: [],
+                    subject: 'Hello {person.properties.email}',
+                },
+                bytecode: {
+                    to: ['_H', 1, 32, 'email', 32, 'properties', 32, 'person', 1, 3],
+                    body: [
+                        '_H',
+                        1,
+                        32,
+                        'Hello ',
+                        32,
+                        'first_name',
+                        32,
+                        'properties',
+                        32,
+                        'person',
+                        1,
+                        3,
+                        32,
+                        ' ',
+                        32,
+                        'last_name',
+                        32,
+                        'properties',
+                        32,
+                        'person',
+                        1,
+                        3,
+                        32,
+                        '!\n\nThis is a broadcast',
+                        2,
+                        'concat',
+                        5,
+                    ],
+                    from: ['_H', 1, 32, 'info@posthog.com'],
+                    html: ['_H', 1, 32, '<html></html>'],
+                    subject: ['_H', 1, 32, 'Hello ', 32, 'email', 32, 'properties', 32, 'person', 1, 3, 2, 'concat', 2],
+                },
+            },
         },
     },
 }

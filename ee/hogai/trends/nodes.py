@@ -130,13 +130,17 @@ class CreateTrendsPlanNode(AssistantNode):
     @cached_property
     def _events_prompt(self) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
             raise ValueError("Failed to generate events prompt.")
 
-        events = [item.event for item in response.results]
+        events: list[str] = []
+        for item in response.results:
+            if len(response.results) > 25 and item.count <= 3:
+                continue
+            events.append(item.event)
 
         # default for null in the
         tags: list[str] = ["all events"]

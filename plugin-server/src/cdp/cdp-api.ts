@@ -138,7 +138,9 @@ export class CdpApi {
                                 url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
                             },
                         },
-                        compoundConfiguration
+                        compoundConfiguration,
+                        // The "email" hog functions export a "sendEmail" function that we must explicitly call
+                        hogFunction.type === 'email' ? ['sendEmail', [globals.email]] : undefined
                     )
 
                 if (invocation.queue === 'fetch') {
