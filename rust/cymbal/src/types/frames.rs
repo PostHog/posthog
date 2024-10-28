@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{error::Error, langs::js::RawJSFrame, symbol_store::Catalog};
+use crate::{
+    error::Error, langs::js::RawJSFrame, metric_consts::PER_FRAME_TIME, symbol_store::Catalog,
+};
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
@@ -14,7 +16,16 @@ impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, Error> {
         let RawFrame::JavaScript(raw) = self;
 
-        raw.resolve(team_id, catalog).await
+        let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
+        let res = raw.resolve(team_id, catalog).await;
+        if res.is_err() {
+            frame_resolve_time.label("outcome", "failed")
+        } else {
+            frame_resolve_time.label("outcome", "success")
+        }
+        .fin();
+
+        res
     }
 }
 

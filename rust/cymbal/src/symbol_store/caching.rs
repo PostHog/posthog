@@ -71,8 +71,6 @@ impl CacheInner {
     }
 }
 
-// TODO - someone smarter than me should replace all this with a proper caching lib,
-// but I'm too lazy, I uhh mean task focused, to go evaluate one right now.
 impl CacheInner {
     fn insert<T>(&mut self, key: String, value: Arc<T>, bytes: usize)
     where
