@@ -8,7 +8,7 @@ use tracing::info;
 use crate::{
     config::Config,
     error::Error,
-    symbol_store::{ sourcemap::SourcemapProvider, Catalog},
+    symbol_store::{sourcemap::SourcemapProvider, Catalog},
 };
 
 pub struct AppContext {
