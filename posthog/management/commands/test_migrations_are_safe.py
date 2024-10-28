@@ -68,7 +68,7 @@ def validate_migration_sql(sql) -> bool:
             )
             return True
         if (
-            "CONSTRAINT" in operation_sql
+            " CONSTRAINT " in operation_sql
             # Ignore for new foreign key columns that are nullable, as their foreign key constraint does not lock
             and not re.search(r"ADD COLUMN .+ NULL CONSTRAINT", operation_sql)
             and "-- existing-table-constraint-ignore" not in operation_sql
