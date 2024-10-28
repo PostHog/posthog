@@ -196,6 +196,7 @@ export type HogFunctionInvocation = {
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
     timings: HogFunctionTiming[]
+    functionToExecute?: [string, any[]]
 }
 
 export type HogFunctionAsyncFunctionRequest = {

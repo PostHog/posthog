@@ -16,11 +16,11 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
-import { convertToHogFunctionFilterGlobal } from './utils'
+import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal } from './utils'
 
-const MAX_ASYNC_STEPS = 5
-const MAX_HOG_LOGS = 25
-const MAX_LOG_LENGTH = 10000
+export const MAX_ASYNC_STEPS = 5
+export const MAX_HOG_LOGS = 25
+export const MAX_LOG_LENGTH = 10000
 export const DEFAULT_TIMEOUT_MS = 100
 
 const hogExecutionDuration = new Histogram({
@@ -278,15 +278,58 @@ export class HogExecutor {
             }
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
+            const invocationInput =
+                invocation.vmState ??
+                (invocation.functionToExecute
+                    ? buildExportedFunctionInvoker(
+                          invocation.hogFunction.bytecode,
+                          globals,
+                          invocation.functionToExecute[0], // name
+                          invocation.functionToExecute[1] // args
+                      )
+                    : invocation.hogFunction.bytecode)
 
             try {
                 let hogLogs = 0
-                execRes = execHog(invocation.vmState ?? invocation.hogFunction.bytecode, {
-                    globals,
+                execRes = execHog(invocationInput, {
+                    globals: invocation.functionToExecute ? undefined : globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
+                    },
+                    importBytecode: (module) => {
+                        // TODO: more than one hardcoded module
+                        if (module === 'provider/email') {
+                            const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
+                            if (!provider) {
+                                throw new Error('No email provider configured')
+                            }
+                            try {
+                                const providerGlobals = this.buildHogFunctionGlobals({
+                                    id: '',
+                                    teamId: invocation.teamId,
+                                    hogFunction: provider,
+                                    globals: {} as any,
+                                    queue: 'hog',
+                                    timings: [],
+                                    priority: 0,
+                                } satisfies HogFunctionInvocation)
+
+                                return {
+                                    bytecode: provider.bytecode,
+                                    globals: providerGlobals,
+                                }
+                            } catch (e) {
+                                result.logs.push({
+                                    level: 'error',
+                                    timestamp: DateTime.now(),
+                                    message: `Error building inputs: ${e}`,
+                                })
+                                throw e
+                            }
+                        }
+                        throw new Error(`Can't import unknown module: ${module}`)
                     },
                     functions: {
                         print: (...args) => {
@@ -453,7 +496,7 @@ export class HogExecutor {
             result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event.url}'`,
+                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event?.url}'`,
                 err
             )
         }

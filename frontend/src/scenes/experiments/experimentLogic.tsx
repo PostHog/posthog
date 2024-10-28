@@ -61,6 +61,7 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
+import { holdoutsLogic } from './holdoutsLogic'
 import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
@@ -79,6 +80,7 @@ const NEW_EXPERIMENT: Experiment = {
     created_at: null,
     created_by: null,
     updated_at: null,
+    holdout_id: null,
 }
 
 export interface ExperimentLogicProps {
@@ -120,6 +122,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['insightDataLoading as goalInsightDataLoading'],
             featureFlagLogic,
             ['featureFlags'],
+            holdoutsLogic,
+            ['holdouts'],
         ],
         actions: [
             experimentsLogic,

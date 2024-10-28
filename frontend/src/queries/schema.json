@@ -125,9 +125,6 @@
                     "$ref": "#/definitions/SessionPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/CohortPropertyFilter"
-                },
-                {
                     "$ref": "#/definitions/GroupPropertyFilter"
                 },
                 {
@@ -264,7 +261,20 @@
                 },
                 "sample_values": {
                     "items": {
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
                     },
                     "type": "array"
                 }
@@ -606,6 +616,24 @@
                     "$ref": "#/definitions/EventsQueryResponse"
                 }
             ]
+        },
+        "AssistantMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ai",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
+        "AssistantMessageType": {
+            "enum": ["human", "ai", "ai/viz"],
+            "type": "string"
         },
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
@@ -6825,6 +6853,20 @@
             "required": ["results"],
             "type": "object"
         },
+        "HumanMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "human",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
         "InsightActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10131,6 +10173,105 @@
                     },
                     "required": ["questions"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/TeamTaxonomyResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/EventTaxonomyResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
                 }
             ]
         },
@@ -10243,6 +10384,15 @@
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/TeamTaxonomyQuery"
+                },
+                {
+                    "$ref": "#/definitions/EventTaxonomyQuery"
+                },
+                {
+                    "$ref": "#/definitions/ActorsPropertyTaxonomyQuery"
                 }
             ],
             "required": ["kind"],
@@ -10347,6 +10497,21 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "RecordingOrder": {
+            "enum": [
+                "duration",
+                "recording_duration",
+                "inactive_seconds",
+                "active_seconds",
+                "start_time",
+                "console_error_count",
+                "click_count",
+                "keypress_count",
+                "mouse_activity_count",
+                "activity_score"
+            ],
+            "type": "string"
+        },
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -10436,35 +10601,7 @@
                     "$ref": "#/definitions/FilterLogicalOperator"
                 },
                 "order": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/DurationType"
-                        },
-                        {
-                            "const": "start_time",
-                            "type": "string"
-                        },
-                        {
-                            "const": "console_error_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "click_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "keypress_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "mouse_activity_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "activity_score",
-                            "type": "string"
-                        }
-                    ]
+                    "$ref": "#/definitions/RecordingOrder"
                 },
                 "person_uuid": {
                     "type": "string"
@@ -10488,7 +10625,7 @@
                     "type": "object"
                 }
             },
-            "required": ["kind", "order"],
+            "required": ["kind"],
             "type": "object"
         },
         "RecordingsQueryResponse": {
@@ -10758,6 +10895,19 @@
             },
             "required": ["count"],
             "type": "object"
+        },
+        "RootAssistantMessage": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/VisualizationMessage"
+                },
+                {
+                    "$ref": "#/definitions/AssistantMessage"
+                },
+                {
+                    "$ref": "#/definitions/HumanMessage"
+                }
+            ]
         },
         "SamplingRate": {
             "additionalProperties": false,
@@ -11886,6 +12036,36 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "VisualizationMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "answer": {
+                    "$ref": "#/definitions/ExperimentalAITrendsQuery"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "reasoning_steps": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "type": {
+                    "const": "ai/viz",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "VizSpecificOptions": {
