@@ -403,4 +403,4 @@ class GenerateTrendsToolsNode(AssistantNode):
         if not intermediate_steps:
             return state
         action, _ = intermediate_steps[-1]
-        return {"intermediate_steps": (action, action.log)}
+        return {"intermediate_steps": [(action, action.log)]}
