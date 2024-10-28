@@ -8,6 +8,7 @@ from temporalio import activity
 
 from posthog.settings.utils import get_from_env
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.data_imports.pipelines.bigquery import delete_table
 from posthog.temporal.data_imports.pipelines.helpers import (
     aremove_reset_pipeline,
