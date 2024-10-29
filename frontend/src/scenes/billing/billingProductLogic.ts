@@ -1,4 +1,4 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,6 +18,7 @@ export interface BillingProductLogicProps {
     product: BillingProductV2Type | BillingProductV2AddonType
     productRef?: React.MutableRefObject<HTMLDivElement | null>
     billingLimitInputRef?: React.MutableRefObject<HTMLInputElement | null>
+    hogfettiTrigger?: () => void
 }
 
 export const billingProductLogic = kea<billingProductLogicType>([
@@ -74,6 +75,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             products,
             redirectPath,
         }),
+        setStepTwo: true,
+        resetStep: true,
+        setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
+        triggerMoreHedgehogs: true,
     }),
     reducers({
         billingLimitInput: [
@@ -149,6 +154,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
             null as string | null,
             {
                 toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
+            },
+        ],
+        surveyStep: [
+            1 as number,
+            {
+                setStepTwo: () => 2,
+                resetStep: () => 1,
+            },
+        ],
+        hedgehogSatisfied: [
+            false as boolean,
+            {
+                setHedgehogSatisfied: (_, { satisfied }) => satisfied,
             },
         ],
     }),
@@ -304,9 +322,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
         deactivateProductSuccess: async (_, breakpoint) => {
             if (!values.unsubscribeError && values.surveyID) {
                 actions.reportSurveySent(values.surveyID, values.surveyResponse)
+                if (values.hedgehogSatisfied) {
+                    lemonToast.success("We're sad to see you go, but glad you got enough hedgehogs!")
+                }
             }
             await breakpoint(200)
-            location.reload()
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
@@ -329,6 +349,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             window.location.href = `/api/billing/activate?products=${products}${
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
+        },
+        triggerMoreHedgehogs: async (_, breakpoint) => {
+            for (let i = 0; i < 5; i++) {
+                props.hogfettiTrigger?.()
+                await breakpoint(200)
+            }
         },
     })),
     forms(({ actions, props, values }) => ({
