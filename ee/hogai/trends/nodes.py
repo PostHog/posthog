@@ -46,7 +46,13 @@ from ee.hogai.utils import (
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import CachedTeamTaxonomyQueryResponse, HumanMessage, TeamTaxonomyQuery, VisualizationMessage
+from posthog.schema import (
+    CachedTeamTaxonomyQueryResponse,
+    FailureMessage,
+    HumanMessage,
+    TeamTaxonomyQuery,
+    VisualizationMessage,
+)
 
 
 class CreateTrendsPlanNode(AssistantNode):
@@ -241,7 +247,7 @@ class GenerateTrendsNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig):
         generated_plan = state.get("plan", "")
-        intermediate_steps = state.get("intermediate_steps", [])
+        intermediate_steps = state.get("intermediate_steps") or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
         trends_generation_prompt = ChatPromptTemplate.from_messages(
@@ -257,9 +263,20 @@ class GenerateTrendsNode(AssistantNode):
         try:
             message: GenerateTrendOutputModel = chain.invoke({}, config)
         except PydanticOutputParserException as e:
+            # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
+            if len(intermediate_steps) > 2:
+                return {
+                    "messages": [
+                        FailureMessage(
+                            content="Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?"
+                        )
+                    ],
+                }
+
             return {
                 "intermediate_steps": [
-                    (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None)
+                    *intermediate_steps,
+                    (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
                 ],
             }
 

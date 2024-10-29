@@ -10,9 +10,9 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
 from posthog.models.team.team import Team
-from posthog.schema import AssistantMessage, HumanMessage, RootAssistantMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, RootAssistantMessage, VisualizationMessage
 
-AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage]
+AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage]
 
 
 class Conversation(BaseModel):

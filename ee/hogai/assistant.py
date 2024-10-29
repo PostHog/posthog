@@ -4,6 +4,7 @@ from typing import Any, Literal, TypedDict, TypeGuard, Union, cast
 from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import StateGraph
+from pydantic import BaseModel
 
 from ee import settings
 from ee.hogai.trends.nodes import (
@@ -14,7 +15,7 @@ from ee.hogai.trends.nodes import (
 )
 from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
 from posthog.models.team.team import Team
-from posthog.schema import VisualizationMessage
+from posthog.schema import AssistantGenerationStatusEvent, AssistantGenerationStatusType, VisualizationMessage
 
 if settings.LANGFUSE_PUBLIC_KEY:
     langfuse_handler = CallbackHandler(
@@ -82,7 +83,7 @@ class Assistant:
 
         return builder.compile()
 
-    def stream(self, conversation: Conversation) -> Generator[str, None, None]:
+    def stream(self, conversation: Conversation) -> Generator[BaseModel, None, None]:
         assistant_graph = self._compile_graph()
         callbacks = [langfuse_handler] if langfuse_handler else []
         messages = [message.root for message in conversation.messages]
@@ -99,7 +100,7 @@ class Assistant:
         chunks = AIMessageChunk(content="")
 
         # Send a chunk to establish the connection avoiding the worker's timeout.
-        yield ""
+        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
 
         for update in generator:
             if is_state_update(update):
@@ -117,7 +118,9 @@ class Assistant:
                         message = cast(
                             VisualizationMessage, state_update[AssistantNodeName.GENERATE_TRENDS]["messages"][0]
                         )
-                        yield message.model_dump_json()
+                        yield message
+                    elif state_update[AssistantNodeName.GENERATE_TRENDS].get("intermediate_steps", []):
+                        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
 
             elif is_message_update(update):
                 langchain_message, langgraph_state = update[1]
@@ -129,4 +132,4 @@ class Assistant:
                     if parsed_message:
                         yield VisualizationMessage(
                             reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
-                        ).model_dump_json()
+                        )

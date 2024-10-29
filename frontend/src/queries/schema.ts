@@ -2096,6 +2096,7 @@ export enum AssistantMessageType {
     Human = 'human',
     Assistant = 'ai',
     Visualization = 'ai/viz',
+    Failure = 'ai/failure',
 }
 
 export interface HumanMessage {
@@ -2115,4 +2116,23 @@ export interface VisualizationMessage {
     answer?: ExperimentalAITrendsQuery
 }
 
-export type RootAssistantMessage = VisualizationMessage | AssistantMessage | HumanMessage
+export interface FailureMessage {
+    type: AssistantMessageType.Failure
+    content?: string
+}
+
+export type RootAssistantMessage = VisualizationMessage | AssistantMessage | HumanMessage | FailureMessage
+
+export enum AssistantEventType {
+    Status = 'status',
+    Message = 'message',
+}
+
+export enum AssistantGenerationStatusType {
+    Acknowledged = 'ack',
+    GenerationError = 'generation_error',
+}
+
+export interface AssistantGenerationStatusEvent {
+    type: AssistantGenerationStatusType
+}
