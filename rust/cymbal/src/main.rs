@@ -8,7 +8,10 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     error::Error,
-    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_STACK_TIME, STACK_PROCESSED},
+    metric_consts::{
+        ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_FRAME_GROUP_TIME, PER_STACK_TIME,
+        STACK_PROCESSED,
+    },
     types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
@@ -132,9 +135,17 @@ async fn main() -> Result<(), Error> {
         let team_id = event.team_id;
         let mut results = Vec::with_capacity(stack_trace.len());
         for (_, frames) in groups.into_iter() {
+            let mut any_success = false;
+            let per_frame_group = common_metrics::timing_guard(PER_FRAME_GROUP_TIME, &[]);
             for frame in frames {
                 results.push(frame.resolve(team_id, &context.catalog).await);
+                if results.last().unwrap().is_ok() {
+                    any_success = true;
+                }
             }
+            per_frame_group
+                .label("resolved_any", if any_success { "true" } else { "false" })
+                .fin();
         }
 
         per_stack
