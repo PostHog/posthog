@@ -57,41 +57,9 @@ impl RawJSFrame {
 
     // JS frames can only handle JS resolution errors - errors at the network level
     pub fn handle_resolution_error(&self, e: JsResolveErr) -> Frame {
-        // A bit naughty, but for code like this, justified I think
-        use JsResolveErr::{
-            InvalidSourceMap, InvalidSourceMapHeader, InvalidSourceMapUrl, InvalidSourceUrl,
-            NoSourceUrl, NoSourcemap, TokenNotFound,
-        };
-
-        todo!();
-
-        // I break out all the cases individually here, rather than using an _ to match all,
-        // because I want this to stop compiling if we add new cases
-        Ok(match e {
-            NoSourceUrl => self.try_assume_unminified().ok_or(NoSourceUrl), // We assume we're not minified
-            NoSourcemap(u) => self.try_assume_unminified().ok_or(NoSourcemap(u)),
-            InvalidSourceMap(e) => Err(JsResolveErr::from(e)),
-            TokenNotFound(s, l, c) => Err(TokenNotFound(s, l, c)),
-            InvalidSourceUrl(u) => Err(InvalidSourceUrl(u)),
-            InvalidSourceMapHeader(u) => Err(InvalidSourceMapHeader(u)),
-            InvalidSourceMapUrl(u) => Err(InvalidSourceMapUrl(u)),
-        }?)
-    }
-
-    // Returns none if the frame is
-    fn try_assume_unminified(&self) -> Option<Frame> {
-        // TODO - we should include logic here that uses some kind of heuristic to determine
-        // if this frame is minified or not. Right now, we simply assume it isn't if this is
-        // being called (and all the cases where it's called are above)
-        Some(Frame {
-            mangled_name: self.fn_name.clone(),
-            line: Some(self.line),
-            column: Some(self.column),
-            source: self.source_url.clone(), // Maybe we have one?
-            in_app: self.in_app,
-            resolved_name: Some(self.fn_name.clone()), // This is the bit we'd want to check
-            lang: "javascript".to_string(),
-        })
+        // If we failed to resolve the frame, we mark it as "not resolved" and add the error message,
+        // then return a Frame anyway, because frame handling is a best-effort thing.
+        (self, e).into()
     }
 
     fn source_url(&self) -> Result<Url, JsResolveErr> {
@@ -147,6 +115,24 @@ impl From<(&RawJSFrame, Token<'_>)> for Frame {
             in_app: raw_frame.in_app,
             resolved_name: token.get_name().map(String::from),
             lang: "javascript".to_string(),
+            resolved: true,
+            resolve_failure: None,
+        }
+    }
+}
+
+impl From<(&RawJSFrame, JsResolveErr)> for Frame {
+    fn from((raw_frame, err): (&RawJSFrame, JsResolveErr)) -> Self {
+        Self {
+            mangled_name: raw_frame.fn_name.clone(),
+            line: Some(raw_frame.line),
+            column: Some(raw_frame.column),
+            source: raw_frame.source_url.clone(),
+            in_app: raw_frame.in_app,
+            resolved_name: None,
+            lang: "javascript".to_string(),
+            resolved: false,
+            resolve_failure: Some(err.to_string()),
         }
     }
 }
