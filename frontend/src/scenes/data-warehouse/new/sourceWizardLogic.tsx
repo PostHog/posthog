@@ -6,6 +6,7 @@ import api from 'lib/api'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -16,6 +17,7 @@ import {
     manualLinkSources,
     ManualLinkSourceType,
     PipelineTab,
+    ProductKey,
     SourceConfig,
     SourceFieldConfig,
 } from '~/types'
@@ -731,6 +733,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['resetTable', 'createTableSuccess'],
             dataWarehouseSettingsLogic,
             ['loadSources'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     }),
     reducers({
@@ -1128,6 +1132,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         setManualLinkingProvider: () => {
             actions.onNext()
+        },
+        selectConnector: () => {
+            actions.addProductIntent({ product_type: ProductKey.DATA_WAREHOUSE, intent_context: 'selected connector' })
         },
     })),
     urlToAction(({ actions }) => ({
