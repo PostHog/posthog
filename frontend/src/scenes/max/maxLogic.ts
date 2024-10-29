@@ -3,6 +3,7 @@ import { createParser } from 'eventsource-parser'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { isHumanMessage } from 'scenes/max/utils'
 
 import {
     AssistantEventType,
@@ -39,6 +40,7 @@ export const maxLogic = kea<maxLogicType>([
         setQuestion: (question: string) => ({ question }),
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
+        retryLastMessage: true,
     }),
     reducers({
         question: [
@@ -187,6 +189,12 @@ export const maxLogic = kea<maxLogicType>([
             }
 
             actions.setThreadLoaded()
+        },
+        retryLastMessage: () => {
+            const lastMessage = values.thread.filter(isHumanMessage).pop()
+            if (lastMessage) {
+                actions.askMax(lastMessage.content)
+            }
         },
     })),
     selectors({

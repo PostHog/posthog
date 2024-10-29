@@ -8,9 +8,10 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonRow, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
 import React, { useMemo, useRef, useState } from 'react'
@@ -31,6 +32,7 @@ import { isFailureMessage, isHumanMessage, isVisualizationMessage } from './util
 
 export function Thread(): JSX.Element | null {
     const { thread, threadLoading } = useValues(maxLogic)
+    const { retryLastMessage } = useActions(maxLogic)
 
     return (
         <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow m-4">
@@ -60,7 +62,24 @@ export function Thread(): JSX.Element | null {
 
                 if (isFailureMessage(message)) {
                     return (
-                        <Message key={index} type="ai" className="border-danger">
+                        <Message
+                            key={index}
+                            type="ai"
+                            className="border-danger"
+                            action={
+                                index === thread.length - 1 && (
+                                    <LemonButton
+                                        icon={<IconRefresh />}
+                                        size="small"
+                                        className="mt-2"
+                                        type="secondary"
+                                        onClick={() => retryLastMessage()}
+                                    >
+                                        Try again
+                                    </LemonButton>
+                                )
+                            }
+                        >
                             {message.content || <i>Max has failed to generate an answer. Please try again.</i>}
                         </Message>
                     )
@@ -82,8 +101,8 @@ export function Thread(): JSX.Element | null {
 
 const Message = React.forwardRef<
     HTMLDivElement,
-    React.PropsWithChildren<{ type: 'human' | 'ai'; className?: string; errorMessage?: string }>
->(function Message({ type, children, className, errorMessage }, ref): JSX.Element {
+    React.PropsWithChildren<{ type: 'human' | 'ai'; className?: string; action?: React.ReactNode }>
+>(function Message({ type, children, className, action }, ref): JSX.Element {
     if (type === AssistantMessageType.Human) {
         return (
             <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
@@ -97,11 +116,7 @@ const Message = React.forwardRef<
             <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
                 {children}
             </div>
-            {errorMessage && (
-                <LemonRow icon={<IconWarning />} status="warning" size="small">
-                    {errorMessage}
-                </LemonRow>
-            )}
+            {action}
         </div>
     )
 })
@@ -132,10 +147,12 @@ function Answer({
             {message.reasoning_steps && (
                 <Message
                     type="ai"
-                    errorMessage={
-                        status === 'error'
-                            ? 'Max is generating this answer one more time because the previous attempt has failed.'
-                            : undefined
+                    action={
+                        status === 'error' && (
+                            <LemonRow icon={<IconWarning />} status="warning" size="small">
+                                Max is generating this answer one more time because the previous attempt has failed.
+                            </LemonRow>
+                        )
                     }
                     className={status === 'error' ? 'border-warning' : undefined}
                 >
