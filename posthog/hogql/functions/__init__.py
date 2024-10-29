@@ -9,6 +9,7 @@ from .mapping import (
 )
 from .cohort import cohort
 from .sparkline import sparkline
+from .string_or import string_or
 from .recording_button import recording_button
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "FIRST_ARG_DATETIME_FUNCTIONS",
     "cohort",
     "sparkline",
+    "string_or",
     "recording_button",
 ]
