@@ -27,6 +27,11 @@ impl RawFrame {
 
         res
     }
+
+    pub fn symbol_set_group_key(&self) -> String {
+        let RawFrame::JavaScript(raw) = self;
+        raw.source_url().map(String::from).unwrap_or_default()
+    }
 }
 
 // We emit a single, unified representation of a frame, which is what we pass on to users.

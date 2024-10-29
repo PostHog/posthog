@@ -1,4 +1,4 @@
-use std::{future::ready, sync::Arc};
+use std::{collections::HashMap, future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::RecvErr;
@@ -119,17 +119,42 @@ async fn main() -> Result<(), Error> {
         let stack_trace: &Vec<RawFrame> = &trace.frames;
 
         let per_stack = common_metrics::timing_guard(PER_STACK_TIME, &[]);
-        let mut frames = Vec::with_capacity(stack_trace.len());
+
+        // Cluster the frames by symbol set
+        let mut groups = HashMap::new();
         for frame in stack_trace {
-            match frame.resolve(event.team_id, &context.catalog).await {
-                Ok(r) => frames.push(r),
+            let group = groups
+                .entry(frame.symbol_set_group_key())
+                .or_insert_with(Vec::new);
+            group.push(frame.clone());
+        }
+
+        // Spawn a task to resolve each group of frames
+        let team_id = event.team_id;
+        let mut handles = Vec::with_capacity(groups.len());
+        for (_, frames) in groups.into_iter() {
+            let context = context.clone();
+            handles.push(tokio::task::spawn(async move {
+                let mut results = Vec::with_capacity(frames.len());
+                for frame in frames {
+                    results.push(frame.resolve(team_id, &context.catalog).await);
+                }
+                return results;
+            }));
+        }
+
+        // Collect the results
+        let mut frames = Vec::with_capacity(stack_trace.len());
+        for handle in handles {
+            match handle.await {
+                Ok(r) => frames.extend(r),
                 Err(err) => {
-                    metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
-                    error!("Error parsing stack frame: {:?}", err);
-                    continue;
+                    metrics::counter!(ERRORS, "cause" => "frame_resolution_error").increment(1);
+                    error!("Error resolving stack frame: {:?}", err);
                 }
             };
         }
+
         per_stack
             .label(
                 "resolved_any",
