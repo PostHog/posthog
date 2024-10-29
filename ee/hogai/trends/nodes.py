@@ -1,5 +1,4 @@
 import itertools
-import json
 import xml.etree.ElementTree as ET
 from functools import cached_property
 from typing import Optional, Union, cast
@@ -11,19 +10,20 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage as LangchainAssistantMessage
 from langchain_core.messages import BaseMessage, merge_message_runs
 from langchain_core.messages import HumanMessage as LangchainHumanMessage
-from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
+from ee.hogai.trends.parsers import PydanticOutputParserException, parse_generated_trends_output
 from ee.hogai.trends.prompts import (
     react_definitions_prompt,
     react_follow_up_prompt,
     react_scratchpad_prompt,
     react_system_prompt,
     react_user_prompt,
+    trends_failover_output_prompt,
     trends_failover_prompt,
     trends_group_mapping_prompt,
     trends_new_plan_prompt,
@@ -252,26 +252,15 @@ class GenerateTrendsNode(AssistantNode):
         ) + self._reconstruct_conversation(state, validation_error_message=validation_error_message)
         merger = merge_message_runs()
 
-        chain = (
-            trends_generation_prompt
-            | merger
-            | self._model
-            # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
-            | RunnableLambda(lambda x: json.dumps(x))
-            # Validate a string input.
-            | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
-        )
+        chain = trends_generation_prompt | merger | self._model | parse_generated_trends_output
 
         try:
             message: GenerateTrendOutputModel = chain.invoke({}, config)
-        except OutputParserException as e:
-            if e.send_to_llm:
-                observation = str(e.observation)
-            else:
-                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
-
+        except PydanticOutputParserException as e:
             return {
-                "intermediate_steps": [(AgentAction("handle_incorrect_response", observation, str(e)), None)],
+                "intermediate_steps": [
+                    (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None)
+                ],
             }
 
         return {
@@ -378,7 +367,7 @@ class GenerateTrendsNode(AssistantNode):
         if validation_error_message:
             conversation.append(
                 HumanMessagePromptTemplate.from_template(trends_failover_prompt, template_format="mustache").format(
-                    exception_message=validation_error_message
+                    validation_error_message=validation_error_message
                 )
             )
 
@@ -403,5 +392,17 @@ class GenerateTrendsToolsNode(AssistantNode):
         intermediate_steps = state.get("intermediate_steps", [])
         if not intermediate_steps:
             return state
+
         action, _ = intermediate_steps[-1]
-        return {"intermediate_steps": [(action, action.log)]}
+        prompt = (
+            ChatPromptTemplate.from_template(trends_failover_output_prompt, template_format="mustache")
+            .format_messages(output=action.tool_input, exception_message=action.log)[0]
+            .content
+        )
+
+        return {
+            "intermediate_steps": [
+                *intermediate_steps[:-1],
+                (action, prompt),
+            ]
+        }

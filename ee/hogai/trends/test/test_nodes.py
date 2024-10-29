@@ -300,6 +300,8 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
 class TestGenerateTrendsToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_tools_node(self):
         node = GenerateTrendsToolsNode(self.team)
-        action = AgentAction(tool="fix", tool_input="validation error", log="exception")
+        action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = node.run({"messages": [], "intermediate_steps": [(action, None)]}, {})
-        self.assertEqual(state, {"intermediate_steps": [(action, "exception")]})
+        self.assertIsNotNone("validationerror", state["intermediate_steps"][0][1])
+        self.assertIn("validationerror", state["intermediate_steps"][0][1])
+        self.assertIn("pydanticexception", state["intermediate_steps"][0][1])
