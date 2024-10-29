@@ -301,6 +301,7 @@ pub fn process_single_event(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        is_cookieless_mode: event.extract_is_cookieless_mode()?,
     };
     Ok(ProcessedEvent { metadata, event })
 }
@@ -359,6 +360,7 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$snapshot_source")
         .unwrap_or(Value::String(String::from("web")));
+    let is_cookieless_mode = events[0].extract_is_cookieless_mode()?;
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {
@@ -406,6 +408,7 @@ pub async fn process_replay_events<'a>(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        is_cookieless_mode,
     };
 
     sink.send(ProcessedEvent { metadata, event }).await

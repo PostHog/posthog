@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Not;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,6 +47,8 @@ pub struct CapturedEvent {
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
+    #[serde(skip_serializing_if = "<&bool>::not")] // only store if true
+    pub is_cookieless_mode: bool,
 }
 
 // Used when we want to bypass token checks when emitting events from rust
@@ -59,7 +62,11 @@ pub struct InternallyCapturedEvent {
 
 impl CapturedEvent {
     pub fn key(&self) -> String {
-        format!("{}:{}", self.token, self.distinct_id)
+        if self.is_cookieless_mode {
+            format!("{}:{}", self.token, self.ip)
+        } else {
+            format!("{}:{}", self.token, self.distinct_id)
+        }
     }
 }
 
@@ -173,6 +180,14 @@ impl RawEvent {
             0 => None,
             1..=200 => Some(distinct_id),
             _ => Some(distinct_id.chars().take(200).collect()),
+        }
+    }
+
+    pub fn extract_is_cookieless_mode(&self) -> Result<bool, CaptureError> {
+        match self.properties.get("$cookieless_mode") {
+            Some(Value::Bool(b)) => Ok(*b),
+            Some(_) => Err(CaptureError::InvalidCklshMode),
+            None => Ok(false),
         }
     }
 }

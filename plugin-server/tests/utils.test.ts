@@ -98,6 +98,7 @@ describe('utils', () => {
             it('returns the right big integer', () => {
                 const uuid = new UUID('99aBcDeF-1234-4321-0000-dcba87654321')
 
+                // @ts-expect-error bigint literals are fine for tests
                 expect(uuid.valueOf()).toStrictEqual(0x99abcdef123443210000dcba87654321n)
             })
         })
