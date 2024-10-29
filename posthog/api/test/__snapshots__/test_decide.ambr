@@ -521,7 +521,8 @@
   '''
   SELECT "posthog_productintent"."product_type",
          "posthog_productintent"."created_at",
-         "posthog_productintent"."onboarding_completed_at"
+         "posthog_productintent"."onboarding_completed_at",
+         "posthog_productintent"."updated_at"
   FROM "posthog_productintent"
   WHERE "posthog_productintent"."team_id" = 2
   '''
