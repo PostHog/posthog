@@ -56,6 +56,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                     event
                 ORDER BY
                     count DESC
+                LIMIT 500
             """
         )
 

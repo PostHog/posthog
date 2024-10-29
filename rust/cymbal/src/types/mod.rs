@@ -44,7 +44,7 @@ pub struct Exception {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ErrProps {
     #[serde(rename = "$exception_list")]
-    pub exception_list: Vec<Exception>, // Required from exception producers - we will not process events without this
+    pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "$exception_type")]
     pub exception_type: Option<String>, // legacy, overridden by exception_list
@@ -70,44 +70,30 @@ mod test {
     use super::ErrProps;
 
     #[test]
-    fn it_requires_exception_list() {
-        let raw: &'static str = include_str!("../../tests/static/raw_ch_exception.json");
-
-        let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
-
-        // errors out because of missing exception_list property, which is required
-        let props: Result<ErrProps, Error> = serde_json::from_str(&raw.properties.unwrap());
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `$exception_list` at line 275 column 5"
-        );
-    }
-
-    #[test]
     fn it_deserialises_error_props() {
         let raw: &'static str = include_str!("../../tests/static/raw_ch_exception_list.json");
 
         let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
         let props: ErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
+        let exception_list = &props.exception_list.unwrap();
 
-        assert_eq!(props.exception_list.len(), 1);
+        assert_eq!(exception_list.len(), 1);
         assert_eq!(
-            props.exception_list[0].exception_type,
+            exception_list[0].exception_type,
             "UnhandledRejection".to_string()
         );
         assert_eq!(
-            props.exception_list[0].exception_message,
+            exception_list[0].exception_message,
             "Unexpected usage".to_string()
         );
-        let mechanism = props.exception_list[0].mechanism.as_ref().unwrap();
+        let mechanism = exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
         assert_eq!(mechanism.mechanism_type, None);
         assert_eq!(mechanism.source, None);
         assert_eq!(mechanism.synthetic, Some(false));
 
-        let stacktrace = props.exception_list[0].stacktrace.as_ref().unwrap();
+        let stacktrace = exception_list[0].stacktrace.as_ref().unwrap();
         assert_eq!(stacktrace.frames.len(), 2);
         let RawFrame::JavaScript(frame) = &stacktrace.frames[0];
 
@@ -116,7 +102,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "?".to_string());
-        assert_eq!(frame.in_app, true);
+        assert!(frame.in_app);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 25112);
 
@@ -126,7 +112,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "n.loadForeignModule".to_string());
-        assert_eq!(frame.in_app, true);
+        assert!(frame.in_app);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 15003);
 
@@ -142,9 +128,9 @@ mod test {
             "$exception_list": []
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_ok());
-        assert_eq!(props.unwrap().exception_list.len(), 0);
+        assert_eq!(props.unwrap().exception_list.unwrap().len(), 0);
 
         let raw: &'static str = r#"{
             "$exception_list": [{
@@ -152,7 +138,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
@@ -166,7 +152,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),

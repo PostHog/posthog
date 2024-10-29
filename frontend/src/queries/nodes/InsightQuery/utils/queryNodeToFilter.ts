@@ -1,3 +1,4 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectClean } from 'lib/utils'
 
 import {
@@ -53,6 +54,7 @@ export const seriesNodeToFilter = (
         // TODO: math is not supported by funnel and lifecycle queries
         math: node.math,
         math_property: node.math_property,
+        math_property_type: node.math_property_type as TaxonomicFilterGroupType,
         math_hogql: node.math_hogql,
         math_group_type_index: node.math_group_type_index,
         properties: node.properties as any, // TODO,
