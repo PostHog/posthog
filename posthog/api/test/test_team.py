@@ -1042,6 +1042,9 @@ def team_api_test_factory():
                     "$session_id": "test_session_id",
                     "intent_context": "onboarding product selected",
                     "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                    "is_first_intent_for_product": True,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                 },
                 team=self.team,
             )
@@ -1073,6 +1076,9 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
+                    "intent_context": None,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                 },
                 team=self.team,
             )
