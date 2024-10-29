@@ -35,6 +35,7 @@ export interface ProposeNewUrlFormType {
 export enum AuthorizedUrlListType {
     TOOLBAR_URLS = 'TOOLBAR_URLS',
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
+    WEB_EXPERIMENTS = 'WEB_EXPERIMENTS',
 }
 
 /**
@@ -169,6 +170,7 @@ export interface AuthorizedUrlListLogicProps {
     actionId: number | null
     experimentId: number | null | 'new'
     type: AuthorizedUrlListType
+    query: string | undefined
 }
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),

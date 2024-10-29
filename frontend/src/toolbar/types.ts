@@ -104,7 +104,7 @@ export interface WebExperimentVariant {
             utm_term?: string
         }
     } | null
-    transforms: WebExperimentTransform[]
+    transforms?: WebExperimentTransform[]
     rollout_percentage?: number
 }
 

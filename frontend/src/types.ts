@@ -3233,8 +3233,9 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number | 'new'
+    id: number | 'new' | 'web'
     name: string
+    type?: string
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType

@@ -75,6 +75,7 @@ const NEW_EXPERIMENT: Experiment = {
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
+    type?: string
 }
 
 interface SecondaryMetricResult {
@@ -345,7 +346,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             let response: Experiment | null = null
-            const isUpdate = !!values.experimentId && values.experimentId !== 'new'
+            const isUpdate = !!values.experimentId && values.experimentId !== 'new' && values.experimentId !== 'web'
             try {
                 if (isUpdate) {
                     response = await api.update(
@@ -738,7 +739,7 @@ export const experimentLogic = kea<experimentLogicType>([
     loaders(({ actions, props, values }) => ({
         experiment: {
             loadExperiment: async () => {
-                if (props.experimentId && props.experimentId !== 'new') {
+                if (props.experimentId && props.experimentId !== 'new' && props.experimentId !== 'web') {
                     try {
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
@@ -752,7 +753,16 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                     }
                 }
-                return NEW_EXPERIMENT
+
+                let experiment = NEW_EXPERIMENT
+                if (props.experimentId === 'web') {
+                    experiment = {
+                        ...NEW_EXPERIMENT,
+                        id: 'web',
+                        type: 'web',
+                    }
+                }
+                return experiment
             },
             updateExperiment: async (update: Partial<Experiment>) => {
                 const response: Experiment = await api.update(
@@ -823,7 +833,7 @@ export const experimentLogic = kea<experimentLogicType>([
             null as CohortType | null,
             {
                 createExposureCohort: async () => {
-                    if (props.experimentId && props.experimentId !== 'new') {
+                    if (props.experimentId && props.experimentId !== 'new' && props.experimentId !== 'web') {
                         return (await api.experiments.createExposureCohort(props.experimentId)).cohort
                     }
                     return null
@@ -1409,8 +1419,8 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setEditExperiment(false)
 
             if (id && didPathChange) {
-                const parsedId = id === 'new' ? 'new' : parseInt(id)
-                if (parsedId === 'new') {
+                const parsedId = id === 'new' ? 'new' : id === 'web' ? 'web' : parseInt(id)
+                if (parsedId === 'new' || parsedId === 'web') {
                     actions.resetExperiment()
                     actions.setNewExperimentInsight()
                 }

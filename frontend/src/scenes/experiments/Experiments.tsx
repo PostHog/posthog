@@ -29,8 +29,16 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState, searchStatus, userFilter } =
-        useValues(experimentsLogic)
+    const {
+        filteredExperiments,
+        experimentsLoading,
+        tab,
+        searchTerm,
+        shouldShowEmptyState,
+        searchStatus,
+        userFilter,
+        webExperimentsAvailable,
+    } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
@@ -183,7 +191,27 @@ export function Experiments(): JSX.Element {
         <div>
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
+                    <LemonButton
+                        type="primary"
+                        data-attr="create-experiment"
+                        to={urls.experiment('new')}
+                        sideAction={
+                            webExperimentsAvailable
+                                ? {
+                                      dropdown: {
+                                          placement: 'bottom-start',
+                                          actionable: true,
+                                          overlay: (
+                                              <LemonButton size="small" to={urls.experiment('web')}>
+                                                  New Web experiment
+                                              </LemonButton>
+                                          ),
+                                      },
+                                      'data-attr': 'saved-insights-new-insight-dropdown',
+                                  }
+                                : null
+                        }
+                    >
                         New experiment
                     </LemonButton>
                 }
@@ -227,7 +255,7 @@ export function Experiments(): JSX.Element {
                     thingName="experiment"
                     description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                     docsURL="https://posthog.com/docs/experiments"
-                    action={() => router.actions.push(urls.experiment('new'))}
+                    action={() => router.actions.push(urls.experiment('new', 'web'))}
                     isEmpty={shouldShowEmptyState}
                     customHog={ExperimentsHog}
                 />

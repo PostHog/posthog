@@ -89,10 +89,10 @@ export function ExperimentPreview({
         <div className="flex">
             <div
                 className={
-                    !experiment?.start_date && experimentId !== 'new' && !editingExistingExperiment ? 'w-1/2' : 'w-full'
+                    !experiment?.start_date && experiment?.created_at && !editingExistingExperiment ? 'w-1/2' : 'w-full'
                 }
             >
-                {experimentId === 'new' && (
+                {!experiment?.created_at && (
                     <div>
                         <div>
                             <b>Experiment preview</b>
@@ -104,7 +104,7 @@ export function ExperimentPreview({
                         <LemonDivider className="my-4" />
                     </div>
                 )}
-                {(experimentId === 'new' || editingExistingExperiment) && (
+                {(!experiment?.created_at || editingExistingExperiment) && (
                     <div className="mb-4 experiment-preview-row">
                         <div className="flex items-center">
                             <b>Minimum detectable effect</b>
