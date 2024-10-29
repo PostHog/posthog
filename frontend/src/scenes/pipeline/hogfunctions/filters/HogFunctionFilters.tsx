@@ -158,7 +158,7 @@ export function HogFunctionFilters(): JSX.Element {
                                     label: 'Run once per interval',
                                 },
                                 {
-                                    value: '{person.uuid}',
+                                    value: '{person.id}',
                                     label: 'Run once per person per interval',
                                 },
                             ]}
