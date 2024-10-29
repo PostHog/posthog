@@ -12,7 +12,7 @@ use cymbal::{
         ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_FRAME_GROUP_TIME, PER_STACK_TIME,
         STACK_PROCESSED,
     },
-    types::{frames::RawFrame, ErrProps},
+    types::{stack::UnprocessedStack, ErrProps},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -119,40 +119,12 @@ async fn main() -> Result<(), Error> {
             continue;
         };
 
-        let stack_trace: &Vec<RawFrame> = &trace.frames;
-
+        let stack: UnprocessedStack = trace.frames.clone().into();
         let per_stack = common_metrics::timing_guard(PER_STACK_TIME, &[]);
-
-        // Cluster the frames by symbol set
-        let mut groups = HashMap::new();
-        for frame in stack_trace {
-            let group = groups
-                .entry(frame.symbol_set_group_key())
-                .or_insert_with(Vec::new);
-            group.push(frame.clone());
-        }
-
-        let team_id = event.team_id;
-        let mut results = Vec::with_capacity(stack_trace.len());
-        for (_, frames) in groups.into_iter() {
-            let mut any_success = false;
-            let per_frame_group = common_metrics::timing_guard(PER_FRAME_GROUP_TIME, &[]);
-            for frame in frames {
-                results.push(frame.resolve(team_id, &context.catalog).await);
-                if results.last().unwrap().is_ok() {
-                    any_success = true;
-                }
-            }
-            per_frame_group
-                .label("resolved_any", if any_success { "true" } else { "false" })
-                .fin();
-        }
+        let handles = stack.explode();
 
         per_stack
-            .label(
-                "resolved_any",
-                if results.is_empty() { "true" } else { "false" },
-            )
+            .label("success", &results.is_ok().to_string())
             .fin();
         whole_loop.label("had_frame", "true").fin();
 

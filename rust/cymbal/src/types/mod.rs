@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod frames;
+pub mod stack;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {

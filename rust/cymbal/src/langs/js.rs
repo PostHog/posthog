@@ -25,15 +25,40 @@ pub struct RawJSFrame {
 }
 
 impl RawJSFrame {
+    pub async fn resolve_many<C>(
+        frames: &[Self],
+        team_id: i32,
+        catalog: &C,
+        source_ref: Url,
+    ) -> Result<Vec<Frame>, Error>
+    where
+        C: SymbolCatalog<Url, SourceMap>,
+    {
+        let mut result = Vec::with_capacity(frames.len());
+        let store = catalog.get();
+        let sourcemap = match store.fetch(team_id, source_ref).await {
+            Ok(sm) => sm,
+            Err(Error::ResolutionError(ResolutionError::JavaScript(e))) => {
+                for frame in frames {
+                    result.push((frame, &e).into());
+                }
+                return Ok(result);
+            }
+            Err(e) => return Err(e),
+        };
+        for frame in frames {
+            result.push(frame.given_sourcemap(&sourcemap));
+        }
+        Ok(result)
+    }
+
     pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
     where
         C: SymbolCatalog<Url, SourceMap>,
     {
         match self.resolve_impl(team_id, catalog).await {
             Ok(frame) => Ok(frame),
-            Err(Error::ResolutionError(ResolutionError::JavaScript(e))) => {
-                Ok(self.handle_resolution_error(e))
-            }
+            Err(Error::ResolutionError(ResolutionError::JavaScript(e))) => Ok((self, &e).into()),
             Err(e) => Err(e),
         }
     }
@@ -46,20 +71,20 @@ impl RawJSFrame {
         let url = self.source_url()?;
 
         let sourcemap = store.fetch(team_id, url).await?;
-        let Some(token) = sourcemap.lookup_token(self.line, self.column) else {
-            return Err(
-                JsResolveErr::TokenNotFound(self.fn_name.clone(), self.line, self.column).into(),
-            );
-        };
-
-        Ok(Frame::from((self, token)))
+        Ok(self.given_sourcemap(&sourcemap))
     }
 
-    // JS frames can only handle JS resolution errors - errors at the network level
-    pub fn handle_resolution_error(&self, e: JsResolveErr) -> Frame {
-        // If we failed to resolve the frame, we mark it as "not resolved" and add the error message,
-        // then return a Frame anyway, because frame handling is a best-effort thing.
-        (self, e).into()
+    // Once we have a sourcemap, we can ALWAYS produce a frame, because even for ones we can't find in the sourcemap,
+    // we can still produce a frame with the error message.
+    fn given_sourcemap(&self, sm: &SourceMap) -> Frame {
+        match sm.lookup_token(self.line, self.column) {
+            Some(token) => (self, token).into(),
+            None => (
+                self,
+                &JsResolveErr::TokenNotFound(self.fn_name.clone(), self.line, self.column),
+            )
+                .into(),
+        }
     }
 
     pub fn source_url(&self) -> Result<Url, JsResolveErr> {
@@ -121,8 +146,8 @@ impl From<(&RawJSFrame, Token<'_>)> for Frame {
     }
 }
 
-impl From<(&RawJSFrame, JsResolveErr)> for Frame {
-    fn from((raw_frame, err): (&RawJSFrame, JsResolveErr)) -> Self {
+impl From<(&RawJSFrame, &JsResolveErr)> for Frame {
+    fn from((raw_frame, err): (&RawJSFrame, &JsResolveErr)) -> Self {
         Self {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(raw_frame.line),
