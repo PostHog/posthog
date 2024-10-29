@@ -25,6 +25,7 @@ import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
@@ -40,6 +41,7 @@ import type {
     InsightVizNode,
     Node,
     QueryStatus,
+    RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
@@ -514,6 +516,7 @@ export interface TeamType extends TeamBasicType {
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -678,6 +681,7 @@ export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
     Archived = 'archived',
+    Holdouts = 'holdouts',
 }
 
 export enum ActivityTab {
@@ -3255,6 +3259,8 @@ export interface Experiment {
     created_at: string | null
     created_by: UserBasicType | null
     updated_at: string | null
+    holdout_id?: number | null
+    holdout?: Holdout
 }
 
 export interface FunnelExperimentVariant {
@@ -4505,8 +4511,11 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+
 export type HogFunctionType = {
     id: string
+    type: HogFunctionTypeType
     icon_url?: string
     name: string
     description: string
@@ -4543,7 +4552,7 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
+    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
 > & {
     status: HogFunctionTemplateStatus
     sub_templates?: HogFunctionSubTemplateType[]
@@ -4636,9 +4645,10 @@ export type ReplayTemplateType = {
     key: string
     name: string
     description: string
-    variables: ReplayTemplateVariableType[]
+    variables?: ReplayTemplateVariableType[]
     categories: ReplayTemplateCategory[]
     icon?: React.ReactNode
+    order?: RecordingOrder
 }
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 

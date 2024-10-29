@@ -4,10 +4,9 @@ Django settings for PostHog Enterprise Edition.
 
 import os
 
-from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, DEBUG
+from posthog.settings import AUTHENTICATION_BACKENDS, DEBUG, DEMO, SITE_URL
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
-
 
 # SSO
 AUTHENTICATION_BACKENDS = [
@@ -69,3 +68,8 @@ PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
 )
 
 HOOK_HOG_FUNCTION_TEAMS = get_from_env("HOOK_HOG_FUNCTION_TEAMS", "", type_cast=str)
+
+# Assistant
+LANGFUSE_PUBLIC_KEY = get_from_env("LANGFUSE_PUBLIC_KEY", "", type_cast=str)
+LANGFUSE_SECRET_KEY = get_from_env("LANGFUSE_SECRET_KEY", "", type_cast=str)
+LANGFUSE_HOST = get_from_env("LANGFUSE_HOST", "https://us.cloud.langfuse.com", type_cast=str)

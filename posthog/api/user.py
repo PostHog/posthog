@@ -23,6 +23,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
@@ -63,6 +64,9 @@ from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
+
+REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
+REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
 logger = structlog.get_logger(__name__)
 
@@ -487,6 +491,7 @@ class UserViewSet(
 
 @authenticate_secondarily
 def redirect_to_site(request):
+    REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
@@ -494,7 +499,8 @@ def redirect_to_site(request):
         return HttpResponse(status=404)
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
-        logger.info(
+        REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        logger.error(
             "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
@@ -535,7 +541,7 @@ def redirect_to_website(request):
         return HttpResponse(status=404)
 
     if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
-        logger.info(
+        logger.error(
             "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)

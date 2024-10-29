@@ -5,6 +5,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-clearbit",
     name="Clearbit",
     description="Loads data from the Clearbit API and tracks an additional event with the enriched data if found. Once enriched, the person will not be enriched again.",

@@ -15,6 +15,7 @@ import { insertRow } from '../helpers/sql'
 export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
     const item: HogFunctionType = {
         id: randomUUID(),
+        type: 'destination',
         name: 'Hog Function',
         team_id: 1,
         enabled: true,
@@ -120,6 +121,7 @@ export const createHogExecutionGlobals = (
             url: 'http://localhost:8000/persons/1',
             properties: {
                 email: 'test@posthog.com',
+                first_name: 'Pumpkin',
             },
             ...(data.person ?? {}),
         },

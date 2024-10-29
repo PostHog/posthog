@@ -9,7 +9,7 @@ use cymbal::{
     config::Config,
     error::Error,
     fingerprinting,
-    metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
+    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_STACK_TIME, STACK_PROCESSED},
     types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
@@ -61,6 +61,7 @@ async fn main() -> Result<(), Error> {
     start_health_liveness_server(&config, context.clone());
 
     loop {
+        let whole_loop = common_metrics::timing_guard(MAIN_LOOP_TIME, &[]);
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
@@ -110,6 +111,7 @@ async fn main() -> Result<(), Error> {
             continue;
         }
 
+        // TODO - we should resolve all traces
         let Some(trace) = exception_list[0].stacktrace.as_ref() else {
             metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
             continue;
@@ -117,18 +119,25 @@ async fn main() -> Result<(), Error> {
 
         let stack_trace: &Vec<RawFrame> = &trace.frames;
 
-        let mut resolved_frames = Vec::new();
+        let per_stack = common_metrics::timing_guard(PER_STACK_TIME, &[]);
+        let mut frames = Vec::with_capacity(stack_trace.len());
         for frame in stack_trace {
-            let resolved = match context.resolver.resolve(frame.clone(), 1).await {
-                Ok(r) => r,
+            match frame.resolve(event.team_id, &context.catalog).await {
+                Ok(r) => frames.push(r),
                 Err(err) => {
                     metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
                     error!("Error parsing stack frame: {:?}", err);
                     continue;
                 }
             };
-            resolved_frames.push(resolved);
         }
+        per_stack
+            .label(
+                "resolved_any",
+                if frames.is_empty() { "true" } else { "false" },
+            )
+            .fin();
+        whole_loop.label("had_frame", "true").fin();
 
         let Ok(_fingerprint) =
             fingerprinting::v1::generate_fingerprint(&exception_list[0], resolved_frames)

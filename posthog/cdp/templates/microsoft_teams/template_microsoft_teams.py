@@ -2,6 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
+    type="destination",
     id="template-microsoft-teams",
     name="Microsoft Teams",
     description="Sends a message to a Microsoft Teams channel",
@@ -26,7 +27,8 @@ let res := fetch(inputs.webhookUrl, {
                     'body': [
                         {
                             'type': 'TextBlock',
-                            'text': inputs.text
+                            'text': inputs.text,
+                            'wrap': true
                         }
                     ]
                 }
