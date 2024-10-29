@@ -35,7 +35,7 @@ export function Thread(): JSX.Element | null {
     const { retryLastMessage } = useActions(maxLogic)
 
     return (
-        <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow m-4">
+        <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
             {thread.map((message, index) => {
                 if (isHumanMessage(message)) {
                     return (
