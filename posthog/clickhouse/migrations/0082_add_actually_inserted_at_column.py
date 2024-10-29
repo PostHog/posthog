@@ -8,13 +8,13 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 ADD_COLUMNS_BASE_SQL = """
 ALTER TABLE {table}
 ON CLUSTER '{cluster}'
-MODIFY COLUMN inserted_at DEFAULT NOW64()
+MODIFY COLUMN IF EXISTS inserted_at DEFAULT NOW64()
 """
 
 DROP_COLUMN_BASE_SQL = """
 ALTER TABLE {table}
 ON CLUSTER '{cluster}'
-DROP COLUMN inserted_at
+DROP COLUMN IF EXISTS inserted_at
 """
 
 
