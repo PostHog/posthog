@@ -173,7 +173,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         if details:
             # If we receive details from a previous run, it means we were restarted for some reason.
             # Let's not double-backfill and instead wait for any outstanding runs.
-            last_activity_details = HeartbeatDetails(*details[0])
+            last_activity_details = HeartbeatDetails(*details)
 
             workflow_handle = client.get_workflow_handle(last_activity_details.workflow_id)
 
@@ -241,16 +241,20 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
             await asyncio.sleep(inputs.start_delay)
 
-            workflow_handle = await client.start_workflow(
-                schedule_action.workflow,
-                *args,
-                id=f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z",
-                task_queue=schedule_action.task_queue,
-                run_timeout=schedule_action.run_timeout,
-                task_timeout=schedule_action.task_timeout,
-                id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                search_attributes=temporalio.common.TypedSearchAttributes(search_attributes=search_attributes),
-            )
+            try:
+                workflow_handle = await client.start_workflow(
+                    schedule_action.workflow,
+                    *args,
+                    id=f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z",
+                    task_queue=schedule_action.task_queue,
+                    run_timeout=schedule_action.run_timeout,
+                    task_timeout=schedule_action.task_timeout,
+                    id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    search_attributes=temporalio.common.TypedSearchAttributes(search_attributes=search_attributes),
+                )
+            except temporalio.exceptions.WorkflowAlreadyStartedError:
+                workflow_handle = client.get_workflow_handle(f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z")
+
             details = HeartbeatDetails(
                 schedule_id=inputs.schedule_id,
                 workflow_id=workflow_handle.id,
