@@ -184,6 +184,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "type",
         ]
         read_only_fields = [
             "id",
@@ -193,6 +194,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "feature_flag",
             "exposure_cohort",
             "holdout",
+            "type",
         ]
 
     def validate_parameters(self, value):

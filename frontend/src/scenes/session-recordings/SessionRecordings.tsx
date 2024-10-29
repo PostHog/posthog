@@ -134,6 +134,7 @@ function Warnings(): JSX.Element {
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
         actionId: null,
+        experimentId: null,
         type: AuthorizedUrlListType.RECORDING_DOMAINS,
     })
     const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)

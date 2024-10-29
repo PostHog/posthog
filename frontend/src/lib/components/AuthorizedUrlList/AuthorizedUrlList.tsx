@@ -45,8 +45,8 @@ function EmptyState({
     ) : null
 }
 
-function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Element {
-    const logic = authorizedUrlListLogic({ actionId: actionId ?? null, type })
+function AuthorizedUrlForm({ actionId, experimentId, type }: AuthorizedUrlListProps): JSX.Element {
+    const logic = authorizedUrlListLogic({ actionId: actionId ?? null, experimentId: experimentId ?? null, type })
     const { isProposedUrlSubmitting } = useValues(logic)
     const { cancelProposingUrl } = useActions(logic)
     return (
@@ -78,15 +78,24 @@ function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Elem
 
 export interface AuthorizedUrlListProps {
     actionId?: number
+    experimentId?: number | 'new'
+    query?: string
     type: AuthorizedUrlListType
 }
 
 export function AuthorizedUrlList({
     actionId,
+    experimentId,
+    query,
     type,
     addText = 'Add',
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
-    const logic = authorizedUrlListLogic({ actionId: actionId ?? null, type })
+    const logic = authorizedUrlListLogic({
+        experimentId: experimentId ?? null,
+        actionId: actionId ?? null,
+        type,
+        query,
+    })
     const {
         urlsKeyed,
         suggestionsLoading,
@@ -162,7 +171,7 @@ export function AuthorizedUrlList({
                                                     type === AuthorizedUrlListType.TOOLBAR_URLS
                                                         ? launchUrl(keyedURL.url)
                                                         : // other urls are simply opened directly
-                                                          keyedURL.url
+                                                          keyedURL.url + query
                                                 }
                                                 targetBlank
                                                 tooltip={

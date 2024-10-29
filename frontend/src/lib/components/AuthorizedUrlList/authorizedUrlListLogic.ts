@@ -35,6 +35,7 @@ export interface ProposeNewUrlFormType {
 export enum AuthorizedUrlListType {
     TOOLBAR_URLS = 'TOOLBAR_URLS',
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
+    WEB_EXPERIMENTS = 'WEB_EXPERIMENTS',
 }
 
 /**
@@ -90,12 +91,14 @@ export const validateProposedUrl = (
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
 export function appEditorUrl(
     appUrl: string,
-    options?: { actionId?: number | null; userIntent?: ToolbarUserIntent }
+    options?: { actionId?: number | null; experimentId?: number | null | 'new'; userIntent?: ToolbarUserIntent }
 ): string {
     // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
     // are passed. `appUrl` is an extra `redirect_to_site` param.
     const params: ToolbarParams & { appUrl: string } = {
-        userIntent: options?.userIntent ?? (options?.actionId ? 'edit-action' : 'add-action'),
+        userIntent:
+            options?.userIntent ??
+            (options?.actionId ? 'edit-action' : options?.experimentId ? 'edit-experiment' : 'add-action'),
         // Make sure to pass the app url, otherwise the api_host will be used by
         // the toolbar, which isn't correct when used behind a reverse proxy as
         // we require e.g. SSO login to the app, which will not work when placed
@@ -103,6 +106,7 @@ export function appEditorUrl(
         apiURL: apiHostOrigin(),
         appUrl,
         ...(options?.actionId ? { actionId: options.actionId } : {}),
+        ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
     }
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
@@ -164,7 +168,9 @@ export interface KeyedAppUrl {
 
 export interface AuthorizedUrlListLogicProps {
     actionId: number | null
+    experimentId: number | null | 'new'
     type: AuthorizedUrlListType
+    query: string | undefined
 }
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
@@ -372,11 +378,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         launchUrl: [
-            (_, p) => [p.actionId],
-            (actionId) => (url: string) =>
-                appEditorUrl(url, {
+            (_, p) => [p.actionId, p.experimentId],
+            (actionId, experimentId) => (url: string) => {
+                if (experimentId) {
+                    return appEditorUrl(url, {
+                        experimentId,
+                    })
+                }
+
+                return appEditorUrl(url, {
                     actionId,
-                }),
+                })
+            },
         ],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
         onlyAllowDomains: [(_, p) => [p.type], (type) => type === AuthorizedUrlListType.RECORDING_DOMAINS],

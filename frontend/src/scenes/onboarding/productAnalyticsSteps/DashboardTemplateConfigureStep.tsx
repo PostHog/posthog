@@ -33,7 +33,9 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
     const { combinedSnippetAndLiveEventsHosts } = useValues(sdksLogic)
-    const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
+    const { addUrl } = useActions(
+        authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS })
+    )
     const [inputValue, setInputValue] = useState(currentPath)
 
     useEffect(() => {

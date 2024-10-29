@@ -45,13 +45,13 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
 
     connect({
         values: [
-            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
             teamLogic,
             ['currentTeam'],
         ],
         actions: [
-            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['addUrl'],
             teamLogic,
             ['updateCurrentTeamSuccess'],

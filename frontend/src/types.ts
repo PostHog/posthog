@@ -25,7 +25,6 @@ import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
@@ -41,7 +40,6 @@ import type {
     InsightVizNode,
     Node,
     QueryStatus,
-    RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
@@ -516,7 +514,6 @@ export interface TeamType extends TeamBasicType {
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
-    session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -618,6 +615,7 @@ export interface ToolbarParams {
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
     actionId?: number
+    experimentId?: number
     userIntent?: ToolbarUserIntent
     source?: ToolbarSource
     toolbarVersion?: ToolbarVersion
@@ -681,7 +679,6 @@ export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
     Archived = 'archived',
-    Holdouts = 'holdouts',
 }
 
 export enum ActivityTab {
@@ -3236,8 +3233,9 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: number | 'new'
+    id: number | 'new' | 'web'
     name: string
+    type?: string
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
@@ -3259,8 +3257,6 @@ export interface Experiment {
     created_at: string | null
     created_by: UserBasicType | null
     updated_at: string | null
-    holdout_id?: number | null
-    holdout?: Holdout
 }
 
 export interface FunnelExperimentVariant {
@@ -4645,10 +4641,9 @@ export type ReplayTemplateType = {
     key: string
     name: string
     description: string
-    variables?: ReplayTemplateVariableType[]
+    variables: ReplayTemplateVariableType[]
     categories: ReplayTemplateCategory[]
     icon?: React.ReactNode
-    order?: RecordingOrder
 }
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 

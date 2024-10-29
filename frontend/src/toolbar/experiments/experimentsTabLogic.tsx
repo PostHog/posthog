@@ -83,7 +83,15 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            ['dataAttributes', 'apiURL', 'temporaryToken', 'buttonVisible', 'userIntent', 'dataAttributes'],
+            [
+                'dataAttributes',
+                'apiURL',
+                'temporaryToken',
+                'buttonVisible',
+                'userIntent',
+                'dataAttributes',
+                'experimentId',
+            ],
             experimentsLogic,
             ['allExperiments'],
         ],
@@ -283,29 +291,27 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         applyVariant: ({ variant }) => {
             if (values.experimentForm && values.experimentForm.variants) {
                 const selectedVariant = values.experimentForm.variants[variant]
-                if (selectedVariant) {
-                    selectedVariant.transforms.forEach((transform) => {
-                        if (transform.selector) {
-                            const elements = document.querySelectorAll(transform.selector)
-                            elements.forEach((elements) => {
-                                const htmlElement = elements as HTMLElement
-                                if (htmlElement) {
-                                    if (transform.text) {
-                                        htmlElement.innerText = transform.text
-                                    }
-
-                                    if (transform.html) {
-                                        htmlElement.innerHTML = transform.html
-                                    }
-
-                                    if (transform.css) {
-                                        htmlElement.setAttribute('style', transform.css)
-                                    }
+                selectedVariant?.transforms?.forEach((transform) => {
+                    if (transform.selector) {
+                        const elements = document.querySelectorAll(transform.selector)
+                        elements.forEach((elements) => {
+                            const htmlElement = elements as HTMLElement
+                            if (htmlElement) {
+                                if (transform.text) {
+                                    htmlElement.innerText = transform.text
                                 }
-                            })
-                        }
-                    })
-                }
+
+                                if (transform.html) {
+                                    htmlElement.innerHTML = transform.html
+                                }
+
+                                if (transform.css) {
+                                    htmlElement.setAttribute('style', transform.css)
+                                }
+                            }
+                        })
+                    }
+                })
             }
         },
         rebalanceRolloutPercentage: () => {
@@ -345,12 +351,14 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             if (values.experimentForm.variants) {
                 const webVariant = values.experimentForm.variants[variant]
                 if (webVariant) {
-                    if (webVariant.transforms) {
-                        webVariant.transforms.push({
-                            text: '',
-                            html: '',
-                        } as unknown as WebExperimentTransform)
+                    if (webVariant.transforms == undefined) {
+                        webVariant.transforms = []
                     }
+
+                    webVariant.transforms.push({
+                        text: '',
+                        html: '',
+                    } as unknown as WebExperimentTransform)
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)
@@ -375,9 +383,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'experiments', enabled: false })
         },
         [experimentsLogic.actionTypes.getExperimentsSuccess]: () => {
-            const { userIntent, selectedExperimentId } = values
+            const { userIntent, experimentId } = values
             if (userIntent === 'edit-experiment') {
-                actions.selectExperiment(selectedExperimentId)
+                actions.selectExperiment(experimentId)
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-experiment') {
                 actions.newExperiment()

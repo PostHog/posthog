@@ -29,13 +29,13 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'toolbarSidebarLogic']),
     connect(() => ({
         values: [
-            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['urlsKeyed', 'suggestionsLoading', 'launchUrl'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
         ],
         actions: [
-            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['addUrl', 'removeUrl', 'updateUrl'],
         ],
     })),
@@ -50,6 +50,7 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
                     onAdd: async (url) => {
                         await authorizedUrlListLogic({
                             actionId: null,
+                            experimentId: null,
                             type: AuthorizedUrlListType.TOOLBAR_URLS,
                         }).asyncActions.addUrl(url)
                     },
