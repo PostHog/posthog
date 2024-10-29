@@ -133,6 +133,7 @@ impl Update {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
+    pub project_id: i32,
     pub event: String,
     pub properties: Option<String>,
 }
@@ -419,14 +420,15 @@ impl EventDefinition {
     {
         sqlx::query!(
             r#"
-            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
-            VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
+            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
+            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW()) ON CONFLICT
             ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq
             DO UPDATE SET last_seen_at = $4
         "#,
             Uuid::now_v7(),
             self.name,
             self.team_id,
+            self.project_id,
             Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
         ).execute(executor).await.map(|_| ())
     }
@@ -462,8 +464,8 @@ impl PropertyDefinition {
 
         sqlx::query!(
             r#"
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
-            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)
+            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
+            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
             ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
             DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
         "#,
@@ -473,6 +475,7 @@ impl PropertyDefinition {
             group_type_index,
             self.is_numerical,
             self.team_id,
+            self.project_id,
             self.property_type.as_ref().map(|t| t.to_string())
         ).execute(executor).await.map(|_| ())
     }
@@ -484,10 +487,11 @@ impl EventProperty {
         E: Executor<'c, Database = Postgres>,
     {
         sqlx::query!(
-            r#"INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"#,
+            r#"INSERT INTO posthog_eventproperty (event, property, team_id, project_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#,
             self.event,
             self.property,
             self.team_id
+            self.project_id
         )
         .execute(executor)
         .await
