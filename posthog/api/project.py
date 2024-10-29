@@ -195,7 +195,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     def get_product_intents(self, obj):
         project = obj
         team = project.passthrough_team
-        return ProductIntent.objects.filter(team=team).values("product_type", "created_at", "onboarding_completed_at")
+        return ProductIntent.objects.filter(team=team).values(
+            "product_type", "created_at", "onboarding_completed_at", "updated_at"
+        )
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
@@ -572,7 +574,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
-        if created and isinstance(user, User):
+        if isinstance(user, User):
             report_user_action(
                 user,
                 "user showed product intent",
@@ -582,6 +584,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "$current_url": current_url,
                     "$session_id": session_id,
                     "intent_context": request.data.get("intent_context"),
+                    "is_first_intent_for_product": created,
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
                 },
                 team=team,
             )
@@ -612,6 +617,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "$current_url": current_url,
                     "$session_id": session_id,
                     "intent_context": request.data.get("intent_context"),
+                    "is_first_intent_for_product": created,
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
                 },
                 team=team,
             )
@@ -626,6 +634,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
+                    "intent_context": request.data.get("intent_context"),
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
                 },
                 team=team,
             )
