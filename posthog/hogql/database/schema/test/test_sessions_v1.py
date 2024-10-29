@@ -8,6 +8,7 @@ from posthog.hogql.database.schema.sessions_v1 import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.models import Team
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
 from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode, SessionTableVersion
@@ -19,20 +20,16 @@ from posthog.test.base import (
 )
 
 # only certain team ids can insert events into this legacy sessions table, see sessions/sql.py for more info
-ALLOWED_TEAM_ID = 2
+TEAM_ID = 2
+TEAM = Team(id=TEAM_ID, pk=TEAM_ID)
 
 
 class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.team.id = ALLOWED_TEAM_ID
-        self.team.pk = ALLOWED_TEAM_ID
-
     def __execute(self, query):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
         return execute_hogql_query(
             query=query,
-            team=self.team,
+            team=TEAM,
             modifiers=modifiers,
         )
 
@@ -41,7 +38,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$current_url": "https://example.com", "$session_id": session_id},
         )
@@ -64,7 +61,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$current_url": "https://example.com", "$session_id": session_id},
         )
@@ -101,7 +98,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"gad_source": "1", "$session_id": session_id},
         )
@@ -124,7 +121,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"gad_source": "1", "$session_id": session_id},
         )
@@ -147,7 +144,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"gad_source": "1", "$session_id": session_id},
         )
@@ -170,21 +167,21 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         # person with 2 different sessions
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$session_id": "s1a", "$current_url": "https://example.com/1"},
             timestamp="2023-12-02",
         )
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$session_id": "s1a", "$current_url": "https://example.com/2"},
             timestamp="2023-12-03",
         )
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$session_id": "s1b", "$current_url": "https://example.com/3"},
             timestamp="2023-12-12",
@@ -192,7 +189,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         # session with 1 pageview
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d2",
             properties={"$session_id": "s2", "$current_url": "https://example.com/4"},
             timestamp="2023-12-11",
@@ -200,14 +197,14 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         # session with 1 pageview and 1 autocapture
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d3",
             properties={"$session_id": "s3", "$current_url": "https://example.com/5"},
             timestamp="2023-12-11",
         )
         _create_event(
             event="$autocapture",
-            team=self.team,
+            team=TEAM,
             distinct_id="d3",
             properties={"$session_id": "s3", "$current_url": "https://example.com/5"},
             timestamp="2023-12-11",
@@ -215,14 +212,14 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         # short session with a pageleave
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d4",
             properties={"$session_id": "s4", "$current_url": "https://example.com/6"},
             timestamp="2023-12-11T12:00:00",
         )
         _create_event(
             event="$pageleave",
-            team=self.team,
+            team=TEAM,
             distinct_id="d4",
             properties={"$session_id": "s4", "$current_url": "https://example.com/6"},
             timestamp="2023-12-11T12:00:01",
@@ -230,14 +227,14 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         # long session with a pageleave
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d5",
             properties={"$session_id": "s5", "$current_url": "https://example.com/7"},
             timestamp="2023-12-11T12:00:00",
         )
         _create_event(
             event="$pageleave",
-            team=self.team,
+            team=TEAM,
             distinct_id="d5",
             properties={"$session_id": "s5", "$current_url": "https://example.com/7"},
             timestamp="2023-12-11T12:00:11",
@@ -246,7 +243,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
             parse_select(
                 "select $is_bounce, session_id from sessions ORDER BY session_id",
             ),
-            self.team,
+            TEAM,
             modifiers=HogQLQueryModifiers(
                 bounceRatePageViewMode=bounceRatePageViewMode, sessionTableVersion=SessionTableVersion.V1
             ),
@@ -268,7 +265,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={
                 "$current_url": "https://example.com/pathname",
@@ -349,4 +346,4 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_can_get_values_for_all(self):
         results = get_lazy_session_table_properties_v1(None)
         for prop in results:
-            get_lazy_session_table_values_v1(key=prop["id"], team=self.team, search_term=None)
+            get_lazy_session_table_values_v1(key=prop["id"], team=TEAM, search_term=None)
