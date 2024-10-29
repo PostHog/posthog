@@ -476,6 +476,8 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                 <LinkedFlagSelector />
                 <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
                     <UrlTriggerOptions />
+                </FlaggedFeature>
+                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_BLOCKLIST}>
                     <UrlBlocklistOptions />
                 </FlaggedFeature>
             </>
