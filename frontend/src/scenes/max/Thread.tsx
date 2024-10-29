@@ -1,5 +1,12 @@
-import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
+import {
+    IconThumbsDown,
+    IconThumbsDownFilled,
+    IconThumbsUp,
+    IconThumbsUpFilled,
+    IconWarning,
+    IconX,
+} from '@posthog/icons'
+import { LemonButton, LemonInput, LemonRow, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -20,7 +27,7 @@ import {
 } from '~/queries/schema'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
-import { isHumanMessage, isVisualizationMessage } from './utils'
+import { isFailureMessage, isHumanMessage, isVisualizationMessage } from './utils'
 
 export function Thread(): JSX.Element | null {
     const { thread, threadLoading } = useValues(maxLogic)
@@ -51,6 +58,14 @@ export function Thread(): JSX.Element | null {
                     )
                 }
 
+                if (isFailureMessage(message)) {
+                    return (
+                        <Message key={index} type="ai" className="border-danger">
+                            {message.content || <i>Max has failed to generate an answer. Please try again.</i>}
+                        </Message>
+                    )
+                }
+
                 return null
             })}
             {threadLoading && (
@@ -65,23 +80,31 @@ export function Thread(): JSX.Element | null {
     )
 }
 
-const Message = React.forwardRef<HTMLDivElement, React.PropsWithChildren<{ type: 'human' | 'ai'; className?: string }>>(
-    function Message({ type, children, className }, ref): JSX.Element {
-        if (type === AssistantMessageType.Human) {
-            return (
-                <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
-                    {children}
-                </div>
-            )
-        }
-
+const Message = React.forwardRef<
+    HTMLDivElement,
+    React.PropsWithChildren<{ type: 'human' | 'ai'; className?: string; errorMessage?: string }>
+>(function Message({ type, children, className, errorMessage }, ref): JSX.Element {
+    if (type === AssistantMessageType.Human) {
         return (
-            <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
+            <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
                 {children}
             </div>
         )
     }
-)
+
+    return (
+        <div>
+            <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
+                {children}
+            </div>
+            {errorMessage && (
+                <LemonRow icon={<IconWarning />} status="warning" size="small">
+                    {errorMessage}
+                </LemonRow>
+            )}
+        </div>
+    )
+})
 
 function Answer({
     message,
@@ -107,7 +130,15 @@ function Answer({
     return (
         <>
             {message.reasoning_steps && (
-                <Message type="ai">
+                <Message
+                    type="ai"
+                    errorMessage={
+                        status === 'error'
+                            ? 'Max is generating this answer one more time because the previous attempt has failed.'
+                            : undefined
+                    }
+                    className={status === 'error' ? 'border-warning' : undefined}
+                >
                     <ul className="list-disc ml-4">
                         {message.reasoning_steps.map((step, index) => (
                             <li key={index}>{step}</li>

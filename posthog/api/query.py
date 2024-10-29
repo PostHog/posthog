@@ -193,9 +193,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             for message in assistant.stream(validated_body):
                 last_message = message
                 if isinstance(message, AssistantGenerationStatusEvent):
-                    yield f"event: {AssistantEventType.STATUS}\n\n"
+                    yield f"event: {AssistantEventType.STATUS}\n"
                 else:
-                    yield f"event: {AssistantEventType.MESSAGE}\n\n"
+                    yield f"event: {AssistantEventType.MESSAGE}\n"
                 yield f"data: {message.model_dump_json()}\n\n"
 
             human_message = validated_body.messages[-1].root

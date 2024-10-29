@@ -4,7 +4,15 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { AssistantMessageType, NodeKind, RootAssistantMessage, SuggestedQuestionsQuery } from '~/queries/schema'
+import {
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    AssistantMessageType,
+    NodeKind,
+    RootAssistantMessage,
+    SuggestedQuestionsQuery,
+} from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
 
@@ -132,24 +140,34 @@ export const maxLogic = kea<maxLogicType>([
                 let firstChunk = true
 
                 const parser = createParser({
-                    onEvent: (event) => {
-                        const parsedResponse = parseResponse(event.data)
-
-                        if (!parsedResponse) {
-                            return
-                        }
-
-                        if (firstChunk) {
-                            firstChunk = false
-
-                            if (parsedResponse) {
-                                actions.addMessage({ ...parsedResponse, status: 'loading' })
+                    onEvent: ({ data, event }) => {
+                        if (event === AssistantEventType.Message) {
+                            const parsedResponse = parseResponse<RootAssistantMessage>(data)
+                            if (!parsedResponse) {
+                                return
                             }
-                        } else if (parsedResponse) {
-                            actions.replaceMessage(newIndex, {
-                                ...parsedResponse,
-                                status: 'loading',
-                            })
+
+                            if (firstChunk) {
+                                firstChunk = false
+
+                                if (parsedResponse) {
+                                    actions.addMessage({ ...parsedResponse, status: 'loading' })
+                                }
+                            } else if (parsedResponse) {
+                                actions.replaceMessage(newIndex, {
+                                    ...parsedResponse,
+                                    status: 'loading',
+                                })
+                            }
+                        } else if (event === AssistantEventType.Status) {
+                            const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
+                            if (!parsedResponse) {
+                                return
+                            }
+
+                            if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
+                                actions.setMessageStatus(newIndex, 'error')
+                            }
                         }
                     },
                 })
@@ -180,10 +198,10 @@ export const maxLogic = kea<maxLogicType>([
  * Parses the generation result from the API. Some generation chunks might be sent in batches.
  * @param response
  */
-function parseResponse(response: string): RootAssistantMessage | null | undefined {
+function parseResponse<T>(response: string): T | null | undefined {
     try {
         const parsed = JSON.parse(response)
-        return parsed as RootAssistantMessage | null | undefined
+        return parsed as T | null | undefined
     } catch {
         return null
     }
