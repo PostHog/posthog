@@ -33,7 +33,7 @@ class InsightActorsQueryRunner(QueryRunner):
     def source_runner(self) -> QueryRunner:
         return get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers)
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
@@ -73,7 +73,7 @@ class InsightActorsQueryRunner(QueryRunner):
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to persons query")
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
     @property
