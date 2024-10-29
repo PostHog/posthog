@@ -133,7 +133,7 @@ async fn main() -> Result<(), Error> {
         per_stack
             .label(
                 "resolved_any",
-                if frames.len() > 0 { "true" } else { "false" },
+                if frames.is_empty() { "true" } else { "false" },
             )
             .fin();
         whole_loop.label("had_frame", "true").fin();
