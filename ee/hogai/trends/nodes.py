@@ -2,11 +2,10 @@ import itertools
 import json
 import xml.etree.ElementTree as ET
 from functools import cached_property
-from typing import Union, cast
+from typing import cast
 
 from langchain.agents.format_scratchpad import format_log_to_str
-from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
-from langchain_core.agents import AgentAction, AgentFinish
+from langchain_core.agents import AgentAction
 from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage as LangchainAssistantMessage
 from langchain_core.messages import BaseMessage, merge_message_runs
@@ -18,9 +17,16 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
+from ee.hogai.trends.parsers import (
+    ReActParserException,
+    ReActParserMissingActionOrArgsException,
+    parse_react_agent_output,
+)
 from ee.hogai.trends.prompts import (
     react_definitions_prompt,
     react_follow_up_prompt,
+    react_malformed_json_prompt,
+    react_missing_action_or_args_prompt,
     react_scratchpad_prompt,
     react_system_prompt,
     react_user_prompt,
@@ -75,14 +81,13 @@ class CreateTrendsPlanNode(AssistantNode):
         )
 
         toolkit = TrendsAgentToolkit(self._team)
-        output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
-        agent = prompt | merger | self._model | output_parser
+        agent = prompt | merger | self._model | parse_react_agent_output
 
         try:
             result = cast(
-                Union[AgentAction, AgentFinish],
+                AgentAction,
                 agent.invoke(
                     {
                         "tools": toolkit.render_text_description(),
@@ -94,21 +99,20 @@ class CreateTrendsPlanNode(AssistantNode):
                     config,
                 ),
             )
-        except OutputParserException as e:
-            text = str(e)
-            if e.send_to_llm:
-                observation = str(e.observation)
-                text = str(e.llm_output)
+        except ReActParserException as e:
+            if isinstance(e, ReActParserMissingActionOrArgsException):
+                action_input = (
+                    ChatPromptTemplate.from_template(react_missing_action_or_args_prompt, template_format="mustache")
+                    .format_messages(output=e.llm_output)[0]
+                    .content
+                )
             else:
-                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
-            result = AgentAction("handle_incorrect_response", observation, text)
-
-        if isinstance(result, AgentFinish):
-            # Exceptional case
-            return {
-                "plan": result.log,
-                "intermediate_steps": None,
-            }
+                action_input = (
+                    ChatPromptTemplate.from_template(react_malformed_json_prompt, template_format="mustache")
+                    .format_messages(output=e.llm_output)[0]
+                    .content
+                )
+            result = AgentAction("handle_incorrect_response", action_input, e.llm_output)
 
         return {
             "intermediate_steps": [*intermediate_steps, (result, None)],

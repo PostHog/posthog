@@ -178,6 +178,42 @@ react_follow_up_prompt = """
 Improve the previously generated plan based on the feedback: {{feedback}}
 """
 
+react_malformed_json_prompt = """
+My previous answer had a malformed JSON for the action because I didn't use the correct formatting for the output.
+
+<previous_answer>
+{{output}}
+</previous_answer>
+
+I need to fix the mistakes and try again.
+"""
+
+react_missing_action_or_args_prompt = """
+My previous answer had a JSON for the action without the `action` or `action_input` keys.
+
+<previous_answer>
+{{output}}
+</previous_answer>
+
+I need to fix the mistakes and try again.
+"""
+
+react_action_validation_prompt = """
+The action input I previously provided is invalid and raised a Pydantic validation exception.
+
+My previous answer:
+```
+{{output}}
+```
+
+Pydantic exception:
+```
+{{exception}}
+```
+
+I need to fix the exception and try again.
+"""
+
 trends_system_prompt = """
 You're a recognized head of product growth with the skills of a top-tier data engineer. Your task is to implement queries of trends insights for customers using a JSON schema. You will be given a plan describing series and breakdowns. Answer the user's questions as best you can.
 
