@@ -7,7 +7,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0490_grouptypemapping_project"),
+        ("posthog", "0504_grouptypemapping_project_backfill"),
     ]
 
     operations = [
