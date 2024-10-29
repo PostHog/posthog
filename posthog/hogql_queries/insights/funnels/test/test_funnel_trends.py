@@ -1623,6 +1623,66 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 1)
 
+    def test_short_exclusions(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "exclusion",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                    },
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 1, 0, 0),
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 1, 0, 29),
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 30,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual([100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], results[0]["data"])
+
 
 class TestFunnelTrends(BaseTestFunnelTrends):
     __test__ = True
