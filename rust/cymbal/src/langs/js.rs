@@ -67,15 +67,15 @@ impl RawJSFrame {
 
         // I break out all the cases individually here, rather than using an _ to match all,
         // because I want this to stop compiling if we add new cases
-        // Ok(match e {
-        //     NoSourceUrl => self.try_assume_unminified().ok_or(NoSourceUrl), // We assume we're not minified
-        //     NoSourcemap(u) => self.try_assume_unminified().ok_or(NoSourcemap(u)),
-        //     InvalidSourceMap(e) => Err(JsResolveErr::from(e)),
-        //     TokenNotFound(s, l, c) => Err(TokenNotFound(s, l, c)),
-        //     InvalidSourceUrl(u) => Err(InvalidSourceUrl(u)),
-        //     InvalidSourceMapHeader(u) => Err(InvalidSourceMapHeader(u)),
-        //     InvalidSourceMapUrl(u) => Err(InvalidSourceMapUrl(u)),
-        // }?)
+        Ok(match e {
+            NoSourceUrl => self.try_assume_unminified().ok_or(NoSourceUrl), // We assume we're not minified
+            NoSourcemap(u) => self.try_assume_unminified().ok_or(NoSourcemap(u)),
+            InvalidSourceMap(e) => Err(JsResolveErr::from(e)),
+            TokenNotFound(s, l, c) => Err(TokenNotFound(s, l, c)),
+            InvalidSourceUrl(u) => Err(InvalidSourceUrl(u)),
+            InvalidSourceMapHeader(u) => Err(InvalidSourceMapHeader(u)),
+            InvalidSourceMapUrl(u) => Err(InvalidSourceMapUrl(u)),
+        }?)
     }
 
     // Returns none if the frame is
