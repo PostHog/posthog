@@ -264,13 +264,14 @@ class GenerateTrendsNode(AssistantNode):
             message: GenerateTrendOutputModel = chain.invoke({}, config)
         except PydanticOutputParserException as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
-            if len(intermediate_steps) > 2:
+            if len(intermediate_steps) >= 2:
                 return {
                     "messages": [
                         FailureMessage(
                             content="Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?"
                         )
                     ],
+                    "intermediate_steps": None,
                 }
 
             return {

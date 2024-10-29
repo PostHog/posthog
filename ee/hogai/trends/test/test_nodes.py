@@ -8,7 +8,13 @@ from langchain_core.runnables import RunnableLambda
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, GenerateTrendsNode, GenerateTrendsToolsNode
 from ee.hogai.trends.utils import GenerateTrendOutputModel
 from ee.hogai.utils import AssistantNodeName
-from posthog.schema import AssistantMessage, ExperimentalAITrendsQuery, HumanMessage, VisualizationMessage
+from posthog.schema import (
+    AssistantMessage,
+    ExperimentalAITrendsQuery,
+    FailureMessage,
+    HumanMessage,
+    VisualizationMessage,
+)
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
@@ -244,6 +250,16 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("intermediate_steps", new_state)
             self.assertEqual(len(new_state["intermediate_steps"]), 1)
 
+            new_state = node.run(
+                {
+                    "messages": [HumanMessage(content="Text")],
+                    "intermediate_steps": [(AgentAction(tool="", tool_input="", log="exception"), "exception")],
+                },
+                {},
+            )
+            self.assertIn("intermediate_steps", new_state)
+            self.assertEqual(len(new_state["intermediate_steps"]), 2)
+
     def test_node_leaves_failover(self):
         node = GenerateTrendsNode(self.team)
         with patch(
@@ -260,6 +276,40 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
                 {},
             )
             self.assertIsNone(new_state["intermediate_steps"])
+
+            new_state = node.run(
+                {
+                    "messages": [HumanMessage(content="Text")],
+                    "intermediate_steps": [
+                        (AgentAction(tool="", tool_input="", log="exception"), "exception"),
+                        (AgentAction(tool="", tool_input="", log="exception"), "exception"),
+                    ],
+                },
+                {},
+            )
+            self.assertIsNone(new_state["intermediate_steps"])
+
+    def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
+        node = GenerateTrendsNode(self.team)
+        with patch("ee.hogai.trends.nodes.GenerateTrendsNode._model") as generator_model_mock:
+            schema = GenerateTrendOutputModel(reasoning_steps=[], answer=None).model_dump()
+            # Emulate an incorrect JSON. It should be an object.
+            schema["answer"] = []
+            generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
+
+            new_state = node.run(
+                {
+                    "messages": [HumanMessage(content="Text")],
+                    "intermediate_steps": [
+                        (AgentAction(tool="", tool_input="", log="exception"), "exception"),
+                        (AgentAction(tool="", tool_input="", log="exception"), "exception"),
+                    ],
+                },
+                {},
+            )
+            self.assertIsNone(new_state["intermediate_steps"])
+            self.assertEqual(len(new_state["messages"]), 1)
+            self.assertIsInstance(new_state["messages"][0], FailureMessage)
 
     def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
