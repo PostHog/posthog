@@ -1,4 +1,4 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from celery import shared_task
 from django.db import models
@@ -8,6 +8,30 @@ from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 from posthog.utils import get_instance_realm
+
+"""
+How to use this model:
+
+Product intents are indicators that someone showed an interest in a given product.
+They are triggered from the frontend when the user performs certain actions, like
+selecting a product during onboarding or clicking on a certain button.
+
+Some buttons that show product intent are frequently used by all users of the product,
+so we need to know if it's a new product intent, or if it's just regular usage. We
+can use the `activated_at` field to know if we should continue to update the product
+intent row, or if we should stop because it's just regular usage.
+
+The `activated_at` field is set by checking against certain criteria that differs for
+each product. For instance, for the data warehouse product, we check if the user has
+created any DataVisualizationNode insights in the 30 days after the product intent
+was created. Each product needs to implement a method that checks for activation
+criteria if the intent actions are the same as the general usage actions.
+
+We shouldn't use this model and the `activated_at` field in place of sending events
+about product usage because that limits our data exploration later. Definitely continue
+sending events for product usage that we may want to track for any reason, along with
+calculating activation here.
+"""
 
 
 class ProductIntent(UUIDModel):
@@ -19,7 +43,7 @@ class ProductIntent(UUIDModel):
     activated_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="The date the org completed activation for the product. Only used to know if we should continue updating the product_intent row.",
+        help_text="The date the org completed activation for the product. Generally only used to know if we should continue updating the product_intent row.",
     )
     activation_last_checked_at = models.DateTimeField(
         null=True,
