@@ -158,7 +158,7 @@ export const maxLogic = kea<maxLogicType>([
                             } else if (parsedResponse) {
                                 actions.replaceMessage(newIndex, {
                                     ...parsedResponse,
-                                    status: 'loading',
+                                    status: values.thread[newIndex].status,
                                 })
                             }
                         } else if (event === AssistantEventType.Status) {
