@@ -166,7 +166,7 @@ describe('CDP API', () => {
             console.log(res.body.logs[3].message)
             expect(res.body).toMatchObject({
                 status: 'success',
-                error: 'undefined',
+                error: null,
                 logs: [
                     {
                         level: 'debug',
