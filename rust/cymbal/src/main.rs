@@ -8,9 +8,7 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     error::Error,
-    metric_consts::{
-        ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_FRAME_TIME, PER_STACK_TIME, STACK_PROCESSED,
-    },
+    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_STACK_TIME, STACK_PROCESSED},
     types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
