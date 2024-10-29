@@ -1,15 +1,17 @@
+import { captureException } from '@sentry/react'
 import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { isHumanMessage } from 'scenes/max/utils'
+import { isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
 
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessageType,
+    FailureMessage,
     NodeKind,
     RootAssistantMessage,
     SuggestedQuestionsQuery,
@@ -25,6 +27,11 @@ export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
     status?: MessageStatus
+}
+
+const failureMessage: FailureMessage = {
+    type: AssistantMessageType.Failure,
+    content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
 }
 
 export const maxLogic = kea<maxLogicType>([
@@ -180,12 +187,31 @@ export const maxLogic = kea<maxLogicType>([
                     parser.feed(decoder.decode(value))
 
                     if (done) {
-                        actions.setMessageStatus(newIndex, 'completed')
+                        const generatedMessage = values.thread[newIndex]
+                        if (generatedMessage && isVisualizationMessage(generatedMessage) && generatedMessage.plan) {
+                            actions.setMessageStatus(newIndex, 'completed')
+                        } else if (generatedMessage) {
+                            actions.replaceMessage(newIndex, failureMessage)
+                        } else {
+                            actions.addMessage({
+                                ...failureMessage,
+                                status: 'completed',
+                            })
+                        }
                         break
                     }
                 }
-            } catch {
-                actions.setMessageStatus(values.thread.length - 1 === newIndex ? newIndex : newIndex - 1, 'error')
+            } catch (e) {
+                captureException(e)
+
+                if (values.thread[newIndex]) {
+                    actions.replaceMessage(newIndex, failureMessage)
+                } else {
+                    actions.addMessage({
+                        ...failureMessage,
+                        status: 'completed',
+                    })
+                }
             }
 
             actions.setThreadLoaded()
