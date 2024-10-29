@@ -128,6 +128,9 @@ REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
     "Time taken to produce a set of replay messages",
 )
 
+# This distinct ID is a sentinel value that is used to indicate that it should be replaced by a cookieless server hash
+SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID = "$sentinel_cookieless_server_hash"
+
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
 # don't refer to the same underlying person we prefer to partition them randomly
@@ -877,6 +880,11 @@ def capture_internal(
         and (distinct_id.lower() in LIKELY_ANONYMOUS_IDS or is_randomly_partitioned(candidate_partition_key))
     ):
         kafka_partition_key = None
+    elif distinct_id == SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID:
+        # This sentinel value will later on be replaced by the actual cookieless server hash, which contains the ip
+        # address, so sending the same ip address to the same partition should mean that every event with the same hash
+        # will end up in the same partition.
+        kafka_partition_key = f"{token}:{ip}"
     else:
         kafka_partition_key = candidate_partition_key
 
