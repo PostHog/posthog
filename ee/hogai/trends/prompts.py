@@ -208,91 +208,52 @@ The user might want to get insights for groups. A group aggregates events based 
 
 You can determine if a feature flag is enabled by checking if it's set to true or 1 in the `$feature/...` property. For example, if you want to check if the multiple-breakdowns feature is enabled, you need to check if `$feature/multiple-breakdowns` is true or 1.
 
-## Examples
+## Schema Examples
 
 ### How many users do I have?
 
-Plan:
-```
-Events:
-- user signed up
-  - math operation: total
-```
-
-Answer:
 ```
 {"dateRange":{"date_from":"all"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}
 ```
+
 ### Show a bar chart of the organic search traffic for the last month grouped by week.
 
-Plan:
-
-```
-Events:
-- $pageview
-  - math operation: dau
-  - property filter 1:
-    - entity: event
-    - property name: $referring_domain
-    - operator: contains
-    - property value: google
-  - property filter 2:
-    - entity: event
-    - property name: utm_source
-    - operator: is not set
-```
-
-Answer:
 ```
 {"dateRange":{"date_from":"-30d","date_to":null,"explicitDate":false},"interval":"week","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"dau","properties":[{"key":"$referring_domain","operator":"icontains","type":"event","value":"google"},{"key":"utm_source","operator":"is_not_set","type":"event","value":"is_not_set"}]}],"trendsFilter":{"display":"ActionsBar"}}
 ```
 
 ### insight created unique users & first-time users for the last 12m)
 
-Plan:
-```
-Events:
-- insight created
-  - math operation: dau
-- insight created
-  - math operation: first time for a user
-```
-
-Answer:
 ```
 {"dateRange":{"date_from":"-12m","date_to":""},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"insight created","kind":"EventsNode","math":"dau","custom_name":"insight created"},{"event":"insight created","kind":"EventsNode","math":"first_time_for_user","custom_name":"insight created"}],"trendsFilter":{"display":"ActionsLineGraph"}}
 ```
 
 ### What are the top 10 referring domains for the last month?
 
-Answer:
 ```
 {"breakdownFilter":{"breakdown_type":"event","breakdowns":[{"group_type_index":null,"histogram_bin_count":null,"normalize_url":null,"property":"$referring_domain","type":"event"}]},"dateRange":{"date_from":"-30d"},"interval":"day","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"total","custom_name":"$pageview"}]}
 ```
 
 ### What is the DAU to MAU ratio of users from the US and Australia that viewed a page in the last 7 days? Compare it to the previous period.
 
-Answer:
 ```
 {"compareFilter":{"compare":true,"compare_to":null},"dateRange":{"date_from":"-7d"},"interval":"day","kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_name","operator":"exact","type":"event","value":["United States","Australia"]}]}]},"series":[{"event":"$pageview","kind":"EventsNode","math":"dau","custom_name":"$pageview"},{"event":"$pageview","kind":"EventsNode","math":"monthly_active","custom_name":"$pageview"}],"trendsFilter":{"aggregationAxisFormat":"percentage_scaled","display":"ActionsLineGraph","formula":"A/B"}}
 ```
+
 ### I want to understand how old are dashboard results when viewed from the beginning of this year grouped by a month. Display the results for percentiles of 99, 95, 90, average, and median by the property "refreshAge".
 
-Answer:
 ```
 {"dateRange":{"date_from":"yStart","date_to":null,"explicitDate":false},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"viewed dashboard","kind":"EventsNode","math":"p99","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p95","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p90","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"avg","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"median","math_property":"refreshAge","custom_name":"viewed dashboard"}],"trendsFilter":{"aggregationAxisFormat":"duration","display":"ActionsLineGraph"}}
 ```
 
 ### organizations joined in the last 30 days by day from the google search
 
-Answer:
 ```
 {"dateRange":{"date_from":"-30d"},"filterTestAccounts":false,"interval":"day","kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"OR","values":[{"key":"$initial_utm_source","operator":"exact","type":"person","value":["google"]}]}]},"series":[{"event":"user signed up","kind":"EventsNode","math":"unique_group","math_group_type_index":0,"name":"user signed up","properties":[{"key":"is_organization_first_user","operator":"exact","type":"person","value":["true"]}]}],"trendsFilter":{"display":"ActionsLineGraph"}}
 ```
 
 ### trends for the last two weeks of the onboarding completed event by unique projects with a session duration more than 5 minutes and the insight analyzed event by unique projects with a breakdown by event's Country Name. exclude the US.
 
-Answer:
 ```
 {"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"onboarding completed","name":"onboarding completed","properties":[{"key":"$session_duration","value":300,"operator":"gt","type":"session"}],"math":"unique_group","math_group_type_index":2},{"kind":"EventsNode","event":"insight analyzed","name":"insight analyzed","math":"unique_group","math_group_type_index":2}],"trendsFilter":{"display":"ActionsBar","showValuesOnSeries":true,"showPercentStackView":false,"showLegend":false},"breakdownFilter":{"breakdowns":[{"property":"$geoip_country_name","type":"event"}],"breakdown_limit":5},"properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_code","value":["US"],"operator":"is_not","type":"event"}]}]},"dateRange":{"date_from":"-14d","date_to":null},"interval":"day"}
 ```
