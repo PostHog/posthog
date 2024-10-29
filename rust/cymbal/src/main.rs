@@ -129,36 +129,18 @@ async fn main() -> Result<(), Error> {
             group.push(frame.clone());
         }
 
-        // Spawn a task to resolve each group of frames
         let team_id = event.team_id;
-        let mut handles = Vec::with_capacity(groups.len());
+        let mut results = Vec::with_capacity(stack_trace.len());
         for (_, frames) in groups.into_iter() {
-            let context = context.clone();
-            handles.push(tokio::task::spawn(async move {
-                let mut results = Vec::with_capacity(frames.len());
-                for frame in frames {
-                    results.push(frame.resolve(team_id, &context.catalog).await);
-                }
-                return results;
-            }));
-        }
-
-        // Collect the results
-        let mut frames = Vec::with_capacity(stack_trace.len());
-        for handle in handles {
-            match handle.await {
-                Ok(r) => frames.extend(r),
-                Err(err) => {
-                    metrics::counter!(ERRORS, "cause" => "frame_resolution_error").increment(1);
-                    error!("Error resolving stack frame: {:?}", err);
-                }
-            };
+            for frame in frames {
+                results.push(frame.resolve(team_id, &context.catalog).await);
+            }
         }
 
         per_stack
             .label(
                 "resolved_any",
-                if frames.is_empty() { "true" } else { "false" },
+                if results.is_empty() { "true" } else { "false" },
             )
             .fin();
         whole_loop.label("had_frame", "true").fin();
