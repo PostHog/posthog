@@ -198,7 +198,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login } = useValues(loginLogic)
 
-    const areExtraFieldsHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+    const areExtraFieldsHidden = precheckResponse.sso_enforcement
 
     useEffect(() => {
         precheck({ email: invite.target_email })
@@ -270,7 +270,8 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     </>
                 )}
 
-                {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
+                {/* Show regular login button if SSO is not enforced */}
+                {!precheckResponse.sso_enforcement && (
                     <LemonButton
                         type="primary"
                         status="alt"
@@ -283,7 +284,10 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     >
                         Continue
                     </LemonButton>
-                ) : (
+                )}
+
+                {/* Show enforced SSO button if required */}
+                {precheckResponse.sso_enforcement && (
                     <SSOEnforcedLoginButton
                         provider={precheckResponse.sso_enforcement}
                         email={login.email}
@@ -291,6 +295,8 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         extraQueryParams={invite ? { invite_id: invite.id } : undefined}
                     />
                 )}
+
+                {/* Show optional SAML SSO button if available */}
                 {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
                     <SSOEnforcedLoginButton
                         provider="saml"
