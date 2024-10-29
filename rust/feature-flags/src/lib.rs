@@ -1,4 +1,5 @@
 pub mod api;
+pub mod cohort_cache;
 pub mod cohort_models;
 pub mod cohort_operations;
 pub mod config;

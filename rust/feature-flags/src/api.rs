@@ -89,7 +89,7 @@ pub enum FlagError {
     #[error("Row not found in postgres")]
     RowNotFound,
     #[error("failed to parse redis cache data")]
-    DataParsingError,
+    RedisDataParsingError,
     #[error("failed to update redis cache")]
     CacheUpdateError,
     #[error("redis unavailable")]
@@ -102,6 +102,14 @@ pub enum FlagError {
     TimeoutError,
     #[error("No group type mappings")]
     NoGroupTypeMappings,
+    #[error("Cohort not found")]
+    CohortNotFound(String),
+    #[error("Failed to parse cohort filters")]
+    CohortFiltersParsingError,
+    #[error("Cohort dependency cycle")]
+    CohortDependencyCycle(String),
+    #[error("Cohort dependency error")]
+    CohortDependencyError(String),
 }
 
 impl IntoResponse for FlagError {
@@ -138,7 +146,7 @@ impl IntoResponse for FlagError {
             FlagError::TokenValidationError => {
                 (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())
             }
-            FlagError::DataParsingError => {
+            FlagError::RedisDataParsingError => {
                 tracing::error!("Data parsing error: {:?}", self);
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -194,6 +202,22 @@ impl IntoResponse for FlagError {
                     "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
+            FlagError::CohortNotFound(msg) => {
+                tracing::error!("Cohort not found: {}", msg);
+                (StatusCode::NOT_FOUND, msg)
+            }
+            FlagError::CohortFiltersParsingError => {
+                tracing::error!("Failed to parse cohort filters: {:?}", self);
+                (StatusCode::BAD_REQUEST, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
+            }
+            FlagError::CohortDependencyCycle(msg) => {
+                tracing::error!("Cohort dependency cycle: {}", msg);
+                (StatusCode::BAD_REQUEST, msg)
+            }
+            FlagError::CohortDependencyError(msg) => {
+                tracing::error!("Cohort dependency error: {}", msg);
+                (StatusCode::BAD_REQUEST, msg)
+            }
         }
         .into_response()
     }
@@ -205,7 +229,7 @@ impl From<CustomRedisError> for FlagError {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
             CustomRedisError::PickleError(e) => {
                 tracing::error!("failed to fetch data: {}", e);
-                FlagError::DataParsingError
+                FlagError::RedisDataParsingError
             }
             CustomRedisError::Timeout(_) => FlagError::TimeoutError,
             CustomRedisError::Other(e) => {

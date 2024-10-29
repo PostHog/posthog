@@ -2,26 +2,7 @@ use crate::flag_definitions::PropertyFilter;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-#[derive(Debug, FromRow)]
-pub struct CohortRow {
-    pub id: i32,
-    pub name: String,
-    pub description: Option<String>,
-    pub team_id: i32,
-    pub deleted: bool,
-    pub filters: serde_json::Value,
-    pub query: Option<serde_json::Value>,
-    pub version: Option<i32>,
-    pub pending_version: Option<i32>,
-    pub count: Option<i32>,
-    pub is_calculating: bool,
-    pub is_static: bool,
-    pub errors_calculating: i32,
-    pub groups: serde_json::Value,
-    pub created_by_id: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
     pub name: String,
@@ -41,11 +22,6 @@ pub struct Cohort {
 }
 
 pub type CohortId = i32;
-
-pub enum CohortOrEmpty {
-    Cohort(Cohort),
-    Empty,
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
