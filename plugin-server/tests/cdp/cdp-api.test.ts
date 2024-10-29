@@ -205,6 +205,7 @@ describe('CDP API', () => {
                 Promise.resolve({
                     status: 201,
                     text: () => Promise.resolve(JSON.stringify({ real: true })),
+                    headers: new Headers({ 'Content-Type': 'application/json' }),
                 })
             )
             const res = await supertest(app)
@@ -214,7 +215,7 @@ describe('CDP API', () => {
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
                 status: 'success',
-                error: 'undefined',
+                error: null,
                 logs: [
                     {
                         level: 'debug',
