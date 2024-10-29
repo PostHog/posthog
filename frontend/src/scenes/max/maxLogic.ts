@@ -84,9 +84,12 @@ export const maxLogic = kea<maxLogicType>([
             null as string[] | null,
             {
                 loadSuggestions: async () => {
-                    const response = await api.query<SuggestedQuestionsQuery>({
-                        kind: NodeKind.SuggestedQuestionsQuery,
-                    })
+                    const response = await api.query<SuggestedQuestionsQuery>(
+                        { kind: NodeKind.SuggestedQuestionsQuery },
+                        undefined,
+                        undefined,
+                        'async_except_on_cache_miss'
+                    )
                     return response.questions
                 },
             },

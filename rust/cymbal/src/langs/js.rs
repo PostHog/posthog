@@ -1,9 +1,10 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use sourcemap::Token;
+use sourcemap::{SourceMap, Token};
 
 use crate::{
-    error::{Error, JsResolveErr},
+    error::{Error, JsResolveErr, ResolutionError},
+    symbol_store::SymbolCatalog,
     types::frames::Frame,
 };
 
@@ -23,26 +24,45 @@ pub struct RawJSFrame {
     pub fn_name: String,
 }
 
-// export interface StackFrame {
-//     filename?: string
-//     function?: string
-//     module?: string
-//     platform?: string
-//     lineno?: number
-//     colno?: number
-//     abs_path?: string
-//     context_line?: string
-//     pre_context?: string[]
-//     post_context?: string[]
-//     in_app?: boolean
-//     instruction_addr?: string
-//     addr_mode?: string
-//     vars?: { [key: string]: any }
-//     debug_id?: string
-// }
-
 impl RawJSFrame {
-    pub fn source_ref(&self) -> Result<Url, JsResolveErr> {
+    pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
+    where
+        C: SymbolCatalog<Url, SourceMap>,
+    {
+        match self.resolve_impl(team_id, catalog).await {
+            Ok(frame) => Ok(frame),
+            Err(Error::ResolutionError(ResolutionError::JavaScript(e))) => {
+                Ok(self.handle_resolution_error(e))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
+    where
+        C: SymbolCatalog<Url, SourceMap>,
+    {
+        let store = catalog.get();
+        let url = self.source_url()?;
+
+        let sourcemap = store.fetch(team_id, url).await?;
+        let Some(token) = sourcemap.lookup_token(self.line, self.column) else {
+            return Err(
+                JsResolveErr::TokenNotFound(self.fn_name.clone(), self.line, self.column).into(),
+            );
+        };
+
+        Ok(Frame::from((self, token)))
+    }
+
+    // JS frames can only handle JS resolution errors - errors at the network level
+    pub fn handle_resolution_error(&self, e: JsResolveErr) -> Frame {
+        // If we failed to resolve the frame, we mark it as "not resolved" and add the error message,
+        // then return a Frame anyway, because frame handling is a best-effort thing.
+        (self, e).into()
+    }
+
+    fn source_url(&self) -> Result<Url, JsResolveErr> {
         // We can't resolve a frame without a source ref, and are forced
         // to assume this frame is not minified
         let Some(source_url) = &self.source_url else {
@@ -81,43 +101,6 @@ impl RawJSFrame {
         Url::parse(&source_url[..useful])
             .map_err(|_| JsResolveErr::InvalidSourceUrl(source_url.to_string()))
     }
-
-    // JS frames can only handle JS resolution errors - errors at the network level
-    pub fn try_handle_resolution_error(&self, e: JsResolveErr) -> Result<Frame, Error> {
-        // A bit naughty, but for code like this, justified I think
-        use JsResolveErr::{
-            InvalidSourceMap, InvalidSourceMapHeader, InvalidSourceMapUrl, InvalidSourceUrl,
-            NoSourceUrl, NoSourcemap, TokenNotFound,
-        };
-
-        // I break out all the cases individually here, rather than using an _ to match all,
-        // because I want this to stop compiling if we add new cases
-        Ok(match e {
-            NoSourceUrl => self.try_assume_unminified().ok_or(NoSourceUrl), // We assume we're not minified
-            NoSourcemap(u) => self.try_assume_unminified().ok_or(NoSourcemap(u)),
-            InvalidSourceMap(e) => Err(JsResolveErr::from(e)),
-            TokenNotFound(s, l, c) => Err(TokenNotFound(s, l, c)),
-            InvalidSourceUrl(u) => Err(InvalidSourceUrl(u)),
-            InvalidSourceMapHeader(u) => Err(InvalidSourceMapHeader(u)),
-            InvalidSourceMapUrl(u) => Err(InvalidSourceMapUrl(u)),
-        }?)
-    }
-
-    // Returns none if the frame is
-    fn try_assume_unminified(&self) -> Option<Frame> {
-        // TODO - we should include logic here that uses some kind of heuristic to determine
-        // if this frame is minified or not. Right now, we simply assume it isn't if this is
-        // being called (and all the cases where it's called are above)
-        Some(Frame {
-            mangled_name: self.fn_name.clone(),
-            line: Some(self.line),
-            column: Some(self.column),
-            source: self.source_url.clone(), // Maybe we have one?
-            in_app: self.in_app,
-            resolved_name: Some(self.fn_name.clone()), // This is the bit we'd want to check
-            lang: "javascript".to_string(),
-        })
-    }
 }
 
 impl From<(&RawJSFrame, Token<'_>)> for Frame {
@@ -132,6 +115,24 @@ impl From<(&RawJSFrame, Token<'_>)> for Frame {
             in_app: raw_frame.in_app,
             resolved_name: token.get_name().map(String::from),
             lang: "javascript".to_string(),
+            resolved: true,
+            resolve_failure: None,
+        }
+    }
+}
+
+impl From<(&RawJSFrame, JsResolveErr)> for Frame {
+    fn from((raw_frame, err): (&RawJSFrame, JsResolveErr)) -> Self {
+        Self {
+            mangled_name: raw_frame.fn_name.clone(),
+            line: Some(raw_frame.line),
+            column: Some(raw_frame.column),
+            source: raw_frame.source_url.clone(),
+            in_app: raw_frame.in_app,
+            resolved_name: None,
+            lang: "javascript".to_string(),
+            resolved: false,
+            resolve_failure: Some(err.to_string()),
         }
     }
 }
@@ -149,7 +150,7 @@ mod test {
         };
 
         assert_eq!(
-            frame.source_ref().unwrap(),
+            frame.source_url().unwrap(),
             "http://example.com/path/to/file.js".parse().unwrap()
         );
 
@@ -162,7 +163,7 @@ mod test {
         };
 
         assert_eq!(
-            frame.source_ref().unwrap(),
+            frame.source_url().unwrap(),
             "http://example.com/path/to/file.js".parse().unwrap()
         );
     }
