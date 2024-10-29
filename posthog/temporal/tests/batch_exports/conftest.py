@@ -14,6 +14,13 @@ from posthog.temporal.tests.utils.persons import (
 )
 
 
+def pytest_collection_modifyitems(items):
+    pytest_asyncio_tests = (item for item in items if pytest_asyncio.is_async_test(item))
+    session_scope_marker = pytest.mark.asyncio(loop_scope="session")
+    for async_test in pytest_asyncio_tests:
+        async_test.add_marker(session_scope_marker, append=False)
+
+
 @pytest.fixture
 def interval(request) -> str:
     """A parametrizable fixture to configure a batch export interval.
@@ -44,7 +51,7 @@ def exclude_events(request) -> list[str] | None:
         return None
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture()
 async def truncate_events(clickhouse_client):
     """Fixture to automatically truncate sharded_events after a test.
 
@@ -54,7 +61,7 @@ async def truncate_events(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture()
 async def truncate_persons(clickhouse_client):
     """Fixture to automatically truncate person and person_distinct_id2 after a test.
 
@@ -146,7 +153,9 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
-@pytest_asyncio.fixture(scope="module", autouse=True)
+@pytest_asyncio.fixture(
+    scope="module",
+)
 async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
     from posthog.batch_exports.sql import (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,

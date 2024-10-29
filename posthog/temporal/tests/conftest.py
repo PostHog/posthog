@@ -65,7 +65,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
 async def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     async with ClickHouseClient(

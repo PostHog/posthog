@@ -37,7 +37,7 @@ from posthog.temporal.tests.utils.models import (
     afetch_batch_export_backfills,
 )
 
-pytestmark = [pytest.mark.asyncio]
+pytestmark = [pytest.mark.asyncio(loop_scope="session")]
 
 
 @pytest.fixture

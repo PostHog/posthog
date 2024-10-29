@@ -17,8 +17,6 @@ from posthog.temporal.tests.utils.models import (
     adelete_batch_export,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
-
 
 @pytest_asyncio.fixture
 async def s3_batch_export(
@@ -55,6 +53,8 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_batch_export_run_is_set_to_running(ateam, s3_batch_export):
     """Test background task sets batch export to running."""
     some_date = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.UTC)
@@ -80,6 +80,8 @@ async def test_batch_export_run_is_set_to_running(ateam, s3_batch_export):
     assert run.status == BatchExportRun.Status.RUNNING
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_make_retryable_with_exponential_backoff_called_max_attempts():
     """Test function wrapped is called all `max_attempts` times."""
     counter = 0
@@ -96,6 +98,8 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts():
     assert counter == 5
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_timesout():
     """Test function wrapped is called all `max_attempts` times on a timeout."""
     counter = 0
@@ -111,6 +115,8 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_ti
     assert counter == 5
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_func_returns_retryable():
     """Test function wrapped is called all `max_attempts` times if `is_exception_retryable` returns `True`."""
     counter = 0
@@ -132,6 +138,8 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_fu
     assert counter == 5
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_make_retryable_with_exponential_backoff_raises_if_func_returns_not_retryable():
     """Test function wrapped raises immediately if `is_exception_retryable` returns `False`."""
     counter = 0
@@ -153,6 +161,8 @@ async def test_make_retryable_with_exponential_backoff_raises_if_func_returns_no
     assert counter == 1
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_make_retryable_with_exponential_backoff_raises_if_not_retryable():
     """Test function wrapped raises immediately if exception not in `retryable_exceptions`."""
     counter = 0
