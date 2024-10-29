@@ -10,7 +10,6 @@ use tokio::sync::Mutex;
 use crate::error::Error;
 
 pub mod caching;
-pub mod internal;
 pub mod sourcemap;
 
 pub trait SymbolCatalog<Ref, Set>: Send + Sync + 'static {
