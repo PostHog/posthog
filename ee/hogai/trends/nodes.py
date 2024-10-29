@@ -9,7 +9,6 @@ from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage as LangchainAssistantMessage
 from langchain_core.messages import BaseMessage, merge_message_runs
-from langchain_core.messages import HumanMessage as LangchainHumanMessage
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -36,7 +35,7 @@ from ee.hogai.trends.toolkit import (
     TrendsAgentToolkit,
     TrendsAgentToolModel,
 )
-from ee.hogai.trends.utils import GenerateTrendOutputModel
+from ee.hogai.trends.utils import GenerateTrendOutputModel, filter_trends_conversation
 from ee.hogai.utils import (
     AssistantNode,
     AssistantNodeName,
@@ -49,7 +48,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     CachedTeamTaxonomyQueryResponse,
     FailureMessage,
-    HumanMessage,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
@@ -177,26 +175,33 @@ class CreateTrendsPlanNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        messages = state.get("messages", [])
-        if len(messages) == 0:
+        human_messages, visualization_messages = filter_trends_conversation(state.get("messages", []))
+
+        if not human_messages:
             return []
 
-        conversation = [
-            HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
-                question=messages[0].content if isinstance(messages[0], HumanMessage) else ""
-            )
-        ]
+        conversation = []
 
-        for message in messages[1:]:
-            if isinstance(message, HumanMessage):
-                conversation.append(
-                    HumanMessagePromptTemplate.from_template(
-                        react_follow_up_prompt,
-                        template_format="mustache",
-                    ).format(feedback=message.content)
-                )
-            elif isinstance(message, VisualizationMessage):
-                conversation.append(LangchainAssistantMessage(content=message.plan or ""))
+        for idx, messages in enumerate(itertools.zip_longest(human_messages, visualization_messages)):
+            human_message, viz_message = messages
+
+            if human_message:
+                if idx == 0:
+                    conversation.append(
+                        HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
+                            question=human_message.content
+                        )
+                    )
+                else:
+                    conversation.append(
+                        HumanMessagePromptTemplate.from_template(
+                            react_follow_up_prompt,
+                            template_format="mustache",
+                        ).format(feedback=human_message.content)
+                    )
+
+            if viz_message:
+                conversation.append(LangchainAssistantMessage(content=viz_message.plan or ""))
 
         return conversation
 
@@ -335,22 +340,7 @@ class GenerateTrendsNode(AssistantNode):
             )
         ]
 
-        stack: list[LangchainHumanMessage] = []
-        human_messages: list[LangchainHumanMessage] = []
-        visualization_messages: list[VisualizationMessage] = []
-
-        for message in messages:
-            if isinstance(message, HumanMessage):
-                stack.append(LangchainHumanMessage(content=message.content))
-            elif isinstance(message, VisualizationMessage) and message.answer:
-                if stack:
-                    human_messages += merge_message_runs(stack)
-                    stack = []
-                visualization_messages.append(message)
-
-        if stack:
-            human_messages += merge_message_runs(stack)
-
+        human_messages, visualization_messages = filter_trends_conversation(messages)
         first_ai_message = True
 
         for human_message, ai_message in itertools.zip_longest(human_messages, visualization_messages):

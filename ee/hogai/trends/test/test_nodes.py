@@ -81,6 +81,22 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Text", history[0].content)
         self.assertNotIn("{{question}}", history[0].content)
 
+    def test_agent_reconstructs_conversation_with_failures(self):
+        node = CreateTrendsPlanNode(self.team)
+        history = node._reconstruct_conversation(
+            {
+                "messages": [
+                    HumanMessage(content="Text"),
+                    FailureMessage(content="Error"),
+                    HumanMessage(content="Text"),
+                ]
+            }
+        )
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Text", history[0].content)
+        self.assertNotIn("{{question}}", history[0].content)
+
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
         for i in range(26):
@@ -336,6 +352,30 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[3].type, "human")
         self.assertIn("Pydantic", history[3].content)
         self.assertIn("uniqexception", history[3].content)
+
+    def test_agent_reconstructs_conversation_with_failed_messages(self):
+        node = GenerateTrendsNode(self.team)
+        history = node._reconstruct_conversation(
+            {
+                "messages": [
+                    HumanMessage(content="Text"),
+                    FailureMessage(content="Error"),
+                    HumanMessage(content="Text"),
+                ],
+                "plan": "randomplan",
+            },
+        )
+        self.assertEqual(len(history), 3)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("mapping", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("the plan", history[1].content)
+        self.assertNotIn("{{plan}}", history[1].content)
+        self.assertIn("randomplan", history[1].content)
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Answer to this question:", history[2].content)
+        self.assertNotIn("{{question}}", history[2].content)
+        self.assertIn("Text", history[2].content)
 
     def test_router(self):
         node = GenerateTrendsNode(self.team)
