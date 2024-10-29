@@ -8,6 +8,7 @@ use crate::PropVal;
 #[derive(Clone, Deserialize)]
 struct EnteredTimestamp {
     timestamp: f64,
+    excluded: bool,
     timings: Vec<f64>,
     uuids: Vec<Uuid>,
 }
@@ -48,6 +49,7 @@ const MAX_REPLAY_EVENTS: usize = 10;
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
+    excluded: false,
     timings: vec![],
     uuids: vec![],
 };
@@ -101,6 +103,7 @@ impl AggregateFunnelRow {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
             vars.entered_timestamp[0] = EnteredTimestamp {
                 timestamp,
+                excluded: false,
                 timings: vec![],
                 uuids: vec![],
             };
@@ -204,30 +207,36 @@ impl AggregateFunnelRow {
 
             if in_match_window && !already_reached_this_step {
                 if exclusion {
-                    self.results.push(Result(-1, prop_val.clone(), vec![], vec![]));
-                    return false;
-                }
-                let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
-                let already_used_event = processing_multiple_events && vars.entered_timestamp[step-1].uuids.contains(&event.uuid);
-                if !is_unmatched_step_attribution && !already_used_event {
-                    vars.entered_timestamp[step] = EnteredTimestamp {
-                        timestamp: vars.entered_timestamp[step - 1].timestamp,
-                        timings: {
-                            let mut timings = vars.entered_timestamp[step - 1].timings.clone();
-                            timings.push(event.timestamp);
-                            timings
-                        },
-                        uuids: {
-                            let mut uuids = vars.entered_timestamp[step - 1].uuids.clone();
-                            uuids.push(event.uuid);
-                            uuids
-                        },
-                    };
-                    if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
-                        vars.event_uuids[step - 1].push(event.uuid);
-                    }
-                    if step > vars.max_step.0 {
-                        vars.max_step = (step, vars.entered_timestamp[step].clone());
+                    vars.entered_timestamp[step - 1].excluded = true
+                    // self.results.push(Result(-1, prop_val.clone(), vec![], vec![]));
+                } else {
+                    let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
+                    let already_used_event = processing_multiple_events && vars.entered_timestamp[step - 1].uuids.contains(&event.uuid);
+                    if !is_unmatched_step_attribution && !already_used_event {
+                        if vars.entered_timestamp[step - 1].excluded {
+                            self.results.push(Result(-1, prop_val.clone(), vec![], vec![]));
+                            return false;
+                        }
+                        vars.entered_timestamp[step] = EnteredTimestamp {
+                            timestamp: vars.entered_timestamp[step - 1].timestamp,
+                            excluded: false,
+                            timings: {
+                                let mut timings = vars.entered_timestamp[step - 1].timings.clone();
+                                timings.push(event.timestamp);
+                                timings
+                            },
+                            uuids: {
+                                let mut uuids = vars.entered_timestamp[step - 1].uuids.clone();
+                                uuids.push(event.uuid);
+                                uuids
+                            },
+                        };
+                        if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
+                            vars.event_uuids[step - 1].push(event.uuid);
+                        }
+                        if step > vars.max_step.0 {
+                            vars.max_step = (step, vars.entered_timestamp[step].clone());
+                        }
                     }
                 }
             }
