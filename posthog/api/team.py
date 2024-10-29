@@ -43,7 +43,11 @@ from posthog.permissions import (
     get_organization_from_view,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_ip_address, get_week_start_for_country_code
+from posthog.utils import (
+    get_instance_realm,
+    get_ip_address,
+    get_week_start_for_country_code,
+)
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -595,6 +599,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "is_first_intent_for_product": created,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )
@@ -627,6 +632,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "is_first_intent_for_product": created,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )
@@ -644,6 +650,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "intent_context": request.data.get("intent_context"),
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )

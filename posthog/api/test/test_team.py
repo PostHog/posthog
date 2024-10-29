@@ -26,6 +26,7 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
+from posthog.utils import get_instance_realm
 
 
 def team_api_test_factory():
@@ -1045,6 +1046,7 @@ def team_api_test_factory():
                     "is_first_intent_for_product": True,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
                 },
                 team=self.team,
             )
@@ -1079,6 +1081,7 @@ def team_api_test_factory():
                     "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
                 },
                 team=self.team,
             )
