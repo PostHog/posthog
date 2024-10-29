@@ -1,4 +1,3 @@
-import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
@@ -11,7 +10,7 @@ import {
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter } from '~/types'
+import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 export type SparklineConfig = {
     value: number

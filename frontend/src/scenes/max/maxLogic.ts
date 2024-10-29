@@ -1,9 +1,10 @@
 import { shuffle } from 'd3'
+import { createParser } from 'eventsource-parser'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { ExperimentalAITrendsQuery, NodeKind, SuggestedQuestionsQuery } from '~/queries/schema'
+import { AssistantMessageType, NodeKind, RootAssistantMessage, SuggestedQuestionsQuery } from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
 
@@ -11,15 +12,10 @@ export interface MaxLogicProps {
     sessionId: string
 }
 
-interface TrendGenerationResult {
-    reasoning_steps?: string[]
-    answer?: ExperimentalAITrendsQuery
-}
+export type MessageStatus = 'loading' | 'completed' | 'error'
 
-export interface ThreadMessage {
-    role: 'user' | 'assistant'
-    content?: string | TrendGenerationResult
-    status?: 'loading' | 'completed' | 'error'
+export type ThreadMessage = RootAssistantMessage & {
+    status?: MessageStatus
 }
 
 export const maxLogic = kea<maxLogicType>([
@@ -88,9 +84,12 @@ export const maxLogic = kea<maxLogicType>([
             null as string[] | null,
             {
                 loadSuggestions: async () => {
-                    const response = await api.query<SuggestedQuestionsQuery>({
-                        kind: NodeKind.SuggestedQuestionsQuery,
-                    })
+                    const response = await api.query<SuggestedQuestionsQuery>(
+                        { kind: NodeKind.SuggestedQuestionsQuery },
+                        undefined,
+                        undefined,
+                        'async_except_on_cache_miss'
+                    )
                     return response.questions
                 },
             },
@@ -114,46 +113,55 @@ export const maxLogic = kea<maxLogicType>([
             actions.setVisibleSuggestions(allSuggestionsWithoutCurrentlyVisible.slice(0, 3))
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ role: 'user', content: prompt })
+            actions.addMessage({ type: AssistantMessageType.Human, content: prompt })
             const newIndex = values.thread.length
 
             try {
                 const response = await api.chat({
                     session_id: props.sessionId,
-                    messages: values.thread.map(({ role, content }) => ({
-                        role,
-                        content: typeof content === 'string' ? content : JSON.stringify(content),
-                    })),
+                    messages: values.thread.map(({ status, ...message }) => message),
                 })
                 const reader = response.body?.getReader()
+
+                if (!reader) {
+                    return
+                }
+
                 const decoder = new TextDecoder()
 
-                if (reader) {
-                    let firstChunk = true
+                let firstChunk = true
 
-                    while (true) {
-                        const { done, value } = await reader.read()
-                        if (done) {
-                            actions.setMessageStatus(newIndex, 'completed')
-                            break
+                const parser = createParser({
+                    onEvent: (event) => {
+                        const parsedResponse = parseResponse(event.data)
+
+                        if (!parsedResponse) {
+                            return
                         }
-
-                        const text = decoder.decode(value)
-                        const parsedResponse = parseResponse(text)
 
                         if (firstChunk) {
                             firstChunk = false
 
                             if (parsedResponse) {
-                                actions.addMessage({ role: 'assistant', content: parsedResponse, status: 'loading' })
+                                actions.addMessage({ ...parsedResponse, status: 'loading' })
                             }
                         } else if (parsedResponse) {
                             actions.replaceMessage(newIndex, {
-                                role: 'assistant',
-                                content: parsedResponse,
+                                ...parsedResponse,
                                 status: 'loading',
                             })
                         }
+                    },
+                })
+
+                while (true) {
+                    const { done, value } = await reader.read()
+
+                    parser.feed(decoder.decode(value))
+
+                    if (done) {
+                        actions.setMessageStatus(newIndex, 'completed')
+                        break
                     }
                 }
             } catch {
@@ -172,50 +180,11 @@ export const maxLogic = kea<maxLogicType>([
  * Parses the generation result from the API. Some generation chunks might be sent in batches.
  * @param response
  */
-function parseResponse(response: string, recursive = true): TrendGenerationResult | null {
+function parseResponse(response: string): RootAssistantMessage | null | undefined {
     try {
         const parsed = JSON.parse(response)
-        return parsed as TrendGenerationResult
+        return parsed as RootAssistantMessage | null | undefined
     } catch {
-        if (!recursive) {
-            return null
-        }
-
-        const results: [number, number][] = []
-        let pair: [number, number] = [0, 0]
-        let seq = 0
-
-        for (let i = 0; i < response.length; i++) {
-            const char = response[i]
-
-            if (char === '{') {
-                if (seq === 0) {
-                    pair[0] = i
-                }
-
-                seq += 1
-            }
-
-            if (char === '}') {
-                seq -= 1
-                if (seq === 0) {
-                    pair[1] = i
-                }
-            }
-
-            if (seq === 0) {
-                results.push(pair)
-                pair = [0, 0]
-            }
-        }
-
-        const lastPair = results.pop()
-
-        if (lastPair) {
-            const [left, right] = lastPair
-            return parseResponse(response.slice(left, right + 1), false)
-        }
-
         return null
     }
 }

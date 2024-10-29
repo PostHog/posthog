@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
@@ -92,7 +92,7 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
     const logic = batchExportRunsLogic({ id })
 
     const { batchExportConfig, latestRuns, loading, hasMoreRunsToLoad } = useValues(logic)
-    const { openBackfillModal, loadOlderRuns, retryRun } = useActions(logic)
+    const { openBackfillModal, loadOlderRuns, retryRun, cancelRun } = useActions(logic)
     const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
 
     if (!batchExportConfig) {
@@ -131,12 +131,14 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         key: 'dataIntervalStart',
                         tooltip: 'Start of the time range to export',
                         render: (_, run) => {
-                            return (
+                            return run.data_interval_start ? (
                                 <TZLabel
                                     time={run.data_interval_start}
                                     formatDate="MMMM DD, YYYY"
                                     formatTime="HH:mm:ss"
                                 />
+                            ) : (
+                                'Beginning of time'
                             )
                         },
                     },
@@ -165,7 +167,12 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         width: 0,
                         render: function RenderActions(_, run) {
                             if (canEnableNewDestinations) {
-                                return <RunRetryButton run={run} retryRun={retryRun} />
+                                return (
+                                    <div className="flex gap-1">
+                                        <RunRetryButton run={run} retryRun={retryRun} />
+                                        <RunCancelButton run={run} cancelRun={cancelRun} />
+                                    </div>
+                                )
                             }
                         },
                     },
@@ -268,12 +275,14 @@ export function BatchExportRunsGrouped({
                         key: 'dataIntervalStart',
                         tooltip: 'Start of the time range to export',
                         render: (_, run) => {
-                            return (
+                            return run.data_interval_start ? (
                                 <TZLabel
                                     time={run.data_interval_start}
                                     formatDate="MMMM DD, YYYY"
                                     formatTime="HH:mm:ss"
                                 />
+                            ) : (
+                                'Beginning of time'
                             )
                         },
                     },
@@ -354,6 +363,41 @@ function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Ele
                         },
                         secondaryButton: {
                             children: 'Cancel',
+                        },
+                    })
+                }
+            />
+        </span>
+    )
+}
+
+function RunCancelButton({ run, cancelRun }: { run: BatchExportRun; cancelRun: any }): JSX.Element {
+    return (
+        <span className="flex items-center gap-1">
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconCancel />}
+                disabledReason={
+                    run.status === 'Running' || run.status === 'Starting'
+                        ? null
+                        : `Cannot cancel as run is '${run.status}'`
+                }
+                onClick={() =>
+                    LemonDialog.open({
+                        title: 'Cancel run?',
+                        description: (
+                            <>
+                                <p>This will cancel the selected backfill run.</p>
+                            </>
+                        ),
+                        width: '20rem',
+                        primaryButton: {
+                            children: 'Cancel run',
+                            onClick: () => cancelRun(run),
+                        },
+                        secondaryButton: {
+                            children: 'Go back',
                         },
                     })
                 }

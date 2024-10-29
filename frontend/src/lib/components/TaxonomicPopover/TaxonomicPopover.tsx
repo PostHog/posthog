@@ -26,6 +26,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     style?: React.CSSProperties
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
     metadataSource?: AnyDataNode
+    showNumericalPropsOnly?: boolean
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -54,6 +55,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     excludedProperties,
     metadataSource,
     schemaColumns,
+    showNumericalPropsOnly,
     ...buttonPropsRest
 }: TaxonomicPopoverProps<ValueType>): JSX.Element {
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
@@ -94,6 +96,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                     schemaColumns={schemaColumns}
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
+                    showNumericalPropsOnly={showNumericalPropsOnly}
                 />
             }
             matchWidth={false}

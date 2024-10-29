@@ -32,7 +32,7 @@ export const insightVizDataCollectionId = (props: InsightLogicProps<any> | undef
 type InsightVizProps = {
     uniqueKey?: string | number
     query: InsightVizNode
-    setQuery?: (node: InsightVizNode) => void
+    setQuery: (node: InsightVizNode) => void
     context?: QueryContext
     readOnly?: boolean
     embedded?: boolean

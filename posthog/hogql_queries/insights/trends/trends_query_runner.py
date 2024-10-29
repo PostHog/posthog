@@ -640,7 +640,6 @@ class TrendsQueryRunner(QueryRunner):
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
-            assert self.team.project_id is not None
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name
@@ -830,13 +829,29 @@ class TrendsQueryRunner(QueryRunner):
                                 "days": any_result.get("days"),
                             }
                         )
-                new_result = self.apply_formula_to_results_group(row_results, formula, is_total_value)
+                new_result = self.apply_formula_to_results_group(
+                    row_results, formula, breakdown_value=breakdown_value, aggregate_values=is_total_value
+                )
                 computed_results.append(new_result)
 
             if has_compare:
                 return multisort(computed_results, (("compare_label", False), ("count", True)))
 
-            return sorted(computed_results, key=itemgetter("count"), reverse=True)
+            return sorted(
+                computed_results,
+                key=lambda s: (
+                    0
+                    if s.get("breakdown_value") not in (BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL)
+                    else -1
+                    if s["breakdown_value"] == BREAKDOWN_NULL_STRING_LABEL
+                    else -2,
+                    s.get("aggregated_value", sum(s.get("data") or [])),
+                    s.get("count"),
+                    s.get("data"),
+                    repr(s.get("breakdown_value")),
+                ),
+                reverse=True,
+            )
         else:
             return [
                 self.apply_formula_to_results_group([r[0] for r in results], formula, aggregate_values=is_total_value)
@@ -844,7 +859,11 @@ class TrendsQueryRunner(QueryRunner):
 
     @staticmethod
     def apply_formula_to_results_group(
-        results_group: list[dict[str, Any]], formula: str, aggregate_values: Optional[bool] = False
+        results_group: list[dict[str, Any]],
+        formula: str,
+        *,
+        breakdown_value: Any = None,
+        aggregate_values: Optional[bool] = False,
     ) -> dict[str, Any]:
         """
         Applies the formula to a list of results, resulting in a single, computed result.
@@ -1054,7 +1073,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return res_breakdown
 
-    def _is_other_breakdown(self, breakdown: BreakdownItem | list[BreakdownItem]) -> bool:
+    def _is_other_breakdown(self, breakdown: str | list[str]) -> bool:
         return (
             breakdown == BREAKDOWN_OTHER_STRING_LABEL
             or isinstance(breakdown, list)

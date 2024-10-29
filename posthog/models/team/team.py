@@ -200,11 +200,7 @@ class Team(UUIDClassicModel):
         related_query_name="team",
     )
     project = models.ForeignKey(
-        "posthog.Project",
-        on_delete=models.CASCADE,
-        related_name="teams",
-        related_query_name="team",
-        null=True,
+        "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
     api_token = models.CharField(
         max_length=200,
@@ -230,6 +226,7 @@ class Team(UUIDClassicModel):
     autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+    person_processing_opt_out = models.BooleanField(null=True, default=False)
     session_recording_opt_in = models.BooleanField(default=False)
     session_recording_sample_rate = models.DecimalField(
         # will store a decimal between 0 and 1 allowing up to 2 decimal places
@@ -286,7 +283,7 @@ class Team(UUIDClassicModel):
     # during feature releases.
     extra_settings = models.JSONField(null=True, blank=True)
 
-    # Project level default HogQL query modifiers
+    # Environment-level default HogQL query modifiers
     modifiers = models.JSONField(null=True, blank=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented

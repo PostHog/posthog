@@ -99,23 +99,26 @@ async fn main() -> Result<(), Error> {
             }
         };
 
-        let Some(trace) = properties.exception_stack_trace_raw.as_ref() else {
+        let Some(exception_list) = &properties.exception_list else {
+            // Known issue that $exception_list didn't exist on old clients
+            continue;
+        };
+
+        if exception_list.is_empty() {
+            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
+            continue;
+        }
+
+        let Some(trace) = exception_list[0].stacktrace.as_ref() else {
             metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
             continue;
         };
 
-        let stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
-            Ok(r) => r,
-            Err(err) => {
-                metrics::counter!(ERRORS, "cause" => "invalid_stack_trace").increment(1);
-                error!("Error parsing stack trace: {:?}", err);
-                continue;
-            }
-        };
+        let stack_trace: &Vec<RawFrame> = &trace.frames;
 
         let mut resolved_frames = Vec::new();
         for frame in stack_trace {
-            let resolved = match context.resolver.resolve(frame, 1).await {
+            let resolved = match context.resolver.resolve(frame.clone(), 1).await {
                 Ok(r) => r,
                 Err(err) => {
                     metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
