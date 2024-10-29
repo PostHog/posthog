@@ -84,6 +84,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
+    user_access_level: 'admin',
     access_control: true,
     has_group_types: true,
     primary_dashboard: 1,

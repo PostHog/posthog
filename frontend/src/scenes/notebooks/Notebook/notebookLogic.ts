@@ -232,6 +232,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: null,
                             text_content: null,
                             version: 0,
+                            user_access_level: 'editor',
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response =
@@ -442,8 +443,9 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isEditable: [
-            (s) => [s.shouldBeEditable, s.previewContent],
-            (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
+            (s) => [s.shouldBeEditable, s.previewContent, s.notebook],
+            (shouldBeEditable, previewContent, notebook) =>
+                shouldBeEditable && !previewContent && notebook?.user_access_level === 'editor',
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -517,6 +519,11 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
+            if (values.notebook?.user_access_level !== 'editor') {
+                actions.clearLocalContent()
+                return
+            }
+
             if (values.previewContent) {
                 // We don't want to modify the content if we are viewing a preview
                 return
