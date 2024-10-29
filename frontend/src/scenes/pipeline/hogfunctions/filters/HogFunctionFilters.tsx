@@ -161,6 +161,10 @@ export function HogFunctionFilters(): JSX.Element {
                                     value: '{person.id}',
                                     label: 'Run once per person per interval',
                                 },
+                                {
+                                    value: '{concat(person.id, event.event)}',
+                                    label: 'Run once per person per interval per event',
+                                },
                             ]}
                             value={value?.hash ?? null}
                             onChange={(val) =>
