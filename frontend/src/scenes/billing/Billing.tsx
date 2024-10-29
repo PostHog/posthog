@@ -108,9 +108,13 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {billing?.free_trial_until ? (
+            {billing?.trial ? (
                 <LemonBanner type="success" className="mb-2">
-                    You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
+                    You are currently on a free trial for {billing.trial.target} until{' '}
+                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
+                    {billing.trial.type === 'autosubscribe'
+                        ? 'you will be automatically subscribed.'
+                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
                 </LemonBanner>
             ) : null}
 
