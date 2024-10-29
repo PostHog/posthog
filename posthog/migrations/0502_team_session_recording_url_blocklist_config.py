@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0499_hog_function_type"),
+        ("posthog", "0501_create_group_billing_team"),
     ]
 
     operations = [
