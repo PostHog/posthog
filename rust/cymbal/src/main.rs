@@ -9,7 +9,7 @@ use cymbal::{
     config::Config,
     error::Error,
     metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_STACK_TIME, STACK_PROCESSED},
-    types::{frames::RawFrame, ErrProps},
+    types::{db::ErrorTrackingGroup, frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -137,6 +137,32 @@ async fn main() -> Result<(), Error> {
             )
             .fin();
         whole_loop.label("had_frame", "true").fin();
+
+        let transaction_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
+        if !self.skip_writes && !self.skip_reads {
+            let mut tx = context.pool.begin().await?;
+
+            let update = ErrorTrackingGroup {
+                fingerprint: String("123456"),
+                team_id: event.team_id,
+            };
+
+            match update.issue(&mut *tx).await {
+                Ok(_) => {}
+                Err(sqlx::Error::Database(e)) if e.constraint().is_some() => {
+                    // If we hit a constraint violation, we just skip the update. We see
+                    // this in production for group-type-indexes not being resolved, and it's
+                    // not worth aborting the whole batch for.
+                    warn!("Failed to issue update: {:?}", e);
+                }
+                Err(e) => {
+                    tx.rollback().await?;
+                    return Err(e);
+                }
+            }
+            tx.commit().await?;
+        }
+        transaction_time.fin();
 
         metrics::counter!(STACK_PROCESSED).increment(1);
     }

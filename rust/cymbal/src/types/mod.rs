@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod db;
 pub mod frames;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
