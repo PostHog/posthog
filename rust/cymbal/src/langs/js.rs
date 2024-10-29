@@ -116,7 +116,6 @@ impl From<(&RawJSFrame, Token<'_>)> for Frame {
             resolved_name: token.get_name().map(String::from),
             resolved: true,
             lang: "javascript".to_string(),
-            resolved: true,
             resolve_failure: None,
         }
     }
