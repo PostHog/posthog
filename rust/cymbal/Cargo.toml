@@ -23,6 +23,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
 reqwest = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }
