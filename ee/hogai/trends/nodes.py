@@ -126,7 +126,7 @@ class CreateTrendsPlanNode(AssistantNode):
 
     @property
     def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
 
     @cached_property
     def _events_prompt(self) -> str:
@@ -292,7 +292,7 @@ class GenerateTrendsNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True).with_structured_output(
             GenerateTrendTool().schema,
             method="function_calling",
             include_raw=False,
