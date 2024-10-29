@@ -16,7 +16,8 @@ where
 
 #[derive(Clone, Deserialize)]
 struct EnteredTimestamp {
-    timestamp: f64
+    timestamp: f64,
+    excluded: bool,
 }
 
 #[derive(Clone, Deserialize)]
@@ -60,6 +61,7 @@ struct AggregateFunnelRow {
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
+    excluded: false
 };
 
 pub fn process_line(line: &str) -> Value {
@@ -147,8 +149,8 @@ impl AggregateFunnelRow {
             if step == 1 {
                 if !vars.interval_start_to_entered_timestamps.contains_key(&event.interval_start) && !self.results.contains_key(&event.interval_start) {
                     let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
-                    entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start as f64 };
-                    entered_timestamp[1] = EnteredTimestamp { timestamp: event.timestamp };
+                    entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start as f64, excluded: false };
+                    entered_timestamp[1] = EnteredTimestamp { timestamp: event.timestamp, excluded: false };
                     vars.interval_start_to_entered_timestamps.insert(event.interval_start, IntervalData { max_step: 1, max_step_event_uuid: event.uuid, entered_timestamp: entered_timestamp });
                 }
             } else {
@@ -157,22 +159,27 @@ impl AggregateFunnelRow {
                     let already_reached_this_step = interval_data.entered_timestamp[step].timestamp == interval_data.entered_timestamp[step - 1].timestamp;
                     if in_match_window && !already_reached_this_step {
                         if exclusion {
-                            return false;
-                        }
-                        let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
-                        if !is_unmatched_step_attribution {
-                            interval_data.entered_timestamp[step] = EnteredTimestamp {
-                                timestamp: interval_data.entered_timestamp[step - 1].timestamp
-                            };
-                            // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
-                            if interval_data.entered_timestamp[args.num_steps].timestamp != 0.0 {
-                                self.results.insert(
-                                    interval_data.entered_timestamp[0].timestamp as u64,
-                                    ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, 1, prop_val.clone(), event.uuid)
-                                );
-                            } else if step > interval_data.max_step {
-                                interval_data.max_step = step;
-                                interval_data.max_step_event_uuid = event.uuid;
+                            interval_data.entered_timestamp[step - 1].excluded = true;
+                        } else {
+                            let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
+                            if !is_unmatched_step_attribution {
+                                if interval_data.entered_timestamp[step - 1].excluded {
+                                    return false;
+                                }
+                                interval_data.entered_timestamp[step] = EnteredTimestamp {
+                                    timestamp: interval_data.entered_timestamp[step - 1].timestamp,
+                                    excluded: false,
+                                };
+                                // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
+                                if interval_data.entered_timestamp[args.num_steps].timestamp != 0.0 {
+                                    self.results.insert(
+                                        interval_data.entered_timestamp[0].timestamp as u64,
+                                        ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, 1, prop_val.clone(), event.uuid)
+                                    );
+                                } else if step > interval_data.max_step {
+                                    interval_data.max_step = step;
+                                    interval_data.max_step_event_uuid = event.uuid;
+                                }
                             }
                         }
                     }
