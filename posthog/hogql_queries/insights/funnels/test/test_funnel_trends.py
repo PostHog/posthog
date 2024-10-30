@@ -1927,6 +1927,73 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, results[0]["reached_from_step_count"])
         self.assertEqual(0, results[0]["reached_to_step_count"])
 
+    def test_exclusion_after_goal(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+            },
+            {
+                "event": "step three",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 3),
+            },
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 4),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 5),
+            },
+            {
+                "event": "exclusion",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 6),
+            },
+            {
+                "event": "step three",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 7),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 1,
+                    "funnel_to_step": 2,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(1, results[0]["reached_to_step_count"])
+
 
 class TestFunnelTrends(BaseTestFunnelTrends):
     __test__ = True
