@@ -41,7 +41,7 @@ class Experiment(models.Model):
     variants = models.JSONField(default=dict, null=True, blank=True)
 
     metrics = models.JSONField(default=list, null=True, blank=True)
-    saved_metrics = models.ManyToManyField(
+    saved_metrics: models.ManyToManyField = models.ManyToManyField(
         "ExperimentSavedMetric", blank=True, related_name="experiments", through="ExperimentToSavedMetric"
     )
 
@@ -89,3 +89,6 @@ class ExperimentToSavedMetric(models.Model):
     metadata = models.JSONField(default=dict)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.experiment.name} - {self.saved_metric.name} - {self.metadata}"

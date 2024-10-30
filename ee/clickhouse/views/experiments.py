@@ -165,7 +165,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), write_only=True, required=False)
+    saved_metrics_ids = serializers.ListField(
+        child=serializers.JSONField(), write_only=True, required=False, allow_null=True
+    )
 
     class Meta:
         model = Experiment
@@ -202,6 +204,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         ]
 
     def validate_saved_metrics_ids(self, value):
+        if value is None:
+            return value
+
         # check value is valid json list with id and optionally metadata param
         if not isinstance(value, list):
             raise ValidationError("Saved metrics must be a list")
@@ -314,7 +319,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        update_saved_metrics = "saved_metrics" in validated_data
+        update_saved_metrics = "saved_metrics_ids" in validated_data
         saved_metrics_data = validated_data.pop("saved_metrics_ids", []) or []
 
         # We replace all saved metrics on update to avoid issues with partial updates
@@ -436,7 +441,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by", "holdout").all()
+    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by", "holdout", "saved_metrics").all()
     ordering = "-created_at"
 
     # ******************************************
