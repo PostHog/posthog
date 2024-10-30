@@ -23,6 +23,7 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
@@ -304,6 +305,36 @@ class HogFunctionViewSet(
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
+
+    @action(detail=True, methods=["POST"])
+    def broadcast(self, request: Request, *args, **kwargs):
+        hog_function = self.get_object()
+        actors_query = {
+            "kind": "ActorsQuery",
+            "properties": hog_function.filters.get("properties", None),
+            "select": ["id", "any(pdi.distinct_id)", "properties", "created_at"],
+        }
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        for result in response.results:
+            globals = {
+                "person": {
+                    "id": str(result[0]),
+                    "distinct_id": str(result[1]),
+                    "properties": json.loads(result[2]),
+                    "created_at": result[3].isoformat(),
+                }
+            }
+            create_hog_invocation_test(
+                team_id=hog_function.team_id,
+                hog_function_id=hog_function.id,
+                globals=globals,
+                configuration=HogFunctionSerializer(hog_function).data,
+                mock_async_functions=False,
+            )
+
+        return Response({"success": True})
 
     def perform_create(self, serializer):
         serializer.save()
