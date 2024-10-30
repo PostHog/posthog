@@ -4485,9 +4485,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(len(results), 1)
-            self.assertEqual(1, results[0][1]["count"])
-            self.assertEqual(29, results[0][1]["average_conversion_time"])
+            self.assertEqual(1, results[1]["count"])
+            self.assertEqual(29, results[1]["average_conversion_time"])
 
     return TestGetFunnel
 
