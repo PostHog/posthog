@@ -246,6 +246,9 @@ class Team(UUIDClassicModel):
     session_recording_url_trigger_config = ArrayField(
         models.JSONField(null=True, blank=True), default=list, blank=True, null=True
     )
+    session_recording_url_blocklist_config = ArrayField(
+        models.JSONField(null=True, blank=True), default=list, blank=True, null=True
+    )
     session_replay_config = models.JSONField(null=True, blank=True)
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)

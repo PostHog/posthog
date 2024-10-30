@@ -20,8 +20,7 @@ export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
         canEnableNewDestinations: [
             (s) => [s.user, s.hasAvailableFeature],
             (user, hasAvailableFeature) =>
-                user?.is_impersonated ||
-                (canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES)),
+                canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES),
         ],
 
         canEnableDestination: [

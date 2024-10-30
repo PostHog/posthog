@@ -49,3 +49,9 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
                 },
             )
         )
+
+    def test_function_requires_identifier(self):
+        self.run_function(self._inputs(gclid=""))
+
+        assert not self.get_mock_fetch_calls()
+        assert self.get_mock_print_calls() == snapshot([("Empty `gclid`. Skipping...",)])

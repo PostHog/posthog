@@ -9,6 +9,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
+import { NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
@@ -44,7 +45,34 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
 
 export function HogFunctionFilters(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, type } = useValues(hogFunctionConfigurationLogic)
+
+    if (type === 'broadcast') {
+        return (
+            <div className="border bg-bg-light rounded p-3 space-y-2">
+                <LemonField name="filters" label="Filters">
+                    {({ value, onChange }) => (
+                        <PropertyFilters
+                            propertyFilters={value?.properties ?? []}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                            ]}
+                            onChange={(properties: AnyPropertyFilter[]) => {
+                                onChange({
+                                    ...value,
+                                    properties,
+                                })
+                            }}
+                            pageKey={`HogFunctionPropertyFilters.${id}`}
+                            metadataSource={{ kind: NodeKind.ActorsQuery }}
+                        />
+                    )}
+                </LemonField>
+            </div>
+        )
+    }
 
     return (
         <div className="border bg-bg-light rounded p-3 space-y-2">
@@ -130,7 +158,7 @@ export function HogFunctionFilters(): JSX.Element {
                                     label: 'Run once per interval',
                                 },
                                 {
-                                    value: '{person.uuid}',
+                                    value: '{person.id}',
                                     label: 'Run once per person per interval',
                                 },
                             ]}

@@ -289,7 +289,7 @@ export function SummaryTable(): JSX.Element {
             return (
                 <>
                     {percentage ? (
-                        <span className="inline-flex items-center w-30 space-x-4">
+                        <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
                                 {percentage.toFixed(2)}%

@@ -25,7 +25,7 @@ TRUNCATE_EVENTS_TABLE_SQL = (
 DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
-INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL"
+INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -175,7 +175,6 @@ group2_created_at,
 group3_created_at,
 group4_created_at,
 person_mode,
-NOW64() AS inserted_at,
 _timestamp,
 _offset
 FROM {database}.kafka_events_json
@@ -193,7 +192,7 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+    extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
     indexes="",
 )

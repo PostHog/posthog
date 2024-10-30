@@ -750,7 +750,7 @@ class PathsQueryRunner(QueryRunner):
             )
         return conditions
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         placeholders: dict[str, ast.Expr] = {
             "paths_per_person_query": self.paths_per_person_query(),
         }
@@ -876,7 +876,7 @@ class PathsQueryRunner(QueryRunner):
     def extra_event_fields_and_properties(self) -> list[str]:
         return self.extra_event_fields + self.extra_event_properties
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # To include matching_events, we need to add extra fields and properties
         # TODO: Make sure going via self is the best way to do this
         self.extra_event_fields = ["uuid", "timestamp"]

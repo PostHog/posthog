@@ -74,6 +74,21 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_test', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '''
   
@@ -560,6 +575,50 @@
   
   '''
 # ---
+# name: test_create_table_query[error_tracking_issue_fingerprint_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_error_tracking_issue_fingerprint_overrides _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.error_tracking_issue_fingerprint_overrides', '{replica}-{shard}', version)
+  
+      ORDER BY (team_id, fingerprint)
+      SETTINGS index_granularity = 512
+      
+  '''
+# ---
+# name: test_create_table_query[error_tracking_issue_fingerprint_overrides_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_overrides_mv ON CLUSTER 'posthog'
+  TO posthog_test.error_tracking_issue_fingerprint_overrides
+  AS SELECT
+  team_id,
+  fingerprint,
+  issue_id,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_error_tracking_issue_fingerprint_overrides
+  WHERE version > 0 -- only store updated rows, not newly inserted ones
+  
+  '''
+# ---
 # name: test_create_table_query[events]
   '''
   
@@ -604,7 +663,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
       
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
@@ -701,7 +760,6 @@
   group3_created_at,
   group4_created_at,
   person_mode,
-  NOW64() AS inserted_at,
   _timestamp,
   _offset
   FROM posthog_test.kafka_events_json
@@ -875,6 +933,21 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_error_tracking_issue_fingerprint_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_test', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
   
   '''
 # ---
@@ -2218,7 +2291,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
       
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
       
@@ -2631,7 +2704,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
+  
       
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
@@ -2911,6 +2984,31 @@
   Order By (team_id, cohort_id, person_id, version)
   
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , INDEX kafka_timestamp_minmax_error_tracking_issue_fingerprint_overrides _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.error_tracking_issue_fingerprint_overrides', '{replica}-{shard}', version)
+  
+      ORDER BY (team_id, fingerprint)
+      SETTINGS index_granularity = 512
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[events_dead_letter_queue]
@@ -3337,7 +3435,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
       
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
       

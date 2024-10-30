@@ -1,6 +1,6 @@
 from django.db import models
 
-from ee.models.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from posthog.models.utils import UUIDModel
 
 

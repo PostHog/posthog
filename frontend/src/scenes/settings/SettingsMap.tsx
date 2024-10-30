@@ -21,11 +21,11 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
-    ReplayCostControl,
     ReplayGeneral,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
@@ -222,7 +222,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
-                component: <ReplayCostControl />,
+                component: <SessionRecordingIngestionSettings />,
             },
             {
                 id: 'replay-ai-config',
