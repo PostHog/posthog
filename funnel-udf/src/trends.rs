@@ -125,9 +125,9 @@ impl AggregateFunnelRow {
 
 
         // At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
-        for interval_data in vars.interval_start_to_entered_timestamps.values() {
-            if !self.results.contains_key(&(interval_data.entered_timestamp[0].timestamp as u64)) && interval_data.max_step.step >= args.from_step + 1 && !interval_data.max_step.entered_timestamp.excluded {
-                self.results.insert(interval_data.entered_timestamp[0].timestamp as u64, ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, -1, prop_val.clone(), interval_data.max_step.event_uuid));
+        for (interval_start, interval_data) in vars.interval_start_to_entered_timestamps.into_iter() {
+            if !self.results.contains_key(&interval_start) && interval_data.max_step.step >= args.from_step + 1 && !interval_data.max_step.entered_timestamp.excluded {
+                self.results.insert(interval_start, ResultStruct(interval_start, -1, prop_val.clone(), interval_data.max_step.event_uuid));
             }
         }
     }
@@ -176,7 +176,7 @@ impl AggregateFunnelRow {
                     }
                 }
             } else {
-                for interval_data in vars.interval_start_to_entered_timestamps.values_mut() {
+                for (&interval_start, interval_data) in vars.interval_start_to_entered_timestamps.iter_mut() {
                     let in_match_window = (event.timestamp - interval_data.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
                     let previous_step_excluded = interval_data.entered_timestamp[step-1].excluded;
                     let already_reached_this_step = interval_data.entered_timestamp[step].timestamp == interval_data.entered_timestamp[step - 1].timestamp;
@@ -199,8 +199,8 @@ impl AggregateFunnelRow {
                                 // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
                                 if interval_data.entered_timestamp[args.num_steps].timestamp != 0.0 {
                                     self.results.insert(
-                                        interval_data.entered_timestamp[0].timestamp as u64,
-                                        ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, 1, prop_val.clone(), event.uuid)
+                                        interval_start,
+                                        ResultStruct(interval_start, 1, prop_val.clone(), event.uuid)
                                     );
                                 } else if step > interval_data.max_step.step || (step == interval_data.max_step.step && interval_data.max_step.entered_timestamp.excluded){
                                     interval_data.max_step = MaxStep {
