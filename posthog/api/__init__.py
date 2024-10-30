@@ -497,9 +497,16 @@ projects_router.register(
 )
 
 projects_router.register(
-    r"error_tracking",
+    r"error_tracking_symbol_set",
+    error_tracking.ErrorTrackingSymbolSetViewSet,
+    "project_error_tracking_symbol_set",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"error_tracking_issue",
     error_tracking.ErrorTrackingGroupViewSet,
-    "project_error_tracking",
+    "project_error_tracking_group",
     ["team_id"],
 )
 

@@ -8,7 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
 from posthog.test.base import APIBaseTest
-from posthog.models import Team, ErrorTrackingGroup
+from posthog.models import Team, ErrorTrackingGroup, ErrorTrackingSymbolSet
 from botocore.config import Config
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
@@ -94,23 +94,30 @@ class TestErrorTracking(APIBaseTest):
 
     def test_can_upload_a_source_map(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER=TEST_BUCKET):
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+            )
+
             with open(get_path_to("source.js.map"), "rb") as image:
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
+                response = self.client.put(
+                    f"/api/projects/{self.team.id}/error_tracking_symbol_set/{symbol_set.id}",
                     {"source_map": image},
                     format="multipart",
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
     def test_rejects_too_large_file_type(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+        )
         fifty_megabytes_plus_a_little = b"1" * (50 * 1024 * 1024 + 1)
         fake_big_file = SimpleUploadedFile(
             name="large_source.js.map",
             content=fifty_megabytes_plus_a_little,
             content_type="text/plain",
         )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/error_tracking_symbol_set/{symbol_set.id}",
             {"source_map": fake_big_file},
             format="multipart",
         )
@@ -118,10 +125,13 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.json()["detail"], "Source maps must be less than 50MB")
 
     def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+        )
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
+            response = self.client.put(
+                f"/api/projects/{self.team.id}/error_tracking_symbol_set/{symbol_set.id}",
                 {"source_map": fake_big_file},
                 format="multipart",
             )

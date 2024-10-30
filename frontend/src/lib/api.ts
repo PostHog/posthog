@@ -5,6 +5,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { ErrorTrackingSymbolSet } from 'scenes/error-tracking/errorTrackingConfigurationSceneLogic'
 import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -703,20 +704,26 @@ class ApiRequest {
     }
 
     // Error tracking
-    public errorTracking(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('error_tracking')
-    }
-
     public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent(stringifiedFingerprint(fingerprint))
+        return this.projectsDetail(teamId)
+            .addPathComponent('error_tracking_group')
+            .addPathComponent(stringifiedFingerprint(fingerprint))
     }
 
-    public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
+    public errorTrackingGroupMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
         return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
     }
 
-    public errorTrackingUploadSourceMaps(): ApiRequest {
-        return this.errorTracking().addPathComponent('upload_source_maps')
+    public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('error_tracking_symbol_set')
+    }
+
+    public errorTrackingSymbolSet(ref: ErrorTrackingSymbolSet['ref']): ApiRequest {
+        return this.errorTrackingSymbolSets().addPathComponent(ref)
+    }
+
+    public errorTrackingMissingSymbolSets(): ApiRequest {
+        return this.errorTrackingSymbolSets().addPathComponent('missing')
     }
 
     // # Warehouse
@@ -1838,7 +1845,7 @@ const api = {
     },
 
     errorTracking: {
-        async update(
+        async updateIssue(
             fingerprint: ErrorTrackingGroup['fingerprint'],
             data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
         ): Promise<ErrorTrackingGroup> {
@@ -1850,12 +1857,16 @@ const api = {
             mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
         ): Promise<{ content: string }> {
             return await new ApiRequest()
-                .errorTrackingMerge(primaryFingerprint)
+                .errorTrackingGroup(primaryFingerprint)
                 .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
+        async updateSymbolSet(ref: ErrorTrackingSymbolSet['ref'], data: FormData): Promise<ErrorTrackingGroup> {
+            // might need to be create
+            return await new ApiRequest().errorTrackingSymbolSet(ref).update({ data })
+        },
 
-        async uploadSourceMaps(data: FormData): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
+        async missingSymbolSets(): Promise<ErrorTrackingSymbolSet[]> {
+            return await new ApiRequest().errorTrackingMissingSymbolSets().get()
         },
     },
 
