@@ -41,12 +41,23 @@ struct Args {
     value: Vec<Event>,
 }
 
+// The Exclusion enum is used to label the max step
+// A full exclusion is when there has been an event, a matching exclusion, and a matching event
+// A partial exclusion is when there has been an event, and a matching exclusion
+#[derive(PartialEq)]
+enum Exclusion {
+    Not,
+    Partial,
+    Full,
+}
+
 #[derive(Serialize)]
 struct ResultStruct(u64, i8, PropVal, Uuid);
 
 struct MaxStep {
     step: usize,
-    entered_timestamp: EnteredTimestamp,
+    timestamp: f64,
+    excluded: Exclusion,
     event_uuid: Uuid,
 }
 
@@ -123,11 +134,14 @@ impl AggregateFunnelRow {
             }
         }
 
-
-        // At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
-        for (interval_start, interval_data) in vars.interval_start_to_entered_timestamps.into_iter() {
-            if !self.results.contains_key(&interval_start) && interval_data.max_step.step >= args.from_step + 1 && !interval_data.max_step.entered_timestamp.excluded {
-                self.results.insert(interval_start, ResultStruct(interval_start, -1, prop_val.clone(), interval_data.max_step.event_uuid));
+        // At this point, everything left in entered_timestamps is an entry, but not an exit, if it has made it to from_step
+        // When there is an exclusion, we drop all partial matches and only return full matches
+        let fully_excluded = vars.interval_start_to_entered_timestamps.values().find(|interval_data| interval_data.max_step.excluded == Exclusion::Full);
+        if fully_excluded.is_none() {
+            for (interval_start, interval_data) in vars.interval_start_to_entered_timestamps.into_iter() {
+                if !self.results.contains_key(&interval_start) && interval_data.max_step.step >= args.from_step + 1 && interval_data.max_step.excluded != Exclusion::Partial {
+                    self.results.insert(interval_start, ResultStruct(interval_start, -1, prop_val.clone(), interval_data.max_step.event_uuid));
+                }
             }
         }
     }
@@ -150,23 +164,18 @@ impl AggregateFunnelRow {
             }) as usize;
 
             if step == 1 {
-                // If we have not already gotten to the end step
                 if !self.results.contains_key(&event.interval_start) {
                     let entered_timestamp_one = EnteredTimestamp { timestamp: event.timestamp, excluded: false };
                     let interval = vars.interval_start_to_entered_timestamps.get_mut(&event.interval_start);
-                    if interval.is_none() || interval.as_ref().map( | interval | interval.max_step.step == 1 && interval.max_step.entered_timestamp.excluded).unwrap() {
+                    if interval.is_none() || interval.as_ref().map( | interval | interval.max_step.step == 1 && interval.max_step.excluded != Exclusion::Not).unwrap() {
                         let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
                         entered_timestamp[1] = entered_timestamp_one;
                         let interval_data = IntervalData {
                             max_step: MaxStep {
                                 step: 1,
-                                entered_timestamp: {
-                                    EnteredTimestamp {
-                                        timestamp: event.timestamp,
-                                        excluded: false
-                                    }
-                                },
-                                event_uuid: event.uuid
+                                timestamp: event.timestamp,
+                                excluded: Exclusion::Not,
+                                event_uuid: event.uuid,
                             },
                             entered_timestamp: entered_timestamp
                         };
@@ -185,9 +194,9 @@ impl AggregateFunnelRow {
                             if !previous_step_excluded {
                                 interval_data.entered_timestamp[step - 1].excluded = true;
                                 if interval_data.max_step.step == step - 1 {
-                                    let max_timestamp_in_match_window = (event.timestamp - interval_data.max_step.entered_timestamp.timestamp) <= args.conversion_window_limit as f64;
+                                    let max_timestamp_in_match_window = (event.timestamp - interval_data.max_step.timestamp) <= args.conversion_window_limit as f64;
                                     if max_timestamp_in_match_window {
-                                        interval_data.max_step.entered_timestamp.excluded = true;
+                                        interval_data.max_step.excluded = Exclusion::Partial;
                                     }
                                 }
                             }
@@ -207,14 +216,12 @@ impl AggregateFunnelRow {
                                         ResultStruct(interval_start, 1, prop_val.clone(), event.uuid)
                                     );
                                     return false;
-                                } else if step > interval_data.max_step.step || (step == interval_data.max_step.step && interval_data.max_step.entered_timestamp.excluded) {
+                                } else if step > interval_data.max_step.step || (step == interval_data.max_step.step && interval_data.max_step.excluded == Exclusion::Partial) {
                                     interval_data.max_step = MaxStep {
                                         step: step,
                                         event_uuid: event.uuid,
-                                        entered_timestamp: EnteredTimestamp {
-                                            timestamp: event.timestamp,
-                                            excluded: previous_step_excluded
-                                        }
+                                        timestamp: event.timestamp,
+                                        excluded: if previous_step_excluded { Exclusion::Full } else { Exclusion::Not },
                                     };
                                 }
                             }
