@@ -1,5 +1,6 @@
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union, get_args
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
@@ -173,7 +174,7 @@ class BaseTableType(Type):
 
 
 TableOrSelectType = Union[
-    BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
+    BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
 ]
 
 
@@ -243,9 +244,9 @@ class SelectQueryType(Type):
     tables: dict[str, TableOrSelectType] = field(default_factory=dict)
     ctes: dict[str, CTE] = field(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: list[Union["SelectQueryType", "SelectUnionQueryType"]] = field(default_factory=list)
+    anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
-    parent: Optional[Union["SelectQueryType", "SelectUnionQueryType"]] = None
+    parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
@@ -276,8 +277,8 @@ class SelectQueryType(Type):
 
 
 @dataclass(kw_only=True)
-class SelectUnionQueryType(Type):
-    types: list[SelectQueryType]
+class SelectSetQueryType(Type):
+    types: list[Union[SelectQueryType, "SelectSetQueryType"]]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -296,7 +297,7 @@ class SelectUnionQueryType(Type):
 class SelectViewType(Type):
     view_name: str
     alias: str
-    select_query_type: SelectQueryType | SelectUnionQueryType
+    select_query_type: SelectQueryType | SelectSetQueryType
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -343,7 +344,7 @@ class SelectViewType(Type):
 @dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
     alias: str
-    select_query_type: SelectQueryType | SelectUnionQueryType
+    select_query_type: SelectQueryType | SelectSetQueryType
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -639,6 +640,18 @@ class CompareOperationOp(StrEnum):
     NotIRegex = "!~*"
 
 
+NEGATED_COMPARE_OPS: list[CompareOperationOp] = [
+    CompareOperationOp.NotEq,
+    CompareOperationOp.NotLike,
+    CompareOperationOp.NotILike,
+    CompareOperationOp.NotIn,
+    CompareOperationOp.GlobalNotIn,
+    CompareOperationOp.NotInCohort,
+    CompareOperationOp.NotRegex,
+    CompareOperationOp.NotIRegex,
+]
+
+
 @dataclass(kw_only=True)
 class CompareOperation(Expr):
     left: Expr
@@ -751,7 +764,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
@@ -808,10 +821,35 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
 
+SetOperator = Literal["UNION ALL", "INTERSECT", "EXCEPT"]
+
+
 @dataclass(kw_only=True)
-class SelectUnionQuery(Expr):
-    type: Optional[SelectUnionQueryType] = None
-    select_queries: list[SelectQuery]
+class SelectSetNode:
+    select_query: Union[SelectQuery, "SelectSetQuery"]
+    set_operator: SetOperator
+
+    def __post_init__(self):
+        if self.set_operator not in get_args(SetOperator):
+            raise ValueError("Invalid Set Operator")
+
+
+@dataclass(kw_only=True)
+class SelectSetQuery(Expr):
+    type: Optional[SelectSetQueryType] = None
+    initial_select_query: Union[SelectQuery, "SelectSetQuery"]
+    subsequent_select_queries: list[SelectSetNode]
+
+    @classmethod
+    def create_from_queries(
+        cls, queries: Sequence[Union[SelectQuery, "SelectSetQuery"]], set_operator: SetOperator
+    ) -> "SelectSetQuery":
+        return SelectSetQuery(
+            initial_select_query=queries[0],
+            subsequent_select_queries=[
+                SelectSetNode(select_query=query, set_operator=set_operator) for query in queries[1:]
+            ],
+        )
 
 
 @dataclass(kw_only=True)

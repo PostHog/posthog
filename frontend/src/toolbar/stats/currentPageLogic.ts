@@ -28,10 +28,16 @@ const replaceWithWildcard = (part: string): string => {
  */
 export function withoutPostHogInit(href: string): string {
     try {
-        const url = new URL(href)
-        url.hash = url.hash.replace(/__posthog=\{[^}]*}[^#]*/, '').replace(/^##/, '#')
-        url.hash = url.hash === '#' ? '' : url.hash
-        return url.toString()
+        // we can't use `new URL(href)` because it behaves differently between browsers
+        // and e.g. converts `https://*.example.com/` to `https://%2A.example.com/`
+        const firstHash = href.indexOf('#')
+        if (firstHash === -1) {
+            return href
+        }
+        return href
+            .replace(/__posthog=\{[^}]*}[^#]*/, '')
+            .replace('##', '#')
+            .replace(/#$/, '')
     } catch {
         return href
     }

@@ -1,10 +1,12 @@
 import dataclasses
+from datetime import datetime
 from typing import Any
 import uuid
 
 from temporalio import activity
 
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.data_imports.pipelines.bigquery import delete_table
 from posthog.temporal.data_imports.pipelines.helpers import aremove_reset_pipeline, aupdate_job_count
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
@@ -314,7 +316,6 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            # from posthog.temporal.data_imports.pipelines.bigquery import bigquery_source
             from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source
 
             dataset_id = model.pipeline.job_inputs.get("dataset_id")
@@ -324,28 +325,46 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             client_email = model.pipeline.job_inputs.get("client_email")
             token_uri = model.pipeline.job_inputs.get("token_uri")
 
-            source = bigquery_source(
-                dataset_id=dataset_id,
-                project_id=project_id,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
-                table_name=schema.name,
-                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
-                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                if schema.is_incremental
-                else None,
-            )
+            destination_table = f"{project_id}.{dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+            try:
+                source = bigquery_source(
+                    dataset_id=dataset_id,
+                    project_id=project_id,
+                    private_key=private_key,
+                    private_key_id=private_key_id,
+                    client_email=client_email,
+                    token_uri=token_uri,
+                    table_name=schema.name,
+                    bq_destination_table_id=destination_table,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
+                )
 
-            return await _run(
-                job_inputs=job_inputs,
-                source=source,
-                logger=logger,
-                inputs=inputs,
-                schema=schema,
-                reset_pipeline=reset_pipeline,
-            )
+                await _run(
+                    job_inputs=job_inputs,
+                    source=source,
+                    logger=logger,
+                    inputs=inputs,
+                    schema=schema,
+                    reset_pipeline=reset_pipeline,
+                )
+            except:
+                raise
+            finally:
+                # Delete the destination table (if it exists) after we're done with it
+                delete_table(
+                    table_id=destination_table,
+                    project_id=project_id,
+                    private_key=private_key,
+                    private_key_id=private_key_id,
+                    client_email=client_email,
+                    token_uri=token_uri,
+                )
+                logger.info(f"Deleting bigquery temp destination table: {destination_table}")
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
