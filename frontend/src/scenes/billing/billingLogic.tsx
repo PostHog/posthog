@@ -100,7 +100,7 @@ export const billingLogic = kea<billingLogicType>([
         setComputedDiscount: (discount: number) => ({ discount }),
     }),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight'], userLogic, ['user']],
         actions: [
             userLogic,
             ['loadUser'],
@@ -690,9 +690,11 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadBilling()
-        actions.getInvoices()
+    afterMount(({ actions, values }) => {
+        if (values.user) {
+            actions.loadBilling()
+            actions.getInvoices()
+        }
     }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
