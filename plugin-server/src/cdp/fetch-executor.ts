@@ -95,6 +95,7 @@ export class FetchExecutor {
         const resParams: HogFunctionQueueParametersFetchResponse = {
             response: {
                 status: 0,
+                headers: {},
             },
             error: null,
             timings: [],
@@ -120,8 +121,9 @@ export class FetchExecutor {
 
             resParams.response = {
                 status: fetchResponse.status,
-                body: responseBody,
+                headers: Object.fromEntries(fetchResponse.headers.entries()),
             }
+            resParams.body = responseBody
         } catch (err) {
             status.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })
             resParams.error = 'Something went wrong with the fetch request.'
