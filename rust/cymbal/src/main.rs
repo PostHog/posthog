@@ -64,7 +64,7 @@ async fn main() -> Result<(), Error> {
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let (event, offset): (ClickHouseEvent, _) = match context.consumer.json_recv().await {
+        let (event, offset): (ClickHouseEvent, _) = match context.kafka_consumer.json_recv().await {
             Ok(r) => r,
             Err(RecvErr::Kafka(e)) => {
                 return Err(e.into()); // Just die if we recieve a Kafka error
