@@ -289,7 +289,7 @@ class BatchExportBackfill(UUIDModel):
     @property
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
-        end_at = self.end_at and self.end_at.isoformat()
-        start_at = self.start_at and self.start_at.isoformat()
+        end_at = self.end_at.astimezone(tz=dt.UTC).isoformat() if self.end_at else "END"
+        start_at = self.start_at.astimezone(tz=dt.UTC).isoformat() if self.start_at else "START"
 
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"

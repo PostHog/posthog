@@ -157,7 +157,6 @@ export function SecondaryMetricsTable({
 
     experiment.secondary_metrics?.forEach((metric, idx) => {
         const targetResults = secondaryMetricResults?.[idx]
-        const targetResultFilters = targetResults?.filters
         const winningVariant = getHighestProbabilityVariant(targetResults || null)
 
         const Header = (): JSX.Element => (
@@ -206,7 +205,7 @@ export function SecondaryMetricsTable({
                                     )}
                                 ]
                                 <span className="pl-1">
-                                    {experimentMathAggregationForTrends(targetResultFilters) ? 'metric' : 'count'}
+                                    {experimentMathAggregationForTrends() ? 'metric' : 'count'}
                                 </span>
                             </div>
                         ),

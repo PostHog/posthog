@@ -31,8 +31,9 @@ const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { statu
         ],
         response: {
             status: options?.status ?? 200,
-            body: options?.body ?? 'success',
+            headers: { 'Content-Type': 'application/json' },
         },
+        body: options?.body ?? 'success',
     }
 }
 
