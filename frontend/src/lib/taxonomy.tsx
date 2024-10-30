@@ -1510,6 +1510,7 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
     ],
     $set: ['$set', '$set_once'],
 }
+export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
 export function isCoreFilter(key: string): boolean {

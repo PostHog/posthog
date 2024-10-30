@@ -12,6 +12,7 @@ import {
     CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     getCoreFilterDefinition,
+    KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
     PROPERTY_KEYS,
 } from 'lib/taxonomy'
@@ -200,7 +201,7 @@ interface PropertiesTableType extends BasePropertyType {
      * The container for these properties e.g. the event name of the event the properties are on
      * Can be used for e.g. to promote particular properties when sorting the properties
      */
-    parent?: keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
+    parent?: KNOWN_PROMOTED_PROPERTY_PARENTS
 }
 
 export function PropertiesTable({
