@@ -44,9 +44,14 @@ struct Args {
 #[derive(Serialize)]
 struct ResultStruct(u64, i8, PropVal, Uuid);
 
+struct MaxStep {
+    step: usize,
+    entered_timestamp: EnteredTimestamp,
+    event_uuid: Uuid,
+}
+
 struct IntervalData {
-    max_step: usize,
-    max_step_event_uuid: Uuid,
+    max_step: MaxStep,
     entered_timestamp: Vec<EnteredTimestamp>,
 }
 
@@ -109,22 +114,20 @@ impl AggregateFunnelRow {
         for (_timestamp, events_with_same_timestamp) in &filtered_events {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
             for event in events_with_same_timestamp {
-                if !self.process_event(
+                self.process_event(
                     args,
                     &mut vars,
                     &event,
                     prop_val,
-                ) {
-                    return
-                }
+                );
             }
         }
 
 
         // At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
         for interval_data in vars.interval_start_to_entered_timestamps.values() {
-            if !self.results.contains_key(&(interval_data.entered_timestamp[0].timestamp as u64)) && interval_data.max_step >= args.from_step + 1 {
-                self.results.insert(interval_data.entered_timestamp[0].timestamp as u64, ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, -1, prop_val.clone(), interval_data.max_step_event_uuid));
+            if !self.results.contains_key(&(interval_data.entered_timestamp[0].timestamp as u64)) && interval_data.max_step.step >= args.from_step + 1 && !interval_data.max_step.entered_timestamp.excluded {
+                self.results.insert(interval_data.entered_timestamp[0].timestamp as u64, ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, -1, prop_val.clone(), interval_data.max_step.event_uuid));
             }
         }
     }
@@ -136,7 +139,7 @@ impl AggregateFunnelRow {
         vars: &mut Vars,
         event: &Event,
         prop_val: &PropVal,
-    ) -> bool {
+    ) {
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
             let step = (if *step < 0 {
@@ -147,25 +150,48 @@ impl AggregateFunnelRow {
             }) as usize;
 
             if step == 1 {
+                // If we have not already gotten to the end step
                 if !self.results.contains_key(&event.interval_start) {
                     let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
                     entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start as f64, excluded: false };
                     entered_timestamp[1] = EnteredTimestamp { timestamp: event.timestamp, excluded: false };
-                    vars.interval_start_to_entered_timestamps.insert(event.interval_start, IntervalData { max_step: 1, max_step_event_uuid: event.uuid, entered_timestamp: entered_timestamp });
+                    let interval = vars.interval_start_to_entered_timestamps.get_mut(&event.interval_start);
+                    if interval.is_none() || (interval.as_ref().map( | interval | interval.max_step.entered_timestamp.excluded && interval.max_step.step == 1).unwrap()) {
+                        let interval_data = IntervalData {
+                            max_step: MaxStep {
+                                step: 1,
+                                entered_timestamp: {
+                                    EnteredTimestamp {
+                                        timestamp: event.timestamp,
+                                        excluded: false
+                                    }
+                                },
+                                event_uuid: event.uuid
+                            },
+                            entered_timestamp: entered_timestamp
+                        };
+                        vars.interval_start_to_entered_timestamps.insert(event.interval_start, interval_data);
+                    } else {
+                        interval.unwrap().entered_timestamp = entered_timestamp;
+                    }
                 }
             } else {
                 for interval_data in vars.interval_start_to_entered_timestamps.values_mut() {
                     let in_match_window = (event.timestamp - interval_data.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
+                    let previous_step_excluded = interval_data.entered_timestamp[step-1].excluded;
                     let already_reached_this_step = interval_data.entered_timestamp[step].timestamp == interval_data.entered_timestamp[step - 1].timestamp;
-                    if in_match_window && !already_reached_this_step {
+                    if in_match_window && !previous_step_excluded && !already_reached_this_step {
                         if exclusion {
                             interval_data.entered_timestamp[step - 1].excluded = true;
+                            if interval_data.max_step.step == step - 1 {
+                                let max_timestamp_in_match_window = (event.timestamp - interval_data.max_step.entered_timestamp.timestamp) <= args.conversion_window_limit as f64;
+                                if max_timestamp_in_match_window {
+                                    interval_data.max_step.entered_timestamp.excluded = true;
+                                }
+                            }
                         } else {
                             let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
                             if !is_unmatched_step_attribution {
-                                if interval_data.entered_timestamp[step - 1].excluded {
-                                    return false;
-                                }
                                 interval_data.entered_timestamp[step] = EnteredTimestamp {
                                     timestamp: interval_data.entered_timestamp[step - 1].timestamp,
                                     excluded: false,
@@ -176,9 +202,15 @@ impl AggregateFunnelRow {
                                         interval_data.entered_timestamp[0].timestamp as u64,
                                         ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, 1, prop_val.clone(), event.uuid)
                                     );
-                                } else if step > interval_data.max_step {
-                                    interval_data.max_step = step;
-                                    interval_data.max_step_event_uuid = event.uuid;
+                                } else if step > interval_data.max_step.step || (step == interval_data.max_step.step && interval_data.max_step.entered_timestamp.excluded){
+                                    interval_data.max_step = MaxStep {
+                                        step: step,
+                                        event_uuid: event.uuid,
+                                        entered_timestamp: EnteredTimestamp {
+                                            timestamp: event.timestamp,
+                                            excluded: false
+                                        }
+                                    };
                                 }
                             }
                         }
@@ -187,7 +219,6 @@ impl AggregateFunnelRow {
             }
         }
         // If a strict funnel, clear all of the steps that we didn't match to
-        // If we are processing multiple events, skip this step, because ordering makes it complicated
         if args.funnel_order_type == "strict" {
             for interval_data in vars.interval_start_to_entered_timestamps.values_mut() {
                 for i in 1..interval_data.entered_timestamp.len() {
@@ -197,6 +228,5 @@ impl AggregateFunnelRow {
                 }
             }
         }
-        true
     }
 }
