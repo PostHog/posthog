@@ -1319,20 +1319,13 @@
                     "$ref": "#/definitions/FunnelsQuery"
                 },
                 "insight": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
+                    "items": {
+                        "items": {
+                            "type": "object"
                         },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -3771,20 +3764,13 @@
                                     "$ref": "#/definitions/FunnelsQuery"
                                 },
                                 "insight": {
-                                    "anyOf": [
-                                        {
-                                            "$ref": "#/definitions/FunnelStepsResults"
+                                    "items": {
+                                        "items": {
+                                            "type": "object"
                                         },
-                                        {
-                                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                                        },
-                                        {
-                                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                                        },
-                                        {
-                                            "$ref": "#/definitions/FunnelTrendsResults"
-                                        }
-                                    ]
+                                        "type": "array"
+                                    },
+                                    "type": "array"
                                 },
                                 "kind": {
                                     "const": "ExperimentFunnelsQuery",
@@ -5289,20 +5275,13 @@
                     "$ref": "#/definitions/FunnelsQuery"
                 },
                 "insight": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/FunnelStepsResults"
+                    "items": {
+                        "items": {
+                            "type": "object"
                         },
-                        {
-                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTimeToConvertResults"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelTrendsResults"
-                        }
-                    ]
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "ExperimentFunnelsQuery",
@@ -9071,20 +9050,13 @@
                             "$ref": "#/definitions/FunnelsQuery"
                         },
                         "insight": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/FunnelStepsResults"
+                            "items": {
+                                "items": {
+                                    "type": "object"
                                 },
-                                {
-                                    "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTimeToConvertResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTrendsResults"
-                                }
-                            ]
+                                "type": "array"
+                            },
+                            "type": "array"
                         },
                         "kind": {
                             "const": "ExperimentFunnelsQuery",
@@ -9751,20 +9723,13 @@
                             "$ref": "#/definitions/FunnelsQuery"
                         },
                         "insight": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/FunnelStepsResults"
+                            "items": {
+                                "items": {
+                                    "type": "object"
                                 },
-                                {
-                                    "$ref": "#/definitions/FunnelStepsBreakdownResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTimeToConvertResults"
-                                },
-                                {
-                                    "$ref": "#/definitions/FunnelTrendsResults"
-                                }
-                            ]
+                                "type": "array"
+                            },
+                            "type": "array"
                         },
                         "kind": {
                             "const": "ExperimentFunnelsQuery",

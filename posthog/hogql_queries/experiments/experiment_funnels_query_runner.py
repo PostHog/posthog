@@ -55,7 +55,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         return ExperimentFunnelsQueryResponse(
             kind="ExperimentFunnelsQuery",
             funnels_query=self.prepared_funnels_query,
-            insight=funnels_result,
+            insight=funnels_result.results,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
             probability={
                 variant.key: probability

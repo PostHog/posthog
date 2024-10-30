@@ -5827,7 +5827,7 @@ class QueryResponseAlternative16(BaseModel):
     credible_intervals: dict[str, list[float]]
     expected_loss: float
     funnels_query: Optional[FunnelsQuery] = None
-    insight: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
@@ -5858,7 +5858,7 @@ class QueryResponseAlternative28(BaseModel):
     credible_intervals: dict[str, list[float]]
     expected_loss: float
     funnels_query: Optional[FunnelsQuery] = None
-    insight: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
@@ -6002,7 +6002,7 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     credible_intervals: dict[str, list[float]]
     expected_loss: float
     funnels_query: Optional[FunnelsQuery] = None
-    insight: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    insight: list[list[dict[str, Any]]]
     is_cached: bool
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     last_refresh: AwareDatetime
@@ -6024,7 +6024,7 @@ class Response10(BaseModel):
     credible_intervals: dict[str, list[float]]
     expected_loss: float
     funnels_query: Optional[FunnelsQuery] = None
-    insight: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
@@ -6055,7 +6055,7 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     credible_intervals: dict[str, list[float]]
     expected_loss: float
     funnels_query: Optional[FunnelsQuery] = None
-    insight: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
