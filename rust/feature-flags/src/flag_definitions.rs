@@ -1,4 +1,7 @@
-use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
+use crate::{
+    api::FlagError, cohort_models::CohortId, database::Client as DatabaseClient,
+    redis::Client as RedisClient,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::instrument;
@@ -41,6 +44,21 @@ pub struct PropertyFilter {
     pub prop_type: String,
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
+}
+
+impl PropertyFilter {
+    /// Checks if the filter is a cohort filter
+    pub fn is_cohort(&self) -> bool {
+        self.key == "id" && self.prop_type == "cohort"
+    }
+
+    /// Returns the cohort id if the filter is a cohort filter
+    pub fn get_cohort_id(&self) -> Result<CohortId, FlagError> {
+        self.value
+            .as_i64()
+            .map(|id| id as CohortId)
+            .ok_or(FlagError::CohortFiltersParsingError)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

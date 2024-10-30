@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::cohort_cache::CachedCohort;
 use crate::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
 use crate::{api::FlagError, database::Client as DatabaseClient, flag_definitions::PropertyFilter};
 
@@ -40,6 +39,29 @@ impl Cohort {
         })
     }
 
+    #[instrument(skip_all)]
+    pub async fn list_from_pg(
+        client: Arc<dyn DatabaseClient + Send + Sync>,
+        team_id: i32,
+    ) -> Result<Vec<Cohort>, FlagError> {
+        let mut conn = client.get_connection().await.map_err(|e| {
+            tracing::error!("Failed to get database connection: {}", e);
+            FlagError::DatabaseUnavailable
+        })?;
+
+        let query = "SELECT id, name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id FROM posthog_cohort WHERE team_id = $1";
+        let cohorts = sqlx::query_as::<_, Cohort>(query)
+            .bind(team_id)
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch cohorts from database: {}", e);
+                FlagError::Internal(format!("Database query error: {}", e))
+            })?;
+
+        Ok(cohorts)
+    }
+
     /// Parses the filters JSON into a CohortProperty structure
     // TODO: this doesn't handle the deprecated "groups" field, see
     // https://github.com/PostHog/posthog/blob/feat/dynamic-cohorts-rust/posthog/models/cohort/cohort.py#L114-L169
@@ -50,7 +72,48 @@ impl Cohort {
                 tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
                 FlagError::CohortFiltersParsingError
             })?;
-        Ok(cohort_property.properties.to_property_filters())
+
+        // Filter out cohort filters
+        Ok(cohort_property
+            .properties
+            .to_property_filters()
+            .into_iter()
+            .filter(|f| !(f.key == "id" && f.prop_type == "cohort"))
+            .collect())
+    }
+
+    /// Extracts dependent CohortIds from the cohort's filters
+    pub fn extract_dependencies(&self) -> Result<HashSet<CohortId>, FlagError> {
+        let cohort_property: CohortProperty = serde_json::from_value(self.filters.clone())
+            .map_err(|e| {
+                tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
+                FlagError::CohortFiltersParsingError
+            })?;
+
+        let mut dependencies = HashSet::new();
+        Self::traverse_filters(&cohort_property.properties, &mut dependencies)?;
+        Ok(dependencies)
+    }
+
+    /// Recursively traverses the filter tree to find cohort dependencies
+    fn traverse_filters(
+        inner: &InnerCohortProperty,
+        dependencies: &mut HashSet<CohortId>,
+    ) -> Result<(), FlagError> {
+        for cohort_values in &inner.values {
+            for filter in &cohort_values.values {
+                if filter.prop_type == "cohort" && filter.key == "id" {
+                    // Assuming the value is a single integer CohortId
+                    if let Some(cohort_id) = filter.value.as_i64() {
+                        dependencies.insert(cohort_id as CohortId);
+                    } else {
+                        return Err(FlagError::CohortFiltersParsingError);
+                    }
+                }
+                // Handle nested properties if necessary
+            }
+        }
+        Ok(())
     }
 }
 
@@ -62,83 +125,6 @@ impl InnerCohortProperty {
             .cloned()
             .collect()
     }
-}
-
-/// Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
-/// followed by cohorts that depend on the preceding ones. It ensures that each cohort in the sorted list
-/// only depends on cohorts that appear earlier in the list.
-pub fn sort_cohorts_topologically(
-    cohort_ids: HashSet<CohortId>,
-    cached_cohorts: &HashMap<CohortId, CachedCohort>,
-) -> Result<Vec<CohortId>, FlagError> {
-    if cohort_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut dependency_graph: HashMap<CohortId, Vec<CohortId>> = HashMap::new();
-    for &cohort_id in &cohort_ids {
-        if let Some(cohort) = cached_cohorts.get(&cohort_id) {
-            for dependency in &cohort.dependencies {
-                dependency_graph
-                    .entry(cohort_id)
-                    .or_default()
-                    .push(dependency.cohort_id);
-            }
-        }
-    }
-
-    let mut sorted = Vec::new();
-    let mut temporary_marks = HashSet::new();
-    let mut permanent_marks = HashSet::new();
-
-    fn visit(
-        node: CohortId,
-        dependency_graph: &HashMap<CohortId, Vec<CohortId>>,
-        temporary_marks: &mut HashSet<CohortId>,
-        permanent_marks: &mut HashSet<CohortId>,
-        sorted: &mut Vec<CohortId>,
-    ) -> Result<(), FlagError> {
-        if permanent_marks.contains(&node) {
-            return Ok(());
-        }
-        if temporary_marks.contains(&node) {
-            return Err(FlagError::CohortDependencyCycle(format!(
-                "Cycle detected at cohort {}",
-                node
-            )));
-        }
-
-        temporary_marks.insert(node);
-        if let Some(neighbors) = dependency_graph.get(&node) {
-            for &neighbor in neighbors {
-                visit(
-                    neighbor,
-                    dependency_graph,
-                    temporary_marks,
-                    permanent_marks,
-                    sorted,
-                )?;
-            }
-        }
-        temporary_marks.remove(&node);
-        permanent_marks.insert(node);
-        sorted.push(node);
-        Ok(())
-    }
-
-    for &node in &cohort_ids {
-        if !permanent_marks.contains(&node) {
-            visit(
-                node,
-                &dependency_graph,
-                &mut temporary_marks,
-                &mut permanent_marks,
-                &mut sorted,
-            )?;
-        }
-    }
-
-    Ok(sorted)
 }
 
 #[cfg(test)]

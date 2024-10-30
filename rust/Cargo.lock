@@ -1316,6 +1316,7 @@ dependencies = [
  "health",
  "maxminddb",
  "once_cell",
+ "petgraph",
  "rand",
  "redis",
  "regex",
