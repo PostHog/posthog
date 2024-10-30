@@ -57,9 +57,9 @@ CLICKHOUSE_DLT_MAPPING: dict[str, dlt_data_types.TDataType] = {
     "Int32": "bigint",
     "Int64": "bigint",
     "Tuple": "bigint",
-    "Array": "complex",
-    "Map": "complex",
-    "Tuple": "complex",
+    "Array": "json",
+    "Map": "json",
+    "Tuple": "json",
     "Bool": "bool",
     "Decimal": "decimal",
 }
