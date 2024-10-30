@@ -50,7 +50,7 @@ from posthog.temporal.tests.utils.models import (
 )
 from posthog.temporal.tests.utils.s3 import read_parquet_from_s3, read_s3_data_as_json
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio(loop_scope="session"), pytest.mark.django_db]
 
 TEST_ROOT_BUCKET = "test-batch-exports"
 SESSION = aioboto3.Session()
@@ -134,7 +134,7 @@ async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
                 await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def minio_client(bucket_name):
     """Manage an S3 client to interact with a MinIO bucket.
 
@@ -470,7 +470,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
     )
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def s3_batch_export(
     ateam,
     s3_key_prefix,
@@ -774,7 +774,7 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
     assert len(objects.get("Contents", [])) == 0
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def s3_client(bucket_name, s3_key_prefix):
     """Manage an S3 client to interact with an S3 bucket.
 

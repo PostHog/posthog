@@ -39,7 +39,7 @@ def team(organization):
     team.delete()
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def aorganization():
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
     org = await sync_to_async(Organization.objects.create)(name=name)
@@ -49,7 +49,7 @@ async def aorganization():
     await sync_to_async(org.delete)()
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def ateam(aorganization):
     name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
@@ -82,7 +82,7 @@ async def clickhouse_client():
         yield client
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def temporal_client():
     """Provide a temporalio.client.Client to use in tests."""
     client = await connect(
@@ -97,7 +97,7 @@ async def temporal_client():
     yield client
 
 
-@pytest_asyncio.fixture()
+@pytest_asyncio.fixture(loop_scope="session")
 async def workflows(request):
     """Return Temporal workflows to initialize a test worker.
 
@@ -112,7 +112,7 @@ async def workflows(request):
         return WORKFLOWS
 
 
-@pytest_asyncio.fixture()
+@pytest_asyncio.fixture(loop_scope="session")
 async def activities(request):
     """Return Temporal activities to initialize a test worker.
 
@@ -127,7 +127,7 @@ async def activities(request):
         return ACTIVITIES
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def temporal_worker(temporal_client, workflows, activities):
     worker = temporalio.worker.Worker(
         temporal_client,
@@ -155,7 +155,7 @@ def event_loop():
     loop.close()
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def setup_postgres_test_db(postgres_config):
     """Fixture to manage a database for Redshift export testing.
 

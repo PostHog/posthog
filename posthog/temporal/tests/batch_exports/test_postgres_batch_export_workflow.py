@@ -170,7 +170,7 @@ def postgres_config():
     }
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def postgres_connection(postgres_config, setup_postgres_test_db):
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
@@ -365,7 +365,7 @@ def table_name(ateam, interval):
     return f"test_workflow_table_{ateam.pk}_{interval}"
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Postgres",
