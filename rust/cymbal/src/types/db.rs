@@ -1,7 +1,9 @@
 use uuid::Uuid;
 
+use crate::error::Error;
+
 pub struct ErrorTrackingIssueFingerprint {
-    pub id: Uuid,
+    pub id: i32,
     pub team_id: i32,
     pub fingerprint: String,
     pub issue_id: Uuid,
@@ -14,18 +16,18 @@ pub struct ErrorTrackingGroup {
     pub fingerprint: String,
 }
 
-pub async fn error_tracking_issue_for_fingerprint<'c, E>(
+pub async fn get_fingerprint<'c, E>(
     executor: E,
     team_id: i32,
     fingerprint: String,
-) -> Uuid
+) -> Result<Option<ErrorTrackingIssueFingerprint>, Error>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    let res = sqlx::query_as!(
+    Ok(sqlx::query_as!(
         ErrorTrackingIssueFingerprint,
         r#"
-            SELECT *
+            SELECT id, team_id, fingerprint, issue_id, version
             FROM posthog_errortrackingissuefingerprint
             WHERE team_id = $1 AND fingerprint = $2
             ORDER BY version DESC
@@ -33,26 +35,21 @@ where
         team_id,
         fingerprint
     )
-    .fetch_one(executor)
-    .await;
-
-    match res {
-        Ok(issue_fingerprint) => issue_fingerprint.issue_id,
-        Err(_) => {
-            return create_error_tracking_issue(executor, team_id, fingerprint).await;
-        }
-    }
+    .fetch_optional(executor)
+    .await?)
 }
 
-pub async fn create_error_tracking_issue<'c, E>(
-    executor: E,
+pub async fn create_error_tracking_issue<'c, A>(
+    connection: A,
     team_id: i32,
     fingerprint: String,
-) -> Uuid
+) -> Result<ErrorTrackingIssueFingerprint, Error>
 where
-    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
 {
     let issue_id = Uuid::now_v7();
+
+    let mut tx = connection.begin().await?;
 
     sqlx::query!(
         r#"
@@ -61,24 +58,31 @@ where
         "#,
         issue_id,
         team_id,
-        fingerprint
+        &[fingerprint.clone()]
     )
-    .execute(executor)
-    .await;
+    .execute(&mut *tx)
+    .await?;
 
-    sqlx::query!(
+    // NOTE TO DAVID: I don't know that this version logic makes sense - when are the versions updated? I though
+    // the fingerpring was more like a distinct_id, and the version should be on the issue group?
+    let res = sqlx::query_as!(
+        ErrorTrackingIssueFingerprint,
         r#"
-            INSERT INTO posthog_errortrackingissuefingerprint (team_id, fingerprint, issue_id)
-            VALUES ($1, $2, $3)
+            INSERT INTO posthog_errortrackingissuefingerprint (team_id, fingerprint, issue_id, version)
+            VALUES ($1, $2, $3, 0)
+            ON CONFLICT (team_id, fingerprint) DO UPDATE SET version = posthog_errortrackingissuefingerprint.version + 1
+            RETURNING id, team_id, fingerprint, issue_id, version
         "#,
         team_id,
         fingerprint,
         issue_id
     )
-    .execute(executor)
-    .await;
+    .fetch_one(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
 
     // TODO: write to Kafka
 
-    issue_id
+    Ok(res)
 }

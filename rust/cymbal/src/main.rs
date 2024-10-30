@@ -9,11 +9,7 @@ use cymbal::{
     config::Config,
     error::Error,
     metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_STACK_TIME, STACK_PROCESSED},
-    types::{
-        db::{find_error_tracking_issue_fingerprint, ErrorTrackingGroup},
-        frames::RawFrame,
-        ErrProps,
-    },
+    types::{db, frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -142,12 +138,21 @@ async fn main() -> Result<(), Error> {
             .fin();
         whole_loop.label("had_frame", "true").fin();
 
-        let fingerprint = String("12345678");
+        let fingerprint = "12345678".to_string();
 
-        let mut connection = self.pool.acquire().await?;
+        let found = db::get_fingerprint(&context.pool, event.team_id, fingerprint.clone()).await;
 
-        let issue_id =
-            error_tracking_issue_for_fingerprint(connection.as_mut(), event.team_id, fingerprint);
+        let Ok(found) = found else {
+            metrics::counter!(ERRORS, "cause" => "fingerprint_lookup_failed").increment(1);
+            continue;
+        };
+
+        let _found = match found {
+            Some(f) => f,
+            None => {
+                db::create_error_tracking_issue(&context.pool, event.team_id, fingerprint).await?
+            }
+        };
 
         metrics::counter!(STACK_PROCESSED).increment(1);
     }
