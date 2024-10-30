@@ -63,6 +63,16 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AssistantEventType(StrEnum):
+    STATUS = "status"
+    MESSAGE = "message"
+
+
+class AssistantGenerationStatusType(StrEnum):
+    ACK = "ack"
+    GENERATION_ERROR = "generation_error"
+
+
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -75,6 +85,7 @@ class AssistantMessageType(StrEnum):
     HUMAN = "human"
     AI = "ai"
     AI_VIZ = "ai/viz"
+    AI_FAILURE = "ai/failure"
 
 
 class Kind(StrEnum):
@@ -556,6 +567,14 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     count: float
     exposure: float
     key: str
+
+
+class FailureMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: Optional[str] = None
+    type: Literal["ai/failure"] = "ai/failure"
 
 
 class FilterLogicalOperator(StrEnum):
@@ -1743,6 +1762,13 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
+
+
+class AssistantGenerationStatusEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: AssistantGenerationStatusType
 
 
 class Breakdown(BaseModel):
@@ -5986,8 +6012,8 @@ class QueryResponseAlternative(
     ]
 
 
-class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage]]):
-    root: Union[VisualizationMessage, AssistantMessage, HumanMessage]
+class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage]]):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

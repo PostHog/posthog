@@ -617,6 +617,24 @@
                 }
             ]
         },
+        "AssistantEventType": {
+            "enum": ["status", "message"],
+            "type": "string"
+        },
+        "AssistantGenerationStatusEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/AssistantGenerationStatusType"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "AssistantGenerationStatusType": {
+            "enum": ["ack", "generation_error"],
+            "type": "string"
+        },
         "AssistantMessage": {
             "additionalProperties": false,
             "properties": {
@@ -632,7 +650,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "ai", "ai/viz"],
+            "enum": ["human", "ai", "ai/viz", "ai/failure"],
             "type": "string"
         },
         "AutocompleteCompletionItem": {
@@ -5532,6 +5550,20 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "FailureMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ai/failure",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -10875,6 +10907,9 @@
                 },
                 {
                     "$ref": "#/definitions/HumanMessage"
+                },
+                {
+                    "$ref": "#/definitions/FailureMessage"
                 }
             ]
         },
