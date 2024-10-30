@@ -2195,9 +2195,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(len(results), 2)
-            self.assertEqual(0, results[0]["count"])
-            self.assertEqual(0, results[1]["count"])
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(len(results), 2)
+                self.assertEqual(0, results[0]["count"])
+                self.assertEqual(0, results[1]["count"])
 
         @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
