@@ -1,4 +1,4 @@
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -75,8 +75,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             products,
             redirectPath,
         }),
-        setStepTwo: true,
-        resetStep: true,
+        setUnsubscribeModalStep: (step: number) => ({ step }),
+        resetUnsubscribeModalStep: true,
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
         triggerMoreHedgehogs: true,
     }),
@@ -156,11 +156,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
             },
         ],
-        surveyStep: [
+        unsubscribeModalStep: [
             1 as number,
             {
-                setStepTwo: () => 2,
-                resetStep: () => 1,
+                setUnsubscribeModalStep: (_, { step }) => step,
+                resetUnsubscribeModalStep: () => 1,
             },
         ],
         hedgehogSatisfied: [
@@ -322,14 +322,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
         deactivateProductSuccess: async (_, breakpoint) => {
             if (!values.unsubscribeError && values.surveyID) {
                 actions.reportSurveySent(values.surveyID, values.surveyResponse)
-                if (values.hedgehogSatisfied) {
-                    lemonToast.success("We're sad to see you go, but glad you got enough hedgehogs!")
-                }
+                await breakpoint(400)
+                document.getElementsByClassName('Navigation3000__scene')[0].scrollIntoView()
             }
-            await breakpoint(200)
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
-            if (scrollToProductKey && scrollToProductKey === props.product.type) {
+            // Only scroll to the product if it's an addon product. With subscribe to all products we don't need it for parent products.
+            if (scrollToProductKey && values.isAddonProduct && scrollToProductKey === props.product.type) {
                 setTimeout(() => {
                     if (props.productRef?.current) {
                         props.productRef?.current.scrollIntoView({

@@ -231,6 +231,7 @@ export const billingLogic = kea<billingLogicType>([
 
                 deactivateProduct: async (key: string) => {
                     // clear upgrade params from URL
+                    // Note(@zach): This is not working properly. We need to look into this.
                     const currentURL = new URL(window.location.href)
                     currentURL.searchParams.delete('upgraded')
                     currentURL.searchParams.delete('products')
@@ -240,7 +241,12 @@ export const billingLogic = kea<billingLogicType>([
                     try {
                         const response = await api.getResponse('api/billing/deactivate?products=' + key)
                         const jsonRes = await getJSONOrNull(response)
+
+                        lemonToast.success(
+                            "You have been unsubscribed. We're sad to see you go. May the hedgehogs be ever in your favour."
+                        )
                         actions.reportProductUnsubscribed(key)
+
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
                         if (error.code) {

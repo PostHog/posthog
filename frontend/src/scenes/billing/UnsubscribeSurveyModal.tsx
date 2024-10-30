@@ -39,15 +39,15 @@ export const UnsubscribeSurveyModal = ({
 }): JSX.Element | null => {
     const { trigger, HogfettiComponent } = useHogfetti()
 
-    const { surveyID, surveyResponse, isAddonProduct, surveyStep } = useValues(
+    const { surveyID, surveyResponse, isAddonProduct, unsubscribeModalStep } = useValues(
         billingProductLogic({ product, hogfettiTrigger: trigger })
     )
     const {
         setSurveyResponse,
         toggleSurveyReason,
         reportSurveyDismissed,
-        setStepTwo,
-        resetStep,
+        setUnsubscribeModalStep,
+        resetUnsubscribeModalStep,
         setHedgehogSatisfied,
         triggerMoreHedgehogs,
     } = useActions(billingProductLogic({ product }))
@@ -73,14 +73,14 @@ export const UnsubscribeSurveyModal = ({
 
     const handleUnsubscribe = (): void => {
         if (surveyResponse['$survey_response_2'].includes('Not enough hedgehogs')) {
-            setStepTwo()
+            setUnsubscribeModalStep(2)
             triggerMoreHedgehogs()
         } else {
             deactivateProduct(billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type)
         }
     }
 
-    const renderStep2 = (): JSX.Element => (
+    const renderHedgehogStep = (): JSX.Element => (
         <div className="flex flex-col gap-4">
             <div className="text-center">
                 <h3 className="text-lg mb-2">How about now? Was that enough hedgehogs?</h3>
@@ -112,11 +112,8 @@ export const UnsubscribeSurveyModal = ({
                     type="tertiary"
                     loading={billingLoading}
                     onClick={() => {
-                        resetStep()
-                        setSurveyResponse(
-                            '$survey_response_2',
-                            surveyResponse['$survey_response_2'].filter((r) => r !== 'Not enough hedgehogs')
-                        )
+                        resetUnsubscribeModalStep()
+                        reportSurveyDismissed(surveyID)
                     }}
                 >
                     You convinced me to stay! 💕
@@ -132,12 +129,18 @@ export const UnsubscribeSurveyModal = ({
                 onClose={() => {
                     reportSurveyDismissed(surveyID)
                     resetUnsubscribeError()
-                    resetStep()
+                    resetUnsubscribeModalStep()
                 }}
                 width="max(44vw)"
-                title={isAddonProduct ? action : `${action} from ${product.name}`}
+                title={
+                    isAddonProduct
+                        ? action
+                        : product.type === 'platform_and_support'
+                        ? `${action} your plan`
+                        : `${action} from ${product.name}`
+                }
                 footer={
-                    surveyStep === 1 ? (
+                    unsubscribeModalStep === 1 ? (
                         <>
                             <LemonButton
                                 type="secondary"
@@ -159,7 +162,7 @@ export const UnsubscribeSurveyModal = ({
                     ) : null
                 }
             >
-                {surveyStep === 1 ? (
+                {unsubscribeModalStep === 1 ? (
                     <div className="flex flex-col gap-3.5">
                         {unsubscribeError && (
                             <LemonBanner type="error">
@@ -267,7 +270,7 @@ export const UnsubscribeSurveyModal = ({
                         ) : null}
                     </div>
                 ) : (
-                    renderStep2()
+                    renderHedgehogStep()
                 )}
             </LemonModal>
         </>
