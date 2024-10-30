@@ -3,9 +3,15 @@ from unittest.mock import patch
 
 from django.test import override_settings
 from langchain_core.agents import AgentAction
+from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableLambda
 
-from ee.hogai.trends.nodes import CreateTrendsPlanNode, GenerateTrendsNode, GenerateTrendsToolsNode
+from ee.hogai.trends.nodes import (
+    CreateTrendsPlanNode,
+    CreateTrendsPlanToolsNode,
+    GenerateTrendsNode,
+    GenerateTrendsToolsNode,
+)
 from ee.hogai.trends.utils import GenerateTrendOutputModel
 from ee.hogai.utils import AssistantNodeName
 from posthog.schema import (
@@ -114,6 +120,74 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
         node = CreateTrendsPlanNode(self.team)
         self.assertIn("distinctevent", node._events_prompt)
         self.assertIn("all events", node._events_prompt)
+
+    def test_agent_scratchpad(self):
+        node = CreateTrendsPlanNode(self.team)
+        scratchpad = [
+            (AgentAction(tool="test1", tool_input="input1", log="log1"), "test"),
+            (AgentAction(tool="test2", tool_input="input2", log="log2"), None),
+            (AgentAction(tool="test3", tool_input="input3", log="log3"), ""),
+        ]
+        prompt = node._get_agent_scratchpad(scratchpad)
+        self.assertIn("log1", prompt)
+        self.assertIn("log3", prompt)
+
+    def test_agent_handles_output_without_action_block(self):
+        with patch(
+            "ee.hogai.trends.nodes.CreateTrendsPlanNode._model",
+            return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I don't want to output an action.")),
+        ):
+            node = CreateTrendsPlanNode(self.team)
+            state_update = node.run({"messages": [HumanMessage(content="Question")]}, {})
+            self.assertEqual(len(state_update["intermediate_steps"]), 1)
+            action, obs = state_update["intermediate_steps"][0]
+            self.assertIsNone(obs)
+            self.assertIn("I don't want to output an action.", action.log)
+            self.assertIn("Action:", action.log)
+            self.assertIn("Action:", action.tool_input)
+
+    def test_agent_handles_output_with_malformed_json(self):
+        with patch(
+            "ee.hogai.trends.nodes.CreateTrendsPlanNode._model",
+            return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Thought.\nAction: abc")),
+        ):
+            node = CreateTrendsPlanNode(self.team)
+            state_update = node.run({"messages": [HumanMessage(content="Question")]}, {})
+            self.assertEqual(len(state_update["intermediate_steps"]), 1)
+            action, obs = state_update["intermediate_steps"][0]
+            self.assertIsNone(obs)
+            self.assertIn("Thought.\nAction: abc", action.log)
+            self.assertIn("action", action.tool_input)
+            self.assertIn("action_input", action.tool_input)
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestCreateTrendsPlanToolsNode(ClickhouseTestMixin, APIBaseTest):
+    def test_node_handles_action_name_validation_error(self):
+        state = {
+            "intermediate_steps": [(AgentAction(tool="does not exist", tool_input="input", log="log"), "test")],
+            "messages": [],
+        }
+        node = CreateTrendsPlanToolsNode(self.team)
+        state_update = node.run(state, {})
+        self.assertEqual(len(state_update["intermediate_steps"]), 1)
+        action, observation = state_update["intermediate_steps"][0]
+        self.assertIsNotNone(observation)
+        self.assertIn("<pydantic_exception>", observation)
+
+    def test_node_handles_action_input_validation_error(self):
+        state = {
+            "intermediate_steps": [
+                (AgentAction(tool="retrieve_entity_property_values", tool_input="input", log="log"), "test")
+            ],
+            "messages": [],
+        }
+        node = CreateTrendsPlanToolsNode(self.team)
+        state_update = node.run(state, {})
+        self.assertEqual(len(state_update["intermediate_steps"]), 1)
+        action, observation = state_update["intermediate_steps"][0]
+        self.assertIsNotNone(observation)
+        self.assertIn("<pydantic_exception>", observation)
 
 
 @override_settings(IN_UNIT_TESTING=True)

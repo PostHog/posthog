@@ -1,12 +1,10 @@
 import itertools
 import xml.etree.ElementTree as ET
 from functools import cached_property
-from typing import Optional, Union, cast
+from typing import Optional, cast
 
 from langchain.agents.format_scratchpad import format_log_to_str
-from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
-from langchain_core.agents import AgentAction, AgentFinish
-from langchain_core.exceptions import OutputParserException
+from langchain_core.agents import AgentAction
 from langchain_core.messages import AIMessage as LangchainAssistantMessage
 from langchain_core.messages import BaseMessage, merge_message_runs
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
@@ -15,10 +13,20 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
-from ee.hogai.trends.parsers import PydanticOutputParserException, parse_generated_trends_output
+from ee.hogai.trends.parsers import (
+    PydanticOutputParserException,
+    ReActParserException,
+    ReActParserMissingActionException,
+    parse_generated_trends_output,
+    parse_react_agent_output,
+)
 from ee.hogai.trends.prompts import (
     react_definitions_prompt,
     react_follow_up_prompt,
+    react_malformed_json_prompt,
+    react_missing_action_correction_prompt,
+    react_missing_action_prompt,
+    react_pydantic_validation_exception_prompt,
     react_scratchpad_prompt,
     react_system_prompt,
     react_user_prompt,
@@ -80,40 +88,42 @@ class CreateTrendsPlanNode(AssistantNode):
         )
 
         toolkit = TrendsAgentToolkit(self._team)
-        output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
-        agent = prompt | merger | self._model | output_parser
+        agent = prompt | merger | self._model | parse_react_agent_output
 
         try:
             result = cast(
-                Union[AgentAction, AgentFinish],
+                AgentAction,
                 agent.invoke(
                     {
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
-                        "agent_scratchpad": format_log_to_str(
-                            [(action, output) for action, output in intermediate_steps if output is not None]
-                        ),
+                        "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                     },
                     config,
                 ),
             )
-        except OutputParserException as e:
-            text = str(e)
-            if e.send_to_llm:
-                observation = str(e.observation)
-                text = str(e.llm_output)
+        except ReActParserException as e:
+            if isinstance(e, ReActParserMissingActionException):
+                # When the agent doesn't output the "Action:" block, we need to correct the log and append the action block,
+                # so that it has a higher chance to recover.
+                corrected_log = str(
+                    ChatPromptTemplate.from_template(react_missing_action_correction_prompt, template_format="mustache")
+                    .format_messages(output=e.llm_output)[0]
+                    .content
+                )
+                result = AgentAction(
+                    "handle_incorrect_response",
+                    react_missing_action_prompt,
+                    corrected_log,
+                )
             else:
-                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
-            result = AgentAction("handle_incorrect_response", observation, text)
-
-        if isinstance(result, AgentFinish):
-            # Exceptional case
-            return {
-                "plan": result.log,
-                "intermediate_steps": None,
-            }
+                result = AgentAction(
+                    "handle_incorrect_response",
+                    react_malformed_json_prompt,
+                    e.llm_output,
+                )
 
         return {
             "intermediate_steps": [*intermediate_steps, (result, None)],
@@ -205,6 +215,14 @@ class CreateTrendsPlanNode(AssistantNode):
 
         return conversation
 
+    def _get_agent_scratchpad(self, scratchpad: list[tuple[AgentAction, str | None]]) -> str:
+        actions = []
+        for action, observation in scratchpad:
+            if observation is None:
+                continue
+            actions.append((action, observation))
+        return format_log_to_str(actions)
+
 
 class CreateTrendsPlanToolsNode(AssistantNode):
     name = AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
@@ -217,8 +235,12 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         try:
             input = TrendsAgentToolModel.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
-            feedback = f"Invalid tool call. Pydantic exception: {e.errors(include_url=False)}"
-            return {"intermediate_steps": [*intermediate_steps, (action, feedback)]}
+            observation = (
+                ChatPromptTemplate.from_template(react_pydantic_validation_exception_prompt, template_format="mustache")
+                .format_messages(exception=e.errors(include_url=False))[0]
+                .content
+            )
+            return {"intermediate_steps": [*intermediate_steps[:-1], (action, observation)]}
 
         # The plan has been found. Move to the generation.
         if input.name == "final_answer":
