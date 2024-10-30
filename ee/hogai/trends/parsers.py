@@ -39,7 +39,7 @@ def parse_react_agent_output(message: LangchainAIMessage) -> AgentAction:
     ```
     """
     text = str(message.content)
-    if ACTION_LOG_PREFIX in text:
+    if ACTION_LOG_PREFIX not in text:
         raise ReActParserMissingActionException(text)
     found = re.compile(r"^.*?`{3}(?:json)?\n?(.*?)`{3}.*?$", re.DOTALL).search(text)
     if not found:

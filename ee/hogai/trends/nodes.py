@@ -108,16 +108,17 @@ class CreateTrendsPlanNode(AssistantNode):
                     .format_messages(output=e.llm_output)[0]
                     .content
                 )
-                return AgentAction(
+                result = AgentAction(
                     "handle_incorrect_response",
                     react_missing_action_prompt,
                     corrected_log,
                 )
-            return AgentAction(
-                "handle_incorrect_response",
-                react_malformed_json_prompt,
-                e.llm_output,
-            )
+            else:
+                result = AgentAction(
+                    "handle_incorrect_response",
+                    react_malformed_json_prompt,
+                    e.llm_output,
+                )
 
         return {
             "intermediate_steps": [*intermediate_steps, (result, None)],
@@ -205,7 +206,7 @@ class CreateTrendsPlanNode(AssistantNode):
     def _get_agent_scratchpad(self, scratchpad: list[tuple[AgentAction, str | None]]) -> str:
         actions = []
         for action, observation in scratchpad:
-            if not observation:
+            if observation is None:
                 continue
             actions.append((action, observation))
         return format_log_to_str(actions)
