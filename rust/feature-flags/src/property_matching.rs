@@ -44,7 +44,7 @@ pub fn match_property(
     }
 
     let key = &property.key;
-    let operator = property.operator.clone().unwrap_or(OperatorType::Exact);
+    let operator = property.operator.unwrap_or(OperatorType::Exact);
     let value = &property.value;
     let match_value = matching_property_values.get(key);
 

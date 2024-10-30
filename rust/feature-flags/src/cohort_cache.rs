@@ -17,6 +17,12 @@ pub struct CohortCache {
     pub per_team_flattened: Arc<RwLock<HashMap<i32, FlattenedCohortMap>>>, // team_id -> (cohort_id -> filters)
 }
 
+impl Default for CohortCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CohortCache {
     /// Creates a new CohortCache instance
     pub fn new() -> Self {

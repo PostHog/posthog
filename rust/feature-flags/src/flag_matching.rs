@@ -903,7 +903,7 @@ impl FeatureFlagMatcher {
         for filter in cohort_filters {
             let cohort_id = filter.get_cohort_id()?;
             let matches = cohort_matches.get(&cohort_id).copied().unwrap_or(false);
-            let operator = filter.operator.clone().unwrap_or(OperatorType::In);
+            let operator = filter.operator.unwrap_or(OperatorType::In);
 
             if !self.cohort_membership_operator(operator, matches) {
                 return Ok(false);
