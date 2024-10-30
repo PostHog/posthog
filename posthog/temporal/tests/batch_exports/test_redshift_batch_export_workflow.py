@@ -49,7 +49,7 @@ REQUIRED_ENV_VARS = (
 MISSING_REQUIRED_ENV_VARS = any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS)
 
 
-pytestmark = [pytest.mark.django_db, pytest.mark.asyncio(loop_scope="session")]
+pytestmark = [pytest.mark.django_db, pytest.mark.asyncio]
 
 
 async def assert_clickhouse_records_in_redshfit(

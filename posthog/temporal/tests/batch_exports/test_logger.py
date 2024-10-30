@@ -119,7 +119,7 @@ class CaptureKafkaProducer:
         return self.producer._closed
 
 
-@pytest_asyncio.fixture(loop_scope="session")
+@pytest_asyncio.fixture(scope="function")
 async def producer(event_loop):
     """Yield a CaptureKafkaProducer to inspect entries captured.
 
@@ -133,7 +133,7 @@ async def producer(event_loop):
         await producer.stop()
 
 
-@pytest_asyncio.fixture(autouse=True, loop_scope="session")
+@pytest_asyncio.fixture(autouse=True)
 async def configure(log_capture, queue, producer):
     """Configure StructLog logging for testing.
 

@@ -42,7 +42,7 @@ from posthog.temporal.tests.utils.persons import (
 )
 
 pytestmark = [
-    pytest.mark.asyncio(loop_scope="session"),
+    pytest.mark.asyncio,
     pytest.mark.django_db,
 ]
 

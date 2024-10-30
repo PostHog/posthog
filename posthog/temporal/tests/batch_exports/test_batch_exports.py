@@ -18,7 +18,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-pytestmark = [pytest.mark.asyncio(loop_scope="session"), pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 def assert_records_match_events(records, events):
