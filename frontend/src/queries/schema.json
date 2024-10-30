@@ -651,38 +651,8 @@
                     "type": "string"
                 },
                 "kind": {
-                    "description": "The kind of this completion item. Based on the kind an icon is chosen by the editor.",
-                    "enum": [
-                        "Method",
-                        "Function",
-                        "Constructor",
-                        "Field",
-                        "Variable",
-                        "Class",
-                        "Struct",
-                        "Interface",
-                        "Module",
-                        "Property",
-                        "Event",
-                        "Operator",
-                        "Unit",
-                        "Value",
-                        "Constant",
-                        "Enum",
-                        "EnumMember",
-                        "Keyword",
-                        "Text",
-                        "Color",
-                        "File",
-                        "Reference",
-                        "Customcolor",
-                        "Folder",
-                        "TypeParameter",
-                        "User",
-                        "Issue",
-                        "Snippet"
-                    ],
-                    "type": "string"
+                    "$ref": "#/definitions/AutocompleteCompletionItemKind",
+                    "description": "The kind of this completion item. Based on the kind an icon is chosen by the editor."
                 },
                 "label": {
                     "description": "The label of this completion item. By default this is also the text that is inserted when selecting this completion.",
@@ -691,6 +661,39 @@
             },
             "required": ["label", "insertText", "kind"],
             "type": "object"
+        },
+        "AutocompleteCompletionItemKind": {
+            "enum": [
+                "Method",
+                "Function",
+                "Constructor",
+                "Field",
+                "Variable",
+                "Class",
+                "Struct",
+                "Interface",
+                "Module",
+                "Property",
+                "Event",
+                "Operator",
+                "Unit",
+                "Value",
+                "Constant",
+                "Enum",
+                "EnumMember",
+                "Keyword",
+                "Text",
+                "Color",
+                "File",
+                "Reference",
+                "Customcolor",
+                "Folder",
+                "TypeParameter",
+                "User",
+                "Issue",
+                "Snippet"
+            ],
+            "type": "string"
         },
         "BaseMathType": {
             "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session", "first_time_for_user"],
@@ -10514,8 +10517,7 @@
                     "type": ["string", "number"]
                 },
                 "kind": {
-                    "enum": ["ActionsNode", "EventsNode"],
-                    "type": "string"
+                    "$ref": "#/definitions/RetentionEntityKind"
                 },
                 "name": {
                     "type": "string"
@@ -10531,6 +10533,10 @@
                 }
             },
             "type": "object"
+        },
+        "RetentionEntityKind": {
+            "enum": ["ActionsNode", "EventsNode"],
+            "type": "string"
         },
         "RetentionFilter": {
             "additionalProperties": false,
@@ -12196,8 +12202,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "enum": ["unit", "duration_s", "percentage"],
-                    "type": "string"
+                    "$ref": "#/definitions/WebOverviewItemKind"
                 },
                 "previous": {
                     "type": "number"
@@ -12208,6 +12213,10 @@
             },
             "required": ["key", "kind"],
             "type": "object"
+        },
+        "WebOverviewItemKind": {
+            "enum": ["unit", "duration_s", "percentage"],
+            "type": "string"
         },
         "WebOverviewQuery": {
             "additionalProperties": false,
