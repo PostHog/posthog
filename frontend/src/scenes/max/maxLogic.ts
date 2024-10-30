@@ -29,7 +29,7 @@ export type ThreadMessage = RootAssistantMessage & {
     status?: MessageStatus
 }
 
-const failureMessage: FailureMessage = {
+const FAILURE_MESSAGE: FailureMessage = {
     type: AssistantMessageType.Failure,
     content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
 }
@@ -191,10 +191,10 @@ export const maxLogic = kea<maxLogicType>([
                         if (generatedMessage && isVisualizationMessage(generatedMessage) && generatedMessage.plan) {
                             actions.setMessageStatus(newIndex, 'completed')
                         } else if (generatedMessage) {
-                            actions.replaceMessage(newIndex, failureMessage)
+                            actions.replaceMessage(newIndex, FAILURE_MESSAGE)
                         } else {
                             actions.addMessage({
-                                ...failureMessage,
+                                ...FAILURE_MESSAGE,
                                 status: 'completed',
                             })
                         }
@@ -205,10 +205,10 @@ export const maxLogic = kea<maxLogicType>([
                 captureException(e)
 
                 if (values.thread[newIndex]) {
-                    actions.replaceMessage(newIndex, failureMessage)
+                    actions.replaceMessage(newIndex, FAILURE_MESSAGE)
                 } else {
                     actions.addMessage({
-                        ...failureMessage,
+                        ...FAILURE_MESSAGE,
                         status: 'completed',
                     })
                 }
