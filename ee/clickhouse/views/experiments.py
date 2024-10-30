@@ -442,7 +442,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by", "holdout", "saved_metrics").all()
+    queryset = Experiment.objects.prefetch_related(
+        "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
+    ).all()
     ordering = "-created_at"
 
     # ******************************************
