@@ -540,12 +540,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_capture_dead_clicks_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["capture_dead_clicks"], False)
+        self.assertEqual(response["captureDeadClicks"], False)
 
         self._update_team({"capture_dead_clicks": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capture_dead_clicks"], True)
+        self.assertEqual(response["captureDeadClicks"], True)
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
