@@ -827,9 +827,42 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            null as SecondaryMetricResults[] | null,
+            null as
+                | SecondaryMetricResults[]
+                | (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
+                | null,
             {
-                loadSecondaryMetricResults: async (refresh?: boolean) => {
+                loadSecondaryMetricResults: async (
+                    refresh?: boolean
+                ): Promise<
+                    | SecondaryMetricResults[]
+                    | (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
+                    | null
+                > => {
+                    if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                        const secondaryMetrics =
+                            values.experiment?.metrics?.filter((metric) => metric.type === 'secondary') || []
+
+                        return (await Promise.all(
+                            secondaryMetrics.map(async (metric) => {
+                                try {
+                                    const response: ExperimentResults = await api.create(
+                                        `api/projects/${values.currentTeamId}/query`,
+                                        { query: metric.query }
+                                    )
+
+                                    return {
+                                        ...response,
+                                        fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                        last_refresh: response.last_refresh || '',
+                                    }
+                                } catch (error) {
+                                    return {}
+                                }
+                            })
+                        )) as unknown as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
+                    }
+
                     const refreshParam = refresh ? '&refresh=true' : ''
 
                     return await Promise.all(
@@ -846,6 +879,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                         last_refresh: secResults.last_refresh,
                                     }
                                 }
+
                                 return {
                                     ...secResults.result,
                                     fakeInsightId: Math.random().toString(36).substring(2, 15),
@@ -1255,9 +1289,10 @@ export const experimentLogic = kea<experimentLogicType>([
                         | CachedExperimentTrendsQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | null,
-                    variant: string
+                    variant: string,
+                    type: 'primary' | 'secondary' = 'primary'
                 ): number | null => {
-                    const usingMathAggregationType = experimentMathAggregationForTrends()
+                    const usingMathAggregationType = type === 'primary' ? experimentMathAggregationForTrends() : false
                     if (!experimentResults || !experimentResults.insight) {
                         return null
                     }
@@ -1392,15 +1427,31 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         tabularSecondaryMetricResults: [
-            (s) => [s.experiment, s.secondaryMetricResults],
-            (experiment, secondaryMetricResults): TabularSecondaryMetricResults[] => {
+            (s) => [s.experiment, s.secondaryMetricResults, s.conversionRateForVariant, s.countDataForVariant],
+            (
+                experiment,
+                secondaryMetricResults,
+                conversionRateForVariant,
+                countDataForVariant
+            ): TabularSecondaryMetricResults[] => {
+                if (!secondaryMetricResults) {
+                    return []
+                }
+
                 const variantsWithResults: TabularSecondaryMetricResults[] = []
                 experiment?.parameters?.feature_flag_variants?.forEach((variant) => {
                     const metricResults: SecondaryMetricResult[] = []
                     experiment?.secondary_metrics?.forEach((metric, idx) => {
+                        let result
+                        if (metric.filters.insight === InsightType.FUNNELS) {
+                            result = conversionRateForVariant(secondaryMetricResults?.[idx], variant.key)
+                        } else {
+                            result = countDataForVariant(secondaryMetricResults?.[idx], variant.key, 'secondary')
+                        }
+
                         metricResults.push({
                             insightType: metric.filters.insight || InsightType.TRENDS,
-                            result: secondaryMetricResults?.[idx]?.result?.[variant.key],
+                            result: result || undefined,
                         })
                     })
 
