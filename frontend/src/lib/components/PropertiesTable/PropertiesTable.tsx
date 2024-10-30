@@ -200,7 +200,7 @@ interface PropertiesTableType extends BasePropertyType {
      * The container for these properties e.g. the event name of the event the properties are on
      * Can be used for e.g. to promote particular properties when sorting the properties
      */
-    parent?: string
+    parent?: keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 }
 
 export function PropertiesTable({
