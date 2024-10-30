@@ -19,14 +19,16 @@ from pydantic import ValidationError
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
 from ee.hogai.trends.parsers import (
     ReActParserException,
-    ReActParserMissingActionOrArgsException,
+    ReActParserMissingActionException,
     parse_react_agent_output,
 )
 from ee.hogai.trends.prompts import (
     react_definitions_prompt,
     react_follow_up_prompt,
     react_malformed_json_prompt,
-    react_missing_action_or_args_prompt,
+    react_missing_action_correction_prompt,
+    react_missing_action_prompt,
+    react_pydantic_validation_exception_prompt,
     react_scratchpad_prompt,
     react_system_prompt,
     react_user_prompt,
@@ -92,27 +94,30 @@ class CreateTrendsPlanNode(AssistantNode):
                     {
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
-                        "agent_scratchpad": format_log_to_str(
-                            [(action, output) for action, output in intermediate_steps if output is not None]
-                        ),
+                        "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                     },
                     config,
                 ),
             )
         except ReActParserException as e:
-            if isinstance(e, ReActParserMissingActionOrArgsException):
-                action_input = (
-                    ChatPromptTemplate.from_template(react_missing_action_or_args_prompt, template_format="mustache")
+            if isinstance(e, ReActParserMissingActionException):
+                # When the agent doesn't output the "Action:" block, we need to correct the log and append the action block,
+                # so that it has a higher chance to recover.
+                corrected_log = str(
+                    ChatPromptTemplate.from_template(react_missing_action_correction_prompt, template_format="mustache")
                     .format_messages(output=e.llm_output)[0]
                     .content
                 )
-            else:
-                action_input = (
-                    ChatPromptTemplate.from_template(react_malformed_json_prompt, template_format="mustache")
-                    .format_messages(output=e.llm_output)[0]
-                    .content
+                return AgentAction(
+                    "handle_incorrect_response",
+                    react_missing_action_prompt,
+                    corrected_log,
                 )
-            result = AgentAction("handle_incorrect_response", action_input, e.llm_output)
+            return AgentAction(
+                "handle_incorrect_response",
+                react_malformed_json_prompt,
+                e.llm_output,
+            )
 
         return {
             "intermediate_steps": [*intermediate_steps, (result, None)],
@@ -197,6 +202,14 @@ class CreateTrendsPlanNode(AssistantNode):
 
         return conversation
 
+    def _get_agent_scratchpad(self, scratchpad: list[tuple[AgentAction, str | None]]) -> str:
+        actions = []
+        for action, observation in scratchpad:
+            if not observation:
+                continue
+            actions.append((action, observation))
+        return format_log_to_str(actions)
+
 
 class CreateTrendsPlanToolsNode(AssistantNode):
     name = AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
@@ -209,8 +222,12 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         try:
             input = TrendsAgentToolModel.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
-            feedback = f"Invalid tool call. Pydantic exception: {e.errors(include_url=False)}"
-            return {"intermediate_steps": [*intermediate_steps, (action, feedback)]}
+            observation = (
+                ChatPromptTemplate.from_template(react_pydantic_validation_exception_prompt, template_format="mustache")
+                .format_messages(exception=e.errors(include_url=False))[0]
+                .content
+            )
+            return {"intermediate_steps": [*intermediate_steps, (action, observation)]}
 
         # The plan has been found. Move to the generation.
         if input.name == "final_answer":

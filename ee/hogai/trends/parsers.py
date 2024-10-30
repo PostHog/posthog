@@ -2,6 +2,7 @@ import json
 import re
 
 from langchain_core.agents import AgentAction
+from langchain_core.messages import AIMessage as LangchainAIMessage
 
 
 class ReActParserException(ValueError):
@@ -16,17 +17,36 @@ class ReActParserMalformedJsonException(ReActParserException):
     pass
 
 
-class ReActParserMissingActionOrArgsException(ReActParserException):
+class ReActParserMissingActionException(ReActParserException):
+    """
+    The ReAct agent didn't output the "Action:" block.
+    """
+
     pass
 
 
-def parse_react_agent_output(text: str) -> AgentAction:
+ACTION_LOG_PREFIX = "Action:"
+
+
+def parse_react_agent_output(message: LangchainAIMessage) -> AgentAction:
+    """
+    A ReAct agent must output in this format:
+
+    Some thoughts...
+    Action:
+    ```json
+    {"action": "action_name", "action_input": "action_input"}
+    ```
+    """
+    text = str(message.content)
+    if ACTION_LOG_PREFIX in text:
+        raise ReActParserMissingActionException(text)
     found = re.compile(r"^.*?`{3}(?:json)?\n?(.*?)`{3}.*?$", re.DOTALL).search(text)
     if not found:
         # JSON not found.
         raise ReActParserMalformedJsonException(text)
-    action = found.group(1).strip()
     try:
+        action = found.group(1).strip()
         response = json.loads(action)
         is_complete = "action" in response and "action_input" in response
     except Exception:
@@ -34,5 +54,5 @@ def parse_react_agent_output(text: str) -> AgentAction:
         raise ReActParserMalformedJsonException(text)
     if not is_complete:
         # JSON does not contain an action.
-        raise ReActParserMissingActionOrArgsException(text)
+        raise ReActParserMalformedJsonException(text)
     return AgentAction(response["action"], response.get("action_input", {}), text)

@@ -178,40 +178,27 @@ react_follow_up_prompt = """
 Improve the previously generated plan based on the feedback: {{feedback}}
 """
 
+react_missing_action_prompt = """
+Your previous answer didn't output the `Action:` block. You must always follow the format described in the system prompt.
+"""
+
+react_missing_action_correction_prompt = """
+{{output}}
+Action: I didn't output the `Action:` block.
+"""
+
 react_malformed_json_prompt = """
-My previous answer had a malformed JSON for the action because I didn't use the correct formatting for the output.
-
-<previous_answer>
-{{output}}
-</previous_answer>
-
-I need to fix the mistakes and try again.
+Your previous answer had a malformed JSON. You must return a correct JSON response containing the `action` and `action_input` fields.
 """
 
-react_missing_action_or_args_prompt = """
-My previous answer had a JSON for the action without the `action` or `action_input` keys.
+react_pydantic_validation_exception_prompt = """
+The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
 
-<previous_answer>
-{{output}}
-</previous_answer>
-
-I need to fix the mistakes and try again.
-"""
-
-react_action_validation_prompt = """
-The action input I previously provided is invalid and raised a Pydantic validation exception.
-
-My previous answer:
-```
-{{output}}
-```
-
-Pydantic exception:
-```
+<pydantic_exception>
 {{exception}}
-```
+</pydantic_exception>
 
-I need to fix the exception and try again.
+You must fix the exception and try again.
 """
 
 trends_system_prompt = """
