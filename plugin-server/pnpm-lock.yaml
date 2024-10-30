@@ -151,9 +151,15 @@ dependencies:
   safe-stable-stringify:
     specifier: ^2.4.0
     version: 2.4.3
+  siphash:
+    specifier: ^1.1.0
+    version: 1.1.0
   tail:
     specifier: ^2.2.6
     version: 2.2.6
+  tldts:
+    specifier: ^6.1.57
+    version: 6.1.57
   uuid:
     specifier: ^9.0.1
     version: 9.0.1
@@ -9797,6 +9803,10 @@ packages:
       string-width: 1.0.2
     dev: true
 
+  /siphash@1.1.0:
+    resolution: {integrity: sha512-QXQOIeN7Lq1uAVfppZukylZ2tAGedZ49Xpu39Zfyb6JJqVFrP7GfbVc7kxTAyoHGi3/c0y7yIG6lmSwxapEKqA==}
+    dev: false
+
   /sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
     dev: true
@@ -10251,6 +10261,17 @@ packages:
   /tiny-lru@11.0.1:
     resolution: {integrity: sha512-iNgFugVuQgBKrqeO/mpiTTgmBsTP0WL6yeuLfLs/Ctf0pI/ixGqIRm8sDCwMcXGe9WWvt2sGXI5mNqZbValmJg==}
     engines: {node: '>=12'}
+    dev: false
+
+  /tldts-core@6.1.57:
+    resolution: {integrity: sha512-lXnRhuQpx3zU9EONF9F7HfcRLvN1uRYUBIiKL+C/gehC/77XTU+Jye6ui86GA3rU6FjlJ0triD1Tkjt2F/2lEg==}
+    dev: false
+
+  /tldts@6.1.57:
+    resolution: {integrity: sha512-Oy7yDXK8meJl8vPMOldzA+MtueAJ5BrH4l4HXwZuj2AtfoQbLjmTJmjNWPUcAo+E/ibHn7QlqMS0BOcXJFJyHQ==}
+    hasBin: true
+    dependencies:
+      tldts-core: 6.1.57
     dev: false
 
   /tmp@0.2.1:

@@ -403,6 +403,37 @@ export class DB {
         })
     }
 
+    public redisSAdd(key: string, value: Redis.ValueType): Promise<number> {
+        return instrumentQuery('query.redisSAdd', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('SADD delayed. Waiting over 30 sec to perform SADD', {
+                key,
+                value,
+            })
+            try {
+                return await client.sadd(key, value)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisSCard(key: string): Promise<number> {
+        return instrumentQuery('query.redisSCard', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('SCARD delayed. Waiting over 30 sec to perform SADD', {
+                key,
+            })
+            try {
+                return await client.scard(key)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     public redisPublish(channel: string, message: string): Promise<number> {
         return instrumentQuery('query.redisPublish', undefined, async () => {
             const client = await this.redisPool.acquire()
