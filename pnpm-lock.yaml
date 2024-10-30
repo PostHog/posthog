@@ -284,8 +284,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.177.0
-    version: 1.177.0
+    specifier: file:.yalc/posthog-js
+    version: file:.yalc/posthog-js
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -17781,15 +17781,6 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.177.0:
-    resolution: {integrity: sha512-0Qt3qTkyfsFW89bveqEzYhhX8YRNFAES9OqhzuxbvbHId/PSyxx/Pzgmgp+N5k45lon3ibwYRAbTlQ4yQacODQ==}
-    dependencies:
-      core-js: 3.38.1
-      fflate: 0.4.8
-      preact: 10.24.3
-      web-vitals: 4.2.4
-    dev: false
-
   /potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
@@ -18388,7 +18379,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.152.0
+      unlayer-types: 1.155.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20935,8 +20926,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.152.0:
-    resolution: {integrity: sha512-6Sm7LfQtgMWZeMCj7Maj2FmZ30KGSfiIiaKcGi8arqweZsqsWnB6JmOmuuvSM/OT+IIs2v88eGRuslD63K91IA==}
+  /unlayer-types@1.155.0:
+    resolution: {integrity: sha512-btKSLtzQUEAJ+wfzdqgBj14105kBIne7bNEBqJ/7HC3CciApJC5ZdMIQEMex8CNwNgzeZzXGFKV9vu9rX3GpOA==}
     dev: false
 
   /unpipe@1.0.0:
@@ -21759,4 +21750,14 @@ packages:
 
   /zxcvbn@4.4.2:
     resolution: {integrity: sha512-Bq0B+ixT/DMyG8kgX2xWcI5jUvCwqrMxSFam7m0lAf78nf04hv6lNCsyLYdyYTrCVMqNDY/206K7eExYCeSyUQ==}
+    dev: false
+
+  file:.yalc/posthog-js:
+    resolution: {directory: .yalc/posthog-js, type: directory}
+    name: posthog-js
+    dependencies:
+      core-js: 3.38.1
+      fflate: 0.4.8
+      preact: 10.24.3
+      web-vitals: 4.2.4
     dev: false
