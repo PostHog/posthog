@@ -118,11 +118,19 @@ describe('HogMasker', () => {
         describe('ttl', () => {
             let hogFunctionPerson: HogFunctionType
             let hogFunctionAll: HogFunctionType
+            let hogFunctionPersonAndEvent: HogFunctionType
 
             beforeEach(() => {
                 hogFunctionPerson = createHogFunction({
                     masking: {
                         ...HOG_MASK_EXAMPLES.person.masking!,
+                        ttl: 1,
+                    },
+                })
+
+                hogFunctionPersonAndEvent = createHogFunction({
+                    masking: {
+                        ...HOG_MASK_EXAMPLES.personAndEvent.masking!,
                         ttl: 1,
                     },
                 })
@@ -145,20 +153,33 @@ describe('HogMasker', () => {
             })
 
             it('should mask with custom hog hash', async () => {
-                const globalsPerson1 = createHogExecutionGlobals({ person: { uuid: '1' } as any })
-                const globalsPerson2 = createHogExecutionGlobals({ person: { uuid: '2' } as any })
+                const globals1 = createHogExecutionGlobals({
+                    person: { id: '1' } as any,
+                    event: { event: '$pageview' } as any,
+                })
+                const globals2 = createHogExecutionGlobals({
+                    person: { id: '2' } as any,
+                    event: { event: '$autocapture' } as any,
+                })
+                const globals3 = createHogExecutionGlobals({
+                    person: { id: '2' } as any,
+                    event: { event: '$pageview' } as any,
+                })
 
                 const invocations = [
-                    createInvocation(hogFunctionPerson, globalsPerson1),
-                    createInvocation(hogFunctionAll, globalsPerson1),
-                    createInvocation(hogFunctionPerson, globalsPerson2),
-                    createInvocation(hogFunctionAll, globalsPerson2),
+                    createInvocation(hogFunctionPerson, globals1),
+                    createInvocation(hogFunctionAll, globals1),
+                    createInvocation(hogFunctionPersonAndEvent, globals1),
+                    createInvocation(hogFunctionPerson, globals2),
+                    createInvocation(hogFunctionAll, globals2),
+                    createInvocation(hogFunctionPersonAndEvent, globals2),
+                    createInvocation(hogFunctionPersonAndEvent, globals3),
                 ]
                 const res = await masker.filterByMasking(invocations)
                 expect(res.masked.length).toEqual(1)
-                expect(res.notMasked.length).toEqual(3)
+                expect(res.notMasked.length).toEqual(6)
                 const res2 = await masker.filterByMasking(invocations)
-                expect(res2.masked.length).toEqual(4)
+                expect(res2.masked.length).toEqual(7)
                 expect(res2.notMasked.length).toEqual(0)
             })
 

@@ -31,7 +31,7 @@ class TrendsDisplay:
     def should_wrap_inner_query(self) -> bool:
         return self.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
 
-    def _build_aggregate_dates(self, dates_queries: ast.SelectUnionQuery) -> ast.Expr:
+    def _build_aggregate_dates(self, dates_queries: ast.SelectSetQuery) -> ast.Expr:
         return parse_select(
             """
             SELECT day_start
@@ -49,7 +49,7 @@ class TrendsDisplay:
         )
 
     def modify_outer_query(
-        self, outer_query: ast.SelectQuery, inner_query: ast.SelectQuery, dates_queries: ast.SelectUnionQuery
+        self, outer_query: ast.SelectQuery, inner_query: ast.SelectQuery, dates_queries: ast.SelectSetQuery
     ) -> ast.SelectQuery:
         if not self.is_total_value():
             return outer_query

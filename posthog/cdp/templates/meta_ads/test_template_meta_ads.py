@@ -15,7 +15,10 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
             "eventName": "checkout",
             "eventTime": "1728812163",
             "actionSource": "website",
-            "userData": {"em": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98"},
+            "userData": {
+                "em": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98",
+                "fn": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            },
         }
         inputs.update(kwargs)
         return inputs
