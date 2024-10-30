@@ -1651,7 +1651,7 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
-    source: FunnelsQuery
+    funnels_query: FunnelsQuery
     experiment_id: integer
 }
 

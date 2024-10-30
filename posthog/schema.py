@@ -6209,12 +6209,12 @@ class ExperimentFunnelsQuery(BaseModel):
         extra="forbid",
     )
     experiment_id: int
+    funnels_query: FunnelsQuery
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[ExperimentFunnelsQueryResponse] = None
-    source: FunnelsQuery
 
 
 class FunnelCorrelationQuery(BaseModel):
