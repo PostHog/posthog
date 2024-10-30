@@ -180,22 +180,26 @@ impl AggregateFunnelRow {
                     let in_match_window = (event.timestamp - interval_data.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
                     let previous_step_excluded = interval_data.entered_timestamp[step-1].excluded;
                     let already_reached_this_step = interval_data.entered_timestamp[step].timestamp == interval_data.entered_timestamp[step - 1].timestamp;
-                    if in_match_window && !previous_step_excluded && !already_reached_this_step {
+                    if in_match_window && !already_reached_this_step {
                         if exclusion {
-                            interval_data.entered_timestamp[step - 1].excluded = true;
-                            if interval_data.max_step.step == step - 1 {
-                                let max_timestamp_in_match_window = (event.timestamp - interval_data.max_step.entered_timestamp.timestamp) <= args.conversion_window_limit as f64;
-                                if max_timestamp_in_match_window {
-                                    interval_data.max_step.entered_timestamp.excluded = true;
+                            if !previous_step_excluded {
+                                interval_data.entered_timestamp[step - 1].excluded = true;
+                                if interval_data.max_step.step == step - 1 {
+                                    let max_timestamp_in_match_window = (event.timestamp - interval_data.max_step.entered_timestamp.timestamp) <= args.conversion_window_limit as f64;
+                                    if max_timestamp_in_match_window {
+                                        interval_data.max_step.entered_timestamp.excluded = true;
+                                    }
                                 }
                             }
                         } else {
                             let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
                             if !is_unmatched_step_attribution {
-                                interval_data.entered_timestamp[step] = EnteredTimestamp {
-                                    timestamp: interval_data.entered_timestamp[step - 1].timestamp,
-                                    excluded: false,
-                                };
+                                if !previous_step_excluded {
+                                    interval_data.entered_timestamp[step] = EnteredTimestamp {
+                                        timestamp: interval_data.entered_timestamp[step - 1].timestamp,
+                                        excluded: false,
+                                    };
+                                }
                                 // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
                                 if interval_data.entered_timestamp[args.num_steps].timestamp != 0.0 {
                                     self.results.insert(
@@ -203,13 +207,13 @@ impl AggregateFunnelRow {
                                         ResultStruct(interval_start, 1, prop_val.clone(), event.uuid)
                                     );
                                     return false;
-                                } else if step > interval_data.max_step.step || (step == interval_data.max_step.step && interval_data.max_step.entered_timestamp.excluded){
+                                } else if step > interval_data.max_step.step || (step == interval_data.max_step.step && interval_data.max_step.entered_timestamp.excluded) {
                                     interval_data.max_step = MaxStep {
                                         step: step,
                                         event_uuid: event.uuid,
                                         entered_timestamp: EnteredTimestamp {
                                             timestamp: event.timestamp,
-                                            excluded: false
+                                            excluded: previous_step_excluded
                                         }
                                     };
                                 }
