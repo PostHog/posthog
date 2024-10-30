@@ -36,9 +36,9 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
-        self.prepared_funnel_query = self._prepare_funnel_query()
+        self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(
-            query=self.prepared_funnel_query, team=self.team, timings=self.timings, limit_context=self.limit_context
+            query=self.prepared_funnels_query, team=self.team, timings=self.timings, limit_context=self.limit_context
         )
 
     def calculate(self) -> ExperimentFunnelsQueryResponse:
@@ -53,7 +53,9 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
         return ExperimentFunnelsQueryResponse(
-            insight=funnels_result,
+            kind="ExperimentFunnelsQuery",
+            funnels_query=self.prepared_funnels_query,
+            insight=funnels_result.results,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
             probability={
                 variant.key: probability
@@ -75,7 +77,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
            to separate results for different experiment variants.
         """
         # Clone the source query
-        prepared_funnel_query = FunnelsQuery(**self.query.source.model_dump())
+        prepared_funnels_query = FunnelsQuery(**self.query.source.model_dump())
 
         # Set the date range to match the experiment's duration, using the project's timezone
         if self.team.timezone:
@@ -86,19 +88,19 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             start_date = self.experiment.start_date
             end_date = self.experiment.end_date
 
-        prepared_funnel_query.dateRange = InsightDateRange(
+        prepared_funnels_query.dateRange = InsightDateRange(
             date_from=start_date.isoformat() if start_date else None,
             date_to=end_date.isoformat() if end_date else None,
             explicitDate=True,
         )
 
         # Configure the breakdown to use the feature flag key
-        prepared_funnel_query.breakdownFilter = BreakdownFilter(
+        prepared_funnels_query.breakdownFilter = BreakdownFilter(
             breakdown=f"$feature/{self.feature_flag.key}",
             breakdown_type="event",
         )
 
-        return prepared_funnel_query
+        return prepared_funnels_query
 
     def _get_variants_with_base_stats(
         self, funnels_result: FunnelsQueryResponse

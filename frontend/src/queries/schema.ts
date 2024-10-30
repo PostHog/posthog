@@ -1624,7 +1624,10 @@ export enum ExperimentSignificanceCode {
 }
 
 export interface ExperimentTrendsQueryResponse {
-    insight: TrendsQueryResponse
+    kind: NodeKind.ExperimentTrendsQuery
+    insight: Record<string, any>[]
+    count_query?: TrendsQuery
+    exposure_query?: TrendsQuery
     variants: ExperimentVariantTrendsBaseStats[]
     probability: Record<string, number>
     significant: boolean
@@ -1636,7 +1639,9 @@ export interface ExperimentTrendsQueryResponse {
 export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
 
 export interface ExperimentFunnelsQueryResponse {
-    insight: FunnelsQueryResponse
+    kind: NodeKind.ExperimentFunnelsQuery
+    insight: Record<string, any>[][]
+    funnels_query?: FunnelsQuery
     variants: ExperimentVariantFunnelsBaseStats[]
     probability: Record<string, number>
     significant: boolean
