@@ -5236,6 +5236,9 @@
                 "experiment_id": {
                     "type": "integer"
                 },
+                "funnels_query": {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
                 "kind": {
                     "const": "ExperimentFunnelsQuery",
                     "type": "string"
@@ -5246,12 +5249,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
-                },
-                "source": {
-                    "$ref": "#/definitions/FunnelsQuery"
                 }
             },
-            "required": ["experiment_id", "kind", "source"],
+            "required": ["experiment_id", "funnels_query", "kind"],
             "type": "object"
         },
         "ExperimentFunnelsQueryResponse": {

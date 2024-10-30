@@ -16,6 +16,7 @@ from posthog.schema import (
     ExperimentFunnelsQueryResponse,
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
+    FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
     InsightDateRange,
@@ -44,12 +45,12 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
     def calculate(self) -> ExperimentFunnelsQueryResponse:
         funnels_result = self.funnels_query_runner.calculate()
 
+        self._validate_event_variants(funnels_result)
+
         # Filter results to only include valid variants in the first step
         funnels_result.results = [
             result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
         ]
-
-        self._validate_event_variants(funnels_result)
 
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
@@ -81,8 +82,8 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         2. Configure the breakdown to use the feature flag key, which allows us
            to separate results for different experiment variants.
         """
-        # Clone the source query
-        prepared_funnels_query = FunnelsQuery(**self.query.source.model_dump())
+        # Clone the funnels query
+        prepared_funnels_query = FunnelsQuery(**self.query.funnels_query.model_dump())
 
         # Set the date range to match the experiment's duration, using the project's timezone
         if self.team.timezone:
@@ -103,6 +104,10 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         prepared_funnels_query.breakdownFilter = BreakdownFilter(
             breakdown=f"$feature/{self.feature_flag.key}",
             breakdown_type="event",
+        )
+
+        prepared_funnels_query.funnelsFilter = FunnelsFilter(
+            funnelVizType="steps",
         )
 
         return prepared_funnels_query
@@ -185,4 +190,4 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             raise ValidationError(detail=json.dumps(errors))
 
     def to_query(self) -> ast.SelectQuery:
-        raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to query")
+        raise ValueError(f"Cannot convert source query of type {self.query.funnels_query.kind} to query")
