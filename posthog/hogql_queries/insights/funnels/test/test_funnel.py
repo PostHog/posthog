@@ -2049,6 +2049,56 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person4.uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid])
 
+        def test_multiple_possible_funnels_no_end_event(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(1, results[0]["count"])
+            self.assertEqual(0, results[1]["count"])
+
         @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
             sign_up_action = _create_action(
@@ -4325,8 +4375,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "funnel_to_step": 1,
                     }
                 ],
-                "breakdown_type": "event",
-                "breakdown": "$browser",
             }
 
             query = cast(FunnelsQuery, filter_to_query(filters))

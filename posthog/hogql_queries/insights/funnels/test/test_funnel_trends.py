@@ -18,6 +18,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_person,
     snapshot_clickhouse_queries,
+    _create_event,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -1682,6 +1683,102 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual([100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], results[0]["data"])
+
+    def test_funnel_exclusion_no_end_event(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "funnel_window_interval": 1,
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-14 00:00:00",
+            "exclusions": [
+                {
+                    "id": "x",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        # person 1
+        _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person1",
+            timestamp="2021-05-01 01:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="person1",
+            timestamp="2021-05-01 02:00:00",
+        )
+
+        # person 2
+        _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person2",
+            timestamp="2021-05-01 03:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="x",
+            distinct_id="person2",
+            timestamp="2021-05-01 03:30:00",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="person2",
+            timestamp="2021-05-01 04:00:00",
+        )
+
+        # person 3
+        _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+        # should be discarded, even if nothing happened after x, since within conversion window
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person3",
+            timestamp="2021-05-01 05:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="x",
+            distinct_id="person3",
+            timestamp="2021-05-01 06:00:00",
+        )
+
+        # person 4 - outside conversion window
+        _create_person(distinct_ids=["person4"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person4",
+            timestamp="2021-05-01 07:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="x",
+            distinct_id="person4",
+            timestamp="2021-05-02 08:00:00",
+        )
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(len(results), 1)
+        # person3 should be excluded, person 1 and 2 should make it
+        self.assertEqual([66.66, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], results[0]["data"])
 
 
 class TestFunnelTrends(BaseTestFunnelTrends):
