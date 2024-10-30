@@ -147,7 +147,7 @@ impl AggregateFunnelRow {
             }) as usize;
 
             if step == 1 {
-                if !vars.interval_start_to_entered_timestamps.contains_key(&event.interval_start) && !self.results.contains_key(&event.interval_start) {
+                if !self.results.contains_key(&event.interval_start) {
                     let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
                     entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start as f64, excluded: false };
                     entered_timestamp[1] = EnteredTimestamp { timestamp: event.timestamp, excluded: false };
