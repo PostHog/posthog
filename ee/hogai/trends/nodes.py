@@ -228,7 +228,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
             )
-            return {"intermediate_steps": [*intermediate_steps, (action, observation)]}
+            return {"intermediate_steps": [*intermediate_steps[:-1], (action, observation)]}
 
         # The plan has been found. Move to the generation.
         if input.name == "final_answer":

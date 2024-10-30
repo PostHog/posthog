@@ -4,7 +4,7 @@ from django.test import override_settings
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableLambda
 
-from ee.hogai.trends.nodes import CreateTrendsPlanNode, GenerateTrendsNode
+from ee.hogai.trends.nodes import CreateTrendsPlanNode, CreateTrendsPlanToolsNode, GenerateTrendsNode
 from ee.hogai.trends.parsers import AgentAction
 from posthog.schema import AssistantMessage, ExperimentalAITrendsQuery, HumanMessage, VisualizationMessage
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -129,6 +129,35 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("Thought.\nAction: abc", action.log)
             self.assertIn("action", action.tool_input)
             self.assertIn("action_input", action.tool_input)
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestCreateTrendsPlanToolsNode(ClickhouseTestMixin, APIBaseTest):
+    def test_node_handles_action_name_validation_error(self):
+        state = {
+            "intermediate_steps": [(AgentAction(tool="does not exist", tool_input="input", log="log"), "test")],
+            "messages": [],
+        }
+        node = CreateTrendsPlanToolsNode(self.team)
+        state_update = node.run(state, {})
+        self.assertEqual(len(state_update["intermediate_steps"]), 1)
+        action, observation = state_update["intermediate_steps"][0]
+        self.assertIsNotNone(observation)
+        self.assertIn("<pydantic_exception>", observation)
+
+    def test_node_handles_action_input_validation_error(self):
+        state = {
+            "intermediate_steps": [
+                (AgentAction(tool="retrieve_entity_property_values", tool_input="input", log="log"), "test")
+            ],
+            "messages": [],
+        }
+        node = CreateTrendsPlanToolsNode(self.team)
+        state_update = node.run(state, {})
+        self.assertEqual(len(state_update["intermediate_steps"]), 1)
+        action, observation = state_update["intermediate_steps"][0]
+        self.assertIsNotNone(observation)
+        self.assertIn("<pydantic_exception>", observation)
 
 
 @override_settings(IN_UNIT_TESTING=True)
