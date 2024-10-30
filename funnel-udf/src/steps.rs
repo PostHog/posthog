@@ -109,27 +109,23 @@ impl AggregateFunnelRow {
             };
 
             if events_with_same_timestamp.len() == 1 {
-                if !self.process_event(
+                self.process_event(
                     args,
                     &mut vars,
                     &events_with_same_timestamp[0],
                     prop_val,
                     false
-                ) {
-                    return;
-                }
+                );
             } else if events_with_same_timestamp.iter().map(|x| &x.steps).all_equal() {
                 // Deal with the most common case where they are all the same event (order doesn't matter)
                 for event in events_with_same_timestamp {
-                    if !self.process_event(
+                    self.process_event(
                         args,
                         &mut vars,
                         event,
                         prop_val,
                         false
-                    ) {
-                        return;
-                    }
+                    );
                 }
             } else {
                 // Handle permutations for different events with the same timestamp
@@ -147,15 +143,13 @@ impl AggregateFunnelRow {
 
                 // Run exclusions, if they exist, then run matching events.
                 for event in sorted_events {
-                    if !self.process_event(
+                    self.process_event(
                         args,
                         &mut vars,
                         &event,
                         &prop_val,
                         true
-                    ) {
-                        return;
-                    }
+                    );
                 }
             }
 
@@ -196,7 +190,7 @@ impl AggregateFunnelRow {
         event: &Event,
         prop_val: &PropVal,
         processing_multiple_events: bool
-    ) -> bool {
+    ) {
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
             let step = (if *step < 0 {
@@ -258,6 +252,5 @@ impl AggregateFunnelRow {
                 }
             }
         }
-        true
     }
 }
