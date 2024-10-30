@@ -30,4 +30,4 @@ class TestAPIDocsSchema(APIBaseTest):
 
         # we log lots of warnings when generating the schema
         warnings = self._capsys.readouterr().err.split("\n")
-        assert sorted(warnings) == sorted(self._snapshot)
+        assert sorted(warnings) == self._snapshot
