@@ -136,7 +136,7 @@ class PostgreSQLClient:
         max_attempts = 5
         connect = make_retryable_with_exponential_backoff(
             psycopg.AsyncConnection.connect,
-            max_attempts=5,
+            max_attempts=max_attempts,
             retryable_exceptions=(psycopg.OperationalError, psycopg.errors.ConnectionTimeout),
         )
 
