@@ -152,11 +152,11 @@ impl AggregateFunnelRow {
             if step == 1 {
                 // If we have not already gotten to the end step
                 if !self.results.contains_key(&event.interval_start) {
-                    let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
-                    entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start as f64, excluded: false };
-                    entered_timestamp[1] = EnteredTimestamp { timestamp: event.timestamp, excluded: false };
+                    let entered_timestamp_one = EnteredTimestamp { timestamp: event.timestamp, excluded: false };
                     let interval = vars.interval_start_to_entered_timestamps.get_mut(&event.interval_start);
-                    if interval.is_none() || (interval.as_ref().map( | interval | interval.max_step.entered_timestamp.excluded && interval.max_step.step == 1).unwrap()) {
+                    if interval.is_none() || interval.as_ref().map( | interval | interval.max_step.step == 1 && interval.max_step.entered_timestamp.excluded).unwrap() {
+                        let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
+                        entered_timestamp[1] = entered_timestamp_one;
                         let interval_data = IntervalData {
                             max_step: MaxStep {
                                 step: 1,
@@ -172,7 +172,7 @@ impl AggregateFunnelRow {
                         };
                         vars.interval_start_to_entered_timestamps.insert(event.interval_start, interval_data);
                     } else {
-                        interval.unwrap().entered_timestamp = entered_timestamp;
+                        interval.unwrap().entered_timestamp[1] = entered_timestamp_one;
                     }
                 }
             } else {
