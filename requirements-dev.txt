@@ -100,7 +100,7 @@ faker==17.5.0
     # via -r requirements-dev.in
 fakeredis==2.23.3
     # via -r requirements-dev.in
-flaky==3.8.1
+flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
     # via -r requirements-dev.in
@@ -189,10 +189,8 @@ platformdirs==3.11.0
     # via
     #   -c requirements.txt
     #   black
-pluggy==1.5.0
-    # via
-    #   -c requirements.txt
-    #   pytest
+pluggy==0.13.1
+    # via pytest
 pprintpp==0.4.0
     # via pytest-icdiff
 prance==23.6.21.0
@@ -211,7 +209,7 @@ pydantic-core==2.23.4
     #   pydantic
 pygments==2.18.0
     # via rich
-pytest==8.3.3
+pytest==7.4.4
     # via
     #   -r requirements-dev.in
     #   pytest-asyncio
@@ -224,7 +222,7 @@ pytest==8.3.3
     #   pytest-watch
     #   pytest-xdist
     #   syrupy
-pytest-asyncio==0.24.0
+pytest-asyncio==0.21.1
     # via -r requirements-dev.in
 pytest-cov==4.1.0
     # via -r requirements-dev.in
@@ -236,7 +234,7 @@ pytest-icdiff==0.6
     # via -r requirements-dev.in
 pytest-mock==3.11.1
     # via -r requirements-dev.in
-pytest-split==0.10.0
+pytest-split==0.8.1
     # via -r requirements-dev.in
 pytest-watch==4.2.0
     # via -r requirements-dev.in
@@ -303,7 +301,7 @@ sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
-syrupy==4.6.4
+syrupy==4.6.0
     # via -r requirements-dev.in
 toml==0.10.2
     # via

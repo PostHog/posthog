@@ -37,21 +37,21 @@ types-retry==0.9.9.4
 types-requests==2.26.1
 types-tzlocal~=5.1.0.1
 parameterized==0.9.0
-pytest==8.3.3
-pytest-asyncio==0.24.0
+pytest==7.4.4
+pytest-asyncio==0.21.1
 pytest-cov==4.1.0
 pytest-django==4.5.2
 pytest-env==0.8.2
 pytest-icdiff==0.6
 pytest-mock==3.11.1
-pytest-split==0.10.0
+pytest-split==0.8.1
 pytest-watch==4.2.0
 pytest-xdist==3.6.1
 python-dateutil>=2.8.2
 responses==0.23.1
 syrupy~=4.6.0
 watchdog==2.1.8
-flaky==3.8.1
+flaky==3.7.0
 aioresponses==0.7.6
 prance==23.06.21.0
 openapi-spec-validator==0.7.1 # Needed for prance as a validation backend
