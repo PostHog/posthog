@@ -212,7 +212,7 @@ def postgres_config(redshift_config):
     yield redshift_config
 
 
-@pytest_asyncio.fixture(loop_scope="session")
+@pytest_asyncio.fixture
 async def psycopg_connection(redshift_config, setup_postgres_test_db):
     """Fixture to manage a psycopg2 connection."""
     connection = await psycopg.AsyncConnection.connect(
@@ -362,7 +362,7 @@ def table_name(ateam, interval):
     return f"test_workflow_table_{ateam.pk}_{interval}"
 
 
-@pytest_asyncio.fixture(loop_scope="session")
+@pytest_asyncio.fixture
 async def redshift_batch_export(ateam, table_name, redshift_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Redshift",

@@ -51,7 +51,7 @@ from posthog.temporal.tests.utils.persons import (
     generate_test_persons_in_clickhouse,
 )
 
-pytestmark = [pytest.mark.asyncio(loop_scope="session"), pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 class FakeSnowflakeCursor:
