@@ -11,7 +11,7 @@ class QueryAlternator:
     _group_bys: list[ast.Expr]
     _select_from: ast.JoinExpr | None
 
-    def __init__(self, query: ast.SelectQuery | ast.SelectUnionQuery):
+    def __init__(self, query: ast.SelectQuery | ast.SelectSetQuery):
         assert isinstance(query, ast.SelectQuery)
 
         self._query = query
@@ -19,7 +19,7 @@ class QueryAlternator:
         self._group_bys = []
         self._select_from = None
 
-    def build(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if len(self._selects) > 0:
             self._query.select.extend(self._selects)
 
