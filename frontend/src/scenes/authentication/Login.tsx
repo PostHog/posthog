@@ -142,7 +142,7 @@ export function Login(): JSX.Element {
                     </div>
 
                     {/* Show regular login button if SSO is not enforced */}
-                    {!precheckResponse.sso_enforcement && (
+                    {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
                         <LemonButton
                             type="primary"
                             status="alt"
@@ -155,10 +155,8 @@ export function Login(): JSX.Element {
                         >
                             Log in
                         </LemonButton>
-                    )}
-
-                    {/* Show enforced SSO button if required */}
-                    {precheckResponse.sso_enforcement && (
+                    ) : (
+                        // Show enforced SSO button if required
                         <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
                     )}
 
