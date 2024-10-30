@@ -220,6 +220,7 @@ export const FEATURE_FLAGS = {
     LEGACY_ACTION_WEBHOOKS: 'legacy-action-webhooks', // owner: @mariusandra #team-cdp
     SESSION_REPLAY_URL_TRIGGER: 'session-replay-url-trigger', // owner: @richard-better #team-replay
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
+    ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
     EXPERIMENTS_HOLDOUTS: 'experiments-holdouts', // owner: @jurajmajerik #team-experiments
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
     SESSION_REPLAY_URL_BLOCKLIST: 'session-replay-url-blocklist', // owner: @richard-better #team-replay
