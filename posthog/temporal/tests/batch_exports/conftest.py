@@ -51,9 +51,7 @@ def exclude_events(request) -> list[str] | None:
         return None
 
 
-@pytest_asyncio.fixture(
-    loop_scope="session",
-)
+@pytest_asyncio.fixture()
 async def truncate_events(clickhouse_client):
     """Fixture to automatically truncate sharded_events after a test.
 
@@ -63,9 +61,7 @@ async def truncate_events(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
 
 
-@pytest_asyncio.fixture(
-    loop_scope="session",
-)
+@pytest_asyncio.fixture()
 async def truncate_persons(clickhouse_client):
     """Fixture to automatically truncate person and person_distinct_id2 after a test.
 
@@ -89,9 +85,7 @@ def batch_export_schema(request) -> dict | None:
         return None
 
 
-@pytest_asyncio.fixture(
-    loop_scope="session",
-)
+@pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
     """Fixture to manage a database for Redshift and Postgres export testing.
 
@@ -160,7 +154,7 @@ async def setup_postgres_test_db(postgres_config):
 
 
 @pytest_asyncio.fixture(
-    loop_scope="session",
+    scope="module",
 )
 async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
     from posthog.batch_exports.sql import (
@@ -228,9 +222,7 @@ def data_interval_end(interval):
     return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
 
-@pytest_asyncio.fixture(
-    loop_scope="session",
-)
+@pytest_asyncio.fixture
 async def generate_test_data(ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end):
     """Generate test data in ClickHouse."""
     events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
