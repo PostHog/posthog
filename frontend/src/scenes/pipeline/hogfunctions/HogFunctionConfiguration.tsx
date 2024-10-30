@@ -212,8 +212,6 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         {template && <DestinationTag status={template.status} />}
                                     </div>
 
-                                    <HogFunctionStatusIndicator hogFunction={hogFunction} />
-
                                     {showEnabled && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
                                     {showEnabled && (
                                         <LemonField name="enabled">
