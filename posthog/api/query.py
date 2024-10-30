@@ -41,7 +41,14 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
 )
-from posthog.schema import HumanMessage, QueryRequest, QueryResponseAlternative, QueryStatusResponse
+from posthog.schema import (
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    HumanMessage,
+    QueryRequest,
+    QueryResponseAlternative,
+    QueryStatusResponse,
+)
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -185,7 +192,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             last_message = None
             for message in assistant.stream(validated_body):
                 last_message = message
-                yield f"data: {message}\n\n"
+                if isinstance(message, AssistantGenerationStatusEvent):
+                    yield f"event: {AssistantEventType.STATUS}\n"
+                else:
+                    yield f"event: {AssistantEventType.MESSAGE}\n"
+                yield f"data: {message.model_dump_json()}\n\n"
 
             human_message = validated_body.messages[-1].root
             if isinstance(human_message, HumanMessage):

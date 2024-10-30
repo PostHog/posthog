@@ -360,6 +360,36 @@ export interface HogQLMetadataResponse {
     query_status?: never
 }
 
+export type AutocompleteCompletionItemKind =
+    | 'Method'
+    | 'Function'
+    | 'Constructor'
+    | 'Field'
+    | 'Variable'
+    | 'Class'
+    | 'Struct'
+    | 'Interface'
+    | 'Module'
+    | 'Property'
+    | 'Event'
+    | 'Operator'
+    | 'Unit'
+    | 'Value'
+    | 'Constant'
+    | 'Enum'
+    | 'EnumMember'
+    | 'Keyword'
+    | 'Text'
+    | 'Color'
+    | 'File'
+    | 'Reference'
+    | 'Customcolor'
+    | 'Folder'
+    | 'TypeParameter'
+    | 'User'
+    | 'Issue'
+    | 'Snippet'
+
 export interface AutocompleteCompletionItem {
     /**
      * The label of this completion item. By default
@@ -385,35 +415,7 @@ export interface AutocompleteCompletionItem {
      * The kind of this completion item. Based on the kind
      * an icon is chosen by the editor.
      */
-    kind:
-        | 'Method'
-        | 'Function'
-        | 'Constructor'
-        | 'Field'
-        | 'Variable'
-        | 'Class'
-        | 'Struct'
-        | 'Interface'
-        | 'Module'
-        | 'Property'
-        | 'Event'
-        | 'Operator'
-        | 'Unit'
-        | 'Value'
-        | 'Constant'
-        | 'Enum'
-        | 'EnumMember'
-        | 'Keyword'
-        | 'Text'
-        | 'Color'
-        | 'File'
-        | 'Reference'
-        | 'Customcolor'
-        | 'Folder'
-        | 'TypeParameter'
-        | 'User'
-        | 'Issue'
-        | 'Snippet'
+    kind: AutocompleteCompletionItemKind
 }
 
 export interface HogQLAutocompleteResponse {
@@ -1419,11 +1421,12 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     includeLCPScore?: boolean
 }
 
+export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage'
 export interface WebOverviewItem {
     key: string
     value?: number
     previous?: number
-    kind: 'unit' | 'duration_s' | 'percentage'
+    kind: WebOverviewItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
 }
@@ -1651,7 +1654,7 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
-    source: FunnelsQuery
+    funnels_query: FunnelsQuery
     experiment_id: integer
 }
 
@@ -2101,6 +2104,7 @@ export enum AssistantMessageType {
     Human = 'human',
     Assistant = 'ai',
     Visualization = 'ai/viz',
+    Failure = 'ai/failure',
 }
 
 export interface HumanMessage {
@@ -2120,4 +2124,23 @@ export interface VisualizationMessage {
     answer?: ExperimentalAITrendsQuery
 }
 
-export type RootAssistantMessage = VisualizationMessage | AssistantMessage | HumanMessage
+export interface FailureMessage {
+    type: AssistantMessageType.Failure
+    content?: string
+}
+
+export type RootAssistantMessage = VisualizationMessage | AssistantMessage | HumanMessage | FailureMessage
+
+export enum AssistantEventType {
+    Status = 'status',
+    Message = 'message',
+}
+
+export enum AssistantGenerationStatusType {
+    Acknowledged = 'ack',
+    GenerationError = 'generation_error',
+}
+
+export interface AssistantGenerationStatusEvent {
+    type: AssistantGenerationStatusType
+}
