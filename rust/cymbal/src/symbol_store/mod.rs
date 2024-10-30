@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 use crate::error::Error;
 
 pub mod caching;
+pub mod saving;
 pub mod sourcemap;
 
 #[async_trait]

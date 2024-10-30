@@ -1,3 +1,4 @@
+use aws_sdk_s3::primitives::ByteStreamError;
 use rdkafka::error::KafkaError;
 use thiserror::Error;
 
@@ -13,6 +14,10 @@ pub enum Error {
     ReqwestError(#[from] reqwest::Error),
     #[error(transparent)]
     ResolutionError(#[from] ResolutionError),
+    #[error(transparent)]
+    S3Error(#[from] aws_sdk_s3::Error),
+    #[error(transparent)]
+    ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
