@@ -830,6 +830,30 @@ export const experimentLogic = kea<experimentLogicType>([
             null as SecondaryMetricResults[] | null,
             {
                 loadSecondaryMetricResults: async (refresh?: boolean) => {
+                    if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                        const secondaryMetrics =
+                            values.experiment?.metrics?.filter((metric) => metric.type === 'secondary') || []
+
+                        return await Promise.all(
+                            secondaryMetrics.map(async (metric) => {
+                                try {
+                                    const response: ExperimentResults = await api.create(
+                                        `api/projects/${values.currentTeamId}/query`,
+                                        { query: metric.query }
+                                    )
+
+                                    return {
+                                        ...response,
+                                        fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                        last_refresh: response.last_refresh || '',
+                                    }
+                                } catch (error) {
+                                    return {}
+                                }
+                            })
+                        )
+                    }
+
                     const refreshParam = refresh ? '&refresh=true' : ''
 
                     return await Promise.all(

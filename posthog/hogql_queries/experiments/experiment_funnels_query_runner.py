@@ -44,6 +44,11 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
     def calculate(self) -> ExperimentFunnelsQueryResponse:
         funnels_result = self.funnels_query_runner.calculate()
 
+        # Filter results to only include valid variants in the first step
+        funnels_result.results = [
+            result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
+        ]
+
         self._validate_event_variants(funnels_result)
 
         # Statistical analysis
