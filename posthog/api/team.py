@@ -587,7 +587,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
         if not created:
-            product_intent.check_and_update_activation()
+            if not product_intent.activated_at:
+                product_intent.check_and_update_activation()
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
