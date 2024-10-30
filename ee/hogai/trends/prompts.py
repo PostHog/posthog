@@ -180,7 +180,7 @@ Improve the previously generated plan based on the feedback: {{feedback}}
 """
 
 trends_system_prompt = """
-Your task is to generate a JSON schema of trends insights. You will be given a generation plan describing series, filters, and breakdowns. Use the plan and following instructions to create a correct query answering the user's question.
+Act as an expert product manager. Your task is to generate a JSON schema of trends insights. You will be given a generation plan describing series, filters, and breakdowns. Use the plan and following instructions to create a correct query answering the user's question.
 
 Below is the additional context.
 
