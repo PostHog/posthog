@@ -4,7 +4,7 @@
 # - `uv pip compile requirements.in -o requirements.txt`
 # - `uv pip compile requirements-dev.in -o requirements-dev.txt`
 #
-aiohttp>=3.9.0
+aiohttp==3.10.10
 aioboto3==12.0.0
 aiokafka>=0.8
 antlr4-python3-runtime==4.13.1
