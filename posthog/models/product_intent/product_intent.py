@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 from celery import shared_task
 from django.db import models
 
-from posthog.event_usage import report_team_action
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -83,8 +82,10 @@ class ProductIntent(UUIDModel):
                 self.report_activation("data_warehouse")
 
     def report_activation(self, product_key: str) -> None:
+        from posthog.event_usage import report_team_action
+
         report_team_action(
-            self.team.organization,
+            self.team,
             "product intent marked activated",
             {
                 "product_key": product_key,
@@ -96,11 +97,12 @@ class ProductIntent(UUIDModel):
 
 
 @shared_task(ignore_result=True)
-def calculate_product_activation(team: Team, only_calc_if_days_since_last_checked: int = 1) -> None:
+def calculate_product_activation(team_id: int, only_calc_if_days_since_last_checked: int = 1) -> None:
     """
     Calculate product activation for a team.
     Only calculate if it's been more than `only_calc_if_days_since_last_checked` days since the last activation check.
     """
+    team = Team.objects.get(id=team_id)
     product_intents = ProductIntent.objects.filter(team=team)
     for product_intent in product_intents:
         if product_intent.activated_at:

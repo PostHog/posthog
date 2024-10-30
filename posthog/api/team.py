@@ -216,7 +216,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
     def get_product_intents(self, obj):
-        calculate_product_activation.delay(obj, only_calc_if_days_since_last_checked=1)
+        calculate_product_activation.delay(obj.id, only_calc_if_days_since_last_checked=1)
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )

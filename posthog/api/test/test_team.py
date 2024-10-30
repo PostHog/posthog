@@ -1051,6 +1051,51 @@ def team_api_test_factory():
                 team=self.team,
             )
 
+        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
+        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        @freeze_time("2024-01-01T00:00:00Z")
+        def test_can_update_product_intent_if_already_exists(
+            self,
+            mock_report_user_action: MagicMock,
+            mock_report_user_action_legacy_endpoint: MagicMock,
+            mock_check_and_update_activation: MagicMock,
+        ) -> None:
+            intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            original_created_at = intent.created_at
+            assert original_created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            # change the time of the existing intent
+            with freeze_time("2024-01-02T00:00:00Z"):
+                if self.client_class is EnvironmentToProjectRewriteClient:
+                    mock_report_user_action = mock_report_user_action_legacy_endpoint
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/add_product_intent/",
+                    {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+                product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+                assert product_intent.updated_at == datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC)
+                assert product_intent.created_at == original_created_at
+                mock_check_and_update_activation.assert_called_once()
+                mock_report_user_action.assert_called_once_with(
+                    self.user,
+                    "user showed product intent",
+                    {
+                        "product_key": "product_analytics",
+                        "$current_url": "https://posthogtest.com/my-url",
+                        "$session_id": "test_session_id",
+                        "intent_context": None,
+                        "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                        "is_first_intent_for_product": False,
+                        "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                        "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
+                        "realm": get_instance_realm(),
+                    },
+                    team=self.team,
+                )
+
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         def test_can_complete_product_onboarding(
