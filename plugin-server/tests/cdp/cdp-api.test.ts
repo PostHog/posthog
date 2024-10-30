@@ -261,7 +261,7 @@ describe('CDP API', () => {
             expect(res.status).toEqual(200)
             expect(res.body).toMatchObject({
                 status: 'success',
-                error: 'undefined',
+                error: null,
                 logs: [
                     {
                         level: 'debug',
