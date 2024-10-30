@@ -176,7 +176,7 @@ impl AggregateFunnelRow {
                     }
                 }
             } else {
-                for (&interval_start, interval_data) in vars.interval_start_to_entered_timestamps.iter_mut() {
+                vars.interval_start_to_entered_timestamps.retain(|&interval_start, interval_data| {
                     let in_match_window = (event.timestamp - interval_data.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
                     let previous_step_excluded = interval_data.entered_timestamp[step-1].excluded;
                     let already_reached_this_step = interval_data.entered_timestamp[step].timestamp == interval_data.entered_timestamp[step - 1].timestamp;
@@ -202,6 +202,7 @@ impl AggregateFunnelRow {
                                         interval_start,
                                         ResultStruct(interval_start, 1, prop_val.clone(), event.uuid)
                                     );
+                                    return false;
                                 } else if step > interval_data.max_step.step || (step == interval_data.max_step.step && interval_data.max_step.entered_timestamp.excluded){
                                     interval_data.max_step = MaxStep {
                                         step: step,
@@ -215,7 +216,8 @@ impl AggregateFunnelRow {
                             }
                         }
                     }
-                }
+                    true
+                })
             }
         }
         // If a strict funnel, clear all of the steps that we didn't match to
