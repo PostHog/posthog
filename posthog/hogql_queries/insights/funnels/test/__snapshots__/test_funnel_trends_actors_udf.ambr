@@ -9,7 +9,7 @@
             matching_events AS matching_events
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v2(0, 2, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+               arrayJoin(aggregate_funnel_array_trends_v3(0, 2, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -85,7 +85,7 @@
             matching_events AS matching_events
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v2(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+               arrayJoin(aggregate_funnel_array_trends_v3(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -161,7 +161,7 @@
             matching_events AS matching_events
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v2(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
+               arrayJoin(aggregate_funnel_array_trends_v3(0, 3, 1209600, 'first_touch', 'ordered', [[]], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.5), 1), 0), ifNull(equals(x.5, x_before.5), isNull(x.5)
                                                                                                                                                                                                        and isNull(x_before.5)), ifNull(equals(x.5, x_after.5), isNull(x.5)
                                                                                                                                                                                                                                        and isNull(x_after.5)), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)

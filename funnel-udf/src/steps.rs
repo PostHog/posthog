@@ -205,38 +205,46 @@ impl AggregateFunnelRow {
             let already_reached_this_step = vars.entered_timestamp[step].timestamp == vars.entered_timestamp[step - 1].timestamp
                 && vars.entered_timestamp[step].timestamp != 0.0;
 
-            if in_match_window && !previous_step_excluded && !already_reached_this_step {
+            if in_match_window && !already_reached_this_step {
                 if exclusion {
-                    vars.entered_timestamp[step - 1].excluded = true;
-                    if vars.max_step.0 == step - 1 {
-                        let max_timestamp_in_match_window = (event.timestamp - vars.max_step.1.timestamp) <= args.conversion_window_limit as f64;
-                        if max_timestamp_in_match_window {
-                            vars.max_step.1.excluded = true;
+                    if !previous_step_excluded {
+                        vars.entered_timestamp[step - 1].excluded = true;
+                        if vars.max_step.0 == step - 1 {
+                            let max_timestamp_in_match_window = (event.timestamp - vars.max_step.1.timestamp) <= args.conversion_window_limit as f64;
+                            if max_timestamp_in_match_window {
+                                vars.max_step.1.excluded = true;
+                            }
                         }
                     }
                 } else {
                     let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
                     let already_used_event = processing_multiple_events && vars.entered_timestamp[step - 1].uuids.contains(&event.uuid);
                     if !is_unmatched_step_attribution && !already_used_event {
-                        vars.entered_timestamp[step] = EnteredTimestamp {
-                            timestamp: vars.entered_timestamp[step - 1].timestamp,
-                            excluded: false,
-                            timings: {
-                                let mut timings = vars.entered_timestamp[step - 1].timings.clone();
-                                timings.push(event.timestamp);
-                                timings
-                            },
-                            uuids: {
-                                let mut uuids = vars.entered_timestamp[step - 1].uuids.clone();
-                                uuids.push(event.uuid);
-                                uuids
-                            },
+                        let new_entered_timestamp = |vars: &Vars| -> EnteredTimestamp {
+                            EnteredTimestamp {
+                                timestamp: vars.entered_timestamp[step - 1].timestamp,
+                                excluded: previous_step_excluded,
+                                timings: {
+                                    let mut timings = vars.entered_timestamp[step - 1].timings.clone();
+                                    timings.push(event.timestamp);
+                                    timings
+                                },
+                                uuids: {
+                                    let mut uuids = vars.entered_timestamp[step - 1].uuids.clone();
+                                    uuids.push(event.uuid);
+                                    uuids
+                                },
+                            }
                         };
-                        if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
-                            vars.event_uuids[step - 1].push(event.uuid);
+                        if !previous_step_excluded {
+                            vars.entered_timestamp[step] = new_entered_timestamp(vars);
+                            if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
+                                vars.event_uuids[step - 1].push(event.uuid);
+                            }
                         }
+
                         if step > vars.max_step.0 || (step == vars.max_step.0 && vars.max_step.1.excluded) {
-                            vars.max_step = (step, vars.entered_timestamp[step].clone());
+                            vars.max_step = (step, new_entered_timestamp(vars));
                         }
                     }
                 }
