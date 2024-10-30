@@ -16,7 +16,7 @@ class WebTopClicksQueryRunner(WebAnalyticsQueryRunner):
     response: WebTopClicksQueryResponse
     cached_response: CachedWebTopClicksQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("top_clicks_query"):
             top_sources_query = parse_select(
                 """

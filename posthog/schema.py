@@ -1977,31 +1977,6 @@ class CachedEventsQueryResponse(BaseModel):
     types: list[str]
 
 
-class CachedExperimentTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: TrendsQueryResponse
-    is_cached: bool
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    timezone: str
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
 class CachedFunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2726,19 +2701,6 @@ class Response9(BaseModel):
     )
 
 
-class Response11(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: TrendsQueryResponse
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
 class DataWarehousePersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2887,19 +2849,6 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
-
-
-class ExperimentTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: TrendsQueryResponse
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class BreakdownFilter1(BaseModel):
@@ -3492,32 +3441,6 @@ class QueryResponseAlternative15(BaseModel):
     )
 
 
-class QueryResponseAlternative16(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    insight: FunnelsQueryResponse
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    variants: list[ExperimentVariantFunnelsBaseStats]
-
-
-class QueryResponseAlternative17(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: TrendsQueryResponse
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
 class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3752,32 +3675,6 @@ class QueryResponseAlternative27(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class QueryResponseAlternative28(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    insight: FunnelsQueryResponse
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    variants: list[ExperimentVariantFunnelsBaseStats]
-
-
-class QueryResponseAlternative29(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: TrendsQueryResponse
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class QueryResponseAlternative30(BaseModel):
@@ -4282,31 +4179,6 @@ class AnyResponseType(
     ]
 
 
-class CachedExperimentFunnelsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    insight: FunnelsQueryResponse
-    is_cached: bool
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    probability: dict[str, float]
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    timezone: str
-    variants: list[ExperimentVariantFunnelsBaseStats]
-
-
 class CachedHogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4456,19 +4328,6 @@ class Response2(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = Field(default=None, description="Types of returned columns")
-
-
-class Response10(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    insight: FunnelsQueryResponse
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class DataWarehouseNode(BaseModel):
@@ -4708,19 +4567,6 @@ class EventsNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
-
-
-class ExperimentFunnelsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    insight: FunnelsQueryResponse
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class FunnelExclusionActionsNode(BaseModel):
@@ -5556,6 +5402,50 @@ class VisualizationMessage(BaseModel):
     type: Literal["ai/viz"] = "ai/viz"
 
 
+class CachedExperimentTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    count_query: Optional[TrendsQuery] = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: Optional[TrendsQuery] = None
+    insight: list[dict[str, Any]]
+    is_cached: bool
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    p_value: float
+    probability: dict[str, float]
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    timezone: str
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
+class Response11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: Optional[TrendsQuery] = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: Optional[TrendsQuery] = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
 class ErrorTrackingQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5643,18 +5533,20 @@ class EventsQuery(BaseModel):
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class ExperimentTrendsQuery(BaseModel):
+class ExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_query: TrendsQuery
-    experiment_id: int
+    count_query: Optional[TrendsQuery] = None
+    credible_intervals: dict[str, list[float]]
     exposure_query: Optional[TrendsQuery] = None
+    insight: list[dict[str, Any]]
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[ExperimentTrendsQueryResponse] = None
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class FunnelsQuery(BaseModel):
@@ -5954,6 +5846,68 @@ class LifecycleQuery(BaseModel):
     )
 
 
+class QueryResponseAlternative16(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: Optional[FunnelsQuery] = None
+    insight: list[list[dict[str, Any]]]
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class QueryResponseAlternative17(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: Optional[TrendsQuery] = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: Optional[TrendsQuery] = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
+class QueryResponseAlternative28(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: Optional[FunnelsQuery] = None
+    insight: list[list[dict[str, Any]]]
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class QueryResponseAlternative29(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: Optional[TrendsQuery] = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: Optional[TrendsQuery] = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
 class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6062,6 +6016,48 @@ class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessag
     root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage]
 
 
+class CachedExperimentFunnelsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: Optional[FunnelsQuery] = None
+    insight: list[list[dict[str, Any]]]
+    is_cached: bool
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    probability: dict[str, float]
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    timezone: str
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class Response10(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: Optional[FunnelsQuery] = None
+    insight: list[list[dict[str, Any]]]
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
 class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6078,17 +6074,33 @@ class DatabaseSchemaQueryResponse(BaseModel):
     ]
 
 
-class ExperimentFunnelsQuery(BaseModel):
+class ExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    experiment_id: int
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: Optional[FunnelsQuery] = None
+    insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class ExperimentTrendsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery
+    experiment_id: int
+    exposure_query: Optional[TrendsQuery] = None
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    response: Optional[ExperimentFunnelsQueryResponse] = None
-    source: FunnelsQuery
+    response: Optional[ExperimentTrendsQueryResponse] = None
 
 
 class FunnelPathsFilter(BaseModel):
@@ -6190,6 +6202,19 @@ class DatabaseSchemaQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[DatabaseSchemaQueryResponse] = None
+
+
+class ExperimentFunnelsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: int
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ExperimentFunnelsQueryResponse] = None
+    source: FunnelsQuery
 
 
 class FunnelCorrelationQuery(BaseModel):
