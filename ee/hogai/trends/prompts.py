@@ -171,7 +171,8 @@ Thought: {{agent_scratchpad}}
 """
 
 react_user_prompt = """
-Answer the following question as best you can. What events, properties and/or property values should I use to answer this question: "{{question}}"?
+Answer the following question as best you can.
+Question: What events, properties and/or property values should I use to answer this question "{{question}}"?
 """
 
 react_follow_up_prompt = """
