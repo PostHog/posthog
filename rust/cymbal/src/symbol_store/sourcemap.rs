@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::SymbolProvider;
+use super::{Fetcher, Parser};
 
 pub struct SourcemapProvider {
     pub client: reqwest::Client,
@@ -38,16 +38,18 @@ impl SourcemapProvider {
 }
 
 #[async_trait]
-impl SymbolProvider for SourcemapProvider {
+impl Fetcher for SourcemapProvider {
     type Ref = Url;
-    type Set = SourceMap;
-    async fn fetch(&self, _: i32, r: Url) -> Result<Arc<SourceMap>, Error> {
+    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Error> {
         let sourcemap_url = find_sourcemap_url(&self.client, r).await?;
-        let data = fetch_source_map(&self.client, sourcemap_url).await?;
+        Ok(fetch_source_map(&self.client, sourcemap_url).await?)
+    }
+}
 
-        Ok(Arc::new(
-            SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?,
-        ))
+impl Parser for SourcemapProvider {
+    type Set = SourceMap;
+    fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
+        Ok(SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?)
     }
 }
 

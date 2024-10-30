@@ -1,59 +1,9 @@
 use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
-use axum::async_trait;
+use crate::metric_consts::{STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS};
 use sourcemap::SourceMap;
-use tokio::sync::Mutex;
 
-use crate::{
-    error::Error,
-    metric_consts::{
-        STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_HITS, STORE_CACHE_MISSES,
-        STORE_CACHE_SIZE,
-    },
-};
-
-use super::SymbolProvider;
-
-pub struct CachingProvider<P> {
-    cache: Arc<Mutex<CacheInner>>,
-    provider: P,
-}
-
-impl<P> CachingProvider<P> {
-    pub fn new(max_bytes: usize, provider: P, shared: Arc<Mutex<CacheInner>>) -> Self {
-        metrics::gauge!(STORE_CACHE_SIZE).set(max_bytes as f64);
-        Self {
-            cache: shared,
-            provider,
-        }
-    }
-}
-
-#[async_trait]
-impl<P> SymbolProvider for CachingProvider<P>
-where
-    P: SymbolProvider,
-    P::Ref: ToString + Send,
-    P::Set: Cacheable,
-{
-    type Ref = P::Ref;
-    type Set = P::Set;
-
-    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Error> {
-        let key = r.to_string();
-        let mut cache = self.cache.lock().await;
-        if let Some(res) = cache.get::<Self::Set>(&key) {
-            metrics::counter!(STORE_CACHE_HITS).increment(1);
-            return Ok(res);
-        }
-        let res = self.provider.fetch(team_id, r).await?;
-        cache.insert(key, res.clone(), res.bytes());
-        metrics::counter!(STORE_CACHE_MISSES).increment(1);
-        Ok(res)
-    }
-}
-
-pub struct CacheInner {
+pub struct SymbolSetCache {
     // We expect this cache to consist of few, but large, items.
     // TODO - handle cases where two CachedSymbolSets have identical keys but different types
     cached: HashMap<String, CachedSymbolSet>,
@@ -61,7 +11,7 @@ pub struct CacheInner {
     max_bytes: usize,
 }
 
-impl CacheInner {
+impl SymbolSetCache {
     pub fn new(max_bytes: usize) -> Self {
         Self {
             cached: HashMap::new(),
@@ -69,10 +19,8 @@ impl CacheInner {
             max_bytes,
         }
     }
-}
 
-impl CacheInner {
-    fn insert<T>(&mut self, key: String, value: Arc<T>, bytes: usize)
+    pub fn insert<T>(&mut self, key: String, value: Arc<T>, bytes: usize)
     where
         T: Any + Send + Sync,
     {
@@ -89,7 +37,7 @@ impl CacheInner {
         self.evict();
     }
 
-    fn get<T>(&mut self, key: &str) -> Option<Arc<T>>
+    pub fn get<T>(&mut self, key: &str) -> Option<Arc<T>>
     where
         T: Any + Send + Sync,
     {
