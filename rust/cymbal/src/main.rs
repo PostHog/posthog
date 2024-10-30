@@ -135,6 +135,7 @@ async fn main() -> Result<(), Error> {
         let team_id = event.team_id;
         let mut results = Vec::with_capacity(stack_trace.len());
         for (_, frames) in groups.into_iter() {
+            context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
             let mut any_success = false;
             let per_frame_group = common_metrics::timing_guard(PER_FRAME_GROUP_TIME, &[]);
             for frame in frames {
