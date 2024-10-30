@@ -179,6 +179,29 @@ react_follow_up_prompt = """
 Improve the previously generated plan based on the feedback: {{feedback}}
 """
 
+react_missing_action_prompt = """
+Your previous answer didn't output the `Action:` block. You must always follow the format described in the system prompt.
+"""
+
+react_missing_action_correction_prompt = """
+{{output}}
+Action: I didn't output the `Action:` block.
+"""
+
+react_malformed_json_prompt = """
+Your previous answer had a malformed JSON. You must return a correct JSON response containing the `action` and `action_input` fields.
+"""
+
+react_pydantic_validation_exception_prompt = """
+The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
+
+<pydantic_exception>
+{{exception}}
+</pydantic_exception>
+
+You must fix the exception and try again.
+"""
+
 trends_system_prompt = """
 Act as an expert product manager. Your task is to generate a JSON schema of trends insights. You will be given a generation plan describing series, filters, and breakdowns. Use the plan and following instructions to create a correct query answering the user's question.
 
