@@ -23,9 +23,11 @@ const DEFAULT_PICKER_COLORS = [
 export const ColorPickerButton = ({
     color,
     onColorSelect: propOnColorSelect,
+    colorChoices = DEFAULT_PICKER_COLORS,
 }: {
     color: string
     onColorSelect?: (color: string) => void
+    colorChoices?: string[]
 }): JSX.Element => {
     const [pickerOpen, setPickerOpen] = useState(false)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -35,14 +37,12 @@ export const ColorPickerButton = ({
             propOnColorSelect(colorResult.hex)
         }
 
-        if (DEFAULT_PICKER_COLORS.includes(colorResult.hex)) {
+        if (colorChoices.includes(colorResult.hex)) {
             setPickerOpen(false)
         }
     }
 
-    const colors = isDarkModeOn
-        ? DEFAULT_PICKER_COLORS.map((n) => RGBToHex(lightenDarkenColor(n, -30)))
-        : DEFAULT_PICKER_COLORS
+    const colors = isDarkModeOn ? colorChoices.map((n) => RGBToHex(lightenDarkenColor(n, -30))) : colorChoices
 
     return (
         <Popover
