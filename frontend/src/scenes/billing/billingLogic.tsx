@@ -243,7 +243,7 @@ export const billingLogic = kea<billingLogicType>([
                         const jsonRes = await getJSONOrNull(response)
 
                         lemonToast.success(
-                            "You have been unsubscribed. We're sad to see you go. May the hedgehogs be ever in your favour."
+                            "You have been unsubscribed. We're sad to see you go. May the hedgehogs be ever in your favor."
                         )
                         actions.reportProductUnsubscribed(key)
 
