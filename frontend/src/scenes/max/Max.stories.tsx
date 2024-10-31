@@ -1,8 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
-import { uuid } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -28,10 +27,13 @@ const meta: Meta = {
 }
 export default meta
 
-const Template = ({ sessionId }: { sessionId: string }): JSX.Element => {
+// The session ID is hard-coded here, as it's used for randomizing the welcome headline
+const SESSION_ID = 'b1b4b3b4-1b3b-4b3b-1b3b4b3b4b3b'
+
+const Template = ({ sessionId: SESSION_ID }: { sessionId: string }): JSX.Element => {
     return (
         <div className="relative flex flex-col h-fit">
-            <BindLogic logic={maxLogic} props={{ sessionId }}>
+            <BindLogic logic={maxLogic} props={{ sessionId: SESSION_ID }}>
                 <MaxInstance />
             </BindLogic>
         </div>
@@ -55,12 +57,12 @@ export const Welcome: StoryFn = () => {
         },
     })
 
-    const [sessionId] = useState(uuid())
-    return <Template sessionId={sessionId} />
+    return <Template sessionId={SESSION_ID} />
 }
 
 export const WelcomeSuggestionsAvailable: StoryFn = () => {
     const { loadCurrentProjectSuccess } = useActions(projectLogic)
+
     useEffect(() => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
     })
@@ -76,12 +78,12 @@ export const WelcomeLoadingSuggestions: StoryFn = () => {
     })
 
     const { loadCurrentProjectSuccess } = useActions(projectLogic)
+
     useEffect(() => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
     })
 
-    const [sessionId] = useState(uuid())
-    return <Template sessionId={sessionId} />
+    return <Template sessionId={SESSION_ID} />
 }
 WelcomeLoadingSuggestions.parameters = {
     testOptions: {
@@ -90,14 +92,13 @@ WelcomeLoadingSuggestions.parameters = {
 }
 
 export const Thread: StoryFn = () => {
-    const [sessionId] = useState(uuid())
+    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
 
-    const { askMax } = useActions(maxLogic({ sessionId }))
     useEffect(() => {
         askMax('What are my most popular pages?')
     }, [])
 
-    return <Template sessionId={sessionId} />
+    return <Template sessionId={SESSION_ID} />
 }
 
 export const EmptyThreadLoading: StoryFn = () => {
@@ -107,14 +108,13 @@ export const EmptyThreadLoading: StoryFn = () => {
         },
     })
 
-    const [sessionId] = useState(uuid())
+    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
 
-    const { askMax } = useActions(maxLogic({ sessionId }))
     useEffect(() => {
         askMax('What are my most popular pages?')
     }, [])
 
-    return <Template sessionId={sessionId} />
+    return <Template sessionId={SESSION_ID} />
 }
 EmptyThreadLoading.parameters = {
     testOptions: {
@@ -129,20 +129,20 @@ export const GenerationFailureThread: StoryFn = () => {
         },
     })
 
-    const [sessionId] = useState(uuid())
+    const { askMax, setMessageStatus } = useActions(maxLogic({ sessionId: SESSION_ID }))
+    const { thread, threadLoading } = useValues(maxLogic({ sessionId: SESSION_ID }))
 
-    const { askMax, setMessageStatus } = useActions(maxLogic({ sessionId }))
-    const { thread, threadLoading } = useValues(maxLogic({ sessionId }))
     useEffect(() => {
         askMax('What are my most popular pages?')
     }, [])
+
     useEffect(() => {
         if (thread.length === 2 && !threadLoading) {
             setMessageStatus(1, 'error')
         }
     }, [thread.length, threadLoading])
 
-    return <Template sessionId={sessionId} />
+    return <Template sessionId={SESSION_ID} />
 }
 
 export const ThreadWithFailedGeneration: StoryFn = () => {
@@ -152,12 +152,11 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
         },
     })
 
-    const [sessionId] = useState(uuid())
+    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
 
-    const { askMax } = useActions(maxLogic({ sessionId }))
     useEffect(() => {
         askMax('What are my most popular pages?')
     }, [])
 
-    return <Template sessionId={sessionId} />
+    return <Template sessionId={SESSION_ID} />
 }
