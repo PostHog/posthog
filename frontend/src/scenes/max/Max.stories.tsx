@@ -1,6 +1,9 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { uuid } from 'lib/utils'
+import { useEffect, useState } from 'react'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
@@ -38,7 +41,7 @@ const Template = ({ sessionId }: { sessionId: string }): JSX.Element => {
 export const Welcome: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/projects/:team_id/query/': () => [
+            '/api/environments/:team_id/query/': () => [
                 200,
                 {
                     questions: [
@@ -52,18 +55,32 @@ export const Welcome: StoryFn = () => {
         },
     })
 
-    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+    const [sessionId] = useState(uuid())
     return <Template sessionId={sessionId} />
+}
+
+export const WelcomeSuggestionsAvailable: StoryFn = () => {
+    const { loadCurrentProjectSuccess } = useActions(projectLogic)
+    useEffect(() => {
+        loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
+    })
+
+    return <Welcome />
 }
 
 export const WelcomeLoadingSuggestions: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/projects/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 
-    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+    const { loadCurrentProjectSuccess } = useActions(projectLogic)
+    useEffect(() => {
+        loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
+    })
+
+    const [sessionId] = useState(uuid())
     return <Template sessionId={sessionId} />
 }
 WelcomeLoadingSuggestions.parameters = {
@@ -73,7 +90,7 @@ WelcomeLoadingSuggestions.parameters = {
 }
 
 export const Thread: StoryFn = () => {
-    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+    const [sessionId] = useState(uuid())
 
     const { askMax } = useActions(maxLogic({ sessionId }))
     useEffect(() => {
@@ -90,7 +107,7 @@ export const EmptyThreadLoading: StoryFn = () => {
         },
     })
 
-    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+    const [sessionId] = useState(uuid())
 
     const { askMax } = useActions(maxLogic({ sessionId }))
     useEffect(() => {
@@ -112,7 +129,7 @@ export const GenerationFailureThread: StoryFn = () => {
         },
     })
 
-    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+    const [sessionId] = useState(uuid())
 
     const { askMax, setMessageStatus } = useActions(maxLogic({ sessionId }))
     const { thread, threadLoading } = useValues(maxLogic({ sessionId }))
@@ -135,7 +152,7 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
         },
     })
 
-    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+    const [sessionId] = useState(uuid())
 
     const { askMax } = useActions(maxLogic({ sessionId }))
     useEffect(() => {

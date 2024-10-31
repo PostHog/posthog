@@ -113,11 +113,19 @@ export const maxLogic = kea<maxLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
+            // Load suggestions anew after product description is changed on the project
+            // Most important when description is set for the first time, but also when updated,
+            // which is why we always want to load fresh suggestions here
             if (payload?.product_description) {
-                // Load suggestions anew after product description is changed on the project
-                // Most important when description is set for the first time, but also when updated,
-                // which is why we always want to load fresh suggestions here
                 actions.loadSuggestions({ refresh: 'blocking' })
+            }
+        },
+        [projectLogic.actionTypes.loadCurrentProjectSuccess]: ({ currentProject }) => {
+            // Load cached suggestions if we have just loaded the current project. This should not occur
+            // _normally_ in production, as the current project is preloaded in POSTHOG_APP_CONTEXT,
+            // but necessary in e.g. Storybook
+            if (currentProject?.product_description) {
+                actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
             }
         },
         loadSuggestionsSuccess: () => {

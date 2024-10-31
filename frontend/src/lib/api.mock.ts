@@ -97,6 +97,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
+    product_description: null,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
