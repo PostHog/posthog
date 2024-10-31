@@ -1,6 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+)
 
 type Location struct {
 	Path  string
@@ -56,5 +61,11 @@ func (tf *TokenFinder) Process(data map[string]interface{}, path string) {
 				}
 			}
 		}
+	}
+}
+
+func (tf *TokenFinder) tokenFinderHandler() func(c echo.Context) error {
+	return func(c echo.Context) error {
+		return c.JSON(http.StatusOK, tf.Locations)
 	}
 }

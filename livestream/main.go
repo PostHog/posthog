@@ -111,6 +111,8 @@ func main() {
 	// Routes
 	e.GET("/", index)
 
+	e.GET("/tokenlocs", tokenFinder.tokenFinderHandler())
+
 	e.GET("/served", servedHandler(stats))
 
 	e.GET("/stats", statsHandler(stats))
@@ -196,20 +198,6 @@ func main() {
 				w.Flush()
 			}
 		}
-	})
-
-	e.GET("/jwt", func(c echo.Context) error {
-		authHeader := c.Request().Header.Get("Authorization")
-		if authHeader == "" {
-			return errors.New("authorization header is required")
-		}
-
-		claims, err := decodeAuthToken(authHeader)
-		if err != nil {
-			return err
-		}
-
-		return c.JSON(http.StatusOK, claims)
 	})
 
 	e.GET("/sse", func(c echo.Context) error {
