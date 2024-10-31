@@ -720,7 +720,7 @@ impl FeatureFlagMatcher {
     /// It first checks if the condition has any property filters. If not, it performs a rollout check.
     /// Otherwise, it fetches the relevant properties and checks if they match the condition's filters.
     /// The function returns a tuple indicating whether the condition matched and the reason for the match.
-    pub async fn is_condition_match(
+    async fn is_condition_match(
         &mut self,
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
@@ -743,24 +743,24 @@ impl FeatureFlagMatcher {
                     .cloned()
                     .partition(|prop| prop.is_cohort());
 
-            // Evaluate non-cohort properties first to get properties_to_check
-            let properties_to_check = self
+            // Get the relevant properties to check for the condition
+            let target_properties = self
                 .get_properties_to_check(feature_flag, property_overrides, &non_cohort_filters)
                 .await?;
 
-            // Evaluate cohort filters
+            // Evaluate non-cohort properties first, since they're cheaper to evaluate
+            if !all_properties_match(&non_cohort_filters, &target_properties) {
+                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+            }
+
+            // Evaluate cohort filters, if any
             if !cohort_filters.is_empty() {
                 let cohorts_match = self
-                    .evaluate_cohort_filters(&cohort_filters, &properties_to_check)
+                    .evaluate_cohort_filters(&cohort_filters, &target_properties)
                     .await?;
                 if !cohorts_match {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
-            }
-
-            // Evaluate non-cohort properties
-            if !all_properties_match(&non_cohort_filters, &properties_to_check) {
-                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
         }
 
@@ -845,7 +845,9 @@ impl FeatureFlagMatcher {
         // because evaluating a cohort requires evaluating all of its dependencies, which can be expensive.
         let mut cohort_matches = HashMap::new();
         for filter in cohort_property_filters {
-            let cohort_id = filter.get_cohort_id()?;
+            let cohort_id = filter
+                .get_cohort_id()
+                .ok_or(FlagError::CohortFiltersParsingError)?;
             let match_result = evaluate_cohort_dependencies(
                 self.team_id,
                 cohort_id,
@@ -1171,7 +1173,9 @@ fn apply_cohort_membership_logic(
     cohort_matches: &HashMap<CohortId, bool>,
 ) -> Result<bool, FlagError> {
     for filter in cohort_filters {
-        let cohort_id = filter.get_cohort_id()?;
+        let cohort_id = filter
+            .get_cohort_id()
+            .ok_or(FlagError::CohortFiltersParsingError)?;
         let matches = cohort_matches.get(&cohort_id).copied().unwrap_or(false);
         let operator = filter.operator.unwrap_or(OperatorType::In);
 

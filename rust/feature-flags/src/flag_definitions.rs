@@ -53,12 +53,13 @@ impl PropertyFilter {
         self.key == "id" && self.prop_type == "cohort"
     }
 
-    /// Returns the cohort id if the filter is a cohort filter
-    pub fn get_cohort_id(&self) -> Result<CohortId, FlagError> {
-        self.value
-            .as_i64()
-            .map(|id| id as CohortId)
-            .ok_or(FlagError::CohortFiltersParsingError)
+    /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
+    /// or if the value cannot be parsed as a cohort id
+    pub fn get_cohort_id(&self) -> Option<CohortId> {
+        if !self.is_cohort() {
+            return None;
+        }
+        self.value.as_i64().map(|id| id as CohortId)
     }
 }
 

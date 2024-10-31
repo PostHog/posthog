@@ -145,6 +145,33 @@ impl Cohort {
 }
 
 impl InnerCohortProperty {
+    /// Flattens the nested cohort property structure into a list of property filters.
+    ///
+    /// The cohort property structure in Postgres looks like:
+    /// ```json
+    /// {
+    ///   "type": "OR",
+    ///   "values": [
+    ///     {
+    ///       "type": "OR",
+    ///       "values": [
+    ///         {
+    ///           "key": "email",
+    ///           "value": "@posthog.com",
+    ///           "type": "person",
+    ///           "operator": "icontains"
+    ///         },
+    ///         {
+    ///           "key": "age",
+    ///           "value": 25,
+    ///           "type": "person",
+    ///           "operator": "gt"
+    ///         }
+    ///       ]
+    ///     }
+    ///   ]
+    /// }
+    /// ```
     pub fn to_property_filters(&self) -> Vec<PropertyFilter> {
         self.values
             .iter()
