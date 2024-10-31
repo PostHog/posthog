@@ -1,4 +1,3 @@
-from functools import cached_property
 from typing import Literal
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
@@ -6,24 +5,27 @@ from langchain_core.messages import BaseMessage, ToolCall
 from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import Tool
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 from ee.hogai.router.prompts import (
-    router_funnel_description_prompt,
     router_system_prompt,
-    router_trends_description_prompt,
     router_user_prompt,
 )
 from ee.hogai.utils import AssistantNode, AssistantState
-from posthog.schema import AssistantToolCall, HumanMessage, RouterMessage
+from posthog.schema import HumanMessage, RouterMessage
 
 RouteName = Literal["trends", "funnel"]
 
 
+class RouterOutput(BaseModel):
+    reasoning_steps: str = Field(..., description="The reasoning steps to arrive at the insight type.")
+    insight_type: Literal["trends", "funnel"] = Field(..., description="The type of insight to generate.")
+
+
 class RouterNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig):
-        model = self._model.bind_tools(self._tools.values(), tool_choice="required", parallel_tool_calls=False)
+        model = self._model.with_structured_output(RouterOutput)
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", router_system_prompt),
@@ -31,21 +33,9 @@ class RouterNode(AssistantNode):
             template_format="mustache",
         ) + self._reconstruct_conversation(state)
         chain = prompt | model
-        message: LangchainAIMessage = chain.invoke({}, config)
-        tool_call = message.tool_calls[0]
-        return {
-            "messages": [
-                RouterMessage(
-                    tool_call=AssistantToolCall.model_validate(
-                        {
-                            "name": tool_call["name"],
-                            "args": tool_call["args"],
-                            "id": tool_call["id"],
-                        }
-                    )
-                )
-            ]
-        }
+        output: RouterOutput = chain.invoke({}, config)
+
+        return output
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state["messages"][-1]
@@ -54,27 +44,6 @@ class RouterNode(AssistantNode):
             msg: LangchainToolMessage = self._tools[tool_call["name"]].invoke(tool_call)
             return msg.content
         raise ValueError("Invalid route.")
-
-    @cached_property
-    def _tools(self) -> dict[str, Tool]:
-        def generate_trends_insight() -> RouteName:
-            return "trends"
-
-        def generate_funnel_insight() -> RouteName:
-            return "funnel"
-
-        return {
-            "generate_trends_insight": Tool(
-                name="generate_trends_insight",
-                description=router_trends_description_prompt,
-                func=generate_trends_insight,
-            ),
-            "generate_funnel_insight": Tool(
-                name="generate_funnel_insight",
-                description=router_funnel_description_prompt,
-                func=generate_funnel_insight,
-            ),
-        }
 
     def _get_tool_call(self, message: RouterMessage) -> ToolCall:
         return {
