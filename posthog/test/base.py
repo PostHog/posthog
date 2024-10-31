@@ -108,7 +108,7 @@ unittest.util._MAX_LENGTH = 2000  # type: ignore
 def clean_varying_query_parts(query, replace_all_numbers):
     # :TRICKY: team_id changes every test, avoid it messing with snapshots.
     if replace_all_numbers:
-        query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
+        query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)
         query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
         query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
         # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
@@ -119,8 +119,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
         )
 
     else:
-        query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
-        query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
+        query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
+        query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"99999 as \1_id\2", query)
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
@@ -129,7 +129,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # hog ql checks some ids differently
     query = re.sub(
         r"equals\(([^.]+\.)?(team_id|cohort_id)?, \d+\)",
-        r"equals(\1\2, 2)",
+        r"equals(\1\2, 99999)",
         query,
     )
     # replace survey uuids
@@ -171,7 +171,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # like (tuple(cohortpeople.cohort_id, cohortpeople.version), [(35, 0)])
     query = re.sub(
         r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[\(\d+, \d+\)\]\)",
-        r"(tuple(\1.cohort_id, \2.version), [(2, 0)])",
+        r"(tuple(\1.cohort_id, \2.version), [(99999, 0)])",
         query,
     )
     #### Cohort replacements end
