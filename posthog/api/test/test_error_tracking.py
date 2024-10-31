@@ -1,21 +1,22 @@
-import os
 import json
-from boto3 import resource
-from rest_framework import status
+import os
+from unittest.mock import ANY
 
-from django.utils.http import urlsafe_base64_encode
+from boto3 import resource
+from botocore.config import Config
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils.http import urlsafe_base64_encode
+from rest_framework import status
 
-from posthog.test.base import APIBaseTest
 from posthog.models import Team, ErrorTrackingGroup
-from botocore.config import Config
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,
 )
+from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -80,7 +81,36 @@ class TestErrorTracking(APIBaseTest):
         self.send_request(fingerprint, {"merging_fingerprints": merging_fingerprints}, endpoint="merge")
 
         group.refresh_from_db()
+
         self.assertEqual(group.merged_fingerprints, merging_fingerprints)
+
+        self._assert_logs_the_activity(
+            group.id,
+            [
+                {
+                    "activity": "merged_fingerprints",
+                    "created_at": ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "merged",
+                                "after": [["NewFingerprint"]],
+                                "before": [],
+                                "field": "merged_fingerprints",
+                                "type": "ErrorTrackingGroup",
+                            }
+                        ],
+                        "name": None,
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(group.id),
+                    "scope": "ErrorTrackingGroup",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                }
+            ],
+        )
 
     def test_merging_when_no_group_exists(self):
         fingerprint = ["CustomFingerprint"]
@@ -130,3 +160,19 @@ class TestErrorTracking(APIBaseTest):
                 response.json()["detail"],
                 "Object storage must be available to allow source map uploads.",
             )
+
+    def _assert_logs_the_activity(self, error_tracking_group_id: int, expected: list[dict]) -> None:
+        activity_response = self._get_error_group_activity(error_tracking_group_id)
+
+        activity: list[dict] = activity_response["results"]
+
+        self.maxDiff = None
+        self.assertEqual(activity, expected)
+
+    def _get_error_group_activity(
+        self, error_tracking_group_id: int, expected_status: int = status.HTTP_200_OK
+    ) -> dict:
+        url = f"/api/projects/{self.team.id}/error_tracking/{error_tracking_group_id}/activity"
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
