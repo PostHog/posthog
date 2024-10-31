@@ -305,10 +305,11 @@ async def insert_records_to_redshift(
             make us go OOM or exceed Redshift's SQL statement size limit (16MB). Setting this too low
             can significantly affect performance due to Redshift's poor handling of INSERTs.
     """
-    first_record_batch, records_iterator = await apeek_first_and_rewind(records)
-    if first_record_batch is None:
+    first_value, records_iterator = await apeek_first_and_rewind(records)
+    if first_value is None:
         return 0
 
+    first_record_batch, _inserted_at = first_value
     columns = first_record_batch.keys()
 
     if schema:
