@@ -1,3 +1,4 @@
+import { CyclotronJobInit, CyclotronManager } from '@posthog/cyclotron'
 import express from 'express'
 import { DateTime } from 'luxon'
 
@@ -8,14 +9,15 @@ import { FetchExecutor } from './fetch-executor'
 import { HogExecutor, MAX_ASYNC_STEPS } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
-import { HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
-import { createInvocation } from './utils'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
+import { createInvocation, serializeHogFunctionInvocation } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
     private hogFunctionManager: HogFunctionManager
     private fetchExecutor: FetchExecutor
     private hogWatcher: HogWatcher
+    private cyclotronManager: CyclotronManager
 
     constructor(
         private hub: Hub,
@@ -24,12 +26,14 @@ export class CdpApi {
             hogFunctionManager: HogFunctionManager
             fetchExecutor: FetchExecutor
             hogWatcher: HogWatcher
+            cyclotronManager: CyclotronManager
         }
     ) {
         this.hogExecutor = dependencies.hogExecutor
         this.hogFunctionManager = dependencies.hogFunctionManager
         this.fetchExecutor = dependencies.fetchExecutor
         this.hogWatcher = dependencies.hogWatcher
+        this.cyclotronManager = dependencies.cyclotronManager
     }
 
     router(): express.Router {
@@ -41,6 +45,10 @@ export class CdpApi {
                 fn(req, res).catch(next)
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
+        router.post(
+            '/api/projects/:team_id/hog_functions/:id/invocations/v2',
+            asyncHandler(this.postFunctionInvocationReal)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
 
@@ -187,6 +195,71 @@ export class CdpApi {
                 status: lastResponse.finished ? 'success' : 'error',
                 error: String(lastResponse.error),
                 logs: logs,
+            })
+        } catch (e) {
+            console.error(e)
+            res.status(500).json({ error: e.message })
+        }
+    }
+
+    private postFunctionInvocationReal = async (req: express.Request, res: express.Response): Promise<void> => {
+        try {
+            const { id, team_id } = req.params
+            const { invocations }: { invocations: HogFunctionInvocationGlobals[] } = req.body
+
+            status.info('⚡️', 'Received invocations', { id, team_id, body: req.body })
+
+            if (!invocations || !invocations.length) {
+                res.status(400).json({ error: 'Missing invocations' })
+                return
+            }
+
+            const [hogFunction, team] = await Promise.all([
+                this.hogFunctionManager.fetchHogFunction(req.params.id),
+                this.hub.teamManager.fetchTeam(parseInt(team_id)),
+            ]).catch(() => {
+                return [null, null]
+            })
+            if (!hogFunction || !team || hogFunction.team_id !== team.id) {
+                res.status(404).json({ error: 'Hog function not found' })
+                return
+            }
+
+            // Enqueue all the invocations
+            const preparedInvocations = invocations.map((x) =>
+                createInvocation(
+                    {
+                        person: x.person,
+                        event: x.event,
+                        project: {
+                            id: team.id,
+                            name: team.name,
+                            url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                        },
+                    },
+                    hogFunction
+                    // The "email" hog functions export a "sendEmail" function that we must explicitly call
+                    // BW - This feels super tricky. We have specific functions for specific things? Why don't we just invoke the function as it is with the required globals like any other function?
+                    // hogFunction.type === 'email' ? ['sendEmail', [x.email]] : undefined
+                )
+            )
+
+            // For the cyclotron ones we simply create the jobs
+            const cyclotronJobs: CyclotronJobInit[] = preparedInvocations.map((item) => {
+                return {
+                    teamId: item.globals.project.id,
+                    functionId: item.hogFunction.id,
+                    queueName: 'hog',
+                    priority: item.priority,
+                    vmState: serializeHogFunctionInvocation(item),
+                }
+            })
+            await this.cyclotronManager.bulkCreateJobs(cyclotronJobs)
+
+            res.json({
+                invocations: [],
+                status: 'success',
+                error: null,
             })
         } catch (e) {
             console.error(e)
