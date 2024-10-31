@@ -603,6 +603,8 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 # A column, usually properties, exceeds the limit for a VARCHAR field,
                 # usually the max of 65535 bytes
                 "StringDataRightTruncation",
+                # Raised by our PostgreSQL client when failing to connect after several attempts.
+                "PostgreSQLConnectionError",
             ],
             finish_inputs=finish_inputs,
         )

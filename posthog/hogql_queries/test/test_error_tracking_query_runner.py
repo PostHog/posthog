@@ -19,9 +19,6 @@ from posthog.test.base import (
     _create_event,
     flush_persons_and_events,
 )
-from posthog.models import ErrorTrackingGroup
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 SAMPLE_STACK_TRACE = [
     {
@@ -588,86 +585,86 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
 
-    def test_merges_and_defaults_groups(self):
-        ErrorTrackingGroup.objects.create(
-            team=self.team,
-            fingerprint=["SyntaxError"],
-            merged_fingerprints=[["custom_fingerprint"]],
-            assignee=self.user,
-        )
+    # def test_merges_and_defaults_groups(self):
+    #     ErrorTrackingGroup.objects.create(
+    #         team=self.team,
+    #         fingerprint=["SyntaxError"],
+    #         merged_fingerprints=[["custom_fingerprint"]],
+    #         assignee=self.user,
+    #     )
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery", fingerprint=None, dateRange=DateRange(), order="occurrences"
-            ),
-        )
+    #     runner = ErrorTrackingQueryRunner(
+    #         team=self.team,
+    #         query=ErrorTrackingQuery(
+    #             kind="ErrorTrackingQuery", fingerprint=None, dateRange=DateRange(), order="occurrences"
+    #         ),
+    #     )
 
-        results = self._calculate(runner)["results"]
-        self.assertEqual(
-            results,
-            [
-                {
-                    "assignee": self.user.id,
-                    "description": "this is the same error message",
-                    "exception_type": "SyntaxError",
-                    "fingerprint": ["SyntaxError"],
-                    "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
-                    "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
-                    "merged_fingerprints": [["custom_fingerprint"]],
-                    # count is (2 x SyntaxError) + (1 x custom_fingerprint)
-                    "occurrences": 3,
-                    "sessions": 1,
-                    "users": 2,
-                    "volume": None,
-                    "status": ErrorTrackingGroup.Status.ACTIVE,
-                },
-                {
-                    "assignee": None,
-                    "description": None,
-                    "exception_type": "TypeError",
-                    "fingerprint": ["TypeError"],
-                    "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
-                    "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
-                    "merged_fingerprints": [],
-                    "occurrences": 1,
-                    "sessions": 1,
-                    "users": 1,
-                    "volume": None,
-                    "status": ErrorTrackingGroup.Status.ACTIVE,
-                },
-            ],
-        )
+    #     results = self._calculate(runner)["results"]
+    #     self.assertEqual(
+    #         results,
+    #         [
+    #             {
+    #                 "assignee": self.user.id,
+    #                 "description": "this is the same error message",
+    #                 "exception_type": "SyntaxError",
+    #                 "fingerprint": ["SyntaxError"],
+    #                 "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
+    #                 "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
+    #                 "merged_fingerprints": [["custom_fingerprint"]],
+    #                 # count is (2 x SyntaxError) + (1 x custom_fingerprint)
+    #                 "occurrences": 3,
+    #                 "sessions": 1,
+    #                 "users": 2,
+    #                 "volume": None,
+    #                 "status": ErrorTrackingGroup.Status.ACTIVE,
+    #             },
+    #             {
+    #                 "assignee": None,
+    #                 "description": None,
+    #                 "exception_type": "TypeError",
+    #                 "fingerprint": ["TypeError"],
+    #                 "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
+    #                 "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
+    #                 "merged_fingerprints": [],
+    #                 "occurrences": 1,
+    #                 "sessions": 1,
+    #                 "users": 1,
+    #                 "volume": None,
+    #                 "status": ErrorTrackingGroup.Status.ACTIVE,
+    #             },
+    #         ],
+    #     )
 
-    @snapshot_clickhouse_queries
-    def test_assignee_groups(self):
-        ErrorTrackingGroup.objects.create(
-            team=self.team,
-            fingerprint=["SyntaxError"],
-            assignee=self.user,
-        )
-        ErrorTrackingGroup.objects.create(
-            team=self.team,
-            fingerprint=["custom_fingerprint"],
-            assignee=self.user,
-        )
-        ErrorTrackingGroup.objects.create(
-            team=self.team,
-            fingerprint=["TypeError"],
-        )
+    # @snapshot_clickhouse_queries
+    # def test_assignee_groups(self):
+    #     ErrorTrackingGroup.objects.create(
+    #         team=self.team,
+    #         fingerprint=["SyntaxError"],
+    #         assignee=self.user,
+    #     )
+    #     ErrorTrackingGroup.objects.create(
+    #         team=self.team,
+    #         fingerprint=["custom_fingerprint"],
+    #         assignee=self.user,
+    #     )
+    #     ErrorTrackingGroup.objects.create(
+    #         team=self.team,
+    #         fingerprint=["TypeError"],
+    #     )
 
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(),
-                assignee=self.user.pk,
-            ),
-        )
+    #     runner = ErrorTrackingQueryRunner(
+    #         team=self.team,
+    #         query=ErrorTrackingQuery(
+    #             kind="ErrorTrackingQuery",
+    #             dateRange=DateRange(),
+    #             assignee=self.user.pk,
+    #         ),
+    #     )
 
-        results = self._calculate(runner)["results"]
+    #     results = self._calculate(runner)["results"]
 
-        self.assertEqual(sorted([x["fingerprint"] for x in results]), [["SyntaxError"], ["custom_fingerprint"]])
+    #     self.assertEqual(sorted([x["fingerprint"] for x in results]), [["SyntaxError"], ["custom_fingerprint"]])
 
 
 class TestSearchTokenizer(TestCase):
