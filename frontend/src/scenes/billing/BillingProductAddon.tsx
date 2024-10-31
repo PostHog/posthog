@@ -5,7 +5,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { ReactNode, useMemo, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
@@ -48,7 +48,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         initiateProductUpgrade,
         setTrialModalOpen,
         activateTrial,
-        cancelTrial,
     } = useActions(billingProductLogic({ product: addon }))
     const { openSupportForm } = useActions(supportLogic)
 
@@ -84,7 +83,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         addon.type === 'enhanced_persons' &&
         addon.plans?.find((plan) => plan.plan_key === 'addon-20240404-og-customers')
 
-    const trial = true
     return (
         <div
             className="bg-bg-3000 rounded p-6 flex flex-col"
@@ -160,11 +158,12 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 <Tooltip
                                     title={
                                         <p>
-                                            You are currently on a free trial for {billing.trial.target} until{' '}
+                                            You are currently on a free trial for{' '}
+                                            <b>{toSentenceCase(billing.trial.target)}</b> until{' '}
                                             <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the
                                             trial{' '}
                                             {billing.trial.type === 'autosubscribe'
-                                                ? 'you will be automatically subscribed.'
+                                                ? 'you will be automatically subscribed to the plan.'
                                                 : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
                                         </p>
                                     }
@@ -173,7 +172,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         You're on a trial for this add-on
                                     </LemonTag>
                                 </Tooltip>
-                                <LemonButton
+                                {/* <LemonButton
                                     type="primary"
                                     size="small"
                                     onClick={cancelTrial}
@@ -181,7 +180,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     className="mt-1"
                                 >
                                     Cancel trial
-                                </LemonButton>
+                                </LemonButton> */}
                             </div>
                         ) : addon.included_with_main_product ? (
                             <LemonTag type="completion" icon={<IconCheckCircle />}>
@@ -195,8 +194,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <>
                                 {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
                                     <h4 className="leading-5 font-bold mb-0 space-x-0.5">
-                                        {trial ? (
-                                            <span>14 day free trial</span>
+                                        {addon.trial ? (
+                                            <span>{addon.trial.length} day free trial</span>
                                         ) : (
                                             <span>
                                                 {formatFlatRate(
@@ -217,7 +216,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     </LemonButton>
                                 )}
                                 {!addon.inclusion_only &&
-                                    (trial ? (
+                                    (addon.trial ? (
                                         <LemonButton
                                             type="primary"
                                             icon={<IconPlus />}
@@ -257,12 +256,18 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             </>
                         )}
                     </div>
-                    {!addon.inclusion_only && !trial && isProrated && !addon.contact_support && (
+                    {!addon.inclusion_only && !addon.trial && isProrated && !addon.contact_support && (
                         <p className="mt-2 text-xs text-muted text-right">
                             Pay ~${prorationAmount} today (prorated) and
                             <br />
                             {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
                             thereafter.
+                        </p>
+                    )}
+                    {!!addon.trial && !billing?.trial && (
+                        <p className="mt-2 text-xs text-muted text-right">
+                            You'll have {addon.trial.length} days to try it out. Then you'll be charged{' '}
+                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.
                         </p>
                     )}
                 </div>
@@ -307,7 +312,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 isOpen={trialModalOpen}
                 onClose={() => setTrialModalOpen(false)}
                 title={`Start your ${addon.name} trial`}
-                description={`You'll have 14 days to try out ${addon.name} before being being charged.`}
+                description={`You'll have ${addon.trial?.length} days to try it out before being charged.`}
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={() => setTrialModalOpen(false)}>
@@ -325,7 +330,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         🎉 It's <b>free!</b>
                     </li>
                     <li className="ml-2">
-                        📅 The trial is for <b>14 days</b>
+                        📅 The trial is for <b>{addon.trial?.length} days</b>
                     </li>
                     <li className="ml-2">
                         🚀 You'll get access to <b>all the features</b> of the plan immediately
@@ -337,7 +342,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         🚫 If you don't want to be charged, you can cancel anytime before the trial ends
                     </li>
                     <li className="ml-2">
-                        💵 At the end of the trial, you'll be be subscribed to Teams and charged{' '}
+                        💵 At the end of the trial, you'll be be subscribed and charged{' '}
                         {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}
                     </li>
                     <li className="ml-2">
