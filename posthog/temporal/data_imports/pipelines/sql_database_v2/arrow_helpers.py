@@ -48,6 +48,9 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
     from dlt.common.libs.pyarrow import pyarrow as pa
     import numpy as np
 
+    caps = DestinationCapabilitiesContext.generic_capabilities()
+    caps.decimal_precision = (76, 32)
+
     try:
         from pandas._libs import lib
 
@@ -64,13 +67,15 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
         col["name"]: columnar[col["name"]] for col in columns.values() if col.get("data_type") is None
     }
 
-    arrow_schema = columns_to_arrow(columns, tz=tz)
+    arrow_schema = columns_to_arrow(columns, caps=caps, tz=tz)
+    column_names = list(columns.keys())
 
     for idx in range(0, len(arrow_schema.names)):
         field = arrow_schema.field(idx)
         py_type: type = type(None)
+        col_index = column_names.index(field.name)
         for row in rows:
-            val = row[idx]
+            val = row[col_index]
             if val is not None:
                 py_type = type(val)
                 break
