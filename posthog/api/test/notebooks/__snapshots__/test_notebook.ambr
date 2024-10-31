@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -88,7 +88,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -120,7 +120,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -181,7 +181,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -214,7 +214,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.13
@@ -222,7 +222,7 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_activitylog"
   WHERE ("posthog_activitylog"."scope" = 'Notebook'
-         AND "posthog_activitylog"."team_id" = 2)
+         AND "posthog_activitylog"."team_id" = 99999)
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.14
@@ -267,7 +267,7 @@
   FROM "posthog_activitylog"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_activitylog"."user_id" = "posthog_user"."id")
   WHERE ("posthog_activitylog"."scope" = 'Notebook'
-         AND "posthog_activitylog"."team_id" = 2)
+         AND "posthog_activitylog"."team_id" = 99999)
   ORDER BY "posthog_activitylog"."created_at" DESC
   LIMIT 2
   '''
@@ -366,7 +366,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.3
@@ -397,7 +397,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -458,7 +458,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -491,7 +491,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.6
@@ -625,7 +625,7 @@
   INNER JOIN "posthog_team" ON ("posthog_notebook"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_notebook"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_notebook"."last_modified_by_id" = T5."id")
-  WHERE ("posthog_team"."project_id" = 2
+  WHERE ("posthog_team"."project_id" = 99999
          AND "posthog_notebook"."short_id" = '00000000')
   LIMIT 21
   '''
@@ -699,7 +699,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---

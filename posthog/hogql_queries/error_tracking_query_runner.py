@@ -10,7 +10,6 @@ from posthog.schema import (
     CachedErrorTrackingQueryResponse,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.models.error_tracking import ErrorTrackingGroup
 from posthog.models.filters.mixins.utils import cached_property
 
 
@@ -240,7 +239,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 "fingerprint": fingerprint,
                 "assignee": None,
                 "merged_fingerprints": [],
-                "status": str(ErrorTrackingGroup.Status.ACTIVE),
+                "status": "active",
+                # "status": str(ErrorTrackingGroup.Status.ACTIVE),
             },
         )
 
@@ -269,18 +269,19 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     @cached_property
     def error_tracking_groups(self):
-        queryset = ErrorTrackingGroup.objects.filter(team=self.team)
-        # :TRICKY: Ideally we'd have no null characters in the fingerprint, but if something made it into the pipeline with null characters
-        # (because rest of the system supports it), try cleaning it up here. Make sure this cleaning is consistent with the rest of the system.
-        cleaned_fingerprint = [part.replace("\x00", "\ufffd") for part in self.query.fingerprint or []]
-        queryset = (
-            queryset.filter(fingerprint=cleaned_fingerprint)
-            if self.query.fingerprint
-            else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
-        )
-        queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
-        groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
-        return {str(item["fingerprint"]): item for item in groups}
+        return {}
+        # queryset = ErrorTrackingGroup.objects.filter(team=self.team)
+        # # :TRICKY: Ideally we'd have no null characters in the fingerprint, but if something made it into the pipeline with null characters
+        # # (because rest of the system supports it), try cleaning it up here. Make sure this cleaning is consistent with the rest of the system.
+        # cleaned_fingerprint = [part.replace("\x00", "\ufffd") for part in self.query.fingerprint or []]
+        # queryset = (
+        #     queryset.filter(fingerprint=cleaned_fingerprint)
+        #     if self.query.fingerprint
+        #     else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
+        # )
+        # queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
+        # groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
+        # return {str(item["fingerprint"]): item for item in groups}
 
 
 def search_tokenizer(query: str) -> list[str]:
