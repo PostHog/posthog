@@ -15,7 +15,7 @@ pub mod sourcemap;
 pub trait SymbolCatalog<Ref, Set>: Send + Sync + 'static {
     // TODO - this doesn't actually need to return an Arc, but it does for now, because I'd
     // need to re-write the cache to let it return &'s instead, and the Arc overhead is not
-    // going to be per critical right now
+    // going to be super critical right now
     async fn lookup(&self, team_id: i32, r: Ref) -> Result<Arc<Set>, Error>;
 }
 
