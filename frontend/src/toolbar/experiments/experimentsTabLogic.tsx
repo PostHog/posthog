@@ -146,7 +146,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         experimentForm: {
             defaults: { name: null, variants: [{}] as unknown as WebExperimentVariant[] } as unknown as ExperimentForm,
             errors: ({ name }) => ({
-                name: !name || !name.length ? 'Must name this experiment' : undefined,
+                name: !name ? 'Please enter a name for this experiment' : undefined,
             }),
             submit: async (formValues, breakpoint) => {
                 const experimentToSave = {

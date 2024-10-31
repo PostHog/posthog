@@ -53,14 +53,15 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                         {selectedVariant && `  variant : ${selectedVariant}`}
                     </h1>
                     <div id="errorcontainer">
-                        {Object.keys(experimentFormErrors).length > 0 && (
-                            <LemonBanner type="error">
-                                <ol>
-                                    {experimentFormErrors.name && <li>{experimentFormErrors.name}</li>}
-                                    {experimentFormErrors.variants && <li>{experimentFormErrors.variants}</li>}
-                                </ol>
-                            </LemonBanner>
-                        )}
+                        {Object.keys(experimentFormErrors).length > 0 &&
+                            !Object.values(experimentFormErrors).every((el) => el === undefined) && (
+                                <LemonBanner type="error">
+                                    <ol>
+                                        {experimentFormErrors.name && <li>{experimentFormErrors.name}</li>}
+                                        {experimentFormErrors.variants && <li>{experimentFormErrors.variants}</li>}
+                                    </ol>
+                                </LemonBanner>
+                            )}
                     </div>
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
@@ -101,7 +102,11 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                 header: <WebExperimentVariantHeader variant={variant} />,
                                                 content:
                                                     variant == 'control' ? (
-                                                        'This is the control variant, which represents your page in its original state.'
+                                                        <span className="m-2">
+                                                            {' '}
+                                                            The control variant represents your page in its original
+                                                            state.{' '}
+                                                        </span>
                                                     ) : (
                                                         <WebExperimentVariant variant={variant} />
                                                     ),

@@ -194,7 +194,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "feature_flag",
             "exposure_cohort",
             "holdout",
-            "type",
         ]
 
     def validate_parameters(self, value):
@@ -265,6 +264,20 @@ class ExperimentSerializer(serializers.ModelSerializer):
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
+
+        # if this is a web experiment, copy over the variant data to the experiment itself.
+        if validated_data.get("type", "") == "web":
+            web_variants = {}
+            ff_variants = filters.get("multivariate", {}).get("variants")
+
+            for variant in ff_variants:
+                web_variants[variant.get("key")] = {
+                    "rollout_percentage": variant.get("rollout_percentage"),
+                }
+
+            experiment.variants = web_variants
+            experiment.save()
+
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
