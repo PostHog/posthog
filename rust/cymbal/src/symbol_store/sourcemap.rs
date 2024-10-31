@@ -2,28 +2,25 @@ use std::{sync::Arc, time::Duration};
 
 use axum::async_trait;
 use reqwest::Url;
+use sourcemap::SourceMap;
 use tracing::{info, warn};
 
 use crate::{
     config::Config,
     error::{Error, JsResolveErr},
     metric_consts::{
-        BASIC_FETCHES, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_HEADER_FOUND,
+        SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_HEADER_FOUND,
         SOURCEMAP_NOT_FOUND, SOURCE_REF_BODY_FETCHES,
     },
 };
 
-use super::{SymbolSetRef, SymbolStore};
+use super::SymbolProvider;
 
-// A store that implements basic lookups, for whatever that means for each language. In
-// JS, that means it does fetching and searches for sourcemap references. In other languages,
-// it might mean talking to S3, or something else. It implements no caching, and no storing of
-// fetched symbol sets - other stores should wrap this one to provide that functionality.
-pub struct BasicStore {
+pub struct SourcemapProvider {
     pub client: reqwest::Client,
 }
 
-impl BasicStore {
+impl SourcemapProvider {
     pub fn new(config: &Config) -> Result<Self, Error> {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
         let mut client = reqwest::Client::builder().timeout(timeout);
@@ -41,14 +38,16 @@ impl BasicStore {
 }
 
 #[async_trait]
-impl SymbolStore for BasicStore {
-    async fn fetch(&self, _: i32, r: SymbolSetRef) -> Result<Arc<Vec<u8>>, Error> {
-        metrics::counter!(BASIC_FETCHES).increment(1);
-        let SymbolSetRef::Js(sref) = r; // We only support this
-        let sourcemap_url = find_sourcemap_url(&self.client, sref.clone()).await?;
-        fetch_source_map(&self.client, sourcemap_url)
-            .await
-            .map(Arc::new)
+impl SymbolProvider for SourcemapProvider {
+    type Ref = Url;
+    type Set = SourceMap;
+    async fn fetch(&self, _: i32, r: Url) -> Result<Arc<SourceMap>, Error> {
+        let sourcemap_url = find_sourcemap_url(&self.client, r).await?;
+        let data = fetch_source_map(&self.client, sourcemap_url).await?;
+
+        Ok(Arc::new(
+            SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?,
+        ))
     }
 }
 
@@ -190,13 +189,12 @@ mod test {
         let mut config = Config::init_with_defaults().unwrap();
         // Needed because we're using mockserver, so hitting localhost
         config.allow_internal_ips = true;
-        let store = BasicStore::new(&config).unwrap();
+        let store = SourcemapProvider::new(&config).unwrap();
 
         let start_url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
 
-        let res = store.fetch(1, SymbolSetRef::Js(start_url)).await.unwrap();
+        store.fetch(1, start_url).await.unwrap();
 
-        assert_eq!(*res, MAP);
         first_mock.assert_hits(1);
         second_mock.assert_hits(1);
     }

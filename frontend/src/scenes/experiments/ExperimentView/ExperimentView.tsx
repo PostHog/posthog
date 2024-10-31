@@ -2,6 +2,8 @@ import '../Experiment.scss'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
@@ -15,6 +17,7 @@ import {
 import { DataCollection } from './DataCollection'
 import { DistributionTable } from './DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
+import { HoldoutSelector } from './HoldoutSelector'
 import { Info } from './Info'
 import { Overview } from './Overview'
 import { ReleaseConditionsTable } from './ReleaseConditionsTable'
@@ -24,6 +27,7 @@ import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 export function ExperimentView(): JSX.Element {
     const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
         useValues(experimentLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
 
@@ -47,6 +51,7 @@ export function ExperimentView(): JSX.Element {
                                 <div className="xl:flex">
                                     <div className="w-1/2 pr-2">
                                         <Goal />
+                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && <HoldoutSelector />}
                                     </div>
 
                                     <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
@@ -60,6 +65,7 @@ export function ExperimentView(): JSX.Element {
                                 <div className="xl:flex">
                                     <div className="w-1/2 pr-2">
                                         <Goal />
+                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && <HoldoutSelector />}
                                     </div>
 
                                     <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">

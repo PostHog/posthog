@@ -6,17 +6,17 @@ from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
-from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import ProductIntent, Team, User
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -28,7 +28,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
@@ -43,7 +43,11 @@ from posthog.permissions import (
     get_organization_from_view,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_ip_address, get_week_start_for_country_code
+from posthog.utils import (
+    get_instance_realm,
+    get_ip_address,
+    get_week_start_for_country_code,
+)
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -105,6 +109,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_recording_url_trigger_config",
+            "session_recording_url_blocklist_config",
             "session_replay_config",
             "survey_config",
             "recording_domains",
@@ -159,6 +164,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_recording_url_trigger_config",
+            "session_recording_url_blocklist_config",
             "session_replay_config",
             "survey_config",
             "effective_membership_level",
@@ -209,7 +215,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
     def get_product_intents(self, obj):
-        return ProductIntent.objects.filter(team=obj).values("product_type", "created_at", "onboarding_completed_at")
+        return ProductIntent.objects.filter(team=obj).values(
+            "product_type", "created_at", "onboarding_completed_at", "updated_at"
+        )
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
@@ -580,7 +588,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
-        if created and isinstance(user, User):
+        if isinstance(user, User):
             report_user_action(
                 user,
                 "user showed product intent",
@@ -590,6 +598,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "$current_url": current_url,
                     "$session_id": session_id,
                     "intent_context": request.data.get("intent_context"),
+                    "is_first_intent_for_product": created,
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )
@@ -619,6 +631,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "$current_url": current_url,
                     "$session_id": session_id,
                     "intent_context": request.data.get("intent_context"),
+                    "is_first_intent_for_product": created,
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )
@@ -633,6 +649,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
+                    "intent_context": request.data.get("intent_context"),
+                    "intent_created_at": product_intent.created_at,
+                    "intent_updated_at": product_intent.updated_at,
+                    "realm": get_instance_realm(),
                 },
                 team=team,
             )

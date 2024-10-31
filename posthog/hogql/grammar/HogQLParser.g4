@@ -51,10 +51,12 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
 // SELECT statement
-select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
+select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
-selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder;
+selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
+
+subsequentSelectSetClause: (EXCEPT | UNION ALL | INTERSECT) selectStmtWithParens;
+selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 
 selectStmt:
     with=withClause?
@@ -84,7 +86,7 @@ groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnEx
 havingClause: HAVING columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
-limitByClause: LIMIT limitExpr BY columnExprList;
+limitByClause: LIMIT columnExpr BY columnExprList;
 limitAndOffsetClause
     : LIMIT columnExpr (COMMA columnExpr)? (WITH TIES)? // compact OFFSET-optional form
     | LIMIT columnExpr (WITH TIES)? OFFSET columnExpr // verbose OFFSET-included form with WITH TIES
@@ -116,7 +118,6 @@ joinConstraintClause
     ;
 
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
-limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
 ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
@@ -203,7 +204,7 @@ columnExpr
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
-    | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
+    | LPAREN selectSetStmt RPAREN                                                         # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
@@ -233,7 +234,7 @@ hogqlxTagAttribute
 
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
-    : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
+    : identifier AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
     | columnExpr AS identifier                       # WithExprColumn
     ;
@@ -248,7 +249,7 @@ nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction
-    | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
+    | LPAREN selectSetStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
     | hogqlxTagElement                   # TableExprTag
     | placeholder                        # TableExprPlaceholder

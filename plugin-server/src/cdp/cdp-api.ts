@@ -138,7 +138,9 @@ export class CdpApi {
                                 url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
                             },
                         },
-                        compoundConfiguration
+                        compoundConfiguration,
+                        // The "email" hog functions export a "sendEmail" function that we must explicitly call
+                        hogFunction.type === 'email' ? ['sendEmail', [globals.email]] : undefined
                     )
 
                 if (invocation.queue === 'fetch') {
@@ -154,7 +156,7 @@ export class CdpApi {
                             invocation: {
                                 ...invocation,
                                 queue: 'hog',
-                                queueParameters: { response: { status: 200, body: '{}' } },
+                                queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
                             },
                             finished: false,
                             logs: [
@@ -183,7 +185,7 @@ export class CdpApi {
 
             res.json({
                 status: lastResponse.finished ? 'success' : 'error',
-                error: String(lastResponse.error),
+                error: lastResponse.error ? String(lastResponse.error) : null,
                 logs: logs,
             })
         } catch (e) {

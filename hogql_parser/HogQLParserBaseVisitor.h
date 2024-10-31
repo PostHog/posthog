@@ -103,11 +103,15 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitSelectUnionStmt(HogQLParser::SelectUnionStmtContext *ctx) override {
+  virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *ctx) override {
+  virtual std::any visitSubsequentSelectSetClause(HogQLParser::SubsequentSelectSetClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitSelectSetStmt(HogQLParser::SelectSetStmtContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -212,10 +216,6 @@ public:
   }
 
   virtual std::any visitSampleClause(HogQLParser::SampleClauseContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitLimitExpr(HogQLParser::LimitExprContext *ctx) override {
     return visitChildren(ctx);
   }
 

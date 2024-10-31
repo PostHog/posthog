@@ -1,10 +1,10 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { BindLogic, useActions } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
-import chatResponse from './__mocks__/chatResponse.json'
+import { chatResponseChunk, failureChunk, generationFailureChunk } from './__mocks__/chatResponse.mocks'
 import { MaxInstance } from './Max'
 import { maxLogic } from './maxLogic'
 
@@ -13,7 +13,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/chat/': chatResponse,
+                '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
             },
         }),
     ],
@@ -103,4 +103,44 @@ EmptyThreadLoading.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
+}
+
+export const GenerationFailureThread: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
+        },
+    })
+
+    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+
+    const { askMax, setMessageStatus } = useActions(maxLogic({ sessionId }))
+    const { thread, threadLoading } = useValues(maxLogic({ sessionId }))
+    useEffect(() => {
+        askMax('What are my most popular pages?')
+    }, [])
+    useEffect(() => {
+        if (thread.length === 2 && !threadLoading) {
+            setMessageStatus(1, 'error')
+        }
+    }, [thread.length, threadLoading])
+
+    return <Template sessionId={sessionId} />
+}
+
+export const ThreadWithFailedGeneration: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(failureChunk)),
+        },
+    })
+
+    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+
+    const { askMax } = useActions(maxLogic({ sessionId }))
+    useEffect(() => {
+        askMax('What are my most popular pages?')
+    }, [])
+
+    return <Template sessionId={sessionId} />
 }

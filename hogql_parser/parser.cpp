@@ -827,9 +827,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   // HogQL rules
 
   VISIT(Select) {
-    auto select_union_stmt_ctx = ctx->selectUnionStmt();
-    if (select_union_stmt_ctx) {
-      return visit(select_union_stmt_ctx);
+    auto select_set_stmt_ctx = ctx->selectSetStmt();
+    if (select_set_stmt_ctx) {
+      return visit(select_set_stmt_ctx);
     }
 
     auto select_stmt_ctx = ctx->selectStmt();
@@ -851,68 +851,48 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visitAsPyObject(placeholder_ctx);
     }
 
-    return visit(ctx->selectUnionStmt());
+    return visit(ctx->selectSetStmt());
   }
 
-  VISIT(SelectUnionStmt) {
-    // Using a vector of PyObjects atypically here, because this is a precursor of flattened_queries
-    vector<PyObject*> select_queries;
-    auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
-    select_queries.reserve(select_stmt_with_parens_ctxs.size());
-    for (auto select_stmt_with_parens_ctx : select_stmt_with_parens_ctxs) {
-      try {
-        select_queries.push_back(visitAsPyObject(select_stmt_with_parens_ctx));
-      } catch (...) {
-        X_Py_DECREF_ALL(select_queries);
+  VISIT(SelectSetStmt) {
+    PyObject* initial_query = visitAsPyObject(ctx->selectStmtWithParens());
+    PyObject* select_query = NULL;
+    PyObject* select_queries = PyList_New(0);
+    if (!select_queries) {
+      throw PyInternalError();
+    }
+
+    try {
+      for (auto subsequent : ctx->subsequentSelectSetClause()) {
+        char* set_operator;
+        if (subsequent->UNION() && subsequent->ALL()) {
+            set_operator = "UNION ALL";
+        } else if (subsequent->INTERSECT()) {
+            set_operator = "INTERSECT";
+        } else if (subsequent->EXCEPT()) {
+            set_operator = "EXCEPT";
+        } else {
+            throw SyntaxError("Set operator must be one of UNION ALL, INTERSECT, and EXCEPT");
+        }
+        select_query = visitAsPyObject(subsequent->selectStmtWithParens());
+        PyObject* query = build_ast_node("SelectSetNode", "{s:N,s:N}", "select_query", select_query, "set_operator", PyUnicode_FromString(set_operator));
+        if (!query) {
+          throw PyInternalError();
+        }
+        PyList_Append(select_queries, query);
+      }
+    } catch (...) {
+        Py_DECREF(select_queries);
+        Py_DECREF(initial_query);
         throw;
-      }
     }
-    PyObject* flattened_queries = PyList_New(0);
-    if (!flattened_queries) {
-      X_Py_DECREF_ALL(select_queries);
-      throw PyInternalError();
+
+    if (PyList_Size(select_queries) == 0) {
+      Py_DECREF(select_queries);
+      return initial_query;
     }
-    for (auto query : select_queries) {
-      int is_select_query = is_ast_node_instance(query, "SelectQuery");
-      if (is_select_query == -1) goto select_queries_loop_py_error;
-      if (is_ast_node_instance(query, "SelectQuery")) {
-        int append_code = PyList_Append(flattened_queries, query);
-        if (append_code == -1) goto select_queries_loop_py_error;
-      } else if (is_ast_node_instance(query, "SelectUnionQuery")) {
-        // Extend flattened_queries with sub_select_queries
-        PyObject* sub_select_queries = PyObject_GetAttrString(query, "select_queries");
-        if (!sub_select_queries) goto select_queries_loop_py_error;
-        int extend_code = X_PyList_Extend(flattened_queries, sub_select_queries);
-        if (extend_code == -1) goto select_queries_loop_py_error;
-        Py_DECREF(sub_select_queries);
-      } else if (is_ast_node_instance(query, "Placeholder")) {
-        int append_code = PyList_Append(flattened_queries, query);
-        if (append_code == -1) goto select_queries_loop_py_error;
-      } else {
-        Py_DECREF(flattened_queries);
-        X_Py_DECREF_ALL(select_queries);
-        throw ParsingError("Unexpected query node type: " + string(Py_TYPE(query)->tp_name));
-      }
-    }
-    goto select_queries_loop_success;
-  select_queries_loop_py_error:
-    X_Py_DECREF_ALL(select_queries);
-    Py_DECREF(flattened_queries);
-    throw PyInternalError();
-  select_queries_loop_success:
-    X_Py_DECREF_ALL(select_queries);
-    Py_ssize_t flattened_queries_size = PyList_Size(flattened_queries);
-    if (flattened_queries_size == -1) {
-      Py_DECREF(flattened_queries);
-      throw PyInternalError();
-    }
-    if (flattened_queries_size == 1) {
-      PyObject* query = PyList_GET_ITEM(flattened_queries, 0);
-      Py_INCREF(query);
-      Py_DECREF(flattened_queries);
-      return query;
-    }
-    RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N}", "select_queries", flattened_queries);
+
+    RETURN_NEW_AST_NODE("SelectSetQuery", "{s:N, s:N}", "initial_select_query", initial_query, "subsequent_select_queries", select_queries);
   }
 
   VISIT(SelectStmt) {
@@ -1618,7 +1598,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
   }
 
-  VISIT(ColumnExprSubquery) { return visit(ctx->selectUnionStmt()); }
+  VISIT(ColumnExprSubquery) { return visit(ctx->selectSetStmt()); }
 
   VISIT(ColumnExprArray) {
     RETURN_NEW_AST_NODE("Array", "{s:N}", "exprs", visitAsPyObjectOrEmptyList(ctx->columnExprList()));
@@ -2272,7 +2252,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(WithExprSubquery) {
     string name = visitAsString(ctx->identifier());
     RETURN_NEW_AST_NODE(
-        "CTE", "{s:s#,s:N,s:s}", "name", name.data(), name.size(), "expr", visitAsPyObject(ctx->selectUnionStmt()),
+        "CTE", "{s:s#,s:N,s:s}", "name", name.data(), name.size(), "expr", visitAsPyObject(ctx->selectSetStmt()),
         "cte_type", "subquery"
     );
   }
@@ -2318,7 +2298,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("Field", "{s:N}", "chain", X_PyList_FromStrings(chain));
   }
 
-  VISIT(TableExprSubquery) { return visit(ctx->selectUnionStmt()); }
+  VISIT(TableExprSubquery) { return visit(ctx->selectSetStmt()); }
 
   VISIT(TableExprPlaceholder) { return visitAsPyObject(ctx->placeholder()); }
 
