@@ -165,6 +165,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "prefix",
         ]
+        extra_kwargs = {
+            "job_inputs": {"write_only": True},
+        }
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
