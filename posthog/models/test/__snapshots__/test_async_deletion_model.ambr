@@ -319,7 +319,7 @@
   SELECT DISTINCT team_id,
                   $group_0
   FROM events
-  WHERE (team_id = 2
+  WHERE (team_id = 99999
          AND $group_0 = 'foo')
   '''
 # ---
@@ -329,7 +329,7 @@
   SELECT DISTINCT team_id,
                   $group_0
   FROM events
-  WHERE (team_id = 2
+  WHERE (team_id = 99999
          AND $group_0 = 'foo')
   '''
 # ---
@@ -339,7 +339,7 @@
   SELECT DISTINCT team_id,
                   person_id
   FROM events
-  WHERE (team_id = 2
+  WHERE (team_id = 99999
          AND person_id = '00000000-0000-0000-0000-000000000000')
     AND _timestamp <= '2024-01-01 00:00:00'
   '''
@@ -350,7 +350,7 @@
   SELECT DISTINCT team_id,
                   person_id
   FROM events
-  WHERE (team_id = 2
+  WHERE (team_id = 99999
          AND person_id = '00000000-0000-0000-0000-000000000000')
     AND _timestamp <= '2024-01-01 00:00:00'
   '''
@@ -360,7 +360,7 @@
   
   SELECT DISTINCT team_id
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_team_deletions_done
