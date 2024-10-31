@@ -86,6 +86,7 @@ class AssistantMessageType(StrEnum):
     AI = "ai"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
+    AI_ROUTER = "ai/router"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -1150,6 +1151,14 @@ class RetentionValue(BaseModel):
         extra="forbid",
     )
     count: int
+
+
+class RouterMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    route: str
+    type: Literal["ai/router"] = "ai/router"
 
 
 class SamplingRate(BaseModel):
@@ -5986,8 +5995,10 @@ class QueryResponseAlternative(
     ]
 
 
-class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage]]):
-    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage]
+class RootAssistantMessage(
+    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
+):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

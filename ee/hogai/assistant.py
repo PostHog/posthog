@@ -7,6 +7,7 @@ from langgraph.graph.state import StateGraph
 from pydantic import BaseModel
 
 from ee import settings
+from ee.hogai.router.nodes import RouterNode
 from ee.hogai.trends.nodes import (
     CreateTrendsPlanNode,
     CreateTrendsPlanToolsNode,
@@ -62,6 +63,9 @@ class Assistant:
 
     def _compile_graph(self):
         builder = self._graph
+
+        router_node = RouterNode()
+        builder.add_node(RouterNode.name, router_node.run)
 
         create_trends_plan_node = CreateTrendsPlanNode(self._team)
         builder.add_node(CreateTrendsPlanNode.name, create_trends_plan_node.run)

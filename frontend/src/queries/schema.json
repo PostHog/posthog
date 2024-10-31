@@ -650,7 +650,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "ai", "ai/viz", "ai/failure"],
+            "enum": ["human", "ai", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
         },
         "AutocompleteCompletionItem": {
@@ -10916,8 +10916,25 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "$ref": "#/definitions/RouterMessage"
                 }
             ]
+        },
+        "RouterMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "route": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ai/router",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "route"],
+            "type": "object"
         },
         "SamplingRate": {
             "additionalProperties": false,

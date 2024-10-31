@@ -2105,6 +2105,7 @@ export enum AssistantMessageType {
     Assistant = 'ai',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
+    Router = 'ai/router',
 }
 
 export interface HumanMessage {
@@ -2129,7 +2130,17 @@ export interface FailureMessage {
     content?: string
 }
 
-export type RootAssistantMessage = VisualizationMessage | AssistantMessage | HumanMessage | FailureMessage
+export interface RouterMessage {
+    type: AssistantMessageType.Router
+    route: string
+}
+
+export type RootAssistantMessage =
+    | VisualizationMessage
+    | AssistantMessage
+    | HumanMessage
+    | FailureMessage
+    | RouterMessage
 
 export enum AssistantEventType {
     Status = 'status',
