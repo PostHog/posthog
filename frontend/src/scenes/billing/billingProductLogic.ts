@@ -19,6 +19,7 @@ export interface BillingProductLogicProps {
     product: BillingProductV2Type | BillingProductV2AddonType
     productRef?: React.MutableRefObject<HTMLDivElement | null>
     billingLimitInputRef?: React.MutableRefObject<HTMLInputElement | null>
+    hogfettiTrigger?: () => void
 }
 
 export const billingProductLogic = kea<billingProductLogicType>([
@@ -80,6 +81,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
         cancelTrial: true,
         setTrialModalOpen: (isOpen: boolean) => ({ isOpen }),
         setTrialLoading: (loading: boolean) => ({ loading }),
+        setUnsubscribeModalStep: (step: number) => ({ step }),
+        resetUnsubscribeModalStep: true,
+        setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
+        triggerMoreHedgehogs: true,
     }),
     reducers({
         billingLimitInput: [
@@ -167,6 +172,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
             false,
             {
                 setTrialLoading: (_, { loading }) => loading,
+            },
+        ],
+        unsubscribeModalStep: [
+            1 as number,
+            {
+                setUnsubscribeModalStep: (_, { step }) => step,
+                resetUnsubscribeModalStep: () => 1,
+            },
+        ],
+        hedgehogSatisfied: [
+            false as boolean,
+            {
+                setHedgehogSatisfied: (_, { satisfied }) => satisfied,
             },
         ],
     }),
@@ -322,12 +340,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
         deactivateProductSuccess: async (_, breakpoint) => {
             if (!values.unsubscribeError && values.surveyID) {
                 actions.reportSurveySent(values.surveyID, values.surveyResponse)
+                await breakpoint(400)
+                document.getElementsByClassName('Navigation3000__scene')[0].scrollIntoView()
             }
-            await breakpoint(200)
-            location.reload()
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
-            if (scrollToProductKey && scrollToProductKey === props.product.type) {
+            // Only scroll to the product if it's an addon product. With subscribe to all products we don't need it for parent products.
+            if (scrollToProductKey && values.isAddonProduct && scrollToProductKey === props.product.type) {
                 setTimeout(() => {
                     if (props.productRef?.current) {
                         props.productRef?.current.scrollIntoView({
@@ -375,6 +394,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             } finally {
                 actions.loadBilling()
                 actions.setTrialLoading(false)
+            }
+        },
+        triggerMoreHedgehogs: async (_, breakpoint) => {
+            for (let i = 0; i < 5; i++) {
+                props.hogfettiTrigger?.()
+                await breakpoint(200)
             }
         },
     })),

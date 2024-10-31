@@ -69,7 +69,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
             kind="ExperimentFunnelsQuery",
-            source=funnels_query,
+            funnels_query=funnels_query,
         )
 
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
@@ -130,7 +130,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
             kind="ExperimentFunnelsQuery",
-            source=funnels_query,
+            funnels_query=funnels_query,
         )
 
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
@@ -213,7 +213,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
             kind="ExperimentFunnelsQuery",
-            source=funnels_query,
+            funnels_query=funnels_query,
         )
 
         query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
@@ -255,7 +255,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
             kind="ExperimentFunnelsQuery",
-            source=funnels_query,
+            funnels_query=funnels_query,
         )
 
         query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
@@ -297,7 +297,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
             kind="ExperimentFunnelsQuery",
-            source=funnels_query,
+            funnels_query=funnels_query,
         )
 
         query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
@@ -341,7 +341,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
             kind="ExperimentFunnelsQuery",
-            source=funnels_query,
+            funnels_query=funnels_query,
         )
 
         query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
