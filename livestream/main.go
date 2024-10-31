@@ -69,19 +69,24 @@ func main() {
 	subChan := make(chan Subscription)
 	unSubChan := make(chan Subscription)
 
+	tokenFinderChan := make(chan map[string]interface{})
+
 	go stats.keepStats(statsChan)
 
 	kafkaSecurityProtocol := "SSL"
 	if !isProd {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
-	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
+	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan, tokenFinderChan)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
 	go consumer.Consume()
+
+	tokenFinder := NewTokenFinder(tokenFinderChan)
+	go tokenFinder.Run()
 
 	filter := NewFilter(subChan, unSubChan, phEventChan)
 	go filter.Run()

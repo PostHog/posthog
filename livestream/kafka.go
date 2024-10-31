@@ -41,14 +41,24 @@ type KafkaConsumer interface {
 }
 
 type PostHogKafkaConsumer struct {
-	consumer     KafkaConsumerInterface
-	topic        string
-	geolocator   GeoLocator
-	outgoingChan chan PostHogEvent
-	statsChan    chan PostHogEvent
+	consumer        KafkaConsumerInterface
+	topic           string
+	geolocator      GeoLocator
+	outgoingChan    chan PostHogEvent
+	statsChan       chan PostHogEvent
+	tokenFinderChan chan map[string]interface{}
 }
 
-func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*PostHogKafkaConsumer, error) {
+func NewPostHogKafkaConsumer(
+	brokers string,
+	securityProtocol string,
+	groupID string,
+	topic string,
+	geolocator GeoLocator,
+	outgoingChan chan PostHogEvent,
+	statsChan chan PostHogEvent,
+	tokenFinderChan chan map[string]interface{},
+) (*PostHogKafkaConsumer, error) {
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  brokers,
 		"group.id":           groupID,
@@ -63,11 +73,12 @@ func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID st
 	}
 
 	return &PostHogKafkaConsumer{
-		consumer:     consumer,
-		topic:        topic,
-		geolocator:   geolocator,
-		outgoingChan: outgoingChan,
-		statsChan:    statsChan,
+		consumer:        consumer,
+		topic:           topic,
+		geolocator:      geolocator,
+		outgoingChan:    outgoingChan,
+		statsChan:       statsChan,
+		tokenFinderChan: tokenFinderChan,
 	}, nil
 }
 
@@ -84,6 +95,15 @@ func (c *PostHogKafkaConsumer) Consume() {
 			log.Printf("Error consuming message: %v", err)
 			sentry.CaptureException(err)
 		}
+
+		// This is used to find all of the 'token' keys in the json payload
+		var rawJSON map[string]interface{}
+		err = json.Unmarshal(msg.Value, &rawJSON)
+		if err != nil {
+			log.Printf("Error decoding raw JSON: %v", err)
+			log.Printf("Data: %s", string(msg.Value))
+		}
+		c.tokenFinderChan <- rawJSON
 
 		var wrapperMessage PostHogEventWrapper
 		err = json.Unmarshal(msg.Value, &wrapperMessage)
