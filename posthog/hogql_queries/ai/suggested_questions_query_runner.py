@@ -38,7 +38,8 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
                 "content": (
                     f"You are a product manager at organization {team.organization.name}, handling project {team.project.name}. "
                     f"This project was created {(timezone.now() - team.project.created_at).total_seconds() // 86400} days ago.\n"
-                    f"Here's a description of the product being analyzed:\n{team.project.product_description}\n"
+                    f"Your help must be tailored for the product you own, which is described as follows:\n"
+                    f"{team.project.product_description}\n"
                     "Your task is helping product teams understand their users. "
                 ),
             },

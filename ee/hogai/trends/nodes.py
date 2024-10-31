@@ -97,6 +97,7 @@ class CreateTrendsPlanNode(AssistantNode):
                 AgentAction,
                 agent.invoke(
                     {
+                        "product_description": self._team.project.product_description,
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
