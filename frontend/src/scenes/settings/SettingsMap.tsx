@@ -78,7 +78,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'product-description',
                 title: 'Product description',
                 description:
-                    'Describe your product in a few sentences. This context helps our AI assistant provide most relevant answers and suggestions.',
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
                 component: <ProjectProductDescription />,
                 flag: '!ENVIRONMENTS',
             },
@@ -332,7 +332,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'product-description',
                 title: 'Product description',
                 description:
-                    'Describe your product in a few sentences. This context helps our AI assistant provide most relevant answers and suggestions.',
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
                 component: <ProjectProductDescription />,
                 flag: 'ARTIFICIAL_HOG',
             },
