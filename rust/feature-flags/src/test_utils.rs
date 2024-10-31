@@ -410,3 +410,48 @@ pub async fn insert_cohort_for_team_in_pg(
 
     Ok(Cohort { id, ..cohort })
 }
+
+pub async fn get_person_id_by_distinct_id(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    distinct_id: &str,
+) -> Result<i32, Error> {
+    let mut conn = client.get_connection().await?;
+    let row: (i32,) = sqlx::query_as(
+        r#"SELECT id FROM posthog_person
+           WHERE team_id = $1 AND id = (
+               SELECT person_id FROM posthog_persondistinctid
+               WHERE team_id = $1 AND distinct_id = $2
+               LIMIT 1
+           )
+           LIMIT 1"#,
+    )
+    .bind(team_id)
+    .bind(distinct_id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|_| anyhow::anyhow!("Person not found"))?;
+
+    Ok(row.0)
+}
+
+pub async fn add_person_to_cohort(
+    client: Arc<dyn Client + Send + Sync>,
+    person_id: i32,
+    cohort_id: i32,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    let res = sqlx::query(
+        r#"INSERT INTO posthog_cohortpeople (cohort_id, person_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(cohort_id)
+    .bind(person_id)
+    .execute(&mut *conn)
+    .await?;
+
+    assert!(res.rows_affected() > 0, "Failed to add person to cohort");
+
+    Ok(())
+}

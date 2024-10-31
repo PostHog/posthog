@@ -15,7 +15,7 @@ use petgraph::algo::{is_cyclic_directed, toposort};
 use petgraph::graph::DiGraph;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{postgres::PgQueryResult, Acquire, FromRow};
+use sqlx::{postgres::PgQueryResult, Acquire, FromRow, Row};
 use std::fmt::Write;
 use std::sync::Arc;
 use std::{
@@ -215,9 +215,18 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Evaluate feature flags for a given distinct_id
-    /// - Returns a map of feature flag keys to their values
-    /// - If an error occurs while evaluating a flag, it will be logged and the flag will be omitted from the result
+    /// Evaluates all feature flags for the current matcher context.
+    ///
+    /// ## Arguments
+    ///
+    /// * `feature_flags` - The list of feature flags to evaluate.
+    /// * `person_property_overrides` - Any overrides for person properties.
+    /// * `group_property_overrides` - Any overrides for group properties.
+    /// * `hash_key_override` - Optional hash key overrides for experience continuity.
+    ///
+    /// ## Returns
+    ///
+    /// * `FlagsResponse` - The result containing flag evaluations and any errors.
     pub async fn evaluate_all_feature_flags(
         &mut self,
         feature_flags: FeatureFlagList,
@@ -850,9 +859,11 @@ impl FeatureFlagMatcher {
                 .ok_or(FlagError::CohortFiltersParsingError)?;
             let match_result = evaluate_cohort_dependencies(
                 self.team_id,
+                self.distinct_id.clone(),
                 cohort_id,
                 target_properties,
                 &cohort_cache,
+                self.postgres_reader.clone(),
             )
             .await?;
             cohort_matches.insert(cohort_id, match_result);
@@ -1105,15 +1116,69 @@ impl FeatureFlagMatcher {
     }
 }
 
+/// This function checks if a person is in a static cohort by querying the `posthog_cohortpeople` table.
+async fn evaluate_static_cohort_filter(
+    postgres_reader: PostgresReader,
+    team_id: TeamId,
+    distinct_id: String,
+    cohort_id: CohortId,
+) -> Result<bool, FlagError> {
+    let mut conn = postgres_reader.get_connection().await?;
+
+    let query = r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM posthog_cohortpeople
+                WHERE cohort_id = $1 AND person_id = (
+                    SELECT id
+                    FROM posthog_person
+                    WHERE team_id = $2 AND id = (
+                        SELECT person_id
+                        FROM posthog_persondistinctid
+                        WHERE team_id = $2 AND distinct_id = $3
+                        LIMIT 1
+                    )
+                    LIMIT 1
+                )
+            ) AS is_in_cohort
+        "#;
+
+    let row = sqlx::query(query)
+        .bind(cohort_id)
+        .bind(team_id)
+        .bind(&distinct_id)
+        .fetch_one(&mut *conn)
+        .await?;
+
+    let is_in_cohort: bool = row.get("is_in_cohort");
+    Ok(is_in_cohort)
+}
+
 /// Evaluates a single cohort and its dependencies.
 /// This uses a topological sort to evaluate dependencies first, which is necessary
 /// because a cohort can depend on another cohort, and we need to respect the dependency order.
 async fn evaluate_cohort_dependencies(
-    team_id: i32,
+    team_id: TeamId,
+    distinct_id: String,
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
     cohort_cache: &CohortCache,
+    postgres_reader: PostgresReader,
 ) -> Result<bool, FlagError> {
+    let cohort = cohort_cache
+        .get_cohort_by_id(team_id, initial_cohort_id)
+        .await?;
+
+    if cohort.is_static {
+        return evaluate_static_cohort_filter(
+            postgres_reader,
+            team_id,
+            distinct_id,
+            initial_cohort_id,
+        )
+        .await;
+    }
+
     let cohort_dependency_graph =
         build_cohort_dependency_graph(team_id, initial_cohort_id, cohort_cache).await?;
 
@@ -1224,6 +1289,15 @@ async fn build_cohort_dependency_graph(
     let mut graph = DiGraph::new();
     let mut node_map = HashMap::new();
     let mut queue = VecDeque::new();
+
+    // If the initial cohort is static, we don't need to build a dependency graph
+    let initial_cohort = cohort_cache
+        .get_cohort_by_id(team_id, initial_cohort_id)
+        .await?;
+    if initial_cohort.is_static {
+        return Ok(graph);
+    }
+
     // This implements a breadth-first search (BFS) traversal to build a directed graph of cohort dependencies.
     // Starting from the initial cohort, we:
     // 1. Add each cohort as a node in the graph
@@ -1663,8 +1737,9 @@ mod tests {
             OperatorType,
         },
         test_utils::{
-            insert_cohort_for_team_in_pg, insert_flag_for_team_in_pg, insert_new_team_in_pg,
-            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            add_person_to_cohort, get_person_id_by_distinct_id, insert_cohort_for_team_in_pg,
+            insert_flag_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
+            setup_pg_reader_client, setup_pg_writer_client,
         },
     };
 
@@ -3823,6 +3898,340 @@ mod tests {
 
         // The user does not match the cohort, and the flag is set to In, so it should evaluate to false
         assert!(!result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_static_cohort_matching_user_in_cohort() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a static cohort
+        let cohort = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            Some("Static Cohort".to_string()),
+            json!({}), // Static cohorts don't have property filters
+            true,      // is_static = true
+        )
+        .await
+        .unwrap();
+
+        // Insert a person
+        let distinct_id = "static_user".to_string();
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "static@user.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Retrieve the person's ID
+        let person_id =
+            get_person_id_by_distinct_id(postgres_reader.clone(), team.id, &distinct_id)
+                .await
+                .unwrap();
+
+        // Associate the person with the static cohort
+        add_person_to_cohort(postgres_reader.clone(), person_id, cohort.id)
+            .await
+            .unwrap();
+
+        // Define a flag with an 'In' cohort filter
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort.id),
+                        operator: Some(OperatorType::In),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+
+        assert!(
+            result.matches,
+            "User should match the static cohort and flag"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_static_cohort_matching_user_not_in_cohort() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a static cohort
+        let cohort = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            Some("Another Static Cohort".to_string()),
+            json!({}), // Static cohorts don't have property filters
+            true,      // is_static = true
+        )
+        .await
+        .unwrap();
+
+        // Insert a person
+        let distinct_id = "non_static_user".to_string();
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "nonstatic@user.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Note: Do NOT associate the person with the static cohort
+
+        // Define a flag with an 'In' cohort filter
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort.id),
+                        operator: Some(OperatorType::In),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+
+        assert!(
+            !result.matches,
+            "User should not match the static cohort and flag"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_static_cohort_not_in_matching_user_not_in_cohort() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a static cohort
+        let cohort = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            Some("Static Cohort NotIn".to_string()),
+            json!({}), // Static cohorts don't have property filters
+            true,      // is_static = true
+        )
+        .await
+        .unwrap();
+
+        // Insert a person
+        let distinct_id = "not_in_static_user".to_string();
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "notinstatic@user.com"})),
+        )
+        .await
+        .unwrap();
+
+        // No association with the static cohort
+
+        // Define a flag with a 'NotIn' cohort filter
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort.id),
+                        operator: Some(OperatorType::NotIn),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+
+        assert!(
+            result.matches,
+            "User not in the static cohort should match the 'NotIn' flag"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_static_cohort_not_in_matching_user_in_cohort() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a static cohort
+        let cohort = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            Some("Static Cohort NotIn User In".to_string()),
+            json!({}), // Static cohorts don't have property filters
+            true,      // is_static = true
+        )
+        .await
+        .unwrap();
+
+        // Insert a person
+        let distinct_id = "in_not_in_static_user".to_string();
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "innotinstatic@user.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Retrieve the person's ID
+        let person_id =
+            get_person_id_by_distinct_id(postgres_reader.clone(), team.id, &distinct_id)
+                .await
+                .unwrap();
+
+        // Associate the person with the static cohort
+        add_person_to_cohort(postgres_reader.clone(), person_id, cohort.id)
+            .await
+            .unwrap();
+
+        // Define a flag with a 'NotIn' cohort filter
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort.id),
+                        operator: Some(OperatorType::NotIn),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+
+        assert!(
+            !result.matches,
+            "User in the static cohort should not match the 'NotIn' flag"
+        );
     }
 
     #[tokio::test]
