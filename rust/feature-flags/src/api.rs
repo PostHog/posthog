@@ -108,8 +108,6 @@ pub enum FlagError {
     CohortFiltersParsingError,
     #[error("Cohort dependency cycle")]
     CohortDependencyCycle(String),
-    #[error("Cohort dependency error")]
-    CohortDependencyError(String),
 }
 
 impl IntoResponse for FlagError {
@@ -212,10 +210,6 @@ impl IntoResponse for FlagError {
             }
             FlagError::CohortDependencyCycle(msg) => {
                 tracing::error!("Cohort dependency cycle: {}", msg);
-                (StatusCode::BAD_REQUEST, msg)
-            }
-            FlagError::CohortDependencyError(msg) => {
-                tracing::error!("Cohort dependency error: {}", msg);
                 (StatusCode::BAD_REQUEST, msg)
             }
         }

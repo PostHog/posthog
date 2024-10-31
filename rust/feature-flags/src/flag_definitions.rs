@@ -41,6 +41,7 @@ pub struct PropertyFilter {
     pub value: serde_json::Value,
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
+    // TODO: worth making a enum here to differentiate between cohort and person filters?
     pub prop_type: String,
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,

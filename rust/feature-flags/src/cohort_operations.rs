@@ -39,6 +39,7 @@ impl Cohort {
         })
     }
 
+    /// Returns all cohorts for a given team
     #[instrument(skip_all)]
     pub async fn list_from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
@@ -72,8 +73,6 @@ impl Cohort {
                 tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
                 FlagError::CohortFiltersParsingError
             })?;
-
-        // Filter out cohort filters
         Ok(cohort_property
             .properties
             .to_property_filters()
@@ -96,13 +95,41 @@ impl Cohort {
     }
 
     /// Recursively traverses the filter tree to find cohort dependencies
+    ///
+    /// Example filter tree structure:
+    /// ```json
+    /// {
+    ///   "properties": {
+    ///     "type": "OR",
+    ///     "values": [
+    ///       {
+    ///         "type": "OR",
+    ///         "values": [
+    ///           {
+    ///             "key": "id",
+    ///             "value": 123,
+    ///             "type": "cohort",
+    ///             "operator": "exact"
+    ///           },
+    ///           {
+    ///             "key": "email",
+    ///             "value": "@posthog.com",
+    ///             "type": "person",
+    ///             "operator": "icontains"
+    ///           }
+    ///         ]
+    ///       }
+    ///     ]
+    ///   }
+    /// }
+    /// ```
     fn traverse_filters(
         inner: &InnerCohortProperty,
         dependencies: &mut HashSet<CohortId>,
     ) -> Result<(), FlagError> {
         for cohort_values in &inner.values {
             for filter in &cohort_values.values {
-                if filter.prop_type == "cohort" && filter.key == "id" {
+                if filter.is_cohort() {
                     // Assuming the value is a single integer CohortId
                     if let Some(cohort_id) = filter.value.as_i64() {
                         dependencies.insert(cohort_id as CohortId);
@@ -110,7 +137,7 @@ impl Cohort {
                         return Err(FlagError::CohortFiltersParsingError);
                     }
                 }
-                // Handle nested properties if necessary
+                // NB: we don't support nested cohort properties, so we don't need to traverse further
             }
         }
         Ok(())
@@ -165,6 +192,46 @@ mod tests {
         assert_eq!(fetched_cohort.id, cohort.id);
         assert_eq!(fetched_cohort.name, "Test Cohort");
         assert_eq!(fetched_cohort.team_id, team.id);
+    }
+
+    #[tokio::test]
+    async fn test_list_from_pg() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Insert multiple cohorts for the team
+        insert_cohort_for_team_in_pg(
+            postgres_writer.clone(),
+            team.id,
+            Some("Cohort 1".to_string()),
+            json!({"properties": {"type": "AND", "values": [{"type": "property", "values": [{"key": "age", "type": "person", "value": [30], "negation": false, "operator": "gt"}]}]}}),
+            false,
+        )
+        .await
+        .expect("Failed to insert cohort1");
+
+        insert_cohort_for_team_in_pg(
+            postgres_writer.clone(),
+            team.id,
+            Some("Cohort 2".to_string()),
+            json!({"properties": {"type": "OR", "values": [{"type": "property", "values": [{"key": "country", "type": "person", "value": ["USA"], "negation": false, "operator": "exact"}]}]}}),
+            false,
+        )
+        .await
+        .expect("Failed to insert cohort2");
+
+        let cohorts = Cohort::list_from_pg(postgres_reader, team.id)
+            .await
+            .expect("Failed to list cohorts");
+
+        assert_eq!(cohorts.len(), 2);
+        let names: HashSet<String> = cohorts.into_iter().map(|c| c.name).collect();
+        assert!(names.contains("Cohort 1"));
+        assert!(names.contains("Cohort 2"));
     }
 
     #[test]
@@ -227,5 +294,49 @@ mod tests {
         assert_eq!(result[0].value, json!("test@example.com"));
         assert_eq!(result[1].key, "age");
         assert_eq!(result[1].value, json!(25));
+    }
+
+    #[tokio::test]
+    async fn test_extract_dependencies() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Insert a single cohort that is dependent on another cohort
+        let dependent_cohort = insert_cohort_for_team_in_pg(
+            postgres_writer.clone(),
+            team.id,
+            Some("Dependent Cohort".to_string()),
+            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$browser", "type": "person", "value": ["Safari"], "negation": false, "operator": "exact"}]}]}}),
+            false,
+        )
+        .await
+        .expect("Failed to insert dependent_cohort");
+
+        // Insert main cohort with a single dependency
+        let main_cohort = insert_cohort_for_team_in_pg(
+                postgres_writer.clone(),
+                team.id,
+                Some("Main Cohort".to_string()),
+                json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "id", "type": "cohort", "value": dependent_cohort.id, "negation": false}]}]}}),
+                false,
+            )
+            .await
+            .expect("Failed to insert main_cohort");
+
+        let fetched_main_cohort = Cohort::from_pg(postgres_reader.clone(), main_cohort.id, team.id)
+            .await
+            .expect("Failed to fetch main cohort");
+
+        println!("fetched_main_cohort: {:?}", fetched_main_cohort);
+
+        let dependencies = fetched_main_cohort.extract_dependencies().unwrap();
+        let expected_dependencies: HashSet<CohortId> =
+            [dependent_cohort.id].iter().cloned().collect();
+
+        assert_eq!(dependencies, expected_dependencies);
     }
 }
