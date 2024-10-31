@@ -11,33 +11,6 @@ export const eventPropertyFilteringLogic = kea<eventPropertyFilteringLogicType>(
         values: [userPreferencesLogic, ['hidePostHogPropertiesInTable'], preflightLogic, ['isCloudOrDev']],
     }),
     selectors({
-        promoteProperties: [
-            () => [],
-            () => {
-                return (event: string): string[] | undefined => {
-                    if (['$pageview', '$pageleave'].includes(event)) {
-                        return ['$current_url', '$title', '$referrer']
-                    } else if (event === '$groupidentify') {
-                        return ['$group_type', '$group_key', '$group_set']
-                    } else if (event === '$screen') {
-                        return ['$screen_name']
-                    } else if (event === '$web_vitals') {
-                        return [
-                            '$web_vitals_FCP_value',
-                            '$web_vitals_CLS_value',
-                            '$web_vitals_INP_value',
-                            '$web_vitals_LCP_value',
-                            '$web_vitals_FCP_event',
-                            '$web_vitals_CLS_event',
-                            '$web_vitals_INP_event',
-                            '$web_vitals_LCP_event',
-                        ]
-                    } else if (event === '$set') {
-                        return ['$set', '$set_once']
-                    }
-                }
-            },
-        ],
         filterProperties: [
             (s) => [s.hidePostHogPropertiesInTable, s.isCloudOrDev],
             (hidePostHogPropertiesInTable, isCloudOrDev) => {

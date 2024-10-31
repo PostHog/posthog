@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
@@ -256,7 +257,10 @@ class DataImportPipeline:
 
     async def run(self) -> dict[str, int]:
         try:
-            return await asyncio.to_thread(self._run)
+            # Use a dedicated thread pool to not interfere with the heartbeater thread
+            with ThreadPoolExecutor(max_workers=5) as pipeline_executor:
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(pipeline_executor, self._run)
         except PipelineStepFailed as e:
             self.logger.exception(f"Data import failed for endpoint with exception {e}", exc_info=e)
             raise

@@ -597,7 +597,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().destroy(request, *args, **kwargs)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
         earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("start_date"))[
             "start_date__min"

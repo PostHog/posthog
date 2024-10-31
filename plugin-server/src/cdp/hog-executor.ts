@@ -9,6 +9,7 @@ import { Hub, ValueMatcher } from '../types'
 import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
+    CyclotronFetchFailureInfo,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
@@ -16,7 +17,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
-import { convertToHogFunctionFilterGlobal } from './utils'
+import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal } from './utils'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -217,23 +218,38 @@ export class HogExecutor {
                 const {
                     logs = [],
                     response = null,
+                    trace = [],
                     error,
                     timings = [],
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
+
+                let body = invocation.queueParameters.body
                 // Reset the queue parameters to be sure
                 invocation.queue = 'hog'
                 invocation.queueParameters = undefined
 
-                const status = typeof response?.status === 'number' ? response.status : 503
+                // If we got a response from fetch, we know the response code was in the <300 range,
+                // but if we didn't (indicating a bug in the fetch worker), we use a default of 503
+                let status = response?.status ?? 503
 
-                // Special handling for fetch
-                if (status >= 400) {
-                    // Generic warn log for bad status codes
+                // If we got a trace, then the last "result" is the final attempt, and we should try to grab a status from it
+                // or any preceding attempts, and produce a log message for each of them
+                if (trace.length > 0) {
                     logs.push({
-                        level: 'warn',
+                        level: 'error',
                         timestamp: DateTime.now(),
-                        message: `Fetch returned bad status: ${status}`,
+                        message: `Fetch failed after ${trace.length} attempts`,
                     })
+                    for (const attempt of trace) {
+                        logs.push({
+                            level: 'warn',
+                            timestamp: DateTime.now(),
+                            message: fetchFailureToLogMessage(attempt),
+                        })
+                        if (attempt.status) {
+                            status = attempt.status
+                        }
+                    }
                 }
 
                 if (!invocation.vmState) {
@@ -244,9 +260,9 @@ export class HogExecutor {
                     throw new Error(error)
                 }
 
-                if (typeof response?.body === 'string') {
+                if (typeof body === 'string') {
                     try {
-                        response.body = JSON.parse(response.body)
+                        body = JSON.parse(body)
                     } catch (e) {
                         // pass - if it isn't json we just pass it on
                     }
@@ -255,7 +271,7 @@ export class HogExecutor {
                 // Finally we create the response object as the VM expects
                 invocation.vmState!.stack.push({
                     status,
-                    body: response?.body,
+                    body: body,
                 })
                 invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
@@ -278,15 +294,58 @@ export class HogExecutor {
             }
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
+            const invocationInput =
+                invocation.vmState ??
+                (invocation.functionToExecute
+                    ? buildExportedFunctionInvoker(
+                          invocation.hogFunction.bytecode,
+                          globals,
+                          invocation.functionToExecute[0], // name
+                          invocation.functionToExecute[1] // args
+                      )
+                    : invocation.hogFunction.bytecode)
 
             try {
                 let hogLogs = 0
-                execRes = execHog(invocation.vmState ?? invocation.hogFunction.bytecode, {
-                    globals,
+                execRes = execHog(invocationInput, {
+                    globals: invocation.functionToExecute ? undefined : globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
+                    },
+                    importBytecode: (module) => {
+                        // TODO: more than one hardcoded module
+                        if (module === 'provider/email') {
+                            const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
+                            if (!provider) {
+                                throw new Error('No email provider configured')
+                            }
+                            try {
+                                const providerGlobals = this.buildHogFunctionGlobals({
+                                    id: '',
+                                    teamId: invocation.teamId,
+                                    hogFunction: provider,
+                                    globals: {} as any,
+                                    queue: 'hog',
+                                    timings: [],
+                                    priority: 0,
+                                } satisfies HogFunctionInvocation)
+
+                                return {
+                                    bytecode: provider.bytecode,
+                                    globals: providerGlobals,
+                                }
+                            } catch (e) {
+                                result.logs.push({
+                                    level: 'error',
+                                    timestamp: DateTime.now(),
+                                    message: `Error building inputs: ${e}`,
+                                })
+                                throw e
+                            }
+                        }
+                        throw new Error(`Can't import unknown module: ${module}`)
                     },
                     functions: {
                         print: (...args) => {
@@ -453,7 +512,7 @@ export class HogExecutor {
             result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event.url}'`,
+                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event?.url}'`,
                 err
             )
         }
@@ -512,4 +571,8 @@ export class HogExecutor {
 
         return values
     }
+}
+
+function fetchFailureToLogMessage(failure: CyclotronFetchFailureInfo): string {
+    return `Fetch failure of kind ${failure.kind} with status ${failure.status} and message ${failure.message}`
 }
