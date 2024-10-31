@@ -72,8 +72,8 @@ export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the 
 
 export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     type: PropertyFilterType.Recording,
-    key: 'duration',
-    value: 1,
+    key: 'active_seconds',
+    value: 5,
     operator: PropertyOperator.GreaterThan,
 }
 
@@ -199,7 +199,7 @@ export function convertLegacyFiltersToUniversalFilters(
                 ? DEFAULT_RECORDING_FILTERS['filter_test_accounts']
                 : filters.filter_test_accounts,
         duration: filters.session_recording_duration
-            ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'duration' }]
+            ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'active_seconds' }]
             : DEFAULT_RECORDING_FILTERS['duration'],
         filter_group: {
             type: FilterLogicalOperator.And,
