@@ -54,7 +54,7 @@ from posthog.utils import (
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
-        fields = ["id", "organization_id", "name", "created_at"]
+        fields = ["id", "organization_id", "name", "product_description", "created_at"]
         read_only_fields = ["id", "organization_id", "created_at"]
 
 
@@ -70,6 +70,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "id",
             "organization",
             "name",
+            "product_description",
             "created_at",
             "effective_membership_level",  # Compat with TeamSerializer
             "has_group_types",  # Compat with TeamSerializer

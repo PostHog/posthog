@@ -50,7 +50,7 @@ import { OrganizationLogo } from './organization/OrgLogo'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
-import { ProjectDisplayName } from './project/ProjectSettings'
+import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
@@ -312,6 +312,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <ProjectDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide most relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: 'ARTIFICIAL_HOG',
             },
         ],
     },

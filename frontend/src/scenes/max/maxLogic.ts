@@ -1,18 +1,20 @@
 import { captureException } from '@sentry/react'
 import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { projectLogic } from 'scenes/projectLogic'
 
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
-    AssistantMessageType,
     FailureMessage,
+    AssistantMessageType,
     NodeKind,
+    RefreshType,
     RootAssistantMessage,
     SuggestedQuestionsQuery,
 } from '~/queries/schema'
@@ -38,6 +40,9 @@ export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
     key(({ sessionId }) => sessionId),
+    connect({
+        values: [projectLogic, ['currentProject']],
+    }),
     actions({
         askMax: (prompt: string) => ({ prompt }),
         setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
@@ -83,12 +88,6 @@ export const maxLogic = kea<maxLogicType>([
                 setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
             },
         ],
-        wasSuggestionLoadingInitiated: [
-            false,
-            {
-                loadSuggestions: () => true,
-            },
-        ],
         visibleSuggestions: [
             null as string[] | null,
             {
@@ -100,12 +99,12 @@ export const maxLogic = kea<maxLogicType>([
         allSuggestions: [
             null as string[] | null,
             {
-                loadSuggestions: async () => {
+                loadSuggestions: async ({ refresh }: { refresh: RefreshType }) => {
                     const response = await api.query<SuggestedQuestionsQuery>(
                         { kind: NodeKind.SuggestedQuestionsQuery },
                         undefined,
                         undefined,
-                        'async_except_on_cache_miss'
+                        refresh
                     )
                     return response.questions
                 },
@@ -113,6 +112,14 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
+            if (payload?.product_description) {
+                // Load suggestions anew after product description is changed on the project
+                // Most important when description is set for the first time, but also when updated,
+                // which is why we always want to load fresh suggestions here
+                actions.loadSuggestions({ refresh: 'blocking' })
+            }
+        },
         loadSuggestionsSuccess: () => {
             actions.shuffleVisibleSuggestions()
         },
@@ -225,6 +232,13 @@ export const maxLogic = kea<maxLogicType>([
     })),
     selectors({
         sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
+    }),
+    afterMount(({ actions, values }) => {
+        // We only load suggestions on mount if the product description is already set
+        if (values.currentProject?.product_description) {
+            // In this case we're fine with even really old cached values
+            actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
+        }
     }),
 ])
 
