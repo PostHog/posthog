@@ -99,6 +99,7 @@ if (res.status == 200) {
 template_event: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-hubspot-event",
+    type="destination",
     name="Hubspot",
     description="Send events to Hubspot.",
     icon_url="/static/services/hubspot.png",
@@ -170,7 +171,7 @@ fun getPropValueTypeDefinition(name, propValue) {
         return {
             'name': name,
             'label': name,
-            'type': 'number',
+            'type': 'enumeration',
             'description': f'{name} - (created by PostHog)',
             'options': [
                 {
@@ -226,12 +227,35 @@ if (eventSchema.status >= 400) {
     }
 } else {
     fullyQualifiedName := eventSchema.body.fullyQualifiedName
+    let missingProperties := []
+    let wrongTypeProperties := []
     for (let key, value in properties) {
-        if (not arrayExists(property -> property.name == key and property.type == getPropValueType(value), eventSchema.body.properties)) {
-            print('at least one property is missing or has an incorrect type')
-            // TODO: update event properties
-            return
+        if (not arrayExists(property -> property.name == key, eventSchema.body.properties)) {
+            missingProperties := arrayPushBack(missingProperties, { 'key': key, 'value': value })
+        } else if (not arrayExists(property -> property.name == key and property.type == getPropValueType(value), eventSchema.body.properties)) {
+            missingProperties := arrayPushBack(wrongTypeProperties, { 'key': key, 'value': value })
         }
+    }
+
+    if (not empty(missingProperties)) {
+        for (let i, obj in missingProperties) {
+            let res := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{event.event}/property', {
+                'method': 'POST',
+                'headers': {
+                    'Authorization': f'Bearer {inputs.oauth.access_token}',
+                    'Content-Type': 'application/json'
+                },
+                'body': getPropValueTypeDefinition(obj.key, obj.value)
+            })
+
+            if (res.status >= 400) {
+                throw Error(f'Error from api.hubapi.com api: {res.status}: {res.body}');
+            }
+        }
+    }
+
+    if (not empty(wrongTypeProperties)) {
+        throw Error('Property type mismatch for the following properties: {wrongTypeProperties}. Not sending event.')
     }
 }
 
