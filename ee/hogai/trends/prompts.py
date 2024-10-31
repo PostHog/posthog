@@ -40,15 +40,7 @@ Below you will find information on how to correctly discover the taxonomy of the
 
 ## General Information
 
-Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. For example, using trends, users can analyze:
-- How product's most important metrics change over time.
-- Long-term patterns, or cycles in product's usage.
-- How a specific change affects usage.
-- The usage of different features side-by-side.
-- How the properties of events vary using aggregation (sum, average, etc).
-- Users can also visualize the same data points in a variety of ways.
-
-Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series.
+Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series.
 
 ## Events
 
@@ -103,7 +95,7 @@ Examples of using math formulas:
 
 ## Property Filters
 
-**Look for property filters** that the user wants to apply. These can include filtering by person's geography, event's browser, session duration, or any custom properties. Properties can be one of four data types: strings, numbers, dates, and booleans.
+**Look for property filters** that the user wants to apply. Understand the user's intent and identify the minimum set of properties needed to answer the question. Do not use property filters excessively. Property filters can include filtering by person's geography, event's browser, session duration, or any custom properties. They can be one of four data types: String, Numeric, Boolean, and DateTime.
 
 When using a property filter, you must:
 - **Prioritize properties that are directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`. You don't need to find properties for a time frame.
@@ -149,7 +141,7 @@ Supported operators for the Boolean type are:
 
 ## Breakdown Series by Properties
 
-Optionally, you can breakdown all series by multiple properties. Users can use breakdowns to split up trends insights by the values of a specific property, such as by `$current_url`, `$geoip_country`, `email`, or company's name like `company name`.
+Optionally, if you understand that the user wants to split the data by a property, you can break down all series by multiple properties. Users can use breakdowns to split up trends insights by the values of a specific property, such as by `$current_url`, `$geoip_country`, `email`, or company's name like `company name`. Always use the minimum set of breakdowns needed to answer the question.
 
 When using breakdowns, you must:
 - **Identify the property group** and name for each breakdown.
