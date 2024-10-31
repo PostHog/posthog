@@ -72,17 +72,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -150,17 +150,17 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
@@ -253,17 +253,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -328,17 +328,17 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
@@ -429,17 +429,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -504,17 +504,17 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
@@ -605,17 +605,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -680,17 +680,17 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
@@ -781,17 +781,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -856,17 +856,17 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
@@ -957,17 +957,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -1035,11 +1035,11 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
@@ -1048,11 +1048,11 @@
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -1146,17 +1146,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -1221,11 +1221,11 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
@@ -1234,11 +1234,11 @@
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -1330,17 +1330,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -1405,11 +1405,11 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
@@ -1418,11 +1418,11 @@
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -1514,17 +1514,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -1589,11 +1589,11 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
@@ -1602,11 +1602,11 @@
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -1698,17 +1698,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -1773,11 +1773,11 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
@@ -1786,11 +1786,11 @@
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
                     FROM groups
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -1882,17 +1882,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['step one', 'step three', 'step two']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['step one', 'step three', 'step two']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
@@ -1960,17 +1960,17 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND distinct_id IN
                         (SELECT distinct_id
                          FROM events
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
