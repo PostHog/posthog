@@ -37,7 +37,7 @@
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -65,7 +65,7 @@
                         if(event = 'user signed up', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -113,7 +113,7 @@
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -142,7 +142,7 @@
                         if(event = 'user signed up', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND event IN ['paid', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')

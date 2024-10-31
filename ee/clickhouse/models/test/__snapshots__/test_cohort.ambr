@@ -4,18 +4,18 @@
   /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          0 AS version
   FROM
     (SELECT id
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND id IN
          (SELECT id
           FROM person
-          WHERE team_id = 2
+          WHERE team_id = 99999
             AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))))
                   AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(properties, '$another_prop'), '^"|"$', '')))))) )
      GROUP BY id
@@ -29,8 +29,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 0
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
@@ -41,18 +41,18 @@
   /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          0 AS version
   FROM
     (SELECT id
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND id IN
          (SELECT id
           FROM person
-          WHERE team_id = 2
+          WHERE team_id = 99999
             AND ((has(['something1'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
@@ -64,8 +64,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 0
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
@@ -76,8 +76,8 @@
   /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          0 AS version
   FROM
@@ -93,10 +93,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event IN ['$pageview']
           AND timestamp <= now()
           AND timestamp >= now() - INTERVAL 2 year
@@ -107,11 +107,11 @@
         FROM
           (SELECT id
            FROM person
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND id IN
                (SELECT id
                 FROM person
-                WHERE team_id = 2
+                WHERE team_id = 99999
                   AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))))))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
@@ -126,8 +126,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 0
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
@@ -138,14 +138,14 @@
   SELECT uuid,
          distinct_id
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND (distinct_id IN
            (SELECT distinct_id
             FROM
               (SELECT distinct_id,
                       argMax(person_id, version) as person_id
                FROM person_distinct_id2
-               WHERE team_id = 2
+               WHERE team_id = 99999
                GROUP BY distinct_id
                HAVING argMax(is_deleted, version) = 0)
             WHERE person_id IN
@@ -161,10 +161,10 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['$pageview']
                       AND timestamp <= now()
                       AND timestamp >= now() - INTERVAL 2 year
@@ -175,11 +175,11 @@
                     FROM
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))))))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
@@ -194,8 +194,8 @@
   /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          0 AS version
   FROM
@@ -209,10 +209,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event IN ['signup']
         GROUP BY person_id) behavior_query
      WHERE 1 = 1
@@ -225,8 +225,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 0
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
@@ -237,8 +237,8 @@
   /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          0 AS version
   FROM
@@ -256,10 +256,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event IN ['$pageview', 'signup']
         GROUP BY person_id) behavior_query
      WHERE 1 = 1
@@ -273,8 +273,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 0
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
