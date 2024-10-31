@@ -90,6 +90,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_columns: null,
     person_on_events_querying_enabled: true,
     live_events_token: '123',
+    capture_dead_clicks: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

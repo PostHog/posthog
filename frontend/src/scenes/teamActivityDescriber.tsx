@@ -69,6 +69,11 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    capture_dead_clicks(change: ActivityChange | undefined): ChangeMapping | null {
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} dead clicks autocapture</>],
+        }
+    },
     recording_domains(change: ActivityChange | undefined): ChangeMapping | null {
         const before: string[] | null = Array.isArray(change?.before) ? change!.before : null
         const after: string[] | null = Array.isArray(change?.after) ? change!.after : null
