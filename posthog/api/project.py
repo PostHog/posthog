@@ -202,7 +202,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     def get_product_intents(self, obj):
         project = obj
         team = project.passthrough_team
-        calculate_product_activation.delay(team, only_calc_if_days_since_last_checked=1)
+        calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
         return ProductIntent.objects.filter(team=team).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
@@ -579,7 +579,8 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
         if not created:
-            product_intent.check_and_update_activation()
+            if not product_intent.activated_at:
+                product_intent.check_and_update_activation()
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
