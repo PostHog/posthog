@@ -207,7 +207,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            from posthog.temporal.data_imports.pipelines.sql_database import snowflake_source
+            if is_posthog_team(inputs.team_id):
+                from posthog.temporal.data_imports.pipelines.sql_database_v2 import snowflake_source
+            else:
+                from posthog.temporal.data_imports.pipelines.sql_database import snowflake_source
 
             account_id = model.pipeline.job_inputs.get("account_id")
             user = model.pipeline.job_inputs.get("user")
