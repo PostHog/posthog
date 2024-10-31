@@ -40,15 +40,18 @@ impl SourcemapProvider {
 #[async_trait]
 impl Fetcher for SourcemapProvider {
     type Ref = Url;
+    type Fetched = Vec<u8>;
     async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Error> {
         let sourcemap_url = find_sourcemap_url(&self.client, r).await?;
         Ok(fetch_source_map(&self.client, sourcemap_url).await?)
     }
 }
 
+#[async_trait]
 impl Parser for SourcemapProvider {
+    type Source = Vec<u8>;
     type Set = SourceMap;
-    fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
+    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
         Ok(SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?)
     }
 }

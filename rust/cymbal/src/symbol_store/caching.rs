@@ -1,7 +1,52 @@
 use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
-use crate::metric_consts::{STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS};
-use sourcemap::SourceMap;
+use axum::async_trait;
+use tokio::sync::Mutex;
+
+use crate::{
+    error::Error,
+    metric_consts::{STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS},
+};
+
+use super::{saving::Saveable, Fetcher, Parser, Provider};
+
+pub struct Caching<P> {
+    inner: P,
+    cache: Arc<Mutex<SymbolSetCache>>,
+}
+
+impl<P> Caching<P> {
+    pub fn new(inner: P, cache: Arc<Mutex<SymbolSetCache>>) -> Self {
+        Self { inner, cache }
+    }
+}
+
+#[async_trait]
+impl<P> Provider for Caching<P>
+where
+    P: Fetcher + Parser<Source = P::Fetched>,
+    P::Ref: ToString + Send,
+    P::Fetched: Countable + Send,
+    P::Set: Any + Send + Sync,
+{
+    type Ref = P::Ref;
+    type Set = P::Set;
+
+    async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Error> {
+        let mut cache = self.cache.lock().await;
+        let cache_key = format!("{}:{}", team_id, r.to_string());
+        if let Some(set) = cache.get(&cache_key) {
+            return Ok(set);
+        }
+        let found = self.inner.fetch(team_id, r).await?;
+        let bytes = found.byte_count();
+        let parsed = self.inner.parse(found).await?;
+
+        let parsed = Arc::new(parsed);
+        cache.insert(cache_key, parsed.clone(), bytes);
+        Ok(parsed)
+    }
+}
 
 pub struct SymbolSetCache {
     // We expect this cache to consist of few, but large, items.
@@ -87,22 +132,18 @@ struct CachedSymbolSet {
     pub last_used: Instant,
 }
 
-pub trait Cacheable: Any + Send + Sync {
-    fn bytes(&self) -> usize;
+pub trait Countable {
+    fn byte_count(&self) -> usize;
 }
 
-impl Cacheable for Vec<u8> {
-    fn bytes(&self) -> usize {
+impl Countable for Vec<u8> {
+    fn byte_count(&self) -> usize {
         self.len()
     }
 }
 
-impl Cacheable for SourceMap {
-    fn bytes(&self) -> usize {
-        // This is an extremely expensive way to get the size of a sourcemap, but we're more-or-less ok with that,
-        // since we only call it when we add an item to the cache, which should be rare.
-        let mut data = vec![];
-        self.to_writer(&mut data).unwrap();
-        data.len()
+impl Countable for Saveable {
+    fn byte_count(&self) -> usize {
+        self.data.len()
     }
 }

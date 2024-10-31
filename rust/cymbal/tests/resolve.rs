@@ -55,7 +55,7 @@ async fn end_to_end_resolver_test() {
 
     let sourcemap = SourcemapProvider::new(&config).unwrap();
 
-    let catalog = Catalog::new(config.symbol_store_cache_max_bytes, sourcemap);
+    let catalog = Catalog::new(sourcemap);
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {

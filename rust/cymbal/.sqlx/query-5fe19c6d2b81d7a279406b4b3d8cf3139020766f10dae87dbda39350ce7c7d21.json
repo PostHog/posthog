@@ -1,0 +1,38 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "SELECT id, team_id, ref as set_ref, storage_ptr, created_at\n            FROM posthog_errortrackingsymbolset\n            WHERE team_id = $1 AND ref = $2",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "id",
+                "type_info": "Uuid"
+            },
+            {
+                "ordinal": 1,
+                "name": "team_id",
+                "type_info": "Int4"
+            },
+            {
+                "ordinal": 2,
+                "name": "set_ref",
+                "type_info": "Text"
+            },
+            {
+                "ordinal": 3,
+                "name": "storage_ptr",
+                "type_info": "Text"
+            },
+            {
+                "ordinal": 4,
+                "name": "created_at",
+                "type_info": "Timestamptz"
+            }
+        ],
+        "parameters": {
+            "Left": ["Int4", "Text"]
+        },
+        "nullable": [false, false, false, true, false]
+    },
+    "hash": "5fe19c6d2b81d7a279406b4b3d8cf3139020766f10dae87dbda39350ce7c7d21"
+}
