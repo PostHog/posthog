@@ -173,6 +173,9 @@ class GroupStrategy(ActorStrategy):
             .iterator(chunk_size=self.paginator.limit)
         }
 
+    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
+        return RecordingsHelper(self.team).get_recordings(matching_events)
+
     def input_columns(self) -> list[str]:
         return ["group"]
 
