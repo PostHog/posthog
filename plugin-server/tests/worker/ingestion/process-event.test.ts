@@ -49,6 +49,7 @@ describe('EventsProcessor#createEvent()', () => {
         timestamp,
         distinctId: 'my_id',
         teamId: 2,
+        projectId: 1,
         event: '$pageview',
         properties: { event: 'property', $set: { foo: 'onEvent' } },
     }
@@ -88,7 +89,7 @@ describe('EventsProcessor#createEvent()', () => {
 
     it('emits event with person columns, re-using event properties', async () => {
         const processPerson = true
-        await eventsProcessor.createEvent(preIngestionEvent, person, processPerson)
+        eventsProcessor.createEvent(preIngestionEvent, person, processPerson)
 
         await eventsProcessor.kafkaProducer.flush()
 
@@ -100,7 +101,7 @@ describe('EventsProcessor#createEvent()', () => {
                 uuid: eventUuid,
                 event: '$pageview',
                 team_id: 2,
-                project_id: 2,
+                project_id: 1,
                 distinct_id: 'my_id',
                 person_id: personUuid,
             })
@@ -146,7 +147,7 @@ describe('EventsProcessor#createEvent()', () => {
         )
 
         const processPerson = true
-        await eventsProcessor.createEvent(
+        eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
             person,
             processPerson
@@ -168,7 +169,7 @@ describe('EventsProcessor#createEvent()', () => {
 
     it('when $process_person_profile=false, emits event with without person properties or groups', async () => {
         const processPerson = false
-        await eventsProcessor.createEvent(
+        eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
             person,
             processPerson
@@ -198,7 +199,7 @@ describe('EventsProcessor#createEvent()', () => {
     it('force_upgrade persons are recorded as such', async () => {
         const processPerson = false
         person.force_upgrade = true
-        await eventsProcessor.createEvent(
+        eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
             person,
             processPerson
@@ -235,7 +236,7 @@ describe('EventsProcessor#createEvent()', () => {
             uuid: uuid,
         }
         const processPerson = true
-        await eventsProcessor.createEvent(
+        eventsProcessor.createEvent(
             { ...preIngestionEvent, distinctId: 'no-such-person' },
             nonExistingPerson,
             processPerson

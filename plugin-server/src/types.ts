@@ -740,6 +740,7 @@ export interface PreIngestionEvent {
     eventUuid: string
     event: string
     teamId: TeamId
+    projectId: TeamId
     distinctId: string
     properties: Properties
     timestamp: ISOTimestamp

@@ -40,6 +40,7 @@ const person: Person = {
 
 const teamTwo: Team = {
     id: 2,
+    project_id: 1,
     uuid: 'af95d312-1a0a-4208-b80f-562ddafc9bcd',
     organization_id: '66f3f7bf-44e2-45dd-9901-5dbd93744e3a',
     name: 'testTeam',
@@ -90,6 +91,7 @@ describe('prepareEventStep()', () => {
                 $ip: '127.0.0.1',
             },
             teamId: 2,
+            projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
@@ -108,6 +110,7 @@ describe('prepareEventStep()', () => {
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
             properties: {},
             teamId: 2,
+            projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
@@ -117,7 +120,7 @@ describe('prepareEventStep()', () => {
     it('extracts elements_chain from properties', async () => {
         const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
         const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = await runner.eventsProcessor.createEvent(preppedEvent, person)
+        const [chEvent, _] = runner.eventsProcessor.createEvent(preppedEvent, person)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -134,7 +137,7 @@ describe('prepareEventStep()', () => {
             },
         }
         const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = await runner.eventsProcessor.createEvent(preppedEvent, person)
+        const [chEvent, _] = runner.eventsProcessor.createEvent(preppedEvent, person)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -148,7 +151,7 @@ describe('prepareEventStep()', () => {
             properties: { a: 1, $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }] },
         }
         const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = await runner.eventsProcessor.createEvent(preppedEvent, person)
+        const [chEvent, _] = runner.eventsProcessor.createEvent(preppedEvent, person)
 
         expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
         expect(chEvent.properties).toEqual('{"a":1}')

@@ -187,6 +187,7 @@ export class EventsProcessor {
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
             teamId: team.id,
+            projectId: team.project_id,
         }
     }
 
@@ -201,26 +202,12 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(
+    createEvent(
         preIngestionEvent: PreIngestionEvent,
         person: Person,
         processPerson: boolean
-    ): Promise<[RawKafkaEvent, Promise<void>]> {
-        const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
-
-        let team = this.teamManager.getCachedTeam(teamId)
-        if (team === undefined) {
-            Sentry.captureException(
-                new Error(
-                    "Team cache wasn't warmed by eventsProcessor.processEvent() in prepareEventStep - this should not be the case in production"
-                ),
-                { tags: { team_id: teamId } }
-            )
-            team = await this.teamManager.fetchTeam(teamId)
-        }
-        if (team === null) {
-            throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
-        }
+    ): [RawKafkaEvent, Promise<void>] {
+        const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
         try {
@@ -265,7 +252,7 @@ export class EventsProcessor {
             properties: JSON.stringify(properties ?? {}),
             timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
             team_id: teamId,
-            project_id: team.project_id,
+            project_id: projectId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
