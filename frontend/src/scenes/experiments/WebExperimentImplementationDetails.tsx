@@ -32,18 +32,21 @@ export function WebExperimentImplementationDetails({ experiment }: WebExperiment
         <>
             <div>
                 <h2 className="font-semibold text-lg mb-2">Implementation</h2>
-                <div className="border px-6 rounded bg-bg-light">
-                    <div className="font-semibold leading-tight text-base text-current m-4">
-                        This Web experiment's implementation should be edited on your website.
+                <div className="border p-6 rounded bg-bg-light space-y-2">
+                    <div className="font-semibold leading-tight text-base text-current">
+                        Define variant changes directly on your website
                     </div>
-                    <div className="m-4">
+                    <div className="text-sm text-muted">
+                        Use our toolbar to select elements and apply transformations for each variant.
+                    </div>
+                    <div>
                         <LemonButton
                             size="small"
                             type="secondary"
                             onClick={onSelectElement}
                             sideIcon={<IconOpenInApp />}
                         >
-                            Edit Web experiment on website
+                            Launch toolbar on your website
                         </LemonButton>
                     </div>
                 </div>
