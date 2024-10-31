@@ -670,6 +670,7 @@ export interface ChartSettingsFormatting {
 }
 
 export interface ChartSettingsDisplay {
+    color?: string
     label?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
