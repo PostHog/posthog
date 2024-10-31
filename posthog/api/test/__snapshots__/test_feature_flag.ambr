@@ -2086,7 +2086,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{example_id,random}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -2094,13 +2094,13 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) )
   SELECT key
   FROM posthog_featureflag
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND ensure_experience_continuity = TRUE
     AND active = TRUE
     AND deleted = FALSE
@@ -2115,7 +2115,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{example_id,random}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -2123,14 +2123,14 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
      FROM posthog_featureflag
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND ensure_experience_continuity = TRUE
        AND active = TRUE
        AND deleted = FALSE
@@ -2148,7 +2148,7 @@
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+         AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.2
@@ -2158,7 +2158,7 @@
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id',
                                                       'random')
-         AND "posthog_persondistinctid"."team_id" = 2)
+         AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.3
@@ -2172,7 +2172,7 @@
                                                               3,
                                                               4,
                                                               5 /* ... */)
-         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
+         AND "posthog_featureflaghashkeyoverride"."team_id" = 99999)
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.4
@@ -2184,8 +2184,8 @@
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
-         AND "posthog_persondistinctid"."team_id" = 2
-         AND "posthog_person"."team_id" = 2)
+         AND "posthog_persondistinctid"."team_id" = 99999
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
@@ -2194,7 +2194,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{example_id,random}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -2202,13 +2202,13 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) )
   SELECT key
   FROM posthog_featureflag
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND ensure_experience_continuity = TRUE
     AND active = TRUE
     AND deleted = FALSE
@@ -2224,7 +2224,7 @@
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id',
                                                       'random')
-         AND "posthog_persondistinctid"."team_id" = 2)
+         AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.7
@@ -2233,7 +2233,7 @@
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('random')
-         AND "posthog_persondistinctid"."team_id" = 2)
+         AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db
@@ -2245,7 +2245,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 2
+  WHERE "posthog_grouptypemapping"."team_id" = 99999
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.1
@@ -2257,7 +2257,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 2
+  WHERE "posthog_grouptypemapping"."team_id" = 99999
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.2
@@ -2269,7 +2269,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 2
+  WHERE "posthog_grouptypemapping"."team_id" = 99999
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again
@@ -2284,7 +2284,7 @@
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
-         AND "posthog_persondistinctid"."team_id" = 2
-         AND "posthog_person"."team_id" = 2)
+         AND "posthog_persondistinctid"."team_id" = 99999
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---

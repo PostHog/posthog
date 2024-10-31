@@ -795,7 +795,7 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.1
   '''
   
-  SET LOCAL statement_timeout = 2
+  SET LOCAL statement_timeout = 99999
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.10
@@ -804,7 +804,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{other_id,example_id}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -812,14 +812,14 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
      FROM posthog_featureflag
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND ensure_experience_continuity = TRUE
        AND active = TRUE
        AND deleted = FALSE
@@ -837,7 +837,7 @@
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+         AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.11
@@ -849,7 +849,7 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.13
   '''
   
-  SET LOCAL statement_timeout = 2
+  SET LOCAL statement_timeout = 99999
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.14
@@ -859,7 +859,7 @@
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('other_id',
                                                       'example_id')
-         AND "posthog_persondistinctid"."team_id" = 2)
+         AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.15
@@ -873,7 +873,7 @@
                                                               3,
                                                               4,
                                                               5 /* ... */)
-         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
+         AND "posthog_featureflaghashkeyoverride"."team_id" = 99999)
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.16
@@ -885,7 +885,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{other_id,example_id}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -893,13 +893,13 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) )
   SELECT key
   FROM posthog_featureflag
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND ensure_experience_continuity = TRUE
     AND active = TRUE
     AND deleted = FALSE
@@ -917,7 +917,7 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.5
   '''
   
-  SET LOCAL statement_timeout = 2
+  SET LOCAL statement_timeout = 99999
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.6
@@ -926,7 +926,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{other_id,example_id}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -934,14 +934,14 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
      FROM posthog_featureflag
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND ensure_experience_continuity = TRUE
        AND active = TRUE
        AND deleted = FALSE
@@ -959,7 +959,7 @@
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+         AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.7
@@ -971,7 +971,7 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.9
   '''
   
-  SET LOCAL statement_timeout = 2
+  SET LOCAL statement_timeout = 99999
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging
@@ -980,7 +980,7 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.1
   '''
   
-  SET LOCAL statement_timeout = 2
+  SET LOCAL statement_timeout = 99999
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.10
@@ -989,7 +989,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{other_id,example_id}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -997,14 +997,14 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
      FROM posthog_featureflag
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND ensure_experience_continuity = TRUE
        AND active = TRUE
        AND deleted = FALSE
@@ -1022,7 +1022,7 @@
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+         AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.11
@@ -1034,7 +1034,7 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.13
   '''
   
-  SET LOCAL statement_timeout = 2
+  SET LOCAL statement_timeout = 99999
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.14
@@ -1044,7 +1044,7 @@
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('other_id',
                                                       'example_id')
-         AND "posthog_persondistinctid"."team_id" = 2)
+         AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.15
@@ -1058,7 +1058,7 @@
                                                               3,
                                                               4,
                                                               5 /* ... */)
-         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
+         AND "posthog_featureflaghashkeyoverride"."team_id" = 99999)
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.16
@@ -1070,7 +1070,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{other_id,example_id}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -1078,13 +1078,13 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) )
   SELECT key
   FROM posthog_featureflag
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND ensure_experience_continuity = TRUE
     AND active = TRUE
     AND deleted = FALSE
@@ -1102,7 +1102,7 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.5
   '''
   
-  SET LOCAL statement_timeout = 2
+  SET LOCAL statement_timeout = 99999
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.6
@@ -1111,7 +1111,7 @@
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND distinct_id = ANY('{other_id,example_id}') ),
        existing_overrides AS
     (SELECT team_id,
@@ -1119,14 +1119,14 @@
             feature_flag_key,
             hash_key
      FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND person_id IN
          (SELECT person_id
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
      FROM posthog_featureflag
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND ensure_experience_continuity = TRUE
        AND active = TRUE
        AND deleted = FALSE
@@ -1144,7 +1144,7 @@
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+         AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.7
@@ -1156,6 +1156,6 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.9
   '''
   
-  SET LOCAL statement_timeout = 2
+  SET LOCAL statement_timeout = 99999
   '''
 # ---

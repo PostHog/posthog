@@ -4,7 +4,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(*) AS total
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -25,17 +25,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
@@ -67,17 +67,17 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND distinct_id IN
                (SELECT distinct_id
                 FROM events
-                WHERE team_id = 2
+                WHERE team_id = 99999
                   AND event = '$pageview'
                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC'))
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -101,17 +101,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
@@ -139,7 +139,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -165,17 +165,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
@@ -204,7 +204,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -228,17 +228,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
@@ -255,7 +255,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -306,10 +306,10 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-                 WHERE e.team_id = 2
+                 WHERE e.team_id = 99999
                    AND event = '$pageview'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
@@ -341,17 +341,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
@@ -387,17 +387,17 @@
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
-              WHERE team_id = 2
+              WHERE team_id = 99999
                 AND distinct_id IN
                   (SELECT distinct_id
                    FROM events
-                   WHERE team_id = 2
+                   WHERE team_id = 99999
                      AND event = '$pageview'
                      AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC'))
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -422,17 +422,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
@@ -449,7 +449,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -490,7 +490,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -520,17 +520,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
@@ -552,24 +552,24 @@
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
-     WHERE team_id = 2
+     WHERE team_id = 99999
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
     (SELECT id
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND id IN
          (SELECT id
           FROM person
-          WHERE team_id = 2
+          WHERE team_id = 99999
             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
                  AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
           AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -616,7 +616,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp
                  FROM events e
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                  GROUP BY timestamp) d
@@ -629,24 +629,24 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT id
                     FROM person
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND id IN
                         (SELECT id
                          FROM person
-                         WHERE team_id = 2
+                         WHERE team_id = 99999
                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
                                 AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
                     GROUP BY id
                     HAVING max(is_deleted) = 0
                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
                          AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                 WHERE e.team_id = 2
+                 WHERE e.team_id = 99999
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -684,11 +684,11 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC'))
@@ -697,18 +697,18 @@
      INNER JOIN
        (SELECT id
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND id IN
             (SELECT id
              FROM person
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))))
                     AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))
              AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
@@ -741,17 +741,17 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND distinct_id IN
                (SELECT distinct_id
                 FROM events
-                WHERE team_id = 2
+                WHERE team_id = 99999
                   AND event = '$pageview'
                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC'))
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -781,17 +781,17 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND distinct_id IN
                (SELECT distinct_id
                 FROM events
-                WHERE team_id = 2
+                WHERE team_id = 99999
                   AND event = '$pageview'
                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC'))
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
@@ -821,17 +821,17 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND distinct_id IN
                (SELECT distinct_id
                 FROM events
-                WHERE team_id = 2
+                WHERE team_id = 99999
                   AND event = '$pageview'
                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), 'UTC')
                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC'))
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
@@ -861,17 +861,17 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND distinct_id IN
                (SELECT distinct_id
                 FROM events
-                WHERE team_id = 2
+                WHERE team_id = 99999
                   AND event = '$pageview'
                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), 'UTC')
                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC'))
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC')
@@ -897,7 +897,7 @@
         UNION ALL SELECT count(DISTINCT "$group_0") AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -917,7 +917,7 @@
     (SELECT e.timestamp as timestamp,
             e."$group_0" as "$group_0"
      FROM events e
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
@@ -948,7 +948,7 @@
         UNION ALL SELECT count(DISTINCT e."$session_id") AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -973,17 +973,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = '$pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC') )
