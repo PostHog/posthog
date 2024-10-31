@@ -37,7 +37,21 @@ export function QuestionSuggestions(): JSX.Element {
             )}
         >
             {
-                visibleSuggestions ? (
+                allSuggestionsLoading ? (
+                    Array.from({ length: 4 }).map((_, index) => (
+                        <LemonButton
+                            key={index}
+                            size="xsmall"
+                            type="secondary"
+                            disabled
+                            style={{
+                                flexGrow: [2, 1.5, 3, 1][index],
+                            }}
+                        >
+                            <LemonSkeleton className="h-3 w-full" />
+                        </LemonButton>
+                    ))
+                ) : visibleSuggestions ? (
                     <>
                         {visibleSuggestions.map((suggestion, index) => (
                             <LemonButton
@@ -67,20 +81,6 @@ export function QuestionSuggestions(): JSX.Element {
                             />
                         </div>
                     </>
-                ) : allSuggestionsLoading ? (
-                    Array.from({ length: 4 }).map((_, index) => (
-                        <LemonButton
-                            key={index}
-                            size="xsmall"
-                            type="secondary"
-                            disabled
-                            style={{
-                                flexGrow: [2, 1.5, 3, 1][index],
-                            }}
-                        >
-                            <LemonSkeleton className="h-3 w-full" />
-                        </LemonButton>
-                    ))
                 ) : null /* Some error */
             }
         </div>
