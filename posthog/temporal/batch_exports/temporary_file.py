@@ -482,7 +482,7 @@ class JSONLBatchExportWriter(BatchExportWriter):
                         # We tried, fallback to the slower but more permissive stdlib
                         # json.
                         logger.exception("PostHog $web_vitals event didn't match expected structure")
-                        dumped = json.dumps(d).encode("utf-8")
+                        dumped = json.dumps(d, default=str).encode("utf-8")
                         n = self.batch_export_file.write(dumped + b"\n")
                     else:
                         dumped = orjson.dumps(d, default=str)
@@ -492,7 +492,7 @@ class JSONLBatchExportWriter(BatchExportWriter):
                     # In this case, we fallback to the slower but more permissive stdlib
                     # json.
                     logger.exception("Orjson detected a deeply nested dict: %s", d)
-                    dumped = json.dumps(d).encode("utf-8")
+                    dumped = json.dumps(d, default=str).encode("utf-8")
                     n = self.batch_export_file.write(dumped + b"\n")
             else:
                 # Orjson is very strict about invalid unicode. This slow path protects us

@@ -1538,6 +1538,25 @@ export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'commit_sha',
 ]
 
+export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
+    $pageview: ['$current_url', 'title', '$referrer'],
+    $pageleave: ['$current_url', 'title', '$referrer'],
+    $groupidentify: ['$group_type', '$group_key', '$group_set'],
+    $screen: ['$screen_name'],
+    $web_vitals: [
+        '$web_vitals_FCP_value',
+        '$web_vitals_CLS_value',
+        '$web_vitals_INP_value',
+        '$web_vitals_LCP_value',
+        '$web_vitals_FCP_event',
+        '$web_vitals_CLS_event',
+        '$web_vitals_INP_event',
+        '$web_vitals_LCP_event',
+    ],
+    $set: ['$set', '$set_once'],
+}
+export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
+
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
 export function isCoreFilter(key: string): boolean {
     return Object.values(CORE_FILTER_DEFINITIONS_BY_GROUP).some((mapping) => Object.keys(mapping).includes(key))
