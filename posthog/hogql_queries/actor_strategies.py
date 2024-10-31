@@ -27,7 +27,7 @@ class ActorStrategy:
         raise NotImplementedError()
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return {}
+        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         raise NotImplementedError()
@@ -87,9 +87,6 @@ class PersonStrategy(ActorStrategy):
         }
 
         return person_uuid_to_person
-
-    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         return ["person", "id", "created_at", "person.$delete"]
@@ -172,9 +169,6 @@ class GroupStrategy(ActorStrategy):
             .values("group_key", "group_type_index", "created_at", "group_properties")
             .iterator(chunk_size=self.paginator.limit)
         }
-
-    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         return ["group"]
