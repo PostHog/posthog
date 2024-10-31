@@ -14,13 +14,13 @@ type Location struct {
 
 type TokenFinder struct {
 	JSONChan  chan map[string]interface{}
-	Locations []Location
+	Locations map[string]Location
 }
 
 func NewTokenFinder(JSONChan chan map[string]interface{}) *TokenFinder {
 	return &TokenFinder{
 		JSONChan:  JSONChan,
-		Locations: make([]Location, 0),
+		Locations: make(map[string]Location),
 	}
 }
 
@@ -40,10 +40,10 @@ func (tf *TokenFinder) Process(data map[string]interface{}, path string) {
 
 		// Check if this is a token key
 		if key == "token" {
-			tf.Locations = append(tf.Locations, Location{
+			tf.Locations[currentPath] = Location{
 				Path:  currentPath,
 				Value: value,
-			})
+			}
 		}
 
 		// Recursively process nested objects
