@@ -86,11 +86,8 @@ impl SymbolSetCache {
     where
         T: Any + Send + Sync,
     {
-        let held = self.cached.get_mut(key).map(|v| {
-            v.last_used = Instant::now();
-            v
-        })?;
-
+        let held = self.cached.get_mut(key)?;
+        held.last_used = Instant::now();
         held.data.clone().downcast().ok()
     }
 
