@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
 import { buildIntegerMatcher } from '../config/config'
@@ -119,10 +120,24 @@ export class FetchExecutor {
                 duration_ms: duration,
             })
 
-            resParams.response = {
-                status: fetchResponse.status,
-                headers: Object.fromEntries(fetchResponse.headers.entries()),
+            // Emulates what the rust fetch service does - if error status, it will return an array of traces and no response
+            if (fetchResponse.status && fetchResponse.status < 400) {
+                resParams.response = {
+                    status: fetchResponse.status,
+                    headers: Object.fromEntries(fetchResponse.headers.entries()),
+                }
+            } else {
+                resParams.trace = [
+                    {
+                        kind: 'failurestatus',
+                        message: 'Received failure status',
+                        headers: Object.fromEntries(fetchResponse.headers.entries()),
+                        status: fetchResponse.status,
+                        timestamp: DateTime.utc(),
+                    },
+                ]
             }
+
             resParams.body = responseBody
         } catch (err) {
             status.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })

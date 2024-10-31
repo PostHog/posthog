@@ -228,9 +228,12 @@ export class HogExecutor {
                 invocation.queue = 'hog'
                 invocation.queueParameters = undefined
 
+                // If we got a response from fetch, we know the response code was in the <300 range,
+                // but if we didn't (indicating a bug in the fetch worker), we use a default of 503
+                let status = response?.status ?? 503
+
                 // If we got a trace, then the last "result" is the final attempt, and we should try to grab a status from it
                 // or any preceding attempts, and produce a log message for each of them
-                let status = null
                 if (trace.length > 0) {
                     logs.push({
                         level: 'error',
@@ -248,10 +251,6 @@ export class HogExecutor {
                         }
                     }
                 }
-
-                // If we got a response from fetch, we know the response code was in the <300 range,
-                // but if we didn't (indicating a bug in the fetch worker), we use a default of 503
-                status = response?.status ?? 503
 
                 if (!invocation.vmState) {
                     throw new Error("VM state wasn't provided for queue parameters")
