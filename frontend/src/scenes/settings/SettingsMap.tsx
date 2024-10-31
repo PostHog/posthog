@@ -74,6 +74,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TeamDisplayName />,
             },
             {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide most relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: '!ENVIRONMENTS',
+            },
+            {
                 id: 'snippet',
                 title: 'Web snippet',
                 component: <WebSnippet />,
