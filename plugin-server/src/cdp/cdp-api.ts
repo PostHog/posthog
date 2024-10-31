@@ -237,10 +237,10 @@ export class CdpApi {
                             url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
                         },
                     },
-                    hogFunction
+                    hogFunction,
                     // The "email" hog functions export a "sendEmail" function that we must explicitly call
                     // BW - This feels super tricky. We have specific functions for specific things? Why don't we just invoke the function as it is with the required globals like any other function?
-                    // hogFunction.type === 'email' ? ['sendEmail', [x.email]] : undefined
+                    hogFunction.type === 'email' ? ['sendEmail', [x.email]] : undefined
                 )
             )
 
