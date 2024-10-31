@@ -1,10 +1,13 @@
 import dataclasses
+from datetime import datetime
 from typing import Any
 import uuid
 
 from temporalio import activity
 
+from posthog.settings.utils import get_from_env
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.data_imports.pipelines.bigquery import delete_table
 from posthog.temporal.data_imports.pipelines.helpers import aremove_reset_pipeline, aupdate_job_count
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
@@ -25,6 +28,11 @@ class ImportDataActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
+
+
+def is_posthog_team(team_id: int) -> bool:
+    region = get_from_env("CLOUD_DEPLOYMENT", optional=True)
+    return (region == "EU" and team_id == 1) or (region == "US" and team_id == 2)
 
 
 @activity.defn
@@ -108,7 +116,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
-            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
+            if is_posthog_team(inputs.team_id):
+                from posthog.temporal.data_imports.pipelines.sql_database_v2 import sql_source_for_type
+            else:
+                from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -143,7 +154,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                         raise Exception("Can't open tunnel to SSH server")
 
                     source = sql_source_for_type(
-                        source_type=model.pipeline.source_type,
+                        source_type=ExternalDataSource.Type(model.pipeline.source_type),
                         host=tunnel.local_bind_host,
                         port=tunnel.local_bind_port,
                         user=user,
@@ -171,7 +182,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                     )
 
             source = sql_source_for_type(
-                source_type=model.pipeline.source_type,
+                source_type=ExternalDataSource.Type(model.pipeline.source_type),
                 host=host,
                 port=port,
                 user=user,
@@ -196,7 +207,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            from posthog.temporal.data_imports.pipelines.sql_database import snowflake_source
+            if is_posthog_team(inputs.team_id):
+                from posthog.temporal.data_imports.pipelines.sql_database_v2 import snowflake_source
+            else:
+                from posthog.temporal.data_imports.pipelines.sql_database import snowflake_source
 
             account_id = model.pipeline.job_inputs.get("account_id")
             user = model.pipeline.job_inputs.get("user")
@@ -314,8 +328,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            # from posthog.temporal.data_imports.pipelines.bigquery import bigquery_source
-            from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source
+            from posthog.temporal.data_imports.pipelines.sql_database_v2 import bigquery_source
 
             dataset_id = model.pipeline.job_inputs.get("dataset_id")
             project_id = model.pipeline.job_inputs.get("project_id")
@@ -324,28 +337,46 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             client_email = model.pipeline.job_inputs.get("client_email")
             token_uri = model.pipeline.job_inputs.get("token_uri")
 
-            source = bigquery_source(
-                dataset_id=dataset_id,
-                project_id=project_id,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
-                table_name=schema.name,
-                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
-                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                if schema.is_incremental
-                else None,
-            )
+            destination_table = f"{project_id}.{dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+            try:
+                source = bigquery_source(
+                    dataset_id=dataset_id,
+                    project_id=project_id,
+                    private_key=private_key,
+                    private_key_id=private_key_id,
+                    client_email=client_email,
+                    token_uri=token_uri,
+                    table_name=schema.name,
+                    bq_destination_table_id=destination_table,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
+                )
 
-            return await _run(
-                job_inputs=job_inputs,
-                source=source,
-                logger=logger,
-                inputs=inputs,
-                schema=schema,
-                reset_pipeline=reset_pipeline,
-            )
+                await _run(
+                    job_inputs=job_inputs,
+                    source=source,
+                    logger=logger,
+                    inputs=inputs,
+                    schema=schema,
+                    reset_pipeline=reset_pipeline,
+                )
+            except:
+                raise
+            finally:
+                # Delete the destination table (if it exists) after we're done with it
+                delete_table(
+                    table_id=destination_table,
+                    project_id=project_id,
+                    private_key=private_key,
+                    private_key_id=private_key_id,
+                    client_email=client_email,
+                    token_uri=token_uri,
+                )
+                logger.info(f"Deleting bigquery temp destination table: {destination_table}")
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

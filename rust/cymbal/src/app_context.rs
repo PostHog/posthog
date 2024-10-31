@@ -1,23 +1,26 @@
-use std::time::Duration;
-
-use common_kafka::kafka_consumer::SingleTopicConsumer;
+use common_kafka::{
+    kafka_consumer::SingleTopicConsumer, kafka_producer::create_kafka_producer,
+    kafka_producer::KafkaContext,
+};
 use health::{HealthHandle, HealthRegistry};
+use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
+use std::time::Duration;
 use tracing::info;
 
 use crate::{
     config::Config,
     error::Error,
-    resolver::{Resolver, ResolverImpl},
-    symbol_store::{basic::BasicStore, caching::CachingStore},
+    symbol_store::{sourcemap::SourcemapProvider, Catalog},
 };
 
 pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub worker_liveness: HealthHandle,
-    pub consumer: SingleTopicConsumer,
+    pub kafka_consumer: SingleTopicConsumer,
+    pub kafka_producer: FutureProducer<KafkaContext>,
     pub pool: PgPool,
-    pub resolver: Box<dyn Resolver>,
+    pub catalog: Catalog,
 }
 
 impl AppContext {
@@ -26,8 +29,15 @@ impl AppContext {
         let worker_liveness = health_registry
             .register("worker".to_string(), Duration::from_secs(60))
             .await;
+        let kafka_liveness = health_registry
+            .register("rdkafka".to_string(), Duration::from_secs(30))
+            .await;
 
-        let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
+        let kafka_consumer =
+            SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
+        let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
+            .await
+            .expect("failed to create kafka producer");
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
@@ -37,22 +47,18 @@ impl AppContext {
             config.consumer.kafka_consumer_topic
         );
 
-        // We're going to make heavy use of this "layering" pattern with stores, e.g. a we'll add an s3
-        // store that wraps an underlying basic one and stores the returned values in s3, and looks in s3
-        // before making fetches, etc.
-        let symbol_store = BasicStore::new(config)?;
-        let symbol_store =
-            CachingStore::new(Box::new(symbol_store), config.symbol_store_cache_max_bytes);
-
-        // Box box, box box
-        let resolver = Box::new(ResolverImpl::new(Box::new(symbol_store)));
+        let catalog = Catalog::new(
+            config.symbol_store_cache_max_bytes,
+            SourcemapProvider::new(config)?,
+        );
 
         Ok(Self {
             health_registry,
             worker_liveness,
-            consumer,
+            kafka_consumer,
+            kafka_producer,
             pool,
-            resolver,
+            catalog,
         })
     }
 }

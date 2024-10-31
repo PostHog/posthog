@@ -27,29 +27,36 @@ if TYPE_CHECKING:
 
 MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
 MAX_FUNCTION_ARGS_LENGTH = 300
+CALLSTACK_LENGTH = 1000
 
 
 @dataclass
 class BytecodeResult:
     result: Any
-    bytecode: list[Any]
+    bytecodes: dict[str, list[Any]]
     stdout: list[str]
 
 
 def execute_bytecode(
-    bytecode: list[Any],
+    input: list[Any] | dict,
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=timedelta(seconds=5),
     team: Optional["Team"] = None,
     debug=False,
 ) -> BytecodeResult:
-    if len(bytecode) == 0 or (bytecode[0] != HOGQL_BYTECODE_IDENTIFIER and bytecode[0] != HOGQL_BYTECODE_IDENTIFIER_V0):
+    bytecodes = input if isinstance(input, dict) else {"root": {"bytecode": input}}
+    root_bytecode = bytecodes.get("root", {}).get("bytecode", []) or []
+
+    if (
+        not root_bytecode
+        or len(root_bytecode) == 0
+        or (root_bytecode[0] != HOGQL_BYTECODE_IDENTIFIER and root_bytecode[0] != HOGQL_BYTECODE_IDENTIFIER_V0)
+    ):
         raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
-    version = bytecode[1] if len(bytecode) >= 2 and bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 0
-    result = None
+    version = root_bytecode[1] if len(root_bytecode) >= 2 and root_bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 0
     start_time = time.time()
-    last_op = len(bytecode) - 1
+    last_op = len(root_bytecode) - 1
     stack: list = []
     upvalues: list[dict] = []
     upvalues_by_id: dict[int, dict] = {}
@@ -61,23 +68,23 @@ def execute_bytecode(
     max_mem_used = 0
     ops = 0
     stdout: list[str] = []
-    colored_bytecode = color_bytecode(bytecode) if debug else []
+    debug_bytecode = []
     if isinstance(timeout, int):
         timeout = timedelta(seconds=timeout)
 
     if len(call_stack) == 0:
         call_stack.append(
             CallFrame(
-                ip=2 if bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 1,
+                ip=0,
                 chunk="root",
                 stack_start=0,
                 arg_len=0,
                 closure=new_hog_closure(
                     new_hog_callable(
-                        type="main",
+                        type="local",
                         arg_count=0,
                         upvalue_count=0,
-                        ip=2 if bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 1,
+                        ip=0,
                         chunk="root",
                         name="",
                     )
@@ -85,18 +92,30 @@ def execute_bytecode(
             )
         )
     frame = call_stack[-1]
-    chunk_bytecode: list[Any] = bytecode
+    chunk_bytecode: list[Any] = root_bytecode
+    chunk_globals = globals
 
     def set_chunk_bytecode():
-        nonlocal chunk_bytecode, last_op
+        nonlocal chunk_bytecode, chunk_globals, last_op, debug_bytecode
         if not frame.chunk or frame.chunk == "root":
-            chunk_bytecode = bytecode
-            last_op = len(bytecode) - 1
+            chunk_bytecode = root_bytecode
+            chunk_globals = globals
         elif frame.chunk.startswith("stl/") and frame.chunk[4:] in BYTECODE_STL:
             chunk_bytecode = BYTECODE_STL[frame.chunk[4:]][1]
-            last_op = len(bytecode) - 1
+            chunk_globals = {}
+        elif bytecodes.get(frame.chunk):
+            chunk_bytecode = bytecodes[frame.chunk].get("bytecode", [])
+            chunk_globals = bytecodes[frame.chunk].get("globals", {})
         else:
             raise HogVMException(f"Unknown chunk: {frame.chunk}")
+        last_op = len(chunk_bytecode) - 1
+        if debug:
+            debug_bytecode = color_bytecode(chunk_bytecode)
+        if frame.ip == 0 and (chunk_bytecode[0] == "_H" or chunk_bytecode[0] == "_h"):
+            # TODO: store chunk version
+            frame.ip += 2 if chunk_bytecode[0] == "_H" else 1
+
+    set_chunk_bytecode()
 
     def stack_keep_first_elements(count: int) -> list[Any]:
         nonlocal stack, mem_stack, mem_used
@@ -163,13 +182,28 @@ def execute_bytecode(
         return created_upvalue
 
     symbol: Any = None
-    while frame.ip <= last_op:
+    while True:
+        # Return or jump back to the previous call frame if ran out of bytecode to execute in this one, and return null
+        if frame.ip > last_op:
+            last_call_frame = call_stack.pop()
+            if len(call_stack) == 0 or last_call_frame is None:
+                if len(stack) > 1:
+                    raise HogVMException("Invalid bytecode. More than one value left on stack")
+                return BytecodeResult(
+                    result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes
+                )
+            stack_start = last_call_frame.stack_start
+            stack_keep_first_elements(stack_start)
+            push_stack(None)
+            frame = call_stack[-1]
+            set_chunk_bytecode()
+
         ops += 1
         symbol = chunk_bytecode[frame.ip]
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
         elif debug:
-            debugger(symbol, bytecode, colored_bytecode, frame.ip, stack, call_stack, throw_stack)
+            debugger(symbol, chunk_bytecode, debug_bytecode, frame.ip, stack, call_stack, throw_stack)
         match symbol:
             case None:
                 break
@@ -247,8 +281,8 @@ def execute_bytecode(
                 push_stack(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
-                if globals and chain[0] in globals:
-                    push_stack(deepcopy(get_nested_value(globals, chain, True)))
+                if chunk_globals and chain[0] in chunk_globals:
+                    push_stack(deepcopy(get_nested_value(chunk_globals, chain, True)))
                 elif functions and chain[0] in functions:
                     push_stack(
                         new_hog_closure(
@@ -298,7 +332,7 @@ def execute_bytecode(
                 response = pop_stack()
                 last_call_frame = call_stack.pop()
                 if len(call_stack) == 0 or last_call_frame is None:
-                    return BytecodeResult(result=response, stdout=stdout, bytecode=bytecode)
+                    return BytecodeResult(result=response, stdout=stdout, bytecodes=bytecodes)
                 stack_start = last_call_frame.stack_start
                 stack_keep_first_elements(stack_start)
                 push_stack(response)
@@ -459,10 +493,35 @@ def execute_bytecode(
                             )
                         ),
                     )
+                    set_chunk_bytecode()
                     call_stack.append(frame)
                     continue  # resume the loop without incrementing frame.ip
                 else:
-                    if functions is not None and name in functions:
+                    if name == "import":
+                        if arg_count != 1:
+                            raise HogVMException("Function import requires exactly 1 argument")
+                        module_name = pop_stack()
+                        frame.ip += 1  # advance for when we return
+                        frame = CallFrame(
+                            ip=0,
+                            chunk=module_name,
+                            stack_start=len(stack),
+                            arg_len=0,
+                            closure=new_hog_closure(
+                                new_hog_callable(
+                                    type="local",
+                                    name=module_name,
+                                    arg_count=0,
+                                    upvalue_count=0,
+                                    ip=0,
+                                    chunk=module_name,
+                                )
+                            ),
+                        )
+                        set_chunk_bytecode()
+                        call_stack.append(frame)
+                        continue
+                    elif functions is not None and name in functions:
                         if version == 0:
                             args = [pop_stack() for _ in range(arg_count)]
                         else:
@@ -598,10 +657,5 @@ def execute_bytecode(
                 )
 
         frame.ip += 1
-    if debug:
-        debugger(symbol, bytecode, colored_bytecode, frame.ip, stack, call_stack, throw_stack)
-    if len(stack) > 1:
-        raise HogVMException("Invalid bytecode. More than one value left on stack")
-    if len(stack) == 1:
-        result = pop_stack()
-    return BytecodeResult(result=result, stdout=stdout, bytecode=bytecode)
+
+    return BytecodeResult(result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes)

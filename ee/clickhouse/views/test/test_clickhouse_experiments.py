@@ -55,7 +55,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(8, 9)):
+        with self.assertNumQueries(FuzzyInt(9, 10)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -72,7 +72,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(8, 9)):
+        with self.assertNumQueries(FuzzyInt(9, 10)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -165,7 +165,7 @@ class TestExperimentCRUD(APILicensedTest):
                     ],
                     "properties": [],
                 },
-                "holdout": holdout_id,
+                "holdout_id": holdout_id,
             },
         )
 
@@ -202,7 +202,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": holdout_2_id},
+            {"holdout_id": holdout_2_id},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -262,7 +262,7 @@ class TestExperimentCRUD(APILicensedTest):
         # remove holdouts
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": None},
+            {"holdout_id": None},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -276,7 +276,7 @@ class TestExperimentCRUD(APILicensedTest):
         # try adding invalid holdout
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": 123456},
+            {"holdout_id": 123456},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], 'Invalid pk "123456" - object does not exist.')
@@ -284,7 +284,7 @@ class TestExperimentCRUD(APILicensedTest):
         # add back holdout
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": holdout_2_id},
+            {"holdout_id": holdout_2_id},
         )
 
         # launch experiment and try updating holdouts again
@@ -297,7 +297,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
-            {"holdout": holdout_id},
+            {"holdout_id": holdout_id},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -308,6 +308,256 @@ class TestExperimentCRUD(APILicensedTest):
             created_ff.filters["holdout_groups"],
             [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
         )
+
+    def test_saved_metrics(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {"events": [{"id": "$pageview"}]},
+            },
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment saved metric")
+        self.assertEqual(response.json()["description"], "Test description")
+        self.assertEqual(
+            response.json()["query"],
+            {
+                "events": [{"id": "$pageview"}],
+            },
+        )
+        self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
+
+        # Generate experiment to have saved metric
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        exp_id = response.json()["id"]
+
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
+        experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
+        self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
+        saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
+        self.assertEqual(saved_metric.id, saved_metric_id)
+        self.assertEqual(saved_metric.query, {"events": [{"id": "$pageview"}]})
+
+        # Now try updating experiment with new saved metric
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Experiment saved metric 2",
+                "description": "Test description 2",
+                "query": {
+                    "events": [{"id": "$pageleave"}],
+                },
+            },
+        )
+
+        saved_metric_2_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment saved metric 2")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
+                    {"id": saved_metric_2_id, "metadata": {"type": "tertiary"}},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 2)
+        experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.all()
+        self.assertEqual(experiment_to_saved_metric[0].metadata, {"type": "secondary"})
+        self.assertEqual(experiment_to_saved_metric[1].metadata, {"type": "tertiary"})
+        saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.all()
+        self.assertEqual(sorted([saved_metric[0].id, saved_metric[1].id]), [saved_metric_id, saved_metric_2_id])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"saved_metrics_ids": []},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
+                ]
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"saved_metrics_ids": None},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
+
+        # not updating saved metrics shouldn't change anything
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "name": "Test Experiment 2",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
+
+        # now delete saved metric
+        response = self.client.delete(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # make sure experiment in question was updated as well
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
+
+    def test_validate_saved_metrics_payload(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {"events": [{"id": "$pageview"}]},
+            },
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Generate experiment to have saved metric
+        ff_key = "a-b-tests"
+        exp_data = {
+            "name": "Test Experiment",
+            "description": "",
+            "start_date": "2021-12-01T10:23",
+            "end_date": None,
+            "feature_flag_key": ff_key,
+            "parameters": None,
+            "filters": {
+                "events": [
+                    {"order": 0, "id": "$pageview"},
+                    {"order": 1, "id": "$pageleave"},
+                ],
+                "properties": [],
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"xxx": "secondary"}}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(
+            response.json()["detail"],
+            "Metadata must have a type key",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"saved_metric": saved_metric_id}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Saved metric must have an id")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"id": 12345678}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Saved metric does not exist")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": {"id": saved_metric_id},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], 'Expected a list of items but got type "dict".')
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [[saved_metric_id]],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Saved metric must be an object")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": "secondary"}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Metadata must be an object")
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(

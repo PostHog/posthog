@@ -311,7 +311,7 @@
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event='decide usage'
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
@@ -324,7 +324,7 @@
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event='local evaluation usage'
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))

@@ -29,16 +29,38 @@ export function loadPostHogJS(): void {
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
                 api_transport: 'fetch',
-                loaded: (posthog) => {
-                    if (posthog.sessionRecording) {
-                        posthog.sessionRecording._forceAllowLocalhostNetworkCapture = true
+                loaded: (loadedInstance) => {
+                    if (loadedInstance.sessionRecording) {
+                        loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
                     }
 
                     if (window.IMPERSONATED_SESSION) {
-                        posthog.opt_out_capturing()
+                        loadedInstance.sessionManager?.resetSessionId()
+                        loadedInstance.opt_out_capturing()
                     } else {
-                        posthog.opt_in_capturing()
+                        loadedInstance.opt_in_capturing()
                     }
+
+                    const Cypress = (window as any).Cypress
+
+                    if (Cypress) {
+                        Object.entries(Cypress.env()).forEach(([key, value]) => {
+                            if (key.startsWith('POSTHOG_PROPERTY_')) {
+                                loadedInstance.register_for_session({
+                                    [key.replace('POSTHOG_PROPERTY_', 'E2E_TESTING_').toLowerCase()]: value,
+                                })
+                            }
+                        })
+                    }
+
+                    // This is a helpful flag to set to automatically reset the recording session on load for testing multiple recordings
+                    const shouldResetSessionOnLoad = loadedInstance.getFeatureFlag(FEATURE_FLAGS.SESSION_RESET_ON_LOAD)
+                    if (shouldResetSessionOnLoad) {
+                        loadedInstance.sessionManager?.resetSessionId()
+                    }
+
+                    // Make sure we have access to the object in window for debugging
+                    window.posthog = loadedInstance
                 },
                 scroll_root_selector: ['main', 'html'],
                 autocapture: {
@@ -52,26 +74,6 @@ export function loadPostHogJS(): void {
                     : undefined,
             })
         )
-
-        const Cypress = (window as any).Cypress
-
-        if (Cypress) {
-            Object.entries(Cypress.env()).forEach(([key, value]) => {
-                if (key.startsWith('POSTHOG_PROPERTY_')) {
-                    posthog.register_for_session({
-                        [key.replace('POSTHOG_PROPERTY_', 'E2E_TESTING_').toLowerCase()]: value,
-                    })
-                }
-            })
-        }
-
-        // This is a helpful flag to set to automatically reset the recording session on load for testing multiple recordings
-        const shouldResetSessionOnLoad = posthog.getFeatureFlag(FEATURE_FLAGS.SESSION_RESET_ON_LOAD)
-        if (shouldResetSessionOnLoad) {
-            posthog.sessionManager?.resetSessionId()
-        }
-        // Make sure we have access to the object in window for debugging
-        window.posthog = posthog
     } else {
         posthog.init('fake token', {
             autocapture: false,

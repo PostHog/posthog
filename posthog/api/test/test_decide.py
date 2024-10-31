@@ -5,12 +5,12 @@ import time
 from typing import Optional
 from unittest.mock import patch
 
-from django.http import HttpRequest
 import pytest
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, connections
-from django.test import TransactionTestCase, TestCase
+from django.http import HttpRequest
+from django.test import TestCase, TransactionTestCase
 from django.test.client import Client
 from freezegun import freeze_time
 from rest_framework import status
@@ -20,7 +20,10 @@ from posthog import redis
 from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.database_healthcheck import postgres_healthcheck
-from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+)
 from posthog.models import (
     FeatureFlag,
     GroupTypeMapping,
@@ -41,7 +44,12 @@ from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
+from posthog.test.base import (
+    BaseTest,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
+)
 
 
 @patch(
@@ -167,6 +175,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [],
+            "urlBlocklist": [],
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -187,6 +196,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [],
+            "urlBlocklist": [],
         }
 
     def test_user_performance_opt_in(self, *args):
@@ -322,6 +332,28 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [{"url": "/replay-examples/", "matching": "regex"}],
+            "urlBlocklist": [],
+        }
+
+    def test_session_recording_url_blocklist_patterns(self, *args):
+        self._update_team(
+            {
+                "session_recording_url_blocklist_config": [{"url": "/replay-examples/iframe", "matching": "regex"}],
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == {
+            "endpoint": "/s/",
+            "recorderVersion": "v2",
+            "consoleLogRecordingEnabled": True,
+            "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
+            "urlTriggers": [],
+            "urlBlocklist": [{"url": "/replay-examples/iframe", "matching": "regex"}],
         }
 
     def test_session_recording_network_payload_capture_config(self, *args):
@@ -453,6 +485,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [],
+            "urlBlocklist": [],
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -481,6 +514,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [],
+            "urlBlocklist": [],
         }
 
     def test_user_autocapture_opt_out(self, *args):
@@ -503,6 +537,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["heatmaps"], True)
 
+    def test_user_capture_dead_clicks_opt_in(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["captureDeadClicks"], False)
+
+        self._update_team({"capture_dead_clicks": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["captureDeadClicks"], True)
+
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
@@ -516,6 +560,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [],
+            "urlBlocklist": [],
         }
 
     def test_user_session_recording_allowed_for_android(self, *args) -> None:
@@ -531,6 +576,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [],
+            "urlBlocklist": [],
         }
 
     def test_user_session_recording_allowed_for_ios(self, *args) -> None:
@@ -546,6 +592,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [],
+            "urlBlocklist": [],
         }
 
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
@@ -566,6 +613,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
             "urlTriggers": [],
+            "urlBlocklist": [],
         }
 
     @snapshot_postgres_queries
@@ -2930,6 +2978,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "minimumDurationMilliseconds": None,
                 "networkPayloadCapture": None,
                 "urlTriggers": [],
+                "urlBlocklist": [],
             },
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -2959,6 +3008,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     "minimumDurationMilliseconds": None,
                     "networkPayloadCapture": None,
                     "urlTriggers": [],
+                    "urlBlocklist": [],
                 },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -3591,6 +3641,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 200)
             self.assertFalse("elementsChainAsString" in response.json())
 
+    def test_decide_default_identified_only(self, *args):
+        self.client.logout()
+        with self.settings(DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN=str(1000000)):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue("defaultIdentifiedOnly" in response.json())
+            self.assertFalse(response.json()["defaultIdentifiedOnly"])
+        team_id = self.team.id
+        with self.settings(DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN=str(team_id)):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["defaultIdentifiedOnly"])
+
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     """
@@ -3755,6 +3818,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                     "minimumDurationMilliseconds": None,
                     "networkPayloadCapture": None,
                     "urlTriggers": [],
+                    "urlBlocklist": [],
                 },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])

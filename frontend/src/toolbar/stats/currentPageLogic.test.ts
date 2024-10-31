@@ -8,7 +8,7 @@ describe('current page logic', () => {
         it('can ignore posthog init hash param when other hash params present', () => {
             // not technically a valid URL but :shrug:
             expect(withoutPostHogInit(`https://wat.io?something=a#${posthogInitHashParam}#myfragment`)).toBe(
-                'https://wat.io/?something=a#myfragment'
+                'https://wat.io?something=a#myfragment'
             )
         })
         it('can handle multiple curly braces in the init', () => {
@@ -17,15 +17,20 @@ describe('current page logic', () => {
                 withoutPostHogInit(
                     `https://wat.io?something=a#__posthog={something}and something}#myfragment={something}`
                 )
-            ).toBe('https://wat.io/?something=a#myfragment={something}')
+            ).toBe('https://wat.io?something=a#myfragment={something}')
         })
         it('can ignore posthog init hash param when no other hash params present', () => {
             expect(withoutPostHogInit(`https://wat.io?something=a#${posthogInitHashParam}`)).toBe(
-                'https://wat.io/?something=a'
+                'https://wat.io?something=a'
             )
         })
         it('gives nonsense back if it receives it', () => {
             expect(withoutPostHogInit('i am not a url')).toBe('i am not a url')
+        })
+        it('supports wildcards too', () => {
+            expect(withoutPostHogInit('https://*.wat.io/category/*/product/1/?something=a#myfragment')).toBe(
+                'https://*.wat.io/category/*/product/1/?something=a#myfragment'
+            )
         })
     })
 })
