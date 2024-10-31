@@ -307,7 +307,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         # if this is a web experiment, copy over the variant data to the experiment itself.
         if validated_data.get("type", "") == "web":
             web_variants = {}
-            ff_variants = filters.get("multivariate", {}).get("variants")
+            ff_variants = variants or default_variants
 
             for variant in ff_variants:
                 web_variants[variant.get("key")] = {
