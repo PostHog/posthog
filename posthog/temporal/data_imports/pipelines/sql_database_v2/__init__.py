@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 
 from sqlalchemy import MetaData, Table, create_engine
 from sqlalchemy.engine import Engine
+from clickhouse_sqlalchemy import Table as ClickHouseTable
 from zoneinfo import ZoneInfo
 
 import dlt
@@ -102,6 +103,8 @@ def sql_source_for_type(
         credentials = ConnectionStringCredentials(
             f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
         )
+    elif source_type == ExternalDataSource.Type.CLICKHOUSE:
+        credentials = ConnectionStringCredentials(f"clickhouse+http://{user}:{password}@{host}:{port}/{database}")
     else:
         raise Exception("Unsupported source_type")
 
@@ -112,6 +115,7 @@ def sql_source_for_type(
         incremental=incremental,
         team_id=team_id,
         connect_args=connect_args,
+        table_object=ClickHouseTable if source_type == ExternalDataSource.Type.CLICKHOUSE else Table,
     )
 
     return db_source
@@ -205,6 +209,7 @@ def sql_database(
     incremental: Optional[dlt.sources.incremental] = None,
     team_id: Optional[int] = None,
     connect_args: Optional[list[str]] = None,
+    table_object: type[Table] = Table,
 ) -> Iterable[DltResource]:
     """
     A dlt source which loads data from an SQL database using SQLAlchemy.
@@ -254,7 +259,9 @@ def sql_database(
 
     # use provided tables or all tables
     if table_names:
-        tables = [Table(name, metadata, autoload_with=None if defer_table_reflect else engine) for name in table_names]
+        tables = [
+            table_object(name, metadata, autoload_with=None if defer_table_reflect else engine) for name in table_names
+        ]
     else:
         if defer_table_reflect:
             raise ValueError("You must pass table names to defer table reflection")
@@ -277,6 +284,7 @@ def sql_database(
             incremental=incremental,
             team_id=team_id,
             connect_args=connect_args,
+            table_object=table_object,
         )
 
 
@@ -315,6 +323,7 @@ def sql_table(
     included_columns: Optional[list[str]] = None,
     team_id: Optional[int] = None,
     connect_args: Optional[list[str]] = None,
+    table_object: type[Table] = Table,
 ) -> DltResource:
     """
     A dlt resource which loads data from an SQL database table using SQLAlchemy.
@@ -363,7 +372,7 @@ def sql_table(
 
     table_obj: Table | None = metadata.tables.get("table")
     if table_obj is None:
-        table_obj = Table(table, metadata, autoload_with=None if defer_table_reflect else engine)
+        table_obj = table_object(table, metadata, autoload_with=None if defer_table_reflect else engine)
 
     if not defer_table_reflect:
         default_table_adapter(table_obj, included_columns)
