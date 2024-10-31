@@ -16,7 +16,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -28,7 +28,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -42,7 +42,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -56,7 +56,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -70,7 +70,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -85,7 +85,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -101,7 +101,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -128,7 +128,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -140,7 +140,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -154,7 +154,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -168,7 +168,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -182,7 +182,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -197,7 +197,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
@@ -213,7 +213,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
