@@ -1,55 +1,27 @@
-from collections.abc import Callable
+from functools import cached_property
+from typing import Literal
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.messages import BaseMessage, ToolCall
-from langchain_core.messages import HumanMessage as LangchainHumanMessage
+from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import tool
+from langchain_core.tools import Tool
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.router.prompts import router_system_prompt
+from ee.hogai.router.prompts import (
+    router_funnel_description_prompt,
+    router_system_prompt,
+    router_trends_description_prompt,
+    router_user_prompt,
+)
 from ee.hogai.utils import AssistantNode, AssistantState
-from posthog.models.team.team import Team
-from posthog.schema import HumanMessage, RouterMessage
+from posthog.schema import AssistantToolCall, HumanMessage, RouterMessage
 
-
-@tool(parse_docstring=True)
-def generate_trends_insight():
-    """
-    Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. For example, using trends, users can analyze:
-    - How product's most important metrics change over time.
-    - Long-term patterns, or cycles in product's usage.
-    - How a specific change affects usage.
-    - The usage of different features side-by-side.
-    - How the properties of events vary using aggregation (sum, average, etc).
-    - Users can also visualize the same data points in a variety of ways.
-    """
-    return "trends"
-
-
-@tool(parse_docstring=True)
-def generate_funnel_insight():
-    """
-    For every flow in the user's product, more people will start it than complete it successfully. Funnels enable users to visualize their flows and understand where the friction points are so that they can improve them. Users can learn the following from funnels:
-    - What are the conversion rates and how seasonality affects them.
-    - Where people are getting stuck during their flow.
-    - Who successful and unsuccessul users are.
-    - The steps with the highest friction and time to convert.
-    - The paths users take in a funnel.
-    - If product changes are improving their funnel over time.
-    """
-    return "funnel"
+RouteName = Literal["trends", "funnel"]
 
 
 class RouterNode(AssistantNode):
-    def __init__(self, team: Team):
-        super().__init__(team)
-        self._tools: dict[str, Callable] = {
-            "generate_trends_insight": generate_trends_insight,
-            "generate_funnel_insight": generate_funnel_insight,
-        }
-
     def run(self, state: AssistantState, config: RunnableConfig):
         model = self._model.bind_tools(self._tools.values(), tool_choice="required", parallel_tool_calls=False)
         prompt = ChatPromptTemplate.from_messages(
@@ -59,17 +31,57 @@ class RouterNode(AssistantNode):
             template_format="mustache",
         ) + self._reconstruct_conversation(state)
         chain = prompt | model
+        message: LangchainAIMessage = chain.invoke({}, config)
+        tool_call = message.tool_calls[0]
+        return {
+            "messages": [
+                RouterMessage(
+                    tool_call=AssistantToolCall.model_validate(
+                        {
+                            "name": tool_call["name"],
+                            "args": tool_call["args"],
+                            "id": tool_call["id"],
+                        }
+                    )
+                )
+            ]
+        }
 
-        message: LangchainAIMessage = chain.invoke({"input": state.input}, config)
-        tool_name = message.tool_calls[0]["name"]
-        tool = self._tools[tool_name]()
-        return {"messages": [RouterMessage(route=tool)]}
-
-    def router(self, state: AssistantState):
+    def router(self, state: AssistantState) -> RouteName:
         last_message = state["messages"][-1]
         if isinstance(last_message, RouterMessage):
-            return last_message.route
+            tool_call = self._get_tool_call(last_message)
+            msg: LangchainToolMessage = self._tools[tool_call["name"]].invoke(tool_call)
+            return msg.content
         raise ValueError("Invalid route.")
+
+    @cached_property
+    def _tools(self) -> dict[str, Tool]:
+        def generate_trends_insight() -> RouteName:
+            return "trends"
+
+        def generate_funnel_insight() -> RouteName:
+            return "funnel"
+
+        return {
+            "generate_trends_insight": Tool(
+                name="generate_trends_insight",
+                description=router_trends_description_prompt,
+                func=generate_trends_insight,
+            ),
+            "generate_funnel_insight": Tool(
+                name="generate_funnel_insight",
+                description=router_funnel_description_prompt,
+                func=generate_funnel_insight,
+            ),
+        }
+
+    def _get_tool_call(self, message: RouterMessage) -> ToolCall:
+        return {
+            "name": message.tool_call.name,
+            "args": message.tool_call.args,
+            "id": message.tool_call.id,
+        }
 
     @property
     def _model(self):
@@ -79,11 +91,15 @@ class RouterNode(AssistantNode):
         history: list[BaseMessage] = []
         for message in state["messages"]:
             if isinstance(message, HumanMessage):
-                history.append(LangchainHumanMessage(content=message.content))
+                history += ChatPromptTemplate.from_messages([("user", router_user_prompt)]).format_messages(
+                    question=message.content
+                )
             elif isinstance(message, RouterMessage):
-                tool_call: ToolCall = {
-                    "name": message.route,
-                    "args": {},
-                }
-                history.append(LangchainAIMessage(content="", tool_calls=[tool_call]))
+                tool_call = self._get_tool_call(message)
+                history += [
+                    # AIMessage with the tool call
+                    LangchainAIMessage(content="", tool_calls=[tool_call]),
+                    # ToolMessage with the tool call result
+                    self._tools[tool_call["name"]].invoke(tool_call),
+                ]
         return history

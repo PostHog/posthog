@@ -89,6 +89,15 @@ class AssistantMessageType(StrEnum):
     AI_ROUTER = "ai/router"
 
 
+class AssistantToolCall(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    args: dict[str, Any]
+    id: str
+    name: str
+
+
 class AutocompleteCompletionItemKind(StrEnum):
     METHOD = "Method"
     FUNCTION = "Function"
@@ -1157,7 +1166,7 @@ class RouterMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    route: str
+    tool_call: AssistantToolCall
     type: Literal["ai/router"] = "ai/router"
 
 

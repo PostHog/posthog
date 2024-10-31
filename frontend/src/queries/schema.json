@@ -653,6 +653,22 @@
             "enum": ["human", "ai", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
         },
+        "AssistantToolCall": {
+            "additionalProperties": false,
+            "properties": {
+                "args": {
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["name", "id", "args"],
+            "type": "object"
+        },
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
             "properties": {
@@ -10925,15 +10941,15 @@
         "RouterMessage": {
             "additionalProperties": false,
             "properties": {
-                "route": {
-                    "type": "string"
+                "tool_call": {
+                    "$ref": "#/definitions/AssistantToolCall"
                 },
                 "type": {
                     "const": "ai/router",
                     "type": "string"
                 }
             },
-            "required": ["type", "route"],
+            "required": ["type", "tool_call"],
             "type": "object"
         },
         "SamplingRate": {
