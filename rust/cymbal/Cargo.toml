@@ -26,6 +26,7 @@ reqwest = { workspace = true }
 sha2 = "0.10.8"
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }

@@ -1,5 +1,6 @@
 use aws_sdk_s3::{primitives::ByteStream, Client as S3Client, Error as S3Error};
 use axum::async_trait;
+use uuid::Uuid;
 
 use crate::error::Error;
 
@@ -23,24 +24,47 @@ where
     F: Fetcher,
     F::Ref: ToString,
 {
-    pub async fn get_key(&self, _team_id: i32, r: &F::Ref) -> Result<Option<String>, Error> {
-        // TODO - this should hit PG to get the object key
-        Ok(Some(self.add_prefix(r.to_string())))
-    }
-
-    pub async fn save(&self, _team_id: i32, r: &F::Ref, data: Vec<u8>) -> Result<String, Error> {
-        // TODO - write a record to PG, and get back an opaque key
-        let key = self.add_prefix(r.to_string());
-        self.store_in_s3(key.clone(), data).await?;
+    pub async fn save(&self, team_id: i32, r: &F::Ref, data: Vec<u8>) -> Result<String, Error> {
+        // Generate a new opaque key, appending our prefix.
+        let key = self.add_prefix(Uuid::now_v7().to_string());
+        self.store_in_s3(&key, data).await?;
+        self.save_new_symbol_set_in_pg(team_id, r, &key).await?;
         Ok(key)
     }
 
-    pub async fn fetch_from_s3(&self, key: String) -> Result<Vec<u8>, Error> {
+    pub async fn load(&self, team_id: i32, r: F::Ref) -> Result<Option<Vec<u8>>, Error> {
+        let key = self.get_key_from_pg(team_id, &r).await?;
+        if let Some(key) = key {
+            let data = self.fetch_from_s3(&key).await?;
+            Ok(data)
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    pub async fn get_key_from_pg(
+        &self,
+        _team_id: i32,
+        r: &F::Ref,
+    ) -> Result<Option<String>, Error> {
+        todo!()
+    }
+
+    pub async fn save_new_symbol_set_in_pg(
+        &self,
+        team_id: i32,
+        r: &F::Ref,
+        key: &str,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    pub async fn fetch_from_s3(&self, key: &str) -> Result<Vec<u8>, Error> {
         let res = self
             .s3_client
             .get_object()
             .bucket(&self.bucket)
-            .key(&key)
+            .key(key)
             .send()
             .await;
 
@@ -54,12 +78,12 @@ where
         Err(S3Error::from(res.unwrap_err()).into())
     }
 
-    pub async fn store_in_s3(&self, key: String, data: Vec<u8>) -> Result<(), Error> {
+    pub async fn store_in_s3(&self, key: &str, data: Vec<u8>) -> Result<(), Error> {
         // TODO - lifecycle stuff I guess? Idk
         self.s3_client
             .put_object()
             .bucket(&self.bucket)
-            .key(&key)
+            .key(key)
             .body(ByteStream::from(data))
             .send()
             .await
@@ -84,6 +108,8 @@ where
         // We have no record, so we need to hit the underlying fetcher, and then save it to s3
         let data = self.inner.fetch(team_id, r).await?;
 
+        // TODO - we want to save an empty record in the DB if the fetcher returns no data,
+        // so we can skip the fetch altogether
         self.save(team_id, &r, data).await?;
 
         let e: S3Error = res.unwrap_err().into(); // Safe - see above
