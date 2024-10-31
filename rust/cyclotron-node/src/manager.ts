@@ -65,7 +65,7 @@ export class CyclotronManager {
 
         let offset = 0
         for (let i = 0; i < jobs.length; i++) {
-            let blob = jobs[i].blob
+            const blob = jobs[i].blob
             if (blob) {
                 blobLengths[i] = blob.byteLength
                 blobs.set(blob, offset)
