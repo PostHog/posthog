@@ -741,7 +741,7 @@ impl FeatureFlagMatcher {
                 flag_property_filters
                     .iter()
                     .cloned()
-                    .partition(|prop| prop.prop_type == "cohort");
+                    .partition(|prop| prop.is_cohort());
 
             // Evaluate non-cohort properties first to get properties_to_check
             let properties_to_check = self
@@ -827,126 +827,108 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Evaluates cohort-based property filters dynamically
+    /// Evaluates dynamic cohort property filters
+    ///
+    /// NB: This method first caches all of the cohorts associated with the team, which allows us to avoid
+    /// hitting the database for each cohort filter.
     pub async fn evaluate_cohort_filters(
         &self,
-        cohort_and_property_filters: &[PropertyFilter],
+        property_filters: &[PropertyFilter],
         target_properties: &HashMap<String, Value>,
     ) -> Result<bool, FlagError> {
+        // Caching all of the cohorts like this will make it so that we don't have to hit the database for each cohort filter
         let cohort_cache =
             CohortCache::new_with_team(self.team_id, self.postgres_reader.clone()).await?;
-        // Partition filters into cohort and non-cohort
-        let (cohort_filters, property_filters) = cohort_and_property_filters
-            .iter()
-            .partition::<Vec<_>, _>(|f| f.is_cohort());
 
-        // Early exit if any property filters fail to match
-        if !self
-            .evaluate_property_filters(&property_filters, target_properties)
-            .await?
-        {
-            return Ok(false);
-        }
+        // At this point, we shouldn't have any non-cohort property filters, but we'll filter them out anyway
+        let cohort_property_filters: Vec<_> =
+            property_filters.iter().filter(|f| f.is_cohort()).collect();
 
-        // Evaluate cohort filters dynamically
+        // Store cohort match results in a HashMap to avoid re-evaluating the same cohort multiple times,
+        // since the same cohort could appear in multiple property filters. This is especially important
+        // because evaluating a cohort requires evaluating all of its dependencies, which can be expensive.
         let mut cohort_matches = HashMap::new();
-
-        for filter in &cohort_filters {
+        for filter in &cohort_property_filters {
             let cohort_id = filter.get_cohort_id()?;
             let match_result = self
-                .evaluate_single_cohort(self.team_id, cohort_id, target_properties, &cohort_cache)
+                .evaluate_cohort_dependencies(
+                    self.team_id,
+                    cohort_id,
+                    target_properties,
+                    &cohort_cache,
+                )
                 .await?;
             cohort_matches.insert(cohort_id, match_result);
         }
 
-        // Apply cohort membership logic
-        self.apply_cohort_membership_logic(&cohort_filters, &cohort_matches)
+        // Apply cohort membership logic (IN|NOT_IN)
+        self.apply_cohort_membership_logic(&cohort_property_filters, &cohort_matches)
     }
 
-    /// Evaluates a single cohort and its dependencies using a dependency graph walk
-    async fn evaluate_single_cohort(
+    /// Evaluates a single cohort and its dependencies.
+    /// This uses a topological sort to evaluate dependencies first, which is necessary
+    /// because a cohort can depend on another cohort, and we need to respect the dependency order.
+    async fn evaluate_cohort_dependencies(
         &self,
         team_id: i32,
         initial_cohort_id: CohortId,
         target_properties: &HashMap<String, Value>,
         cohort_cache: &CohortCache,
     ) -> Result<bool, FlagError> {
-        // Build the dependency graph
-        let graph = build_dependency_graph(team_id, initial_cohort_id, cohort_cache).await?;
+        let cohort_dependency_graph =
+            build_cohort_dependency_graph(team_id, initial_cohort_id, cohort_cache).await?;
 
-        // Perform topological sort
-        let sorted_nodes = toposort(&graph, None).map_err(|e| {
-            FlagError::CohortDependencyCycle(format!("Cyclic dependency detected: {:?}", e))
-        })?;
+        // We need to sort cohorts topologically to ensure we evaluate dependencies before the cohorts that depend on them.
+        // For example, if cohort A depends on cohort B, we need to evaluate B first to know if A matches.
+        // This also helps detect cycles - if cohort A depends on B which depends on A, toposort will fail.
+        let sorted_cohort_ids_as_graph_nodes =
+            toposort(&cohort_dependency_graph, None).map_err(|e| {
+                FlagError::CohortDependencyCycle(format!("Cyclic dependency detected: {:?}", e))
+            })?;
 
-        // Map to store evaluation results
-        let mut evaluation_results: HashMap<CohortId, bool> = HashMap::new();
+        // Store evaluation results for each cohort in a map, so we can look up whether a cohort matched
+        // when evaluating cohorts that depend on it, and also return the final result for the initial cohort
+        let mut evaluation_results = HashMap::new();
 
-        // Iterate in reverse topological order (dependencies first)
-        for node in sorted_nodes.into_iter().rev() {
-            let cohort_id = graph[node];
-            let cohort = cohort_cache.get_cohort_by_id(team_id, cohort_id).await?;
-            let property_filters = cohort.parse_filters()?; // Assuming parse_filters returns Vec<PropertyFilter>
-
-            // Evaluate dependencies
+        // Iterate through the sorted nodes in reverse order (so that we can evaluate dependencies first)
+        for node in sorted_cohort_ids_as_graph_nodes.into_iter().rev() {
+            let cohort_id = cohort_dependency_graph[node];
+            let cohort = cohort_cache
+                .get_cohort_by_id(team_id, cohort_dependency_graph[node])
+                .await?;
+            let property_filters = cohort.parse_filters()?;
             let dependencies = cohort.extract_dependencies()?;
-            let mut deps_match = true;
-            for dep_id in dependencies {
-                if let Some(&dep_result) = evaluation_results.get(&dep_id) {
-                    if !dep_result {
-                        deps_match = false;
-                        break;
-                    }
-                } else {
-                    // This should not happen due to topological sorting
-                    return Err(FlagError::CohortDependencyCycle(format!(
-                        "Missing dependency result for cohort {}",
-                        dep_id
-                    )));
-                }
-            }
 
-            if !deps_match {
+            // Check if all dependencies have been met (i.e., previous cohorts matched)
+            let dependencies_met = dependencies
+                .iter()
+                .all(|dep_id| evaluation_results.get(dep_id).copied().unwrap_or(false));
+
+            // If dependencies are not met, mark the current cohort as not matched and continue
+            // NB: We don't want to _exit_ here, since the non-matching cohort could be wrapped in a `not_in` operator
+            // and we want to evaluate all cohorts to determine if the initial cohort matches.
+            if !dependencies_met {
                 evaluation_results.insert(cohort_id, false);
                 continue;
             }
 
-            // Evaluate own property filters
+            // Evaluate all property filters for the current cohort
             let all_filters_match = property_filters
                 .iter()
                 .all(|filter| match_property(filter, target_properties, false).unwrap_or(false));
 
-            // Store the result in the cache
+            // Store the evaluation result for the current cohort
             evaluation_results.insert(cohort_id, all_filters_match);
-
-            // Optional: Early exit if desired
-            if !all_filters_match {
-                // break;
-            }
         }
 
-        // Return the result for the initial cohort
+        // Retrieve and return the evaluation result for the initial cohort
         evaluation_results
             .get(&initial_cohort_id)
             .copied()
-            .ok_or_else(|| FlagError::NoGroupTypeMappings)
+            .ok_or_else(|| FlagError::CohortNotFound(initial_cohort_id.to_string()))
     }
 
-    /// Evaluates property filters against target properties
-    async fn evaluate_property_filters(
-        &self,
-        property_filters: &[&PropertyFilter],
-        target_properties: &HashMap<String, Value>,
-    ) -> Result<bool, FlagError> {
-        for filter in property_filters {
-            if !match_property(filter, target_properties, false).unwrap_or(false) {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
-    /// Apply cohort membership logic based on operators
+    /// Apply cohort membership logic (i.e., IN|NOT_IN)
     fn apply_cohort_membership_logic(
         &self,
         cohort_filters: &[&PropertyFilter],
@@ -957,119 +939,23 @@ impl FeatureFlagMatcher {
             let matches = cohort_matches.get(&cohort_id).copied().unwrap_or(false);
             let operator = filter.operator.unwrap_or(OperatorType::In);
 
-            if !self.cohort_membership_operator(operator, matches) {
+            // Combine the operator logic directly within this method
+            let membership_match = match operator {
+                OperatorType::In => matches,
+                OperatorType::NotIn => !matches,
+                // Currently supported operators are IN and NOT IN
+                // Any other operator defaults to false
+                _ => false,
+            };
+
+            // If any filter does not match, return false early
+            if !membership_match {
                 return Ok(false);
             }
         }
+        // All filters matched
         Ok(true)
     }
-
-    /// Determines the final match based on the operator and match status
-    fn cohort_membership_operator(&self, operator: OperatorType, match_status: bool) -> bool {
-        match operator {
-            OperatorType::In => match_status,
-            OperatorType::NotIn => !match_status,
-            // Extend with other operators as needed
-            _ => false,
-        }
-    }
-
-    // /// Evaluates cohort-based property filters
-    // pub async fn evaluate_cohort_filters(
-    //     &self,
-    //     cohort_and_property_filters: &[PropertyFilter],
-    //     target_properties: &HashMap<String, Value>,
-    // ) -> Result<bool, FlagError> {
-    //     let cohort_cache =
-    //         CohortCache::new_with_team(self.team_id, self.postgres_reader.clone()).await?;
-
-    //     let (cohort_filters, property_filters) = cohort_and_property_filters
-    //         .iter()
-    //         .partition::<Vec<_>, _>(|f| f.is_cohort());
-
-    //     // Early exit if any of property filters fail to match
-    //     if !self
-    //         .evaluate_property_filters(&property_filters, target_properties)
-    //         .await?
-    //     {
-    //         return Ok(false);
-    //     }
-
-    //     // Evaluate cohort filters
-    //     let cohort_matches = self
-    //         .evaluate_cohort_dependencies(&cohort_filters, &cohort_cache, target_properties)
-    //         .await?;
-
-    //     // Apply cohort membership logic
-    //     self.apply_cohort_membership_logic(&cohort_filters, &cohort_matches)
-    // }
-
-    // /// Evaluates property filters against target properties
-    // async fn evaluate_property_filters(
-    //     &self,
-    //     property_filters: &[&PropertyFilter],
-    //     target_properties: &HashMap<String, Value>,
-    // ) -> Result<bool, FlagError> {
-    //     for filter in property_filters {
-    //         if !match_property(filter, target_properties, false).unwrap_or(false) {
-    //             return Ok(false);
-    //         }
-    //     }
-    //     Ok(true)
-    // }
-
-    // /// Evaluates cohort dependencies using the cache
-    // async fn evaluate_cohort_dependencies(
-    //     &self,
-    //     cohort_filters: &[&PropertyFilter],
-    //     cohort_cache: &CohortCache,
-    //     target_properties: &HashMap<String, Value>,
-    // ) -> Result<HashMap<CohortId, bool>, FlagError> {
-    //     let mut cohort_matches = HashMap::new();
-
-    //     for filter in cohort_filters {
-    //         let cohort_id = filter.get_cohort_id()?;
-    //         let filters_to_evaluate = cohort_cache
-    //             .get_flattened_filters(self.team_id, cohort_id)
-    //             .await?;
-
-    //         let all_filters_match = filters_to_evaluate
-    //             .iter()
-    //             .all(|filter| match_property(filter, target_properties, false).unwrap_or(false));
-
-    //         cohort_matches.insert(cohort_id, all_filters_match);
-    //     }
-
-    //     Ok(cohort_matches)
-    // }
-
-    // /// Applies cohort membership logic based on operators
-    // fn apply_cohort_membership_logic(
-    //     &self,
-    //     cohort_filters: &[&PropertyFilter],
-    //     cohort_matches: &HashMap<CohortId, bool>,
-    // ) -> Result<bool, FlagError> {
-    //     for filter in cohort_filters {
-    //         let cohort_id = filter.get_cohort_id()?;
-    //         let matches = cohort_matches.get(&cohort_id).copied().unwrap_or(false);
-    //         let operator = filter.operator.clone().unwrap_or(OperatorType::In);
-
-    //         if !self.cohort_membership_operator(operator, matches) {
-    //             return Ok(false);
-    //         }
-    //     }
-    //     Ok(true)
-    // }
-
-    // /// Determines the final match based on the operator and match status
-    // fn cohort_membership_operator(&self, operator: OperatorType, match_status: bool) -> bool {
-    //     match operator {
-    //         OperatorType::In => match_status,
-    //         OperatorType::NotIn => !match_status,
-    //         // Extend with other operators as needed
-    //         _ => false,
-    //     }
-    // }
 
     /// Check if a super condition matches for a feature flag.
     ///
@@ -1315,12 +1201,12 @@ impl FeatureFlagMatcher {
 }
 
 /// Constructs a dependency graph for cohorts.
-async fn build_dependency_graph(
+async fn build_cohort_dependency_graph(
     team_id: i32,
     initial_cohort_id: CohortId,
     cohort_cache: &CohortCache,
 ) -> Result<DiGraph<CohortId, ()>, FlagError> {
-    let mut graph: DiGraph<CohortId, ()> = DiGraph::new();
+    let mut graph = DiGraph::new();
     let mut node_map = HashMap::new();
 
     // Queue for BFS traversal
