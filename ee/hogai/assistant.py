@@ -64,26 +64,51 @@ class Assistant:
     def _compile_graph(self):
         builder = self._graph
 
-        router_node = RouterNode()
-        builder.add_node(RouterNode.name, router_node.run)
+        router_node = RouterNode(self._team)
+        builder.add_node(AssistantNodeName.ROUTER, router_node.run)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
+        builder.add_conditional_edges(
+            AssistantNodeName.ROUTER,
+            router_node.router,
+            path_map={"trends": AssistantNodeName.CREATE_TRENDS_PLAN},
+        )
 
         create_trends_plan_node = CreateTrendsPlanNode(self._team)
-        builder.add_node(CreateTrendsPlanNode.name, create_trends_plan_node.run)
+        builder.add_node(AssistantNodeName.CREATE_TRENDS_PLAN, create_trends_plan_node.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.CREATE_TRENDS_PLAN,
+            create_trends_plan_node.router,
+            path_map={
+                "tools": AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS,
+            },
+        )
 
         create_trends_plan_tools_node = CreateTrendsPlanToolsNode(self._team)
-        builder.add_node(CreateTrendsPlanToolsNode.name, create_trends_plan_tools_node.run)
+        builder.add_node(AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS, create_trends_plan_tools_node.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS,
+            create_trends_plan_tools_node.router,
+            path_map={
+                "continue": AssistantNodeName.CREATE_TRENDS_PLAN,
+                "next": AssistantNodeName.GENERATE_TRENDS,
+            },
+        )
 
         generate_trends_node = GenerateTrendsNode(self._team)
-        builder.add_node(GenerateTrendsNode.name, generate_trends_node.run)
+        builder.add_node(AssistantNodeName.GENERATE_TRENDS, generate_trends_node.run)
 
         generate_trends_tools_node = GenerateTrendsToolsNode(self._team)
-        builder.add_node(GenerateTrendsToolsNode.name, generate_trends_tools_node.run)
-        builder.add_edge(GenerateTrendsToolsNode.name, GenerateTrendsNode.name)
+        builder.add_node(AssistantNodeName.GENERATE_TRENDS_TOOLS, generate_trends_tools_node.run)
 
-        builder.add_edge(AssistantNodeName.START, create_trends_plan_node.name)
-        builder.add_conditional_edges(create_trends_plan_node.name, create_trends_plan_node.router)
-        builder.add_conditional_edges(create_trends_plan_tools_node.name, create_trends_plan_tools_node.router)
-        builder.add_conditional_edges(GenerateTrendsNode.name, generate_trends_node.router)
+        builder.add_edge(AssistantNodeName.GENERATE_TRENDS_TOOLS, AssistantNodeName.GENERATE_TRENDS)
+        builder.add_conditional_edges(
+            AssistantNodeName.GENERATE_TRENDS,
+            generate_trends_node.router,
+            path_map={
+                "tools": AssistantNodeName.GENERATE_TRENDS_TOOLS,
+                "next": AssistantNodeName.END,
+            },
+        )
 
         return builder.compile()
 

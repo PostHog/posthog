@@ -46,7 +46,6 @@ from ee.hogai.trends.toolkit import (
 from ee.hogai.trends.utils import GenerateTrendOutputModel, filter_trends_conversation
 from ee.hogai.utils import (
     AssistantNode,
-    AssistantNodeName,
     AssistantState,
     remove_line_breaks,
 )
@@ -62,8 +61,6 @@ from posthog.schema import (
 
 
 class CreateTrendsPlanNode(AssistantNode):
-    name = AssistantNodeName.CREATE_TRENDS_PLAN
-
     def run(self, state: AssistantState, config: RunnableConfig):
         intermediate_steps = state.get("intermediate_steps") or []
 
@@ -130,12 +127,8 @@ class CreateTrendsPlanNode(AssistantNode):
         }
 
     def router(self, state: AssistantState):
-        if state.get("plan") is not None:
-            return AssistantNodeName.GENERATE_TRENDS
-
         if state.get("intermediate_steps", []):
-            return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
-
+            return "tools"
         raise ValueError("Invalid state.")
 
     @property
@@ -225,8 +218,6 @@ class CreateTrendsPlanNode(AssistantNode):
 
 
 class CreateTrendsPlanToolsNode(AssistantNode):
-    name = AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
-
     def run(self, state: AssistantState, config: RunnableConfig):
         toolkit = TrendsAgentToolkit(self._team)
         intermediate_steps = state.get("intermediate_steps") or []
@@ -265,13 +256,11 @@ class CreateTrendsPlanToolsNode(AssistantNode):
 
     def router(self, state: AssistantState):
         if state.get("plan") is not None:
-            return AssistantNodeName.GENERATE_TRENDS
-        return AssistantNodeName.CREATE_TRENDS_PLAN
+            return "next"
+        return "continue"
 
 
 class GenerateTrendsNode(AssistantNode):
-    name = AssistantNodeName.GENERATE_TRENDS
-
     def run(self, state: AssistantState, config: RunnableConfig):
         generated_plan = state.get("plan", "")
         intermediate_steps = state.get("intermediate_steps") or []
@@ -321,8 +310,8 @@ class GenerateTrendsNode(AssistantNode):
 
     def router(self, state: AssistantState):
         if state.get("intermediate_steps") is not None:
-            return AssistantNodeName.GENERATE_TRENDS_TOOLS
-        return AssistantNodeName.END
+            return "next"
+        return "tools"
 
     @property
     def _model(self):
@@ -415,8 +404,6 @@ class GenerateTrendsToolsNode(AssistantNode):
     """
     Used for failover from generation errors.
     """
-
-    name = AssistantNodeName.GENERATE_TRENDS_TOOLS
 
     def run(self, state: AssistantState, config: RunnableConfig):
         intermediate_steps = state.get("intermediate_steps", [])

@@ -1,10 +1,17 @@
+from collections.abc import Callable
+
 from langchain_core.messages import AIMessage as LangchainAIMessage
+from langchain_core.messages import BaseMessage, ToolCall
+from langchain_core.messages import HumanMessage as LangchainHumanMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.utils import AssistantNode, AssistantNodeName, AssistantState
-from posthog.schema import RouterMessage
+from ee.hogai.router.prompts import router_system_prompt
+from ee.hogai.utils import AssistantNode, AssistantState
+from posthog.models.team.team import Team
+from posthog.schema import HumanMessage, RouterMessage
 
 
 @tool(parse_docstring=True)
@@ -36,26 +43,47 @@ def generate_funnel_insight():
 
 
 class RouterNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig):
-        tools = {
+    def __init__(self, team: Team):
+        super().__init__(team)
+        self._tools: dict[str, Callable] = {
             "generate_trends_insight": generate_trends_insight,
             "generate_funnel_insight": generate_funnel_insight,
         }
-        chain = self._model.bind_tools(tools.values(), tool_choice="required", parallel_tool_calls=False)
+
+    def run(self, state: AssistantState, config: RunnableConfig):
+        model = self._model.bind_tools(self._tools.values(), tool_choice="required", parallel_tool_calls=False)
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", router_system_prompt),
+            ],
+            template_format="mustache",
+        ) + self._reconstruct_conversation(state)
+        chain = prompt | model
+
         message: LangchainAIMessage = chain.invoke({"input": state.input}, config)
         tool_name = message.tool_calls[0]["name"]
-        tool = tools[tool_name]()
+        tool = self._tools[tool_name]()
         return {"messages": [RouterMessage(route=tool)]}
 
     def router(self, state: AssistantState):
-        last_message = state.messages[-1]
+        last_message = state["messages"][-1]
         if isinstance(last_message, RouterMessage):
-            if last_message.route == "trends":
-                return AssistantNodeName.CREATE_TRENDS_PLAN
-            elif last_message.route == "funnel":
-                return AssistantNodeName.CREATE_FUNNEL_PLAN
+            return last_message.route
         raise ValueError("Invalid route.")
 
     @property
     def _model(self):
         return ChatOpenAI(model="gpt-4o-mini", temperature=0, streaming=True)
+
+    def _reconstruct_conversation(self, state: AssistantState):
+        history: list[BaseMessage] = []
+        for message in state["messages"]:
+            if isinstance(message, HumanMessage):
+                history.append(LangchainHumanMessage(content=message.content))
+            elif isinstance(message, RouterMessage):
+                tool_call: ToolCall = {
+                    "name": message.route,
+                    "args": {},
+                }
+                history.append(LangchainAIMessage(content="", tool_calls=[tool_call]))
+        return history

@@ -10,9 +10,16 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
 from posthog.models.team.team import Team
-from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, RootAssistantMessage, VisualizationMessage
+from posthog.schema import (
+    AssistantMessage,
+    FailureMessage,
+    HumanMessage,
+    RootAssistantMessage,
+    RouterMessage,
+    VisualizationMessage,
+)
 
-AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage]
+AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage, RouterMessage]
 
 
 class Conversation(BaseModel):
@@ -29,14 +36,15 @@ class AssistantState(TypedDict):
 class AssistantNodeName(StrEnum):
     START = START
     END = END
+    ROUTER = "router"
     CREATE_TRENDS_PLAN = "create_trends_plan"
     CREATE_TRENDS_PLAN_TOOLS = "create_trends_plan_tools"
     GENERATE_TRENDS = "generate_trends_schema"
     GENERATE_TRENDS_TOOLS = "generate_trends_tools"
+    CREATE_FUNNEL_PLAN = "create_funnel_plan"
 
 
 class AssistantNode(ABC):
-    name: AssistantNodeName
     _team: Team
 
     def __init__(self, team: Team):
