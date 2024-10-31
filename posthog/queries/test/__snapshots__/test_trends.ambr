@@ -4,8 +4,8 @@
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = NULL
   '''
 # ---
@@ -14,8 +14,8 @@
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = 2
   '''
 # ---
@@ -24,8 +24,8 @@
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 2
   '''
 # ---
@@ -50,11 +50,11 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND distinct_id IN
                (SELECT distinct_id
                 FROM events
-                WHERE team_id = 2
+                WHERE team_id = 99999
                   AND event IN ['sign up']
                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC'))
@@ -63,22 +63,22 @@
         INNER JOIN
           (SELECT id
            FROM person
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND id IN
                (SELECT id
                 FROM person
-                WHERE team_id = 2
+                WHERE team_id = 99999
                   AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND ((event = 'sign up'
                 AND (if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) IN
                        (SELECT DISTINCT person_id
                         FROM cohortpeople
-                        WHERE team_id = 2
-                          AND cohort_id = 2
+                        WHERE team_id = 99999
+                          AND cohort_id = 99999
                           AND version = 2 ))))
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
@@ -92,8 +92,8 @@
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = NULL
   '''
 # ---
@@ -102,8 +102,8 @@
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = 2
   '''
 # ---
@@ -112,8 +112,8 @@
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 2
   '''
 # ---
@@ -138,16 +138,16 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND ((event = 'sign up'
                 AND (if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) IN
                        (SELECT DISTINCT person_id
                         FROM cohortpeople
-                        WHERE team_id = 2
-                          AND cohort_id = 2
+                        WHERE team_id = 99999
+                          AND cohort_id = 99999
                           AND version = 2 ))))
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')

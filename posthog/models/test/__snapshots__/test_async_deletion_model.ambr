@@ -368,6 +368,6 @@
   
   SELECT DISTINCT team_id
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
   '''
 # ---
