@@ -15,10 +15,11 @@ export function getSaltForDay(timestamp: number, timezone: string | undefined): 
     const datetime = new Date(timestamp)
     // use the esperanto locale code to get the day of this timestamp in the timezone in YYYY-MM-DD format
     const day = datetime.toLocaleDateString('eo', { timeZone: timezone || TIMEZONE_FALLBACK })
+    const dayParts = day.split('-')
 
     // lookup the salt for this day
     // TODO
-    return 'salt' + day
+    return dayParts[0] + dayParts[1] + dayParts[2] + '00000000'
 }
 
 export function doHash(
@@ -27,14 +28,13 @@ export function doHash(
     teamId: number,
     ip: string,
     host: string,
-    userAgent: string,
-    nIdentifies: number = 0
+    userAgent: string
 ) {
     const salt = getSaltForDay(timestamp, timezone)
     const key = siphashDouble.string16_to_key(salt)
     const rootDomain = getDomain(host) || host
-    // use the 128-bit version of siphash to get the result
-    return siphashDouble.hash_hex(key, `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}-${nIdentifies}`)
+    // use the 128-bit version of siphash to get the result, with a stripe-style prefix so we can see what these ids are when debugging
+    return 'cklsh_' + siphashDouble.hash_hex(key, `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}`)
 }
 
 export async function cookielessServerHashStep(
@@ -45,6 +45,13 @@ export async function cookielessServerHashStep(
     if (event.properties?.['$device_id'] !== SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) {
         return [event]
     }
+    // if the team isn't using this mode, skip all processing
+    // const team = await runner.hub.teamManager.getTeamForEvent(event)
+    // if (!team?.cookieless_server_hash_opt_in) {
+    //     // TODO log
+    //     return [event]
+    // }
+
     // drop some events that aren't valid in this mode
     if (!event.timestamp) {
         // TODO log
@@ -77,13 +84,6 @@ export async function cookielessServerHashStep(
         return [undefined]
     }
 
-    // drop events from teams that aren't allowed to use this mode
-    const team = await runner.hub.teamManager.getTeamForEvent(event)
-    if (!team?.cookieless_server_hash_opt_in) {
-        // TODO log
-        return [undefined]
-    }
-
     const hashValue = doHash(timestamp, timezone, teamId, ip, host, userAgent)
     event.properties['$device_id'] = hashValue
 
@@ -93,8 +93,7 @@ export async function cookielessServerHashStep(
     // how many identifies have happened with that hash value?
     const numIdentifies = await runner.hub.db.redisSCard(identifiesRedisKey)
     // rehash with the number of identifies, so that each 'user' has a unique hash value
-    const hashValue2 =
-        numIdentifies === 0 ? hashValue : doHash(timestamp, timezone, teamId, ip, host, userAgent, numIdentifies)
+    const hashValue2 = numIdentifies === 0 ? hashValue : hashValue + '_' + numIdentifies
 
     if (event.event === '$identify') {
         // add this identify event id to redis
@@ -106,6 +105,7 @@ export async function cookielessServerHashStep(
     } else {
         // set the distinct id to the new hash value
         event.distinct_id = hashValue2
+        event.properties[`$distinct_id`] = hashValue2
     }
 
     const sessionRedisKey = `cookieless_s:${hashValue2}`
