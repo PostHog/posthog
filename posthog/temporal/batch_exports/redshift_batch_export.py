@@ -229,6 +229,9 @@ def get_redshift_fields_from_record_schema(
     pg_schema: list[PostgreSQLField] = []
 
     for name in record_schema.names:
+        if name == "_inserted_at":
+            continue
+
         pa_field = record_schema.field(name)
 
         if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
