@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -88,7 +88,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -149,7 +149,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -182,7 +182,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.12
@@ -192,7 +192,7 @@
   WHERE (NOT "posthog_annotation"."deleted"
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 2))
+              OR "posthog_annotation"."team_id" = 99999))
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.13
@@ -271,7 +271,7 @@
   WHERE (NOT "posthog_annotation"."deleted"
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 2))
+              OR "posthog_annotation"."team_id" = 99999))
   ORDER BY "posthog_annotation"."date_marker" DESC
   LIMIT 1000
   '''
@@ -305,7 +305,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.3
@@ -315,7 +315,7 @@
   WHERE (NOT "posthog_annotation"."deleted"
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 2))
+              OR "posthog_annotation"."team_id" = 99999))
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.4
@@ -346,7 +346,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -407,7 +407,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -440,7 +440,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.7
@@ -450,7 +450,7 @@
   WHERE (NOT "posthog_annotation"."deleted"
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 2))
+              OR "posthog_annotation"."team_id" = 99999))
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.8
@@ -529,7 +529,7 @@
   WHERE (NOT "posthog_annotation"."deleted"
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
-              OR "posthog_annotation"."team_id" = 2))
+              OR "posthog_annotation"."team_id" = 99999))
   ORDER BY "posthog_annotation"."date_marker" DESC
   LIMIT 1000
   '''
@@ -562,7 +562,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---

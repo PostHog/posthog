@@ -156,7 +156,7 @@ export class CdpApi {
                             invocation: {
                                 ...invocation,
                                 queue: 'hog',
-                                queueParameters: { response: { status: 200, body: '{}' } },
+                                queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
                             },
                             finished: false,
                             logs: [
@@ -185,7 +185,7 @@ export class CdpApi {
 
             res.json({
                 status: lastResponse.finished ? 'success' : 'error',
-                error: String(lastResponse.error),
+                error: lastResponse.error ? String(lastResponse.error) : null,
                 logs: logs,
             })
         } catch (e) {

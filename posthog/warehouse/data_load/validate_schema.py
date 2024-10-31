@@ -50,7 +50,7 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
         hogql_type = IntegerDatabaseField
     elif dlt_type == "binary":
         raise Exception("DLT type 'binary' is not a supported column type")
-    elif dlt_type == "complex":
+    elif dlt_type == "json":
         hogql_type = StringJSONDatabaseField
     elif dlt_type == "decimal":
         hogql_type = IntegerDatabaseField
