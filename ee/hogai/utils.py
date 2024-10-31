@@ -10,9 +10,9 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
 from posthog.models.team.team import Team
-from posthog.schema import AssistantMessage, HumanMessage, RootAssistantMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, RootAssistantMessage, VisualizationMessage
 
-AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage]
+AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage]
 
 
 class Conversation(BaseModel):
@@ -24,7 +24,6 @@ class AssistantState(TypedDict):
     messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
     plan: Optional[str]
-    tool_argument: Optional[str]
 
 
 class AssistantNodeName(StrEnum):

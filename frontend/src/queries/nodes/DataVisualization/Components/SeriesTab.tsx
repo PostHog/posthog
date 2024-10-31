@@ -12,7 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { getSeriesColor } from 'lib/colors'
+import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
@@ -20,6 +20,7 @@ import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { ColorPickerButton } from './ColorPickerButton'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
@@ -98,7 +99,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
     const { isDarkModeOn } = useValues(themeLogic)
-    const seriesColor = getSeriesColor(index)
+    const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     const columnsInOptions = showTableSettings ? columns : numericalColumns
     const options = columnsInOptions.map(({ name, type }) => ({
@@ -219,9 +220,20 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
-            <LemonField name="label" label="Label">
-                <LemonInput />
-            </LemonField>
+            <div className="flex gap-3">
+                <LemonField name="color" label="Color">
+                    {({ value, onChange }) => (
+                        <ColorPickerButton
+                            color={value}
+                            onColorSelect={onChange}
+                            colorChoices={getSeriesColorPalette()}
+                        />
+                    )}
+                </LemonField>
+                <LemonField name="label" label="Label">
+                    <LemonInput />
+                </LemonField>
+            </div>
             {!showTableSettings && (
                 <>
                     <LemonField name="trendLine" label="Trend line">

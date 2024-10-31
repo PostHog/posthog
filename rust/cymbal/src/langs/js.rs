@@ -62,7 +62,7 @@ impl RawJSFrame {
         (self, e).into()
     }
 
-    fn source_url(&self) -> Result<Url, JsResolveErr> {
+    pub fn source_url(&self) -> Result<Url, JsResolveErr> {
         // We can't resolve a frame without a source ref, and are forced
         // to assume this frame is not minified
         let Some(source_url) = &self.source_url else {

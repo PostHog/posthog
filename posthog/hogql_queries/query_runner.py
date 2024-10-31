@@ -708,10 +708,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return fresh_response
 
     @abstractmethod
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise NotImplementedError()
 
-    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectSetQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 

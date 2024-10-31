@@ -15,3 +15,4 @@ pub const STORE_CACHE_EVICTIONS: &str = "cymbal_store_cache_evictions";
 pub const MAIN_LOOP_TIME: &str = "cymbal_main_loop_time";
 pub const PER_FRAME_TIME: &str = "cymbal_per_frame_time";
 pub const PER_STACK_TIME: &str = "cymbal_per_stack_time";
+pub const PER_FRAME_GROUP_TIME: &str = "cymbal_per_frame_group_time";

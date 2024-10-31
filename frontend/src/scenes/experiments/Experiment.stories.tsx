@@ -116,6 +116,7 @@ const MOCK_FUNNEL_EXPERIMENT: Experiment = {
         interval: 'day',
         filter_test_accounts: true,
     },
+    metrics: [],
     archived: false,
     created_by: {
         id: 1,
@@ -172,6 +173,7 @@ const MOCK_TREND_EXPERIMENT: Experiment = {
             },
         },
     },
+    metrics: [],
     parameters: {
         feature_flag_variants: [
             {
@@ -399,6 +401,7 @@ const MOCK_TREND_EXPERIMENT_MANY_VARIANTS: Experiment = {
             },
         },
     },
+    metrics: [],
     parameters: {
         feature_flag_variants: [
             {
