@@ -2,9 +2,10 @@ import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { ReactNode, useMemo, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -51,6 +52,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     } = useActions(billingProductLogic({ product: addon }))
     const { openSupportForm } = useActions(supportLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
 
     const { prorationAmount, isProrated } = useMemo(
@@ -82,6 +85,21 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const is_enhanced_persons_og_customer =
         addon.type === 'enhanced_persons' &&
         addon.plans?.find((plan) => plan.plan_key === 'addon-20240404-og-customers')
+
+    const trialExperiment = featureFlags[FEATURE_FLAGS.BILLING_TRIAL_FLOW]
+
+    const handleTrialActivation = (): void => {
+        if (trialExperiment === 'modal') {
+            // Modal - Show trial modal (default behavior)
+            setTrialModalOpen(true)
+        } else if (trialExperiment === 'control') {
+            // Direct - Activate trial immediately
+            activateTrial()
+        } else {
+            // No trial flow even without the feature flag
+            initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, redirectPath)
+        }
+    }
 
     return (
         <div
@@ -172,6 +190,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         You're on a trial for this add-on
                                     </LemonTag>
                                 </Tooltip>
+                                {/* Comment out until we can make sure a customer can't activate a trial multiple times */}
                                 {/* <LemonButton
                                     type="primary"
                                     size="small"
@@ -216,7 +235,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     </LemonButton>
                                 )}
                                 {!addon.inclusion_only &&
-                                    (addon.trial ? (
+                                    (addon.trial && !!trialExperiment ? (
                                         <LemonButton
                                             type="primary"
                                             icon={<IconPlus />}
@@ -227,7 +246,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                                 (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
                                             }
                                             loading={billingProductLoading === addon.type}
-                                            onClick={() => setTrialModalOpen(true)}
+                                            onClick={handleTrialActivation}
                                         >
                                             Start trial
                                         </LemonButton>
