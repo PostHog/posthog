@@ -297,16 +297,15 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         elements.forEach((elements) => {
                             const htmlElement = elements as HTMLElement
                             if (htmlElement) {
-                                if (transform.text) {
-                                    htmlElement.innerText = transform.text
-                                }
-
                                 if (transform.html) {
                                     htmlElement.innerHTML = transform.html
                                 }
 
                                 if (transform.css) {
                                     htmlElement.setAttribute('style', transform.css)
+                                }
+                                if (transform.text) {
+                                    htmlElement.innerText = transform.text
                                 }
                             }
                         })
