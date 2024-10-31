@@ -70,6 +70,8 @@ func main() {
 	unSubChan := make(chan Subscription)
 
 	tokenFinderChan := make(chan map[string]interface{})
+	tokenFinder := NewTokenFinder(tokenFinderChan)
+	go tokenFinder.Run()
 
 	go stats.keepStats(statsChan)
 
@@ -84,9 +86,6 @@ func main() {
 	}
 	defer consumer.Close()
 	go consumer.Consume()
-
-	tokenFinder := NewTokenFinder(tokenFinderChan)
-	go tokenFinder.Run()
 
 	filter := NewFilter(subChan, unSubChan, phEventChan)
 	go filter.Run()

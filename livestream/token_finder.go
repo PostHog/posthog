@@ -25,11 +25,8 @@ func NewTokenFinder(JSONChan chan map[string]interface{}) *TokenFinder {
 }
 
 func (tf *TokenFinder) Run() {
-	for {
-		select {
-		case newJSON := <-tf.JSONChan:
-			tf.Process(newJSON, "")
-		}
+	for newJSON := range tf.JSONChan {
+		tf.Process(newJSON, "")
 	}
 }
 

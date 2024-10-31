@@ -20,14 +20,16 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 	// Create channels
 	outgoingChan := make(chan PostHogEvent, 1)
 	statsChan := make(chan PostHogEvent, 1)
+	tokenFinderChan := make(chan map[string]interface{}, 1)
 
 	// Create PostHogKafkaConsumer
 	consumer := &PostHogKafkaConsumer{
-		consumer:     mockConsumer,
-		topic:        "test-topic",
-		geolocator:   mockGeoLocator,
-		outgoingChan: outgoingChan,
-		statsChan:    statsChan,
+		consumer:        mockConsumer,
+		topic:           "test-topic",
+		geolocator:      mockGeoLocator,
+		outgoingChan:    outgoingChan,
+		statsChan:       statsChan,
+		tokenFinderChan: tokenFinderChan,
 	}
 
 	// Mock SubscribeTopics
