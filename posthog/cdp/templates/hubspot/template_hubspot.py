@@ -114,14 +114,22 @@ let properties := {}
 
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
-        properties[key] := value
+        if (typeof(value) in ('object', 'array', 'tuple')) {
+            properties[key] := jsonStringify(value)
+        } else {
+            properties[key] := value
+        }
     }
 }
 
 if (inputs.include_all_properties) {
     for (let key, value in event.properties) {
         if (not empty(value) and not key like '$%') {
-            properties[key] := value
+            if (typeof(value) in ('object', 'array', 'tuple')) {
+                properties[key] := jsonStringify(value)
+            } else {
+                properties[key] := value
+            }
         }
     }
 }
