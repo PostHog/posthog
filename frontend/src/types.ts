@@ -3267,7 +3267,7 @@ export interface ExperimentMetric {
 }
 
 export interface Experiment {
-    id: number | 'new' | 'web'
+    id: ExperimentIdType
     name: string
     type?: string
     description?: string
