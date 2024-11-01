@@ -68,13 +68,13 @@ def validate_migration_sql(sql) -> bool:
             )
             return True
         if (
-            "CONSTRAINT" in operation_sql
+            " CONSTRAINT " in operation_sql
             # Ignore for new foreign key columns that are nullable, as their foreign key constraint does not lock
-            and not re.match(r"ADD COLUMN .+ NULL CONSTRAINT", operation_sql)
+            and not re.search(r"ADD COLUMN .+ NULL CONSTRAINT", operation_sql)
             and "-- existing-table-constraint-ignore" not in operation_sql
             and " NOT VALID" not in operation_sql
-            and " VALIDATE CONSTRAINT "
-            not in operation_sql  # VALIDATE CONSTRAINT is a different, non-locking operation
+            # VALIDATE CONSTRAINT is a different, non-locking operation
+            and " VALIDATE CONSTRAINT " not in operation_sql
             and (
                 table_being_altered not in tables_created_so_far
                 or _get_table("ALTER TABLE", operation_sql) not in new_tables  # Ignore for brand-new tables
@@ -85,7 +85,7 @@ def validate_migration_sql(sql) -> bool:
                 "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
                 "If adding the constraint by itself, please use `AddConstraintNotValid()` of `django.contrib.postgres.operations` instead. "
                 "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation.\n"
-                "Source: `{operation_sql}`"
+                f"Source: `{operation_sql}`"
             )
             return True
         if (
@@ -98,7 +98,7 @@ def validate_migration_sql(sql) -> bool:
                 "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
                 "If adding the index by itself, please use `AddIndexConcurrently()` of `django.contrib.postgres.operations` instead. "
                 "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#concurrent-index-operations.\n"
-                "Source: `{operation_sql}`"
+                f"Source: `{operation_sql}`"
             )
             return True
 

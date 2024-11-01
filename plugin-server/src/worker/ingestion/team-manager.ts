@@ -154,6 +154,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
         `
             SELECT
                 id,
+                project_id,
                 uuid,
                 organization_id,
                 name,
@@ -172,7 +173,13 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
         [teamId],
         'fetchTeam'
     )
-    return selectResult.rows[0] ?? null
+    if (selectResult.rows.length === 0) {
+        return null
+    }
+    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
+    // but this is not a problem for project_id, which is a long long way from that limit.
+    selectResult.rows[0].project_id = parseInt(selectResult.rows[0].project_id as unknown as string)
+    return selectResult.rows[0]
 }
 
 export async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
@@ -181,6 +188,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
         `
             SELECT
                 id,
+                project_id,
                 uuid,
                 organization_id,
                 name,
@@ -199,7 +207,13 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
         [token],
         'fetchTeamByToken'
     )
-    return selectResult.rows[0] ?? null
+    if (selectResult.rows.length === 0) {
+        return null
+    }
+    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
+    // but this is not a problem for project_id, which is a long long way from that limit.
+    selectResult.rows[0].project_id = parseInt(selectResult.rows[0].project_id as unknown as string)
+    return selectResult.rows[0]
 }
 
 export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {
