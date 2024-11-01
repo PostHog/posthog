@@ -1,483 +1,235 @@
 use crate::api::FlagError;
-use crate::cohort_models::{Cohort, CohortId};
-use crate::flag_matching::PostgresReader;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use crate::cohort_models::Cohort;
+use crate::flag_matching::{PostgresReader, TeamId};
+use moka::future::Cache;
+use std::time::Duration;
 
-/// CohortCache manages the in-memory cache of cohorts
+/// CohortCache manages the in-memory cache of cohorts using `moka` for caching.
 ///
-/// Example cache structure:
 /// ```text
 /// per_team_cohorts: {
-///   1: [
-///     Cohort { id: 101, name: "Active Users", filters: [...] },
-///     Cohort { id: 102, name: "Power Users", filters: [...] }
-///   ],
-///   2: [
-///     Cohort { id: 201, name: "New Users", filters: [...] },
-///     Cohort { id: 202, name: "Churned Users", filters: [...] }
-///   ]
+///   1: [Cohort { id: 101, name: "Active Users", filters: [...] }, ...],
+///   2: [Cohort { id: 201, name: "New Users", filters: [...] }, ...]
 /// }
 /// ```
+///
+/// Features:
+/// - **TTL**: Each cache entry expires after 5 minutes.
+/// - **Size-based eviction**: The cache evicts least recently used entries when the maximum capacity is reached.
+///
+/// Caches only successful cohort lists to maintain cache integrity.
 #[derive(Clone)]
 pub struct CohortCache {
-    pub per_team_cohorts: Arc<RwLock<HashMap<i32, Vec<Cohort>>>>, // team_id -> list of Cohorts
-}
-
-impl Default for CohortCache {
-    fn default() -> Self {
-        Self::new()
-    }
+    postgres_reader: PostgresReader,
+    per_team_cohorts: Cache<TeamId, Vec<Cohort>>, // team_id -> list of Cohorts
 }
 
 impl CohortCache {
-    pub fn new() -> Self {
-        Self {
-            per_team_cohorts: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-
-    /// Asynchronous constructor that initializes the CohortCache by fetching and caching cohorts for the given team_id
-    pub async fn new_with_team(
-        team_id: i32,
+    /// Creates a new `CohortCache` with configurable TTL and maximum capacity.
+    pub fn new(
         postgres_reader: PostgresReader,
-    ) -> Result<Self, FlagError> {
-        let cache = Self {
-            per_team_cohorts: Arc::new(RwLock::new(HashMap::new())),
+        max_capacity: Option<u64>,
+        ttl_seconds: Option<u64>,
+    ) -> Self {
+        // Define the weigher closure. Here, we consider the number of cohorts as the weight.
+        let weigher = |_: &TeamId, value: &Vec<Cohort>| -> u32 {
+            return value.len().try_into().unwrap_or(u32::MAX);
         };
-        cache
-            .fetch_and_cache_all_cohorts(team_id, postgres_reader)
-            .await?;
-        Ok(cache)
-    }
 
-    /// Fetches and caches all cohorts for a given team
-    ///
-    /// Cache structure:
-    /// ```text
-    /// per_team_cohorts: {
-    ///   team_id_1: [
-    ///     Cohort { id: 1, filters: [...], ... },
-    ///     Cohort { id: 2, filters: [...], ... },
-    ///     ...
-    ///   ],
-    ///   team_id_2: [
-    ///     Cohort { id: 3, filters: [...], ... },
-    ///     ...
-    ///   ]
-    /// }
-    /// ```
-    async fn fetch_and_cache_all_cohorts(
-        &self,
-        team_id: i32,
-        postgres_reader: PostgresReader,
-    ) -> Result<(), FlagError> {
-        let cohorts = Cohort::list_from_pg(postgres_reader, team_id).await?;
-        let mut cache = self.per_team_cohorts.write().await;
-        cache.insert(team_id, cohorts);
+        // Initialize the Moka cache with TTL and size-based eviction.
+        let cache = Cache::builder()
+            .time_to_live(Duration::from_secs(ttl_seconds.unwrap_or(300))) // Default to 5 minutes
+            .weigher(weigher)
+            .max_capacity(max_capacity.unwrap_or(10_000)) // Default to 10,000 cohorts
+            .build();
 
-        Ok(())
-    }
-
-    /// Retrieves a specific cohort by ID for a given team
-    pub async fn get_cohort_by_id(
-        &self,
-        team_id: i32,
-        cohort_id: CohortId,
-    ) -> Result<Cohort, FlagError> {
-        let cache = self.per_team_cohorts.read().await;
-        if let Some(cohorts) = cache.get(&team_id) {
-            if let Some(cohort) = cohorts.iter().find(|c| c.id == cohort_id) {
-                return Ok(cohort.clone());
-            }
+        Self {
+            postgres_reader,
+            per_team_cohorts: cache,
         }
-        Err(FlagError::CohortNotFound(cohort_id.to_string()))
+    }
+
+    /// Retrieves cohorts for a given team.
+    ///
+    /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
+    /// caches the result upon successful retrieval, and then returns it.
+    pub async fn get_cohorts_for_team(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
+        if let Some(cached_cohorts) = self.per_team_cohorts.get(&team_id).await {
+            return Ok(cached_cohorts.clone());
+        }
+        // Fetch from database
+        let fetched_cohorts = Cohort::list_from_pg(self.postgres_reader.clone(), team_id).await?;
+        // Insert into cache
+        self.per_team_cohorts
+            .insert(team_id.clone(), fetched_cohorts.clone())
+            .await;
+
+        Ok(fetched_cohorts)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cohort_models::Cohort;
     use crate::test_utils::{
         insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
         setup_pg_writer_client,
     };
-    use serde_json::json;
-    use std::collections::HashSet;
+    use std::sync::Arc;
+    use tokio::time::{sleep, Duration};
 
-    #[tokio::test]
-    async fn test_default_cache_is_empty() {
-        let cache = CohortCache::default();
-        let cache_guard = cache.per_team_cohorts.read().await;
-        assert!(cache_guard.is_empty(), "Default cache should be empty");
+    /// Helper function to setup a new team for testing.
+    async fn setup_test_team(
+        writer_client: Arc<dyn crate::database::Client + Send + Sync>,
+    ) -> Result<TeamId, anyhow::Error> {
+        let team = crate::test_utils::insert_new_team_in_pg(writer_client, None).await?;
+        Ok(team.id)
     }
 
-    #[tokio::test]
-    async fn test_new_with_team_initializes_cache() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .expect("Failed to insert team");
-
-        // Insert cohorts for the team
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team.id,
-            Some("Active Users".to_string()),
-            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$active", "type": "person", "value": [true], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Active Users cohort");
-
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team.id,
-            Some("Power Users".to_string()),
-            json!({"properties": {"type": "AND", "values": [{"type": "property", "values": [{"key": "usage", "type": "person", "value": [100], "negation": false, "operator": "gt"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Power Users cohort");
-
-        // Initialize the cache with the team
-        let cache = CohortCache::new_with_team(team.id, postgres_reader.clone())
-            .await
-            .expect("Failed to initialize CohortCache with team");
-
-        let cache_guard = cache.per_team_cohorts.read().await;
-        assert!(
-            cache_guard.contains_key(&team.id),
-            "Cache should contain the team_id"
-        );
-
-        let cohorts = cache_guard.get(&team.id).unwrap();
-        assert_eq!(cohorts.len(), 2, "There should be 2 cohorts for the team");
-        let cohort_names: HashSet<String> = cohorts.iter().map(|c| c.name.clone()).collect();
-        assert!(
-            cohort_names.contains("Active Users"),
-            "Cache should contain 'Active Users' cohort"
-        );
-        assert!(
-            cohort_names.contains("Power Users"),
-            "Cache should contain 'Power Users' cohort"
-        );
+    /// Helper function to insert a cohort for a team.
+    async fn setup_test_cohort(
+        writer_client: Arc<dyn crate::database::Client + Send + Sync>,
+        team_id: TeamId, // Adjusted to accept TeamId
+        name: Option<String>,
+    ) -> Result<Cohort, anyhow::Error> {
+        let filters = serde_json::json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$active", "type": "person", "value": [true], "negation": false, "operator": "exact"}]}]}});
+        insert_cohort_for_team_in_pg(writer_client, team_id, name, filters, false).await
     }
 
+    /// Tests that cache entries expire after the specified TTL.
     #[tokio::test]
-    async fn test_get_cohort_by_id_success() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
+    async fn test_cache_expiry() -> Result<(), anyhow::Error> {
+        // Setup PostgreSQL clients
+        let writer_client = setup_pg_writer_client(None).await;
+        let reader_client = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .expect("Failed to insert team");
+        // Setup test team and cohort
+        let team_id = setup_test_team(writer_client.clone()).await?;
+        let _cohort = setup_test_cohort(writer_client.clone(), team_id.clone(), None).await?;
 
-        let cohort = insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team.id,
-            Some("Active Users".to_string()),
-            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$active", "type": "person", "value": [true], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Active Users cohort");
+        // Initialize CohortCache with a short TTL for testing
+        let cohort_cache = CohortCache::new(
+            reader_client.clone(),
+            Some(100),
+            Some(1), // 1-second TTL
+        );
 
-        let cache = CohortCache::new_with_team(team.id, postgres_reader.clone())
-            .await
-            .expect("Failed to initialize CohortCache with team");
+        // Fetch cohorts, which should populate the cache
+        let cohorts = cohort_cache.get_cohorts_for_team(team_id.clone()).await?;
+        assert_eq!(cohorts.len(), 1);
+        assert_eq!(cohorts[0].team_id, team_id.clone());
 
-        let fetched_cohort = cache
-            .get_cohort_by_id(team.id, cohort.id)
-            .await
-            .expect("Failed to retrieve cohort by ID");
+        // Ensure the cohort is cached
+        let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await;
+        assert!(cached_cohorts.is_some());
 
+        // Wait for TTL to expire
+        sleep(Duration::from_secs(2)).await;
+
+        // Attempt to retrieve from cache again
+        let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await;
+        assert!(cached_cohorts.is_none(), "Cache entry should have expired");
+
+        Ok(())
+    }
+
+    /// Tests that the cache correctly evicts least recently used entries based on the weigher.
+    #[tokio::test]
+    async fn test_cache_weigher() -> Result<(), anyhow::Error> {
+        // Setup PostgreSQL clients
+        let writer_client = setup_pg_writer_client(None).await;
+        let reader_client = setup_pg_reader_client(None).await;
+
+        // Define a smaller max_capacity and TTL for testing
+        let max_capacity: u64 = 3;
+        let ttl_seconds: u64 = 300; // 5 minutes
+
+        // Initialize CohortCache
+        let cohort_cache =
+            CohortCache::new(reader_client.clone(), Some(max_capacity), Some(ttl_seconds));
+
+        let mut inserted_team_ids = Vec::new();
+
+        // Insert multiple teams and their cohorts
+        for _ in 0..max_capacity {
+            let team = insert_new_team_in_pg(writer_client.clone(), None).await?;
+            let team_id = team.id;
+            inserted_team_ids.push(team_id.clone());
+            setup_test_cohort(writer_client.clone(), team_id.clone(), None).await?;
+            cohort_cache.get_cohorts_for_team(team_id.clone()).await?;
+        }
+
+        // The cache should be at max_capacity
+        cohort_cache.per_team_cohorts.run_pending_tasks().await;
+        let cache_size = cohort_cache.per_team_cohorts.entry_count();
         assert_eq!(
-            fetched_cohort.id, cohort.id,
-            "Fetched cohort ID should match"
+            cache_size, max_capacity,
+            "Cache size should be equal to max_capacity"
         );
+
+        // Insert one more team to trigger eviction
+        let new_team = insert_new_team_in_pg(writer_client.clone(), None).await?;
+        let new_team_id = new_team.id;
+        setup_test_cohort(writer_client.clone(), new_team_id.clone(), None).await?;
+        cohort_cache
+            .get_cohorts_for_team(new_team_id.clone())
+            .await?;
+
+        // Now, the cache should still have max_capacity entries
+        cohort_cache.per_team_cohorts.run_pending_tasks().await;
+        let cache_size_after = cohort_cache.per_team_cohorts.entry_count();
         assert_eq!(
-            fetched_cohort.name, "Active Users",
-            "Fetched cohort name should match"
+            cache_size_after, max_capacity,
+            "Cache size should remain equal to max_capacity after eviction"
         );
+
+        // The least recently used team should have been evicted
+        let evicted_team_id = &inserted_team_ids[0];
+        let cached_cohorts = cohort_cache.per_team_cohorts.get(evicted_team_id).await;
+        assert!(
+            cached_cohorts.is_none(),
+            "Least recently used cache entry should have been evicted"
+        );
+
+        // The new team should be present
+        let cached_new_team = cohort_cache.per_team_cohorts.get(&new_team_id).await;
+        assert!(
+            cached_new_team.is_some(),
+            "Newly added cache entry should be present"
+        );
+
+        Ok(())
     }
 
+    /// Functional test to verify that fetching cohorts populates the cache correctly.
     #[tokio::test]
-    async fn test_get_cohort_by_id_not_found() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
+    async fn test_get_cohorts_for_team() -> Result<(), anyhow::Error> {
+        // Setup PostgreSQL clients
+        let writer_client = setup_pg_writer_client(None).await;
+        let reader_client = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .expect("Failed to insert team");
+        // Setup test team and cohort
+        let team_id = setup_test_team(writer_client.clone()).await?;
+        let _cohort = setup_test_cohort(writer_client.clone(), team_id.clone(), None).await?;
 
-        // Insert a cohort to ensure the team has at least one cohort
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team.id,
-            Some("Active Users".to_string()),
-            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$active", "type": "person", "value": [true], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Active Users cohort");
+        // Initialize CohortCache
+        let cohort_cache = CohortCache::new(reader_client.clone(), None, None);
 
-        let cache = CohortCache::new_with_team(team.id, postgres_reader.clone())
-            .await
-            .expect("Failed to initialize CohortCache with team");
+        // Initially, cache should be empty
+        let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await;
+        assert!(cached_cohorts.is_none(), "Cache should initially be empty");
 
-        let non_existent_cohort_id = 9999;
-        let result = cache
-            .get_cohort_by_id(team.id, non_existent_cohort_id)
-            .await;
+        // Fetch cohorts, which should populate the cache
+        let cohorts = cohort_cache.get_cohorts_for_team(team_id.clone()).await?;
+        assert_eq!(cohorts.len(), 1);
+        assert_eq!(cohorts[0].team_id, team_id.clone());
 
-        assert!(
-            matches!(result, Err(FlagError::CohortNotFound(_))),
-            "Should return CohortNotFound error for non-existent cohort ID"
-        );
-    }
+        // Now, cache should have the cohorts
+        let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await.unwrap();
+        assert_eq!(cached_cohorts.len(), 1);
+        assert_eq!(cached_cohorts[0].team_id, team_id.clone());
 
-    #[tokio::test]
-    async fn test_fetch_and_cache_all_cohorts() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .expect("Failed to insert team");
-
-        // Insert multiple cohorts for the team
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team.id,
-            Some("Active Users".to_string()),
-            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$active", "type": "person", "value": [true], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Active Users cohort");
-
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team.id,
-            Some("Power Users".to_string()),
-            json!({"properties": {"type": "AND", "values": [{"type": "property", "values": [{"key": "usage", "type": "person", "value": [100], "negation": false, "operator": "gt"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Power Users cohort");
-
-        let cache = CohortCache::new();
-
-        // Fetch and cache all cohorts for the team
-        cache
-            .fetch_and_cache_all_cohorts(team.id, postgres_reader.clone())
-            .await
-            .expect("Failed to fetch and cache all cohorts");
-
-        let cache_guard = cache.per_team_cohorts.read().await;
-        assert!(
-            cache_guard.contains_key(&team.id),
-            "Cache should contain the team_id"
-        );
-
-        let cohorts = cache_guard.get(&team.id).unwrap();
-        assert_eq!(
-            cohorts.len(),
-            2,
-            "There should be 2 cohorts cached for the team"
-        );
-
-        let cohort_names: HashSet<String> = cohorts.iter().map(|c| c.name.clone()).collect();
-        assert!(
-            cohort_names.contains("Active Users"),
-            "Cache should contain 'Active Users' cohort"
-        );
-        assert!(
-            cohort_names.contains("Power Users"),
-            "Cache should contain 'Power Users' cohort"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_cache_updates_on_new_cohort() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-
-        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .expect("Failed to insert team");
-
-        // Initialize the cache
-        let cache = CohortCache::new();
-
-        // Fetch and cache all cohorts for the team (initially, there should be none)
-        cache
-            .fetch_and_cache_all_cohorts(team.id, postgres_reader.clone())
-            .await
-            .expect("Failed to fetch and cache cohorts");
-
-        // Assert that the cache now contains the team_id with an empty vector
-        {
-            let cache_guard = cache.per_team_cohorts.read().await;
-            assert!(
-                cache_guard.contains_key(&team.id),
-                "Cache should contain the team_id after initial fetch"
-            );
-            let cohorts = cache_guard.get(&team.id).unwrap();
-            assert!(
-                cohorts.is_empty(),
-                "Cache for team_id should be empty initially"
-            );
-        }
-
-        // Insert a new cohort for the team
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team.id,
-            Some("New Cohort".to_string()),
-            json!({
-                "properties": {
-                    "type": "AND",
-                    "values": [{
-                        "type": "property",
-                        "values": [{
-                            "key": "subscription",
-                            "type": "person",
-                            "value": ["premium"],
-                            "negation": false,
-                            "operator": "exact"
-                        }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .expect("Failed to insert New Cohort");
-
-        // Update the cache by fetching again after inserting the new cohort
-        cache
-            .fetch_and_cache_all_cohorts(team.id, postgres_reader.clone())
-            .await
-            .expect("Failed to update cache with new cohort");
-
-        // Verify the cache has been updated with the new cohort
-        {
-            let cache_guard = cache.per_team_cohorts.read().await;
-            assert!(
-                cache_guard.contains_key(&team.id),
-                "Cache should contain the team_id after update"
-            );
-
-            let cohorts = cache_guard.get(&team.id).unwrap();
-            assert_eq!(
-                cohorts.len(),
-                1,
-                "There should be 1 cohort cached for the team after update"
-            );
-            assert_eq!(
-                cohorts[0].name, "New Cohort",
-                "Cached cohort should be 'New Cohort'"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn test_cache_handles_multiple_teams() {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-
-        // Insert two teams
-        let team1 = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .expect("Failed to insert team1");
-        let team2 = insert_new_team_in_pg(postgres_reader.clone(), None)
-            .await
-            .expect("Failed to insert team2");
-
-        // Insert cohorts for team1
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team1.id,
-            Some("Team1 Cohort1".to_string()),
-            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "feature_x", "type": "feature", "value": [true], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Team1 Cohort1");
-
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team1.id,
-            Some("Team1 Cohort2".to_string()),
-            json!({"properties": {"type": "AND", "values": [{"type": "property", "values": [{"key": "usage", "type": "feature", "value": [50], "negation": false, "operator": "gt"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Team1 Cohort2");
-
-        // Insert cohorts for team2
-        insert_cohort_for_team_in_pg(
-            postgres_writer.clone(),
-            team2.id,
-            Some("Team2 Cohort1".to_string()),
-            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "region", "type": "geo", "value": ["NA"], "negation": false, "operator": "exact"}]}]}}),
-            false,
-        )
-        .await
-        .expect("Failed to insert Team2 Cohort1");
-
-        // Initialize and cache cohorts for both teams
-        let cache = CohortCache::new();
-
-        cache
-            .fetch_and_cache_all_cohorts(team1.id, postgres_reader.clone())
-            .await
-            .expect("Failed to cache team1 cohorts");
-
-        cache
-            .fetch_and_cache_all_cohorts(team2.id, postgres_reader.clone())
-            .await
-            .expect("Failed to cache team2 cohorts");
-
-        // Verify team1's cache
-        {
-            let cache_guard = cache.per_team_cohorts.read().await;
-            assert!(
-                cache_guard.contains_key(&team1.id),
-                "Cache should contain team1"
-            );
-            let team1_cohorts = cache_guard.get(&team1.id).unwrap();
-            let team1_names: HashSet<String> =
-                team1_cohorts.iter().map(|c| c.name.clone()).collect();
-            assert!(
-                team1_names.contains("Team1 Cohort1"),
-                "Cache should contain 'Team1 Cohort1'"
-            );
-            assert!(
-                team1_names.contains("Team1 Cohort2"),
-                "Cache should contain 'Team1 Cohort2'"
-            );
-        }
-
-        // Verify team2's cache
-        {
-            let cache_guard = cache.per_team_cohorts.read().await;
-            assert!(
-                cache_guard.contains_key(&team2.id),
-                "Cache should contain team2"
-            );
-            let team2_cohorts = cache_guard.get(&team2.id).unwrap();
-            let team2_names: HashSet<String> =
-                team2_cohorts.iter().map(|c| c.name.clone()).collect();
-            assert!(
-                team2_names.contains("Team2 Cohort1"),
-                "Cache should contain 'Team2 Cohort1'"
-            );
-        }
+        Ok(())
     }
 }
