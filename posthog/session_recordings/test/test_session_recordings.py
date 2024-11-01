@@ -194,6 +194,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "$session_id": ANY,
                 "partial_filter_chosen_my_filter": "something",
             },
+            self.team,
         )
 
     @snapshot_postgres_queries
