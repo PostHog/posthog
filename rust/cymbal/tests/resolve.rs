@@ -1,10 +1,19 @@
+use std::sync::Arc;
+
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
+    symbol_store::{
+        caching::{Caching, SymbolSetCache},
+        sourcemap::SourcemapProvider,
+        Catalog,
+    },
     symbol_store::{sourcemap::SourcemapProvider, Catalog},
+    types::{frames::RawFrame, ErrProps},
     types::{frames::RawFrame, ErrProps, Stacktrace},
 };
 use httpmock::MockServer;
+use tokio::sync::Mutex;
 
 const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
 const MINIFIED: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js");
@@ -54,8 +63,11 @@ async fn end_to_end_resolver_test() {
     config.allow_internal_ips = true; // We're hitting localhost for the tests
 
     let sourcemap = SourcemapProvider::new(&config).unwrap();
+    let cache = Arc::new(Mutex::new(SymbolSetCache::new(
+        config.symbol_store_cache_max_bytes,
+    )));
 
-    let catalog = Catalog::new(sourcemap);
+    let catalog = Catalog::new(Caching::new(sourcemap, cache));
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {
