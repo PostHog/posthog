@@ -370,7 +370,7 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
-                "query": {"events": [{"id": "$pageview"}]},
+                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
             },
         )
 
@@ -380,9 +380,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["description"], "Test description")
         self.assertEqual(
             response.json()["query"],
-            {
-                "events": [{"id": "$pageview"}],
-            },
+            {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
 
@@ -419,7 +417,9 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         self.assertEqual(saved_metric.id, saved_metric_id)
-        self.assertEqual(saved_metric.query, {"events": [{"id": "$pageview"}]})
+        self.assertEqual(
+            saved_metric.query, {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+        )
 
         # Now try updating experiment with new saved metric
         response = self.client.post(
@@ -427,9 +427,7 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric 2",
                 "description": "Test description 2",
-                "query": {
-                    "events": [{"id": "$pageleave"}],
-                },
+                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
             },
         )
 
@@ -515,7 +513,7 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
-                "query": {"events": [{"id": "$pageview"}]},
+                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
             },
         )
 
