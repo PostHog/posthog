@@ -31,6 +31,8 @@ chrono = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }
+mockall = { workspace = true }
+
 
 [lints]
 workspace = true

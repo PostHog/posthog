@@ -11,6 +11,12 @@ pub mod caching;
 pub mod saving;
 pub mod sourcemap;
 
+mod s3;
+#[cfg(test)]
+pub use s3::MockS3Impl as S3Client;
+#[cfg(not(test))]
+pub use s3::S3Impl as S3Client;
+
 #[async_trait]
 pub trait SymbolCatalog<Ref, Set>: Send + Sync + 'static {
     // TODO - this doesn't actually need to return an Arc, but it does for now, because I'd

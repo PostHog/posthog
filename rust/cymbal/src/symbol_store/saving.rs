@@ -1,12 +1,12 @@
-use aws_sdk_s3::{primitives::ByteStream, Client as S3Client, Error as S3Error};
 use axum::async_trait;
 use chrono::{DateTime, Utc};
+
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::Error;
 
-use super::{Fetcher, Parser};
+use super::{Fetcher, Parser, S3Client};
 
 // A wrapping layer around a fetcher and parser, that provides transparent storing of the
 // source bytes into s3, and the storage pointer into a postgres database.
@@ -40,6 +40,22 @@ pub struct Saveable {
 }
 
 impl<F> Saving<F> {
+    pub fn new(
+        inner: F,
+        pool: sqlx::PgPool,
+        s3_client: S3Client,
+        bucket: String,
+        prefix: String,
+    ) -> Self {
+        Self {
+            inner,
+            pool,
+            s3_client,
+            bucket,
+            prefix,
+        }
+    }
+
     pub async fn save_data(
         &self,
         team_id: i32,
@@ -57,7 +73,7 @@ impl<F> Saving<F> {
             created_at: Utc::now(),
         };
 
-        self.store_in_s3(&key, data).await?;
+        self.s3_client.put(&self.bucket, &key, data).await?;
         record.save(&self.pool).await?;
         Ok(key)
     }
@@ -74,36 +90,8 @@ impl<F> Saving<F> {
         .await
     }
 
-    async fn fetch_from_s3(&self, key: &str) -> Result<Vec<u8>, Error> {
-        let res = self
-            .s3_client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .send()
-            .await;
-
-        if let Ok(res) = res {
-            let data = res.body.collect().await?;
-            return Ok(data.to_vec());
-        }
-
-        // Note that we're not handling the "object not found" case here, because if we
-        // got a key from the DB, we should have the object in S3
-        Err(S3Error::from(res.unwrap_err()).into())
-    }
-
-    async fn store_in_s3(&self, key: &str, data: Vec<u8>) -> Result<(), Error> {
-        // TODO - lifecycle stuff I guess? Idk
-        self.s3_client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(key)
-            .body(ByteStream::from(data))
-            .send()
-            .await
-            .map_err(|e| S3Error::from(e).into())
-            .map(|_| ()) // We don't care about the result as long as it's success
+    fn add_prefix(&self, key: String) -> String {
+        format!("{}/{}", self.prefix, key)
     }
 }
 
@@ -120,7 +108,7 @@ where
         let set_ref = r.to_string();
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
             if let Some(storage_ptr) = record.storage_ptr {
-                let data = self.fetch_from_s3(&storage_ptr).await?;
+                let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
                 return Ok(Saveable {
                     data,
                     storage_ptr: Some(storage_ptr),
@@ -218,24 +206,188 @@ impl SymbolSetRecord {
     }
 }
 
-impl<F> Saving<F> {
-    fn add_prefix(&self, key: String) -> String {
-        format!("{}/{}", self.prefix, key)
+#[cfg(test)]
+mod test {
+    use httpmock::MockServer;
+    use mockall::predicate;
+    use reqwest::Url;
+    use sqlx::PgPool;
+
+    use crate::{
+        config::Config,
+        symbol_store::{saving::Saving, sourcemap::SourcemapProvider, Provider, S3Client},
+    };
+
+    const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
+    const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
+    const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_successful_lookup(db: PgPool) {
+        let server = MockServer::start();
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.ss_bucket = "test-bucket".to_string();
+        config.ss_prefix = "test-prefix".to_string();
+        config.allow_internal_ips = true; // Gonna be hitting the sourcemap mocks
+
+        let source_mock = server.mock(|when, then| {
+            when.method("GET").path(CHUNK_PATH);
+            then.status(200).body(MINIFIED);
+        });
+
+        let map_mock = server.mock(|when, then| {
+            // Our minified example source uses a relative URL, formatted like this
+            when.method("GET").path(format!("{}.map", CHUNK_PATH));
+            then.status(200).body(MAP);
+        });
+
+        let mut client = S3Client::default();
+        // Expected: we'll hit the backend and store the data in s3.
+        client
+            .expect_put()
+            .with(
+                predicate::eq(config.ss_bucket.clone()),
+                predicate::str::starts_with(config.ss_prefix.clone()),
+                predicate::eq(Vec::from(MAP)),
+            )
+            .returning(|_, _, _| Ok(()))
+            .once();
+
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.ss_bucket.clone()),
+                predicate::str::starts_with(config.ss_prefix.clone()),
+            )
+            .returning(|_, _| Ok(Vec::from(MAP)));
+
+        let smp = SourcemapProvider::new(&config).unwrap();
+        let saving_smp = Saving::new(
+            smp,
+            db.clone(),
+            client,
+            config.ss_bucket.clone(),
+            config.ss_prefix.clone(),
+        );
+
+        let test_url = Url::parse(&server.url(CHUNK_PATH.to_string())).unwrap();
+
+        // First hit - we should fetch the data
+        saving_smp.lookup(0, test_url.clone()).await.unwrap();
+        source_mock.assert_hits(1);
+        map_mock.assert_hits(1);
+
+        // On the second lookup, we don't hit the "backend" at all
+        saving_smp.lookup(0, test_url.clone()).await.unwrap();
+        source_mock.assert_hits(1);
+        map_mock.assert_hits(1);
     }
 
-    pub fn new(
-        inner: F,
-        pool: sqlx::PgPool,
-        s3_client: S3Client,
-        bucket: String,
-        prefix: String,
-    ) -> Self {
-        Self {
-            inner,
-            pool,
-            s3_client,
-            bucket,
-            prefix,
-        }
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_symbol_set_404_handling(db: PgPool) {
+        let server = MockServer::start();
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.ss_bucket = "test-bucket".to_string();
+        config.ss_prefix = "test-prefix".to_string();
+        config.allow_internal_ips = true;
+
+        let source_mock = server.mock(|when, then| {
+            when.method("GET").path(CHUNK_PATH);
+            then.status(404);
+        });
+
+        // We don't expect any S3 operations since we won't get any valid data
+        let client = S3Client::default();
+
+        let smp = SourcemapProvider::new(&config).unwrap();
+        let saving_smp = Saving::new(
+            smp,
+            db.clone(),
+            client,
+            config.ss_bucket.clone(),
+            config.ss_prefix.clone(),
+        );
+
+        let test_url = Url::parse(&server.url(CHUNK_PATH.to_string())).unwrap();
+
+        // First attempt should fail
+        saving_smp.lookup(0, test_url.clone()).await.unwrap_err();
+        source_mock.assert_hits(1);
+
+        // Second attempt should fail immediately without hitting the server
+        saving_smp.lookup(0, test_url.clone()).await.unwrap_err();
+        source_mock.assert_hits(1); // Still only 1 hit
+
+        // Verify the failure was recorded in postgres
+        let record = sqlx::query!(
+            r#"SELECT storage_ptr FROM posthog_errortrackingsymbolset
+                WHERE team_id = $1 AND ref = $2"#,
+            0,
+            test_url.to_string()
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        assert!(record.storage_ptr.is_none());
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_invalid_sourcemap_handling(db: PgPool) {
+        let server = MockServer::start();
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.ss_bucket = "test-bucket".to_string();
+        config.ss_prefix = "test-prefix".to_string();
+        config.allow_internal_ips = true;
+
+        let source_mock = server.mock(|when, then| {
+            when.method("GET").path(CHUNK_PATH);
+            then.status(200).body(MINIFIED);
+        });
+
+        let map_mock = server.mock(|when, then| {
+            when.method("GET").path(format!("{}.map", CHUNK_PATH));
+            then.status(200).body(Vec::new()); // Empty/invalid sourcemap
+        });
+
+        // We don't expect any S3 operations since we won't get any valid data
+        let client = S3Client::default();
+
+        let smp = SourcemapProvider::new(&config).unwrap();
+        let saving_smp = Saving::new(
+            smp,
+            db.clone(),
+            client,
+            config.ss_bucket.clone(),
+            config.ss_prefix.clone(),
+        );
+
+        let test_url = Url::parse(&server.url(CHUNK_PATH.to_string())).unwrap();
+
+        // First attempt should fail
+        saving_smp.lookup(0, test_url.clone()).await.unwrap_err();
+        source_mock.assert_hits(1);
+        map_mock.assert_hits(1);
+
+        // Second attempt should fail immediately without hitting the server
+        saving_smp.lookup(0, test_url.clone()).await.unwrap_err();
+        source_mock.assert_hits(1); // Still only 1 hit
+        map_mock.assert_hits(1); // Still only 1 hit
+
+        // Verify the failure was recorded in postgres
+        let record = sqlx::query!(
+            r#"SELECT storage_ptr FROM posthog_errortrackingsymbolset
+                WHERE team_id = $1 AND ref = $2"#,
+            0,
+            test_url.to_string()
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        assert!(record.storage_ptr.is_none());
     }
 }

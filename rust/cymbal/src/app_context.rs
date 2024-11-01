@@ -16,7 +16,7 @@ use crate::{
         caching::{Caching, SymbolSetCache},
         saving::Saving,
         sourcemap::SourcemapProvider,
-        Catalog,
+        Catalog, S3Client,
     },
 };
 
@@ -51,6 +51,7 @@ impl AppContext {
         // TODO - this isn't really correct, we should instead specify the relevant vals
         // in `Config`
         let s3_client = aws_sdk_s3::Client::new(&aws_config::from_env().load().await);
+        let s3_client = S3Client::new(s3_client);
 
         let ss_cache = Arc::new(Mutex::new(SymbolSetCache::new(
             config.symbol_store_cache_max_bytes,
