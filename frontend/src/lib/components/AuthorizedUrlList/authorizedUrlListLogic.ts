@@ -24,7 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
-import { ToolbarParams, ToolbarUserIntent } from '~/types'
+import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
 
@@ -91,7 +91,7 @@ export const validateProposedUrl = (
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
 export function appEditorUrl(
     appUrl: string,
-    options?: { actionId?: number | null; experimentId?: number | null | 'new'; userIntent?: ToolbarUserIntent }
+    options?: { actionId?: number | null; experimentId?: ExperimentIdType; userIntent?: ToolbarUserIntent }
 ): string {
     // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
     // are passed. `appUrl` is an extra `redirect_to_site` param.
@@ -168,10 +168,17 @@ export interface KeyedAppUrl {
 
 export interface AuthorizedUrlListLogicProps {
     actionId: number | null
-    experimentId: number | null | 'new'
+    experimentId: ExperimentIdType | null
     type: AuthorizedUrlListType
-    query: string | undefined
+    query: string | null | undefined
 }
+
+export const defaultAuthorizedUrlProperties = {
+    actionId: null,
+    experimentId: null,
+    query: null,
+}
+
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
     key((props) => `${props.type}-${props.actionId}`),

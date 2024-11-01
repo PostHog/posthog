@@ -10,6 +10,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
+import { ExperimentIdType } from '~/types'
+
 import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
 
 function EmptyState({
@@ -45,8 +47,13 @@ function EmptyState({
     ) : null
 }
 
-function AuthorizedUrlForm({ actionId, experimentId, type }: AuthorizedUrlListProps): JSX.Element {
-    const logic = authorizedUrlListLogic({ actionId: actionId ?? null, experimentId: experimentId ?? null, type })
+function AuthorizedUrlForm({ actionId, experimentId, query, type }: AuthorizedUrlListProps): JSX.Element {
+    const logic = authorizedUrlListLogic({
+        actionId: actionId ?? null,
+        experimentId: experimentId ?? null,
+        query: query,
+        type,
+    })
     const { isProposedUrlSubmitting } = useValues(logic)
     const { cancelProposingUrl } = useActions(logic)
     return (
@@ -78,8 +85,8 @@ function AuthorizedUrlForm({ actionId, experimentId, type }: AuthorizedUrlListPr
 
 export interface AuthorizedUrlListProps {
     actionId?: number
-    experimentId?: number | 'new'
-    query?: string
+    experimentId?: ExperimentIdType
+    query?: string | null
     type: AuthorizedUrlListType
 }
 
@@ -128,7 +135,7 @@ export function AuthorizedUrlList({
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
                         <div className="border rounded p-2 bg-bg-light">
-                            <AuthorizedUrlForm type={type} actionId={actionId} />
+                            <AuthorizedUrlForm type={type} actionId={actionId} query={null} />
                         </div>
                     )}
                     <EmptyState

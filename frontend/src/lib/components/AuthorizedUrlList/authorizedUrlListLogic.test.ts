@@ -36,6 +36,7 @@ describe('the authorized urls list logic', () => {
             type: AuthorizedUrlListType.TOOLBAR_URLS,
             actionId: null,
             experimentId: null,
+            query: null,
         })
         logic.mount()
     })
@@ -121,6 +122,7 @@ describe('the authorized urls list logic', () => {
                 type: AuthorizedUrlListType.RECORDING_DOMAINS,
                 actionId: null,
                 experimentId: null,
+                query: null,
             })
             logic.mount()
         })

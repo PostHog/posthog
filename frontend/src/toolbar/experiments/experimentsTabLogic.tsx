@@ -17,7 +17,7 @@ import {
     WebExperimentVariant,
 } from '~/toolbar/types'
 import { elementToQuery } from '~/toolbar/utils'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
 
@@ -51,7 +51,7 @@ function newExperiment(): ExperimentForm {
 export const experimentsTabLogic = kea<experimentsTabLogicType>([
     path(['toolbar', 'experiments', 'experimentsTabLogic']),
     actions({
-        selectExperiment: (id: number | 'new' | null) => ({ id: id || null }),
+        selectExperiment: (id: ExperimentIdType | null) => ({ id: id || null }),
         selectVariant: (variant: string) => ({ variant }),
         newExperiment: (element?: HTMLElement) => ({
             element: element || null,
@@ -106,7 +106,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             },
         ],
         selectedExperimentId: [
-            null as number | 'new' | null,
+            null as number | 'new' | 'web' | null,
             {
                 selectExperiment: (_, { id }) => id,
                 newExperiment: () => 'new',

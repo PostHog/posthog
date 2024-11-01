@@ -1,5 +1,9 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     calculateViewportRange,
@@ -45,13 +49,13 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
 
     connect({
         values: [
-            authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({ ...defaultAuthorizedUrlProperties, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
             teamLogic,
             ['currentTeam'],
         ],
         actions: [
-            authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({ ...defaultAuthorizedUrlProperties, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['addUrl'],
             teamLogic,
             ['updateCurrentTeamSuccess'],

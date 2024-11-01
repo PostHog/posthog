@@ -34,7 +34,12 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     )
     const { combinedSnippetAndLiveEventsHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(
-        authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS })
+        authorizedUrlListLogic({
+            actionId: null,
+            experimentId: null,
+            query: null,
+            type: AuthorizedUrlListType.TOOLBAR_URLS,
+        })
     )
     const [inputValue, setInputValue] = useState(currentPath)
 

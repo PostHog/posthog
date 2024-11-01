@@ -280,6 +280,7 @@ const MOCK_WEB_EXPERIMENT_MANY_VARIANTS: Experiment = {
             },
         },
     },
+    metrics: [],
     parameters: {
         feature_flag_variants: [
             {
