@@ -31,13 +31,12 @@ SNAPSHOT_PERSIST_TOO_YOUNG_COUNTER = Counter(
     "Count of session recordings that were too young to be persisted",
 )
 
-MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
-
-
-READ_FROM_S3_COUNTER = Counter(
-    "snapshot_persist_read_from_s3",
-    "Count of session recordings that were read from S3",
+RECORDING_PERSIST_START_COUNTER = Counter(
+    "recording_persist_started",
+    "Count of session recordings that were persisted",
 )
+
+MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
 
 
 class InvalidRecordingForPersisting(Exception):
@@ -46,8 +45,6 @@ class InvalidRecordingForPersisting(Exception):
 
 def persist_recording(recording_id: str, team_id: int) -> None:
     """Persist a recording to the S3"""
-
-    logger.info("Persisting recording: init", recording_id=recording_id, team_id=team_id)
 
     if not settings.OBJECT_STORAGE_ENABLED:
         return
@@ -65,22 +62,13 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         )
         return
 
-    logger.info(
-        "Persisting recording: loading metadata...",
-        recording_id=recording_id,
-        team_id=team_id,
-    )
+    RECORDING_PERSIST_START_COUNTER.inc()
 
     recording.load_metadata()
 
     if not recording.start_time or timezone.now() < recording.start_time + MINIMUM_AGE_FOR_RECORDING:
         # Recording is too recent to be persisted.
         # We can save the metadata as it is still useful for querying, but we can't move to S3 yet.
-        logger.info(
-            "Persisting recording: skipping as recording start time is less than MINIMUM_AGE_FOR_RECORDING",
-            recording_id=recording_id,
-            team_id=team_id,
-        )
         SNAPSHOT_PERSIST_TOO_YOUNG_COUNTER.inc()
         recording.save()
         return
@@ -96,12 +84,6 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.object_storage_path = target_prefix
         recording.save()
         SNAPSHOT_PERSIST_SUCCESS_COUNTER.inc()
-        logger.info(
-            "Persisting recording: done!",
-            recording_id=recording_id,
-            team_id=team_id,
-            source="s3",
-        )
         return
     else:
         SNAPSHOT_PERSIST_FAILURE_COUNTER.inc()
