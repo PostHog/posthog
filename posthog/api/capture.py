@@ -327,6 +327,22 @@ def get_distinct_id(data: dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
+def get_device_id(data: dict[str, Any]) -> Optional[str]:
+    raw_value: Any = ""
+
+    try:
+        raw_value = data["properties"]["distinct_id"]
+    except KeyError:
+        pass
+    except TypeError:
+        raise ValueError(f'Properties must be a JSON object, received {type(data["properties"]).__name__}!')
+
+    if not raw_value:
+        return None
+
+    return str(raw_value)[0:200]
+
+
 def drop_performance_events(events: list[Any]) -> list[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
     return cleaned_list
@@ -521,11 +537,20 @@ def get_event(request):
 
     with start_span(op="kafka.produce") as span:
         span.set_tag("event.count", len(processed_events))
-        for event, event_uuid, distinct_id in processed_events:
+        for event, event_uuid, distinct_id, device_id in processed_events:
             try:
                 futures.append(
                     capture_internal(
-                        event, distinct_id, ip, site_url, now, sent_at, event_uuid, token, historical=historical
+                        event,
+                        distinct_id,
+                        device_id,
+                        ip,
+                        site_url,
+                        now,
+                        sent_at,
+                        event_uuid,
+                        token,
+                        historical=historical,
                     )
                 )
             except Exception as exc:
@@ -589,10 +614,11 @@ def get_event(request):
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
                 with REPLAY_MESSAGE_PRODUCTION_TIMER.time():
-                    for event, event_uuid, distinct_id in processed_events:
+                    for event, event_uuid, distinct_id, device_id in processed_events:
                         capture_args = (
                             event,
                             distinct_id,
+                            device_id,
                             ip,
                             site_url,
                             now,
@@ -793,6 +819,7 @@ def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, 
     for event in events:
         event_uuid = UUIDT()
         distinct_id = get_distinct_id(event)
+        device_id = get_device_id(event)
         payload_uuid = event.get("uuid", None)
         if payload_uuid:
             if UUIDT.is_valid_uuid(payload_uuid):
@@ -805,7 +832,7 @@ def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, 
         if not event:
             continue
 
-        yield event, event_uuid, distinct_id
+        yield event, event_uuid, distinct_id, device_id
 
 
 def parse_event(event):
@@ -826,6 +853,7 @@ def parse_event(event):
 def capture_internal(
     event,
     distinct_id,
+    device_id,
     ip,
     site_url,
     now,
@@ -874,17 +902,17 @@ def capture_internal(
     # overriding this to deal with hot partitions in specific cases.
     # Setting the partition key to None means using random partitioning.
     candidate_partition_key = f"{token}:{distinct_id}"
-    if (
+    if device_id == SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID:
+        # This sentinel value will later on be replaced by the actual cookieless server hash, which contains the ip
+        # address, so sending the same ip address to the same partition should mean that every event with the same hash
+        # will end up in the same partition.
+        kafka_partition_key = f"{token}:{ip}"
+    elif (
         not historical
         and settings.CAPTURE_ALLOW_RANDOM_PARTITIONING
         and (distinct_id.lower() in LIKELY_ANONYMOUS_IDS or is_randomly_partitioned(candidate_partition_key))
     ):
         kafka_partition_key = None
-    elif distinct_id == SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID:
-        # This sentinel value will later on be replaced by the actual cookieless server hash, which contains the ip
-        # address, so sending the same ip address to the same partition should mean that every event with the same hash
-        # will end up in the same partition.
-        kafka_partition_key = f"{token}:{ip}"
     else:
         kafka_partition_key = candidate_partition_key
 
