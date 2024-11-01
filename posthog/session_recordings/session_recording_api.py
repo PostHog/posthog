@@ -766,7 +766,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     )
             else:
                 blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                file_key = recording.build_blob_ingestion_storage_path(root_prefix=blob_prefix)
+                file_key = f"{recording.build_blob_ingestion_storage_path(root_prefix=blob_prefix)}/{blob_key}"
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
