@@ -1,5 +1,7 @@
+import pytest
 from inline_snapshot import snapshot
 
+from hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import (
     template as template_hubspot,
@@ -324,6 +326,27 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             assert res.result is None
             assert self.get_mock_fetch_calls() == []
             assert self.get_mock_print_calls() == [("`email` input is empty. Not sending event.",)]
+
+    def test_requires_correct_property_types(self):
+        self.fetch_responses = {
+            "https://api.hubapi.com/events/v3/event-definitions/purchase/?includeProperties=true": EVENT_DEFINITION_RESPONSE,
+        }
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(
+                inputs=self._inputs(include_all_properties=True),
+                globals={
+                    "event": {
+                        "event": "purchase",
+                        "properties": {"price": "50 coins"},
+                    },
+                },
+            )
+
+        assert len(self.get_mock_fetch_calls()) == snapshot(1)
+        assert (
+            e.value.message  # type: ignore[attr-defined]
+            == "Property type mismatch for the following properties: [{'key': 'price', 'value': '50 coins'}]. Not sending event."
+        )
 
 
 class TestTemplateMigration(BaseTest):

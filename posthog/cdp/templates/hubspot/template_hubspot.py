@@ -241,7 +241,7 @@ if (eventSchema.status >= 400) {
         if (not arrayExists(property -> property.name == key, eventSchema.body.properties)) {
             missingProperties := arrayPushBack(missingProperties, { 'key': key, 'value': value })
         } else if (not arrayExists(property -> property.name == key and property.type == getPropValueType(value), eventSchema.body.properties)) {
-            missingProperties := arrayPushBack(wrongTypeProperties, { 'key': key, 'value': value })
+            wrongTypeProperties := arrayPushBack(wrongTypeProperties, { 'key': key, 'value': value })
         }
     }
 
@@ -263,7 +263,7 @@ if (eventSchema.status >= 400) {
     }
 
     if (not empty(wrongTypeProperties)) {
-        throw Error('Property type mismatch for the following properties: {wrongTypeProperties}. Not sending event.')
+        throw Error(f'Property type mismatch for the following properties: {wrongTypeProperties}. Not sending event.')
     }
 }
 
