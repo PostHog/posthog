@@ -46,7 +46,11 @@ export class GroupTypeManager {
         }
     }
 
-    public async fetchGroupTypeIndex(teamId: TeamId, groupType: string): Promise<GroupTypeIndex | null> {
+    public async fetchGroupTypeIndex(
+        teamId: TeamId,
+        projectId: TeamId,
+        groupType: string
+    ): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(teamId)
 
         if (groupType in groupTypes) {
@@ -54,6 +58,7 @@ export class GroupTypeManager {
         } else {
             const [groupTypeIndex, isInsert] = await this.insertGroupType(
                 teamId,
+                projectId,
                 groupType,
                 Object.keys(groupTypes).length
             )
@@ -70,6 +75,7 @@ export class GroupTypeManager {
 
     public async insertGroupType(
         teamId: TeamId,
+        projectId: TeamId,
         groupType: string,
         index: number
     ): Promise<[GroupTypeIndex | null, boolean]> {
@@ -81,21 +87,21 @@ export class GroupTypeManager {
             PostgresUse.COMMON_WRITE,
             `
             WITH insert_result AS (
-                INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
-                VALUES ($1, $2, $3)
+                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
+                VALUES ($1, $2, $3, $4)
                 ON CONFLICT DO NOTHING
                 RETURNING group_type_index
             )
-            SELECT group_type_index, 1 AS is_insert  FROM insert_result
+            SELECT group_type_index, 1 AS is_insert FROM insert_result
             UNION
-            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $2;
+            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE team_id = $1 AND group_type = $3;
             `,
-            [teamId, groupType, index],
+            [teamId, projectId, groupType, index],
             'insertGroupType'
         )
 
         if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, groupType, index + 1)
+            return await this.insertGroupType(teamId, projectId, groupType, index + 1)
         }
 
         const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
