@@ -153,6 +153,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Rageclick',
             description: 'A user has rapidly and repeatedly clicked in a single place',
         },
+        $dead_click: {
+            label: 'Dead click',
+            description: 'A user has clicked on something that is probably not clickable',
+        },
         $exception: {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
@@ -1216,6 +1220,47 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Surveys Activated',
             description: 'The surveys that were activated for this event.',
         },
+        $dead_click_scroll_delay_ms: {
+            label: 'Dead click scroll delay in milliseconds',
+            description: 'The delay between a click and the next scroll event',
+        },
+        $dead_click_mutation_delay_ms: {
+            label: 'Dead click mutation delay in milliseconds',
+            description: 'The delay between a click and the next mutation event',
+        },
+        $dead_click_absolute_delay_ms: {
+            label: 'Dead click absolute delay in milliseconds',
+            description: 'The delay between a click and having seen no activity at all',
+        },
+        $dead_click_selection_changed_delay_ms: {
+            label: 'Dead click selection changed delay in milliseconds',
+            description: 'The delay between a click and the next text selection change event',
+        },
+        $dead_click_last_mutation_timestamp: {
+            label: 'Dead click last mutation timestamp',
+            description: 'debug signal time of the last mutation seen by dead click autocapture',
+        },
+        $dead_click_event_timestamp: {
+            label: 'Dead click event timestamp',
+            description: 'debug signal time of the event that triggered dead click autocapture',
+        },
+        $dead_click_scroll_timeout: {
+            label: 'Dead click scroll timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for a scroll event',
+        },
+        $dead_click_mutation_timeout: {
+            label: 'Dead click mutation timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for a mutation event',
+        },
+        $dead_click_absolute_timeout: {
+            label: 'Dead click absolute timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for any activity',
+        },
+        $dead_click_selection_changed_timeout: {
+            label: 'Dead click selection changed timeout',
+            description:
+                'whether the dead click autocapture passed the threshold for waiting for a text selection change event',
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
@@ -1492,6 +1537,25 @@ export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'slack_service_available',
     'commit_sha',
 ]
+
+export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
+    $pageview: ['$current_url', 'title', '$referrer'],
+    $pageleave: ['$current_url', 'title', '$referrer'],
+    $groupidentify: ['$group_type', '$group_key', '$group_set'],
+    $screen: ['$screen_name'],
+    $web_vitals: [
+        '$web_vitals_FCP_value',
+        '$web_vitals_CLS_value',
+        '$web_vitals_INP_value',
+        '$web_vitals_LCP_value',
+        '$web_vitals_FCP_event',
+        '$web_vitals_CLS_event',
+        '$web_vitals_INP_event',
+        '$web_vitals_LCP_event',
+    ],
+    $set: ['$set', '$set_once'],
+}
+export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
 export function isCoreFilter(key: string): boolean {

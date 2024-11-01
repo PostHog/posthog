@@ -14,7 +14,7 @@
             e."$session_id" as $session_id,
             e.uuid as uuid
      FROM events e
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = 'pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
@@ -31,7 +31,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s1']
     AND min_first_timestamp >= '2021-01-20 00:00:00'
     AND max_last_timestamp <= '2021-01-22 23:59:59'
@@ -52,17 +52,17 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND distinct_id IN
             (SELECT distinct_id
              FROM events
-             WHERE team_id = 2
+             WHERE team_id = 99999
                AND event = 'pageview'
                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = 'pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC') )

@@ -84,17 +84,17 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['$pageview', 'insight analyzed']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['$pageview', 'insight analyzed']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
@@ -118,13 +118,13 @@
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
-     WHERE team_id = 2
+     WHERE team_id = 99999
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -141,7 +141,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
@@ -299,17 +299,17 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['$pageview', 'insight analyzed', 'insight updated']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['$pageview', 'insight analyzed', 'insight updated']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
@@ -334,13 +334,13 @@
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
-     WHERE team_id = 2
+     WHERE team_id = 99999
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -357,7 +357,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
@@ -448,11 +448,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['$pageview', 'insight analyzed']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
@@ -461,16 +461,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['$pageview', 'insight analyzed']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
@@ -499,7 +499,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
@@ -590,11 +590,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -602,16 +602,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                       AND (1=1) ))
@@ -638,7 +638,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s2']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
@@ -729,11 +729,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -741,16 +741,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                       AND (1=1) ))
@@ -777,7 +777,7 @@
   
   SELECT DISTINCT session_id
   FROM session_replay_events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     and session_id in ['s3']
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'

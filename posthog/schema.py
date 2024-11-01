@@ -206,6 +206,7 @@ class ChartSettingsDisplay(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    color: Optional[str] = None
     displayType: Optional[DisplayType] = None
     label: Optional[str] = None
     trendLine: Optional[bool] = None

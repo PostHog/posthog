@@ -3006,6 +3006,9 @@
         "ChartSettingsDisplay": {
             "additionalProperties": false,
             "properties": {
+                "color": {
+                    "type": "string"
+                },
                 "displayType": {
                     "enum": ["auto", "line", "bar"],
                     "type": "string"

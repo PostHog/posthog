@@ -116,6 +116,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "inject_web_apps",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "capture_dead_clicks",
         ]
 
 
@@ -184,6 +185,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "heatmaps_opt_in",
             "live_events_token",
             "product_intents",
+            "capture_dead_clicks",
         )
         read_only_fields = (
             "id",
