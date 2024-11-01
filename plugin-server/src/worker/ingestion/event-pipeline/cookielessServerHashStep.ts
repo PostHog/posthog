@@ -52,8 +52,10 @@ export async function cookielessServerHashStep(
     //     return [event]
     // }
 
+    const timestamp = event.timestamp ?? event.sent_at ?? event.now
+
     // drop some events that aren't valid in this mode
-    if (!event.timestamp) {
+    if (!timestamp) {
         // TODO log
         return [undefined]
     }
@@ -62,11 +64,10 @@ export async function cookielessServerHashStep(
         // TODO log
         return [undefined]
     }
-    // ensure that the distinct id is also the sentinel value
+    // if it's an identify event, it must have the sentinel distinct id
     if (
-        (event.event === '$identify' &&
-            event.properties['$anon_distinct_id'] !== SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) ||
-        (event.event !== '$identify' && event.distinct_id !== SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID)
+        event.event === '$identify' &&
+        event.properties['$anon_distinct_id'] !== SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID
     ) {
         // TODO log
         return [undefined]
@@ -77,14 +78,14 @@ export async function cookielessServerHashStep(
     const ip = event.properties['$ip']
     const host = event.properties['$host']
     const timezone = event.properties['$timezone']
-    const timestamp = DateTime.fromISO(event.timestamp).toMillis()
+    const timestampMs = DateTime.fromISO(timestamp).toMillis()
     const teamId = event.team_id
     if (!userAgent || !ip || !host) {
         // TODO log
         return [undefined]
     }
 
-    const hashValue = doHash(timestamp, timezone, teamId, ip, host, userAgent)
+    const hashValue = doHash(timestampMs, timezone, teamId, ip, host, userAgent)
     event.properties['$device_id'] = hashValue
 
     // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
@@ -96,14 +97,16 @@ export async function cookielessServerHashStep(
     const hashValue2 = numIdentifies === 0 ? hashValue : hashValue + '_' + numIdentifies
 
     if (event.event === '$identify') {
+        // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
+
         // add this identify event id to redis
         await runner.hub.db.redisSAdd(identifiesRedisKey, event.uuid)
         await runner.hub.db.redisExpire(identifiesRedisKey, 60 * 60 * 24) // 24 hours // TODO this is the max but could be less, given we looked at the timestamp 10 lines of code ago
 
         // set the distinct id to the new hash value
         event.properties[`$anon_distinct_id`] = hashValue2
-    } else {
-        // set the distinct id to the new hash value
+    } else if (event.distinct_id === SENTINEL_COOKIELESS_SERVER_HASH_DISTINCT_ID) {
+        // event before identify has been called, distinct id is the sentinel and needs to be replaced
         event.distinct_id = hashValue2
         event.properties[`$distinct_id`] = hashValue2
     }
@@ -119,15 +122,15 @@ export async function cookielessServerHashStep(
         }
     )
     // if not, or the TTL has expired, create a new one. Don't rely on redis TTL, as ingestion lag could approach the 30-minute session inactivity timeout
-    if (!sessionInfo || timestamp - sessionInfo.t > 60 * 30 * 1000) {
-        const sessionId = new UUID7(timestamp).toString()
-        sessionInfo = { s: sessionId, t: timestamp }
+    if (!sessionInfo || timestampMs - sessionInfo.t > 60 * 30 * 1000) {
+        const sessionId = new UUID7(timestampMs).toString()
+        sessionInfo = { s: sessionId, t: timestampMs }
         await runner.hub.db.redisSet(sessionRedisKey, sessionInfo, 'cookielessServerHashStep', 60 * 60 * 24)
     } else {
         // otherwise, update the timestamp
         await runner.hub.db.redisSet(
             sessionRedisKey,
-            { s: sessionInfo.s, t: timestamp },
+            { s: sessionInfo.s, t: timestampMs },
             'cookielessServerHashStep',
             60 * 60 * 24
         )
