@@ -6,6 +6,7 @@ use std::time::Duration;
 use health::{HealthHandle, HealthRegistry};
 use tokio::net::TcpListener;
 
+use crate::cohort_cache::CohortCache;
 use crate::config::Config;
 use crate::database::get_pool;
 use crate::geoip::GeoIpClient;
@@ -54,6 +55,8 @@ where
         }
     };
 
+    let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+
     let health = HealthRegistry::new("liveness");
 
     // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
@@ -67,6 +70,7 @@ where
         redis_client,
         postgres_reader,
         postgres_writer,
+        cohort_cache,
         geoip_service,
         health,
         config,
