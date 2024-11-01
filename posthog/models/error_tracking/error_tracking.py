@@ -60,17 +60,6 @@ class ErrorTrackingGroup(UUIDModel):
         self.save()
 
 
-class ErrorTrackingIssueFingerprint(models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
-    issue = models.ForeignKey(ErrorTrackingGroup, on_delete=models.CASCADE)
-    fingerprint = models.TextField(null=False, blank=False)
-    # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
-    version = models.BigIntegerField(blank=True, default=0)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique fingerprint for team")]
-
-
 class ErrorTrackingSymbolSet(UUIDModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)

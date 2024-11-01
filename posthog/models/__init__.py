@@ -117,6 +117,7 @@ __all__ = [
     "InsightViewed",
     "InstanceSetting",
     "Integration",
+    "InviteExpiredException",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
