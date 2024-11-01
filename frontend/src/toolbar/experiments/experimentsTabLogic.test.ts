@@ -10,6 +10,57 @@ import { WebExperimentTransform } from '~/toolbar/types'
 import { experimentsLogic } from './experimentsLogic'
 import { experimentsTabLogic } from './experimentsTabLogic'
 
+const web_experiments = [
+    {
+        id: 1,
+        name: 'Test Experiment 1',
+        variants: {
+            control: {
+                transforms: [
+                    {
+                        html: '',
+                        selector: 'h1',
+                        text: '',
+                    },
+                ],
+            },
+        },
+    },
+    {
+        id: 2,
+        name: 'Test Experiment 2',
+        variants: {
+            control: {
+                transforms: [],
+            },
+            test: {
+                transforms: [
+                    {
+                        html: '<b> Hello world! </b>',
+                        selector: 'h1',
+                        text: 'Hello world',
+                    },
+                ],
+            },
+            test2: {
+                transforms: [
+                    {
+                        html: '<b> Goodbye world! </b>',
+                        selector: 'h1',
+                        text: 'Goodbye world',
+                    },
+                ],
+            },
+        },
+    },
+]
+
+global.fetch = jest.fn(() =>
+    Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ results: web_experiments }),
+    } as any as Response)
+)
 describe('experimentsTabLogic', () => {
     let theExperimentsTabLogic: ReturnType<typeof experimentsTabLogic.build>
     let theExperimentsLogic: ReturnType<typeof experimentsLogic.build>
@@ -19,24 +70,7 @@ describe('experimentsTabLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/web_experiments/': () => [
-                    {
-                        id: 1,
-                        name: 'Test Experiment 1',
-                        variants: {
-                            control: {
-                                transforms: [
-                                    {
-                                        html: '',
-                                        selector: 'h1',
-                                        text: '',
-                                    },
-                                ],
-                            },
-                        },
-                    },
-                    { id: 2, name: 'Test Experiment 2' },
-                ],
+                '/api/projects/:team/web_experiments/': () => web_experiments,
             },
             post: {
                 '/api/projects/@current/web_experiments/': () => ({
@@ -53,6 +87,9 @@ describe('experimentsTabLogic', () => {
         })
         initKeaTests()
 
+        theExperimentsLogic = experimentsLogic()
+        theExperimentsLogic.mount()
+
         theExperimentsTabLogic = experimentsTabLogic()
         theExperimentsTabLogic.mount()
 
@@ -61,9 +98,6 @@ describe('experimentsTabLogic', () => {
 
         theToolbarConfigLogic = toolbarConfigLogic({ apiURL: 'http://localhost' })
         theToolbarConfigLogic.mount()
-
-        theExperimentsLogic = experimentsLogic()
-        theExperimentsLogic.mount()
     })
 
     describe('core assumptions', () => {
@@ -199,6 +233,22 @@ describe('experimentsTabLogic', () => {
         })
     })
 
+    const createTestDocument = (): HTMLSpanElement => {
+        const elTarget = document.createElement('img')
+        elTarget.id = 'primary_button'
+
+        const elParent = document.createElement('span')
+        elParent.innerText = 'original'
+        elParent.className = 'original'
+        elParent.appendChild(elTarget)
+
+        document.querySelectorAll = function () {
+            return [elParent] as unknown as NodeListOf<Element>
+        }
+
+        return elParent
+    }
+
     describe('editing experiments', () => {
         it('can edit an existing experiment', async () => {
             await expectLogic(theExperimentsTabLogic, () => {
@@ -209,6 +259,34 @@ describe('experimentsTabLogic', () => {
                 .toDispatchActions(['selectExperiment', 'setExperimentFormValue', 'submitExperimentForm'])
                 .toMatchValues({
                     experimentForm: { name: 'Updated Experiment 1', variants: {} },
+                })
+        })
+
+        it('can apply changes from a variant', async () => {
+            await expectLogic(theExperimentsLogic, () => {
+                theExperimentsLogic.actions.getExperiments()
+            })
+                .delay(0)
+                .then(() => {
+                    theExperimentsTabLogic.actions.selectExperiment(2)
+                    const element = createTestDocument()
+                    theExperimentsTabLogic.actions.applyVariant('', 'test')
+                    expect(element.innerText).toEqual('Hello world')
+                })
+        })
+
+        it('can reset to control', async () => {
+            await expectLogic(theExperimentsLogic, () => {
+                theExperimentsLogic.actions.getExperiments()
+            })
+                .delay(0)
+                .then(() => {
+                    theExperimentsTabLogic.actions.selectExperiment(2)
+                    const element = createTestDocument()
+                    theExperimentsTabLogic.actions.applyVariant('', 'test')
+                    expect(element.innerText).toEqual('Hello world')
+                    theExperimentsTabLogic.actions.applyVariant('test', 'control')
+                    expect(element.innerText).toEqual('original')
                 })
         })
     })
