@@ -10,7 +10,11 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { StarHog } from 'lib/components/hedgehogs'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
@@ -35,9 +39,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     const { combinedSnippetAndLiveEventsHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(
         authorizedUrlListLogic({
-            actionId: null,
-            experimentId: null,
-            query: null,
+            ...defaultAuthorizedUrlProperties,
             type: AuthorizedUrlListType.TOOLBAR_URLS,
         })
     )

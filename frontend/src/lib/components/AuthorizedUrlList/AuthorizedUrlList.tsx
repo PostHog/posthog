@@ -59,7 +59,7 @@ function AuthorizedUrlForm({ actionId, experimentId, query, type }: AuthorizedUr
     return (
         <Form
             logic={authorizedUrlListLogic}
-            props={{ actionId, type }}
+            props={{ actionId, type, experimentId, query }}
             formKey="proposedUrl"
             enableFormOnSubmit
             className="w-full space-y-2"
@@ -135,7 +135,12 @@ export function AuthorizedUrlList({
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
                         <div className="border rounded p-2 bg-bg-light">
-                            <AuthorizedUrlForm type={type} actionId={actionId} query={null} />
+                            <AuthorizedUrlForm
+                                type={type}
+                                actionId={actionId}
+                                experimentId={experimentId}
+                                query={query}
+                            />
                         </div>
                     )}
                     <EmptyState

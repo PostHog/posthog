@@ -181,7 +181,7 @@ export const defaultAuthorizedUrlProperties = {
 
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
-    key((props) => `${props.type}-${props.actionId}`),
+    key((props) => (props.experimentId ? `${props.type}-${props.experimentId}` : `${props.type}-${props.actionId}`)),
     props({} as AuthorizedUrlListLogicProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
