@@ -71,7 +71,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert (
-            recording.build_object_lts_path("2023-08-01")
+            recording.build_blob_lts_storage_path("2023-08-01")
             == f"session_recordings_lts/team_id/{self.team.pk}/session_id/test_can_build_different_object_storage_paths-s1/data"
         )
 
@@ -126,9 +126,9 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             assert recording.keypress_count == 0
             assert recording.start_url == "https://app.posthog.com/my-url"
 
-            stored_objects = list_objects(recording.build_object_lts_path("2023-08-01"))
+            stored_objects = list_objects(recording.build_blob_lts_storage_path("2023-08-01"))
             assert stored_objects == [
-                f"{recording.build_object_lts_path('2023-08-01')}/a",
-                f"{recording.build_object_lts_path('2023-08-01')}/b",
-                f"{recording.build_object_lts_path('2023-08-01')}/c",
+                f"{recording.build_blob_lts_storage_path('2023-08-01')}/a",
+                f"{recording.build_blob_lts_storage_path('2023-08-01')}/b",
+                f"{recording.build_blob_lts_storage_path('2023-08-01')}/c",
             ]

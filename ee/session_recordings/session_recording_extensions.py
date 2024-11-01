@@ -73,7 +73,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.save()
         return
 
-    target_prefix = recording.build_object_lts_path("2023-08-01")
+    target_prefix = recording.build_blob_lts_storage_path("2023-08-01")
     source_prefix = recording.build_blob_ingestion_storage_path()
     # if snapshots are already in blob storage, then we can just copy the files between buckets
     with SNAPSHOT_PERSIST_TIME_HISTOGRAM.time():

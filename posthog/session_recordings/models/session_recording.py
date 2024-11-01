@@ -147,7 +147,7 @@ class SessionRecording(UUIDModel):
             SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
             self.viewed = True
 
-    def build_object_lts_path(self, version: Literal["2023-08-01"]) -> str:
+    def build_blob_lts_storage_path(self, version: Literal["2023-08-01"]) -> str:
         if version == "2023-08-01":
             return self.build_blob_ingestion_storage_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
         else:
