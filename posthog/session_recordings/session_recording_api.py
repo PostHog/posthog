@@ -57,9 +57,6 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
-from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
-    convert_original_version_lts_recording,
-)
 from posthog.storage import object_storage
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
@@ -559,21 +556,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_prefix = ""
 
         if recording.object_storage_path:
-            if recording.storage_version == "2023-08-01":
-                blob_prefix = recording.object_storage_path
-                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-            else:
-                # originally LTS files were in a single file
-                # TODO this branch can be deleted after 01-08-2024
-                sources.append(
-                    {
-                        "source": "blob",
-                        "start_timestamp": recording.start_time,
-                        "end_timestamp": recording.end_time,
-                        "blob_key": recording.object_storage_path,
-                    }
-                )
-                might_have_realtime = False
+            blob_prefix = recording.object_storage_path
+            blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+            might_have_realtime = False
         else:
             blob_prefix = recording.build_blob_ingestion_storage_path()
             blob_keys = object_storage.list_objects(blob_prefix)
@@ -776,11 +761,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 if recording.storage_version == "2023-08-01":
                     file_key = f"{recording.object_storage_path}/{blob_key}"
                 else:
-                    # this is a legacy recording, we need to load the file from the old path
-                    file_key = convert_original_version_lts_recording(recording)
+                    raise NotImplementedError(
+                        f"Unknown session replay object storage version {recording.storage_version}"
+                    )
             else:
                 blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+                file_key = recording.build_blob_ingestion_storage_path(root_prefix=blob_prefix)
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")

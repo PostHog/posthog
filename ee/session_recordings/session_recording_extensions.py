@@ -1,18 +1,12 @@
 # EE extended functions for SessionRecording model
-import gzip
-import json
-from datetime import timedelta, datetime
-from typing import Optional, cast
+from datetime import timedelta
 
 import structlog
 from django.utils import timezone
 from prometheus_client import Histogram, Counter
-from sentry_sdk import capture_exception, capture_message
 
 from posthog import settings
-from posthog.session_recordings.models.metadata import PersistedRecordingV1
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.session_recording_helpers import decompress
 from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
@@ -40,35 +34,10 @@ SNAPSHOT_PERSIST_TOO_YOUNG_COUNTER = Counter(
 MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
 
 
-# TODO rename this...
-def save_recording_with_new_content(recording: SessionRecording, content: str) -> str:
-    if not settings.OBJECT_STORAGE_ENABLED:
-        return ""
-
-    logger.info(
-        "re-saving recording file into 2023-08-01 LTS storage format",
-        recording_id=recording.session_id,
-        team_id=recording.team_id,
-    )
-
-    target_prefix = recording.build_object_storage_path("2023-08-01")
-
-    start = int(cast(datetime, recording.start_time).timestamp() * 1000)
-    end = int(cast(datetime, recording.end_time).timestamp() * 1000)
-    new_path = f"{target_prefix}/{start}-{end}"
-
-    zipped_content = gzip.compress(content.encode("utf-8"))
-    object_storage.write(
-        new_path,
-        zipped_content,
-        extras={"ContentType": "application/json", "ContentEncoding": "gzip"},
-    )
-
-    recording.storage_version = "2023-08-01"
-    recording.object_storage_path = target_prefix
-    recording.save()
-
-    return new_path
+READ_FROM_S3_COUNTER = Counter(
+    "snapshot_persist_read_from_s3",
+    "Count of session recordings that were read from S3",
+)
 
 
 class InvalidRecordingForPersisting(Exception):
@@ -116,7 +85,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.save()
         return
 
-    target_prefix = recording.build_object_storage_path("2023-08-01")
+    target_prefix = recording.build_object_lts_path("2023-08-01")
     source_prefix = recording.build_blob_ingestion_storage_path()
     # if snapshots are already in blob storage, then we can just copy the files between buckets
     with SNAPSHOT_PERSIST_TIME_HISTOGRAM.time():
@@ -144,53 +113,3 @@ def persist_recording(recording_id: str, team_id: int) -> None:
             source_prefix=source_prefix,
         )
         raise InvalidRecordingForPersisting("Could not persist recording: " + recording_id)
-
-
-def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedRecordingV1]:
-    """Load a persisted recording from S3"""
-
-    logger.info(
-        "Persisting recording load: reading from S3...",
-        recording_id=recording.session_id,
-        storage_version=recording.storage_version,
-        path=recording.object_storage_path,
-    )
-
-    # originally storage version was written to the stored content
-    # some stored content is stored over multiple files, so we can't rely on that
-    # future recordings will have the storage version on the model
-    # and will not be loaded here
-    if not recording.storage_version:
-        try:
-            content = object_storage.read(str(recording.object_storage_path))
-            decompressed = json.loads(decompress(content)) if content else None
-            logger.info(
-                "Persisting recording load: loaded!",
-                recording_id=recording.session_id,
-                path=recording.object_storage_path,
-            )
-
-            return decompressed
-        except object_storage.ObjectStorageError as ose:
-            capture_exception(ose)
-            logger.error(
-                "session_recording.object-storage-load-error",
-                recording_id=recording.session_id,
-                path=recording.object_storage_path,
-                version="2022-12-22",
-                exception=ose,
-                exc_info=True,
-            )
-
-    capture_message(
-        "session_recording.load_persisted_recording.unexpected_recording_storage_version",
-        extras={
-            "recording_id": recording.session_id,
-            "storage_version": recording.storage_version,
-            "path": recording.object_storage_path,
-        },
-        tags={
-            "team_id": recording.team_id,
-        },
-    )
-    return None

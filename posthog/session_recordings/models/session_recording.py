@@ -147,23 +147,14 @@ class SessionRecording(UUIDModel):
             SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
             self.viewed = True
 
-    def build_object_storage_path(self, version: Literal["2023-08-01", "2022-12-22"]) -> str:
-        if version == "2022-12-22":
-            path_parts: list[str] = [
-                settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
-                f"team-{self.team_id}",
-                f"session-{self.session_id}",
-            ]
-            return "/".join(path_parts)
-        elif version == "2023-08-01":
-            return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
+    def build_object_lts_path(self, version: Literal["2023-08-01"]) -> str:
+        if version == "2023-08-01":
+            return self.build_blob_ingestion_storage_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
         else:
             raise NotImplementedError(f"Unknown session replay object storage version {version}")
 
-    def build_blob_ingestion_storage_path(self) -> str:
-        return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER)
-
-    def _build_session_blob_path(self, root_prefix: str) -> str:
+    def build_blob_ingestion_storage_path(self, root_prefix: Optional[str] = None) -> str:
+        root_prefix = root_prefix or settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
         return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
     @staticmethod
