@@ -888,10 +888,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return []
                 }
 
-                const validDates = insightTiles
+                const validDates: Dayjs[] = insightTiles
                     .filter((i) => !!i.insight?.cache_target_age || !!i.insight?.next_allowed_client_refresh)
-                    .map((i) => dayjs(i.insight?.cache_target_age ?? i.insight?.next_allowed_client_refresh))
-                    .filter((date) => date.isValid())
+                    .map((i) =>
+                        dayjs.min(dayjs(i.insight?.cache_target_age), dayjs(i.insight?.next_allowed_client_refresh))
+                    )
+                    .filter((date) => date?.isValid()) as Dayjs[]
                 return sortDayJsDates(validDates)
             },
         ],

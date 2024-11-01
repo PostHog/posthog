@@ -4,6 +4,7 @@ import duration from 'dayjs/plugin/duration'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+import minMax from 'dayjs/plugin/minMax'
 import quarterOfYear from 'dayjs/plugin/quarterOfYear'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import timezone from 'dayjs/plugin/timezone'
@@ -18,6 +19,7 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 dayjs.extend(duration)
 dayjs.extend(quarterOfYear)
+dayjs.extend(minMax)
 
 const now = (): Dayjs => dayjs()
 
