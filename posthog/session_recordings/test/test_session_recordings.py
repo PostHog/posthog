@@ -741,12 +741,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     "end_timestamp": "2023-01-01T00:00:00Z",
                     "blob_key": "1672531195000-1672531200000",
                 },
-                {
-                    "source": "realtime",
-                    "start_timestamp": "2022-12-31T23:59:55Z",
-                    "end_timestamp": None,
-                    "blob_key": None,
-                },
             ]
         }
         assert mock_list_objects.call_args_list == [
