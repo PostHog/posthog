@@ -621,6 +621,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                         },
                     },
                 }}
+                readOnly={true}
             />
         </>
     )
