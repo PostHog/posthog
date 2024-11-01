@@ -274,7 +274,7 @@ def get_redshift_fields_from_record_schema(
 
 @dataclasses.dataclass
 class RedshiftHeartbeatDetails(BatchExportHeartbeatDetails):
-    """The BigQuery batch export details included in every heartbeat."""
+    """The Redshift batch export details included in every heartbeat."""
 
     pass
 
