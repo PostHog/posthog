@@ -5,12 +5,12 @@ import uuid
 
 from temporalio import activity
 
-from posthog.settings.utils import get_from_env
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.data_imports.pipelines.bigquery import delete_table
 from posthog.temporal.data_imports.pipelines.helpers import aremove_reset_pipeline, aupdate_job_count
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
+from posthog.temporal.data_imports.util import is_posthog_team
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
@@ -30,11 +30,6 @@ class ImportDataActivityInputs:
     run_id: str
 
 
-def is_posthog_team(team_id: int) -> bool:
-    region = get_from_env("CLOUD_DEPLOYMENT", optional=True)
-    return (region == "EU" and team_id == 1) or (region == "US" and team_id == 2)
-
-
 @activity.defn
 async def import_data_activity(inputs: ImportDataActivityInputs):
     async with Heartbeater(factor=30):  # Every 10 secs
@@ -43,6 +38,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
         )
 
         logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
+        logger.info("Running *ASYNC* import_data")
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
