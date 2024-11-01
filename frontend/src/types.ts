@@ -1618,6 +1618,10 @@ export interface BillingTierType {
     up_to: number | null
 }
 
+export interface BillingTrialType {
+    length: number
+}
+
 export interface BillingProductV2Type {
     type: string
     usage_key: string | null
@@ -1650,6 +1654,7 @@ export interface BillingProductV2Type {
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
+    trial?: BillingTrialType
 }
 
 export interface BillingProductV2AddonType {
@@ -1680,6 +1685,7 @@ export interface BillingProductV2AddonType {
     features: BillingFeatureType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
+    trial?: BillingTrialType
 }
 export interface BillingType {
     customer_id: string
@@ -1707,6 +1713,12 @@ export interface BillingType {
     discount_percent?: number
     discount_amount_usd?: string
     amount_off_expires_at?: Dayjs
+    trial?: {
+        type: 'autosubscribe' | 'standard'
+        status: 'active' | 'expired' | 'cancelled' | 'converted'
+        target: 'paid' | 'teams' | 'enterprise'
+        expires_at: string
+    }
 }
 
 export interface BillingPlanType {
