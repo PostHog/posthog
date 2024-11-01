@@ -231,7 +231,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if saved_metrics.count() != len(value):
             raise ValidationError("Saved metric does not exist")
 
+        return value
+
     def validate_metrics(self, value):
+        # TODO: This isn't correct most probably, we wouldn't have experiment_id inside ExperimentTrendsQuery
+        # on creation. Not sure how this is supposed to work yet.
         if not value:
             return value
 
@@ -252,7 +256,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
             metric_query = metric["query"]
 
-            if metric.get("kind") not in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
+            if metric_query.get("kind") not in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
                 raise ValidationError("Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'")
 
             # pydantic models are used to validate the query
