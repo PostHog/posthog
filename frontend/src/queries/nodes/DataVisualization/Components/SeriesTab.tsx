@@ -24,11 +24,21 @@ import { ColorPickerButton } from './ColorPickerButton'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { columns, numericalColumns, xData, yData, responseLoading, showTableSettings, tabularColumns } =
-        useValues(dataVisualizationLogic)
-    const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
+    const {
+        columns,
+        numericalColumns,
+        xData,
+        yData,
+        responseLoading,
+        showTableSettings,
+        tabularColumns,
+        selectedXAxis,
+        showSeriesBreakout,
+    } = useValues(dataVisualizationLogic)
+    const { updateXSeries, addYSeries, addSeriesBreakout } = useActions(dataVisualizationLogic)
 
     const hideAddYSeries = yData.length >= numericalColumns.length
+    const hideAddSeriesBreakout = !(!showSeriesBreakout && selectedXAxis && columns.length > yData.length)
 
     if (showTableSettings) {
         return (
@@ -68,6 +78,19 @@ export const SeriesTab = (): JSX.Element => {
                     }
                 }}
             />
+            {!hideAddSeriesBreakout && (
+                <LemonButton
+                    className="mt-1"
+                    type="tertiary"
+                    onClick={() => addSeriesBreakout(null)}
+                    icon={<IconPlusSmall />}
+                    fullWidth
+                >
+                    Add series breakout
+                </LemonButton>
+            )}
+            {showSeriesBreakout && <SeriesBreakout />}
+
             <LemonLabel className="mt-4">Y-axis</LemonLabel>
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
@@ -298,4 +321,38 @@ const Y_SERIES_SETTINGS_TABS = {
         label: 'Display',
         Component: YSeriesDisplayTab,
     },
+}
+
+export const SeriesBreakout = (): JSX.Element => {
+    const { columns, responseLoading, selectedXAxis, selectedSeriesBreakout } = useValues(dataVisualizationLogic)
+    const { addSeriesBreakout } = useActions(dataVisualizationLogic)
+
+    const seriesBreakoutOptions = columns
+        .map(({ name, type }) => ({
+            value: name,
+            label: (
+                <div className="items-center flex-1">
+                    {name}
+                    <LemonTag className="ml-2" type="default">
+                        {type.name}
+                    </LemonTag>
+                </div>
+            ),
+        }))
+        .filter((column) => column.value !== selectedXAxis)
+
+    return (
+        <LemonSelect
+            className="w-full mt-1"
+            value={selectedSeriesBreakout !== null ? selectedSeriesBreakout : 'None'}
+            options={seriesBreakoutOptions}
+            disabledReason={responseLoading ? 'Query loading...' : undefined}
+            onChange={(value) => {
+                const column = columns.find((n) => n.name === value)
+                if (column) {
+                    addSeriesBreakout(column.name)
+                }
+            }}
+        />
+    )
 }

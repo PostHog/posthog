@@ -266,6 +266,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             allColumns: values.columns,
         }),
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
+        addSeriesBreakout: (columnName: string | null) => ({ columnName }),
+        deleteSeriesBreakout: () => ({}),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
         updateChartSettings: (settings: ChartSettings) => ({ settings }),
@@ -437,6 +439,22 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     return ySeries
                 },
+            },
+        ],
+        showSeriesBreakout: [
+            false as boolean,
+            {
+                clearAxis: () => false,
+                addSeriesBreakout: () => true,
+                deleteSeriesBreakout: () => false,
+            },
+        ],
+        selectedSeriesBreakout: [
+            null as string | null,
+            {
+                clearAxis: () => null,
+                addSeriesBreakout: (_, { columnName }) => columnName,
+                deleteSeriesBreakout: () => null,
             },
         ],
         activeSideBarTab: [
