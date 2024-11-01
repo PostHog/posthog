@@ -12,6 +12,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
     mock_fetch = MagicMock()
     mock_print = MagicMock()
     mock_posthog_capture = MagicMock()
+    fetch_responses = {}
 
     def setUp(self):
         super().setUp()
@@ -26,7 +27,8 @@ class BaseHogFunctionTemplateTest(BaseTest):
             side_effect=lambda *args: print("[DEBUG HogFunctionPostHogCapture]", *args)  # noqa: T201
         )
 
-    mock_fetch_response = lambda *args: {"status": 200, "body": {}}
+    def mock_fetch_response(self, url, *args):
+        return self.fetch_responses.get(url, {"status": 200, "body": {}})
 
     def get_mock_fetch_calls(self):
         # Return a simple array which is easier to debug

@@ -153,7 +153,7 @@ fun getPropValueType(propValue) {
 
 fun getPropValueTypeDefinition(name, propValue) {
     let propType := typeof(propValue)
-    if (propType == 'string' or propType == 'object') {
+    if (propType == 'string' or propType == 'object' or propType == 'array' or propType == 'tuple') {
         return {
             'name': name,
             'label': name,
