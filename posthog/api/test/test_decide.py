@@ -3,7 +3,7 @@ import json
 import random
 import time
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import pytest
 from django.conf import settings
@@ -13,6 +13,7 @@ from django.http import HttpRequest
 from django.test import TestCase, TransactionTestCase
 from django.test.client import Client
 from freezegun import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -406,72 +407,83 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["sessionRecording"]["canvasFps"], 3)
         self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.4")
 
-    def test_script_config_defaults_to_none(self, *args) -> None:
+    @parameterized.expand(
+        [
+            [
+                "defaults to none",
+                None,
+                None,
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "must have allowlist",
+                "new-recorder",
+                None,
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "ignores empty allowlist",
+                "new-recorder",
+                [],
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "wild card works",
+                "new-recorder",
+                ["*"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                False,
+            ],
+            [
+                "can have wild card and team id",
+                "new-recorder",
+                ["*"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                True,
+            ],
+            [
+                "allow list can exclude",
+                "new-recorder",
+                ["9999", "9998"],
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "allow list can include",
+                "new-recorder",
+                ["9999", "9998"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                True,
+            ],
+        ]
+    )
+    def test_session_recording_script_config(
+        self,
+        _mock_is_connected: Mock,
+        _name: str,
+        rrweb_script_name: str | None,
+        team_allow_list: list[str] | None,
+        expected: dict,
+        include_team_in_allowlist: bool,
+    ) -> None:
         self._update_team(
             {
                 "session_recording_opt_in": True,
             }
         )
 
-        response = self._post_decide(api_version=3)
-        assert response.status_code == 200
-        assert response.json()["sessionRecording"] == make_session_recording_decide_response({"scriptConfig": None})
-
-    def test_script_config_requires_team_allow_list(self, *args) -> None:
-        self._update_team(
-            {
-                "session_recording_opt_in": True,
-            }
-        )
-
-        with self.settings(SESSION_REPLAY_RRWEB_SCRIPT="new-recorder"):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert response.json()["sessionRecording"] == make_session_recording_decide_response({"scriptConfig": None})
-
-    def test_script_config_can_have_wildcard_team_allow_list(self, *args) -> None:
-        self._update_team(
-            {
-                "session_recording_opt_in": True,
-            }
-        )
-
-        with self.settings(SESSION_REPLAY_RRWEB_SCRIPT="new-recorder", SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS="*"):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert response.json()["sessionRecording"] == make_session_recording_decide_response({"scriptConfig": None})
-
-    def test_script_config_obeys_team_allow_list_that_excludes(self, *args) -> None:
-        self._update_team(
-            {
-                "session_recording_opt_in": True,
-            }
-        )
+        if team_allow_list and include_team_in_allowlist:
+            team_allow_list.append(f"{self.team.id}")
 
         with self.settings(
-            SESSION_REPLAY_RRWEB_SCRIPT="new-recorder",
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=f"{self.team.id-1},{self.team.id+1}",
+            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name, SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
-            assert response.json()["sessionRecording"] == make_session_recording_decide_response({"scriptConfig": None})
-
-    def test_script_config_obeys_team_allow_list_that_includes(self, *args) -> None:
-        self._update_team(
-            {
-                "session_recording_opt_in": True,
-            }
-        )
-
-        with self.settings(
-            SESSION_REPLAY_RRWEB_SCRIPT="new-recorder",
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=f"{self.team.id-1},{self.team.id},{self.team.id+1}",
-        ):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert response.json()["sessionRecording"] == make_session_recording_decide_response(
-                {"scriptConfig": {"script": "new-recorder"}}
-            )
+            assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
