@@ -5,7 +5,7 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useState } from 'react'
 
-import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { ElementSelectorType, experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
@@ -22,6 +22,16 @@ export function WebExperimentTransformField({
     const [transformSelected, setTransformSelected] = useState(
         transform.html && transform.html.length > 0 ? 'html' : 'text'
     )
+    const showElementSelector = (
+        e: React.MouseEvent<HTMLElement, MouseEvent>,
+        variant: string,
+        tIndex: number,
+        type: ElementSelectorType
+    ): void => {
+        e.stopPropagation()
+        selectVariant(variant)
+        inspectForElementWithIndex(variant, type, inspectingElement === tIndex ? null : tIndex)
+    }
     const { experimentForm, inspectingElement, selectedVariant } = useValues(experimentsTabLogic)
     const { setExperimentFormValue, selectVariant, inspectForElementWithIndex } = useActions(experimentsTabLogic)
     return (
@@ -30,10 +40,39 @@ export function WebExperimentTransformField({
                 <LemonButton
                     size="small"
                     type={inspectingElement === tIndex && selectedVariant === variant ? 'primary' : 'secondary'}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        selectVariant(variant)
-                        inspectForElementWithIndex(variant, inspectingElement === tIndex ? null : tIndex)
+                    sideAction={{
+                        dropdown: {
+                            overlay: (
+                                <>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={(e) => showElementSelector(e, variant, tIndex, 'all-elements')}
+                                    >
+                                        All Elements
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={(e) => showElementSelector(e, variant, tIndex, 'headers')}
+                                    >
+                                        Headers (h)
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={(e) => showElementSelector(e, variant, tIndex, 'buttons')}
+                                    >
+                                        Buttons
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={(e) => showElementSelector(e, variant, tIndex, 'images')}
+                                    >
+                                        Images
+                                    </LemonButton>
+                                </>
+                            ),
+                            placement: 'bottom',
+                            matchWidth: true,
+                        },
                     }}
                 >
                     {transform.selector ? 'Change element' : 'Select element'}

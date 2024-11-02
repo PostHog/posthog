@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
@@ -48,6 +49,19 @@ function newExperiment(): ExperimentForm {
     } as unknown as ExperimentForm
 }
 
+const EXPERIMENT_HEADER_TARGETS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+
+const EXPERIMENT_BUTTON_TARGETS = ['input[type="button"]', 'button']
+
+export type ElementSelectorType = 'all-elements' | 'headers' | 'buttons' | 'images'
+
+const ElementSelectorMap: Map<ElementSelectorType, string> = new Map([
+    ['all-elements', EXPERIMENT_TARGET_SELECTOR],
+    ['headers', EXPERIMENT_HEADER_TARGETS.join(',')],
+    ['buttons', EXPERIMENT_BUTTON_TARGETS.join(',')],
+    ['images', 'img'],
+])
+
 export const experimentsTabLogic = kea<experimentsTabLogicType>([
     path(['toolbar', 'experiments', 'experimentsTabLogic']),
     actions({
@@ -67,7 +81,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         }),
         addNewElement: (variant: string) => ({ variant }),
         removeElement: (variant: string, index: number) => ({ variant, index }),
-        inspectForElementWithIndex: (variant: string, index: number | null) => ({ variant, index }),
+        inspectForElementWithIndex: (variant: string, type: ElementSelectorType, index: number | null) => ({
+            variant,
+            type,
+            index,
+        }),
         editSelectorWithIndex: (variant: string, index: number | null) => ({ variant, index }),
         inspectElementSelected: (element: HTMLElement, variant: string, index: number | null) => ({
             element,
@@ -116,6 +134,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             {
                 newExperiment: (_, { element }) => element,
                 selectExperiment: () => null,
+            },
+        ],
+        elementSelector: [
+            '',
+            {
+                inspectForElementWithIndex: (_, { type }) => ElementSelectorMap.get(type) || '',
             },
         ],
         inspectingElement: [
@@ -396,7 +420,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)
-                    actions.inspectForElementWithIndex(variant, webVariant.transforms.length - 1)
+                    actions.inspectForElementWithIndex(variant, 'all-elements', webVariant.transforms.length - 1)
                 }
             }
         },
