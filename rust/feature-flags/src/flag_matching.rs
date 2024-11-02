@@ -864,8 +864,11 @@ impl FeatureFlagMatcher {
         let mut cohort_matches = HashMap::new();
 
         if !static_cohorts.is_empty() {
+            // static cohorts don't have any property filters; they're purely based on person properties
+            // and are membership-based.  Evaluate these first since they're cheaper to evaluate.
             let results = evaluate_static_cohorts(
                 self.postgres_reader.clone(),
+                self.team_id,
                 self.distinct_id.clone(),
                 static_cohorts.iter().map(|c| c.id).collect(),
             )
@@ -874,11 +877,12 @@ impl FeatureFlagMatcher {
         }
 
         if !dynamic_cohorts.is_empty() {
+            // dynamic cohorts have property filters, so we need to evaluate them based on the target properties
             for filter in cohort_property_filters {
                 let cohort_id = filter
                     .get_cohort_id()
                     .ok_or(FlagError::CohortFiltersParsingError)?;
-                let match_result = evaluate_dynamic_cohort_dependencies(
+                let match_result = evaluate_dynamic_cohort_based_on_dependencies(
                     cohort_id,
                     target_properties,
                     cohorts.clone(),
@@ -1134,45 +1138,54 @@ impl FeatureFlagMatcher {
     }
 }
 
-/// Evaluate a static cohort filter by checking if the person is in the cohort.
+/// Evaluate static cohort filters by checking if the person is in each cohort.
 async fn evaluate_static_cohorts(
     postgres_reader: PostgresReader,
+    team_id: TeamId,
     distinct_id: String,
     cohort_ids: Vec<CohortId>,
 ) -> Result<Vec<(CohortId, bool)>, FlagError> {
     let mut conn = postgres_reader.get_connection().await?;
 
     let query = r#"
-        SELECT cohort_id
-        FROM posthog_cohortpeople
-        WHERE person_id = $1
-        AND cohort_id = ANY($2)
+        WITH person AS (
+            SELECT posthog_person.id AS person_id
+            FROM posthog_person
+            JOIN posthog_persondistinctid 
+              ON posthog_persondistinctid.person_id = posthog_person.id
+            WHERE 
+                posthog_person.team_id = $1
+                AND posthog_persondistinctid.team_id = $1
+                AND posthog_persondistinctid.distinct_id = $2
+            LIMIT 1
+        ),
+        cohort_membership AS (
+            SELECT c.cohort_id, 
+                   CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
+            FROM unnest($3::integer[]) AS c(cohort_id)
+            LEFT JOIN posthog_cohortpeople AS pc
+              ON pc.person_id = (SELECT person_id FROM person)
+              AND pc.cohort_id = c.cohort_id
+        )
+        SELECT cohort_id, is_member
+        FROM cohort_membership
     "#;
 
     let rows = sqlx::query(query)
+        .bind(team_id)
         .bind(&distinct_id)
         .bind(&cohort_ids)
         .fetch_all(&mut *conn)
         .await?;
 
-    // Initialize all cohorts as not matched
-    let mut cohort_membership = cohort_ids
+    let result = rows
         .into_iter()
-        .map(|id| (id, false))
-        .collect::<HashMap<_, _>>();
-
-    // Update the hashmap with matched cohorts
-    for row in rows {
-        let cohort_id: CohortId = row.get("cohort_id");
-        if let Some(entry) = cohort_membership.get_mut(&cohort_id) {
-            *entry = true;
-        }
-    }
-
-    // Convert the hashmap back into a vector
-    let result = cohort_membership
-        .into_iter()
-        .collect::<Vec<(CohortId, bool)>>();
+        .map(|row| {
+            let cohort_id: CohortId = row.get("cohort_id");
+            let is_member: bool = row.get("is_member");
+            (cohort_id, is_member)
+        })
+        .collect();
 
     Ok(result)
 }
@@ -1180,7 +1193,7 @@ async fn evaluate_static_cohorts(
 /// Evaluates a dynamic cohort and its dependencies.
 /// This uses a topological sort to evaluate dependencies first, which is necessary
 /// because a cohort can depend on another cohort, and we need to respect the dependency order.
-fn evaluate_dynamic_cohort_dependencies(
+fn evaluate_dynamic_cohort_based_on_dependencies(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
     cohorts: Vec<Cohort>,
@@ -4078,7 +4091,7 @@ mod tests {
             team.id,
             Some("Another Static Cohort".to_string()),
             json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
+            true,
         )
         .await
         .unwrap();
