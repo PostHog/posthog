@@ -41,3 +41,12 @@ REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
 # gzip is the current default in production
 # TODO we can clean this up once we've tested the new gzip-in-capture compression and don't need a setting
 SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMPRESSION", "gzip")
+
+# can be used to provide an alternative script _name_ from the decide endpoint
+# posthog.js will use this script name to load the rrweb script from its configured asset location
+# intended to allow testing of new releases of rrweb or our lazy loaded recording script
+SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, optional=True)
+# a list of teams that are allowed to use the SESSION_REPLAY_RRWEB_SCRIPT
+
+# can be a comma separated list of team ids or '*' to allow all teams
+SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS")

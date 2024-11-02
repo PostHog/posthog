@@ -359,6 +359,15 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 else:
                     linked_flag = linked_flag_key
 
+            rrweb_script_config = None
+            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
+                settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS == ["*"]
+                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+            ):
+                rrweb_script_config = {
+                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                }
+
             session_recording_config_response = {
                 "endpoint": "/s/",
                 "consoleLogRecordingEnabled": capture_console_logs,
@@ -369,6 +378,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
+                "scriptConfig": rrweb_script_config,
             }
 
             if isinstance(team.session_replay_config, dict):
