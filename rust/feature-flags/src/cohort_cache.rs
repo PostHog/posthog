@@ -41,9 +41,8 @@ impl CohortCache {
         ttl_seconds: Option<u64>,
     ) -> Self {
         // We use the size of the cohort list as the weight of the entry
-        let weigher = |_: &TeamId, value: &Vec<Cohort>| -> u32 {
-            return value.len().try_into().unwrap_or(u32::MAX);
-        };
+        let weigher =
+            |_: &TeamId, value: &Vec<Cohort>| -> u32 { value.len().try_into().unwrap_or(u32::MAX) };
 
         // Initialize the Moka cache with TTL and size-based eviction.
         let cache = Cache::builder()
@@ -68,7 +67,7 @@ impl CohortCache {
         }
         let fetched_cohorts = Cohort::list_from_pg(self.postgres_reader.clone(), team_id).await?;
         self.per_team_cohorts
-            .insert(team_id.clone(), fetched_cohorts.clone())
+            .insert(team_id, fetched_cohorts.clone())
             .await;
 
         Ok(fetched_cohorts)

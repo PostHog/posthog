@@ -202,7 +202,6 @@ impl FeatureFlagMatcher {
         postgres_writer: PostgresWriter,
         cohort_cache: Arc<CohortCache>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
-        properties_cache: Option<PropertiesCache>,
         groups: Option<HashMap<String, Value>>,
     ) -> Self {
         FeatureFlagMatcher {
@@ -211,10 +210,10 @@ impl FeatureFlagMatcher {
             postgres_reader: postgres_reader.clone(),
             postgres_writer: postgres_writer.clone(),
             cohort_cache,
-            groups: groups.unwrap_or_default(),
             group_type_mapping_cache: group_type_mapping_cache
                 .unwrap_or_else(|| GroupTypeMappingCache::new(team_id, postgres_reader.clone())),
-            properties_cache: properties_cache.unwrap_or_default(),
+            groups: groups.unwrap_or_default(),
+            properties_cache: PropertiesCache::default(),
         }
     }
 
@@ -1759,7 +1758,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
         let match_result = matcher.get_match(&flag, None, None).await.unwrap();
         assert!(match_result.matches);
@@ -1773,7 +1771,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
         let match_result = matcher.get_match(&flag, None, None).await.unwrap();
         assert!(!match_result.matches);
@@ -1785,7 +1782,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -1839,7 +1835,6 @@ mod tests {
             postgres_reader,
             postgres_writer,
             cohort_cache,
-            None,
             None,
             None,
         );
@@ -1918,7 +1913,6 @@ mod tests {
             postgres_writer.clone(),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
-            None,
             Some(groups),
         );
 
@@ -1959,7 +1953,6 @@ mod tests {
             postgres_writer.clone(),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
-            None,
             Some(groups),
         );
         let variant = matcher.get_matching_variant(&flag, None).await.unwrap();
@@ -1987,7 +1980,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -2035,7 +2027,6 @@ mod tests {
             postgres_reader,
             postgres_writer,
             cohort_cache,
-            None,
             None,
             None,
         );
@@ -2136,7 +2127,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher
@@ -2229,7 +2219,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher
@@ -2272,7 +2261,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -2320,7 +2308,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         // First access should fetch from the database
@@ -2352,7 +2339,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -2483,7 +2469,6 @@ mod tests {
                     cohort_cache_clone,
                     None,
                     None,
-                    None,
                 );
                 matcher.get_match(&flag_clone, None, None).await.unwrap()
             }));
@@ -2563,7 +2548,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -2605,7 +2589,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -2645,7 +2628,6 @@ mod tests {
             postgres_reader,
             postgres_writer,
             cohort_cache,
-            None,
             None,
             None,
         );
@@ -2697,7 +2679,6 @@ mod tests {
             postgres_reader,
             postgres_writer,
             cohort_cache,
-            None,
             None,
             None,
         );
@@ -2780,7 +2761,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -2841,7 +2821,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache,
-            None,
             None,
             None,
         );
@@ -2921,7 +2900,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            None,
         );
 
         let result = matcher
@@ -2964,7 +2942,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache,
-            None,
             None,
             None,
         );
@@ -3044,7 +3021,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache,
-            None,
             None,
             None,
         );
@@ -3138,7 +3114,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -3149,7 +3124,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -3158,7 +3132,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -3265,7 +3238,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -3359,7 +3331,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -3370,7 +3341,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -3379,7 +3349,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -3497,7 +3466,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -3586,7 +3554,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -3673,7 +3640,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -3790,7 +3756,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -3878,7 +3843,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -4110,7 +4074,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         )
         .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
         .await;
@@ -4182,7 +4145,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         )
@@ -4295,7 +4257,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         )
