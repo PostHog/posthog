@@ -82,6 +82,8 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
                     ),
                     None,
                 )
+                # Confirm that the user has the necessary permissions for the feature
+                # if allowed_project_count is None then the user has unlimited projects
                 if current_non_demo_project_count >= allowed_project_count or not allowed_project_count:
                     return False
             else:
