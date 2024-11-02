@@ -275,6 +275,21 @@ describe('experimentsTabLogic', () => {
                 })
         })
 
+        it('can switch between variants', async () => {
+            await expectLogic(theExperimentsLogic, () => {
+                theExperimentsLogic.actions.getExperiments()
+            })
+                .delay(0)
+                .then(() => {
+                    theExperimentsTabLogic.actions.selectExperiment(2)
+                    const element = createTestDocument()
+                    theExperimentsTabLogic.actions.applyVariant('', 'test')
+                    expect(element.innerText).toEqual('Hello world')
+                    theExperimentsTabLogic.actions.applyVariant('test', 'test2')
+                    expect(element.innerText).toEqual('Goodbye world')
+                })
+        })
+
         it('can reset to control', async () => {
             await expectLogic(theExperimentsLogic, () => {
                 theExperimentsLogic.actions.getExperiments()
@@ -285,7 +300,9 @@ describe('experimentsTabLogic', () => {
                     const element = createTestDocument()
                     theExperimentsTabLogic.actions.applyVariant('', 'test')
                     expect(element.innerText).toEqual('Hello world')
-                    theExperimentsTabLogic.actions.applyVariant('test', 'control')
+                    theExperimentsTabLogic.actions.applyVariant('test', 'test2')
+                    expect(element.innerText).toEqual('Goodbye world')
+                    theExperimentsTabLogic.actions.applyVariant('test2', 'control')
                     expect(element.innerText).toEqual('original')
                 })
         })

@@ -318,9 +318,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                     selectedVariant.transforms?.forEach((transform) => {
                         if (transform.selector) {
-                            const undoTransform = {
+                            const undoTransform: WebExperimentTransform = {
                                 selector: transform.selector,
-                            } as unknown as WebExperimentTransform
+                            }
                             const elements = document.querySelectorAll(transform.selector)
                             elements.forEach((elements) => {
                                 const htmlElement = elements as HTMLElement
