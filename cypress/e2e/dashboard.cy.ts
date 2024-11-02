@@ -453,4 +453,25 @@ describe('Dashboard', () => {
         // click on insight
         cy.get('h4').contains('insight to add to dashboard').click({ force: true })
     })
+
+    it('Filters insights by dashboard type', () => {
+        const dashboardType = 'TRENDS'
+        const dashboardName = randomString(`Dashboard with type ${dashboardType}`)
+        const insightName = randomString('insight to add to dashboard')
+
+        // Create and visit a dashboard to get it into turbo mode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+
+        insight.create(insightName)
+
+        insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
+
+        cy.get('.CardMeta h4').should('have.text', insightName)
+
+        cy.clickNavMenu('dashboards')
+        cy.get('[data-attr="dashboard-type-filter"]').click()
+        cy.get(`[data-attr="dashboard-type-${dashboardType}"]`).click()
+
+        cy.get('.CardMeta h4').should('have.text', insightName)
+    })
 })

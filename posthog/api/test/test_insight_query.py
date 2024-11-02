@@ -196,3 +196,29 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         listed_insights = self.dashboard_api.list_insights()
         assert listed_insights["count"] == 2
+
+    def test_filter_insights_by_dashboard_type(self) -> None:
+        dashboard1 = self.dashboard_api.create_dashboard({"name": "Dashboard 1", "type": "TRENDS"})
+        dashboard2 = self.dashboard_api.create_dashboard({"name": "Dashboard 2", "type": "FUNNELS"})
+
+        self.dashboard_api.create_insight(
+            {
+                "name": "Insight 1",
+                "dashboards": [dashboard1["id"]],
+            },
+        )
+        self.dashboard_api.create_insight(
+            {
+                "name": "Insight 2",
+                "dashboards": [dashboard2["id"]],
+            },
+        )
+
+        insights_trends = self.dashboard_api.list_insights({"dashboard_type": "TRENDS"})
+        insights_funnels = self.dashboard_api.list_insights({"dashboard_type": "FUNNELS"})
+
+        assert len(insights_trends["results"]) == 1
+        assert insights_trends["results"][0]["name"] == "Insight 1"
+
+        assert len(insights_funnels["results"]) == 1
+        assert insights_funnels["results"][0]["name"] == "Insight 2"

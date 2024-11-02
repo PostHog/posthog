@@ -848,7 +848,7 @@ class InsightViewSet(
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"])
                     | Q(derived_name__icontains=request.GET["search"])
-                    | Q(tagged_items__tag__name__icontains=request.GET["search"])
+                    | Q(tagged_items__tag__name__icontains(request.GET["search"])
                     | Q(description__icontains=request.GET["search"])
                 )
             elif key == "dashboards":
@@ -862,6 +862,11 @@ class InsightViewSet(
                             .values_list("insight__id", flat=True)
                             .all()
                         )
+            elif key == "dashboard_type":
+                dashboard_type = request.GET["dashboard_type"]
+                queryset = queryset.filter(
+                    Q(dashboard_tiles__dashboard__type=dashboard_type)
+                )
 
         return queryset
 
