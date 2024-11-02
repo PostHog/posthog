@@ -4029,7 +4029,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -4110,7 +4109,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            None,
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
@@ -4189,7 +4187,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
@@ -4279,7 +4276,6 @@ mod tests {
             postgres_reader.clone(),
             postgres_writer.clone(),
             cohort_cache.clone(),
-            None,
             None,
             None,
         );
