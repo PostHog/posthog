@@ -110,7 +110,7 @@ mod tests {
         let reader_client = setup_pg_reader_client(None).await;
 
         let team_id = setup_test_team(writer_client.clone()).await?;
-        let _cohort = setup_test_cohort(writer_client.clone(), team_id.clone(), None).await?;
+        let _cohort = setup_test_cohort(writer_client.clone(), team_id, None).await?;
 
         // Initialize CohortCache with a short TTL for testing
         let cohort_cache = CohortCache::new(
@@ -119,9 +119,9 @@ mod tests {
             Some(1), // 1-second TTL
         );
 
-        let cohorts = cohort_cache.get_cohorts_for_team(team_id.clone()).await?;
+        let cohorts = cohort_cache.get_cohorts_for_team(team_id).await?;
         assert_eq!(cohorts.len(), 1);
-        assert_eq!(cohorts[0].team_id, team_id.clone());
+        assert_eq!(cohorts[0].team_id, team_id);
 
         let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await;
         assert!(cached_cohorts.is_some());
@@ -153,9 +153,9 @@ mod tests {
         for _ in 0..max_capacity {
             let team = insert_new_team_in_pg(writer_client.clone(), None).await?;
             let team_id = team.id;
-            inserted_team_ids.push(team_id.clone());
-            setup_test_cohort(writer_client.clone(), team_id.clone(), None).await?;
-            cohort_cache.get_cohorts_for_team(team_id.clone()).await?;
+            inserted_team_ids.push(team_id);
+            setup_test_cohort(writer_client.clone(), team_id, None).await?;
+            cohort_cache.get_cohorts_for_team(team_id).await?;
         }
 
         cohort_cache.per_team_cohorts.run_pending_tasks().await;
@@ -167,10 +167,8 @@ mod tests {
 
         let new_team = insert_new_team_in_pg(writer_client.clone(), None).await?;
         let new_team_id = new_team.id;
-        setup_test_cohort(writer_client.clone(), new_team_id.clone(), None).await?;
-        cohort_cache
-            .get_cohorts_for_team(new_team_id.clone())
-            .await?;
+        setup_test_cohort(writer_client.clone(), new_team_id, None).await?;
+        cohort_cache.get_cohorts_for_team(new_team_id).await?;
 
         cohort_cache.per_team_cohorts.run_pending_tasks().await;
         let cache_size_after = cohort_cache.per_team_cohorts.entry_count();
@@ -200,19 +198,19 @@ mod tests {
         let writer_client = setup_pg_writer_client(None).await;
         let reader_client = setup_pg_reader_client(None).await;
         let team_id = setup_test_team(writer_client.clone()).await?;
-        let _cohort = setup_test_cohort(writer_client.clone(), team_id.clone(), None).await?;
+        let _cohort = setup_test_cohort(writer_client.clone(), team_id, None).await?;
         let cohort_cache = CohortCache::new(reader_client.clone(), None, None);
 
         let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await;
         assert!(cached_cohorts.is_none(), "Cache should initially be empty");
 
-        let cohorts = cohort_cache.get_cohorts_for_team(team_id.clone()).await?;
+        let cohorts = cohort_cache.get_cohorts_for_team(team_id).await?;
         assert_eq!(cohorts.len(), 1);
-        assert_eq!(cohorts[0].team_id, team_id.clone());
+        assert_eq!(cohorts[0].team_id, team_id);
 
         let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await.unwrap();
         assert_eq!(cached_cohorts.len(), 1);
-        assert_eq!(cached_cohorts[0].team_id, team_id.clone());
+        assert_eq!(cached_cohorts[0].team_id, team_id);
 
         Ok(())
     }
