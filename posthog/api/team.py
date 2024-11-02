@@ -67,9 +67,22 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
                 # if we're not requesting to make a demo project
                 # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
                 # and the org isn't allowed to make multiple projects
-                if organization.teams.exclude(is_demo=True).count() >= 1 and not organization.is_feature_available(
+                # we also need to look at their allowed project count based on their plan
+                current_non_demo_project_count = organization.teams.exclude(is_demo=True).count()
+                if current_non_demo_project_count >= 1 and not organization.is_feature_available(
                     AvailableFeature.ORGANIZATIONS_PROJECTS
                 ):
+                    return False
+
+                allowed_project_count = next(
+                    (
+                        feature.get("limit")
+                        for feature in organization.available_product_features
+                        if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
+                    ),
+                    None,
+                )
+                if current_non_demo_project_count >= allowed_project_count or not allowed_project_count:
                     return False
             else:
                 # if we ARE requesting to make a demo project
