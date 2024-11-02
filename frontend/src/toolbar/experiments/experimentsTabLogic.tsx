@@ -61,7 +61,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         removeVariant: (variant: string) => ({
             variant,
         }),
-        applyVariant: (variant: string) => ({
+        applyVariant: (current_variant: string, variant: string) => ({
+            current_variant,
             variant,
         }),
         addNewElement: (variant: string) => ({ variant }),
@@ -144,6 +145,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 const experimentToSave = {
                     ...formValues,
                 }
+
+                // this property is used in the editor to undo transforms
+                // don't need to roundtrip this to the server.
+                delete experimentToSave.undo_transforms
                 const { apiURL, temporaryToken } = values
                 const { selectedExperimentId } = values
 
@@ -280,11 +285,16 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        applyVariant: ({ variant }) => {
+        applyVariant: ({ current_variant, variant }) => {
             if (values.experimentForm && values.experimentForm.variants) {
                 const selectedVariant = values.experimentForm.variants[variant]
                 if (selectedVariant) {
-                    selectedVariant.transforms.forEach((transform) => {
+                    if (values.experimentForm.undo_transforms === undefined) {
+                        values.experimentForm.undo_transforms = []
+                    }
+
+                    // run the undo transforms first.
+                    values.experimentForm.undo_transforms?.forEach((transform) => {
                         if (transform.selector) {
                             const elements = document.querySelectorAll(transform.selector)
                             elements.forEach((elements) => {
@@ -303,6 +313,38 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                     }
                                 }
                             })
+                        }
+                    })
+
+                    selectedVariant.transforms?.forEach((transform) => {
+                        if (transform.selector) {
+                            const undoTransform: WebExperimentTransform = {
+                                selector: transform.selector,
+                            }
+                            const elements = document.querySelectorAll(transform.selector)
+                            elements.forEach((elements) => {
+                                const htmlElement = elements as HTMLElement
+                                if (htmlElement) {
+                                    if (transform.text) {
+                                        undoTransform.text = htmlElement.innerText
+                                        htmlElement.innerText = transform.text
+                                    }
+
+                                    if (transform.html) {
+                                        undoTransform.html = htmlElement.innerHTML
+                                        htmlElement.innerHTML = transform.html
+                                    }
+
+                                    if (transform.css) {
+                                        undoTransform.css = htmlElement.getAttribute('style') || ' '
+                                        htmlElement.setAttribute('style', transform.css)
+                                    }
+                                }
+                            })
+
+                            if ((current_variant === 'control' || current_variant === '') && variant !== 'control') {
+                                values.experimentForm.undo_transforms?.push(undoTransform)
+                            }
                         }
                     })
                 }
