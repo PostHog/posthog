@@ -13,7 +13,7 @@ import {
     performanceEventDataLogic,
 } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     convertUniversalFiltersToRecordingsQuery,
     MatchingEventsMatchType,
@@ -191,7 +191,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     key((props: PlayerInspectorLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: PlayerInspectorLogicProps) => ({
         actions: [
-            playerSettingsLogic,
+            miniFiltersLogic,
             ['setTab', 'setMiniFilter', 'setSearchQuery'],
             eventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
@@ -199,7 +199,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['loadFullEventData'],
         ],
         values: [
-            playerSettingsLogic,
+            miniFiltersLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [

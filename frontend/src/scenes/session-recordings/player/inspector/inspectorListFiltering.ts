@@ -1,4 +1,5 @@
 import { InspectorListItemPerformance } from 'scenes/session-recordings/apm/performanceEventDataLogic'
+import { SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     IMAGE_WEB_EXTENSIONS,
     InspectorListBrowserVisibility,
@@ -9,7 +10,6 @@ import {
     InspectorListItemEvent,
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import type { SharedListMiniFilter } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 import { SessionRecordingPlayerTab } from '~/types'
 
