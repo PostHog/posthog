@@ -200,7 +200,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             miniFiltersLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
+            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery', 'miniFiltersForTabByKey'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -652,13 +652,31 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         seekbarItems: [
-            (s) => [s.filteredItems, s.showOnlyMatching, s.showMatchingEventsFilter],
+            (s) => [
+                s.allItems,
+                s.miniFiltersForTabByKey,
+                s.showOnlyMatching,
+                s.showMatchingEventsFilter,
+                s.windowIdFilter,
+            ],
             (
-                filteredItems,
+                allItems,
+                miniFiltersForTabByKey,
                 showOnlyMatching,
-                showMatchingEventsFilter
+                showMatchingEventsFilter,
+                windowIdFilter
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
-                let items: (InspectorListItemEvent | InspectorListItemComment)[] = filteredItems.filter(
+                const eventsTabFilters = miniFiltersForTabByKey(SessionRecordingPlayerTab.EVENTS)
+                const eventTabFilteredItems = filterInspectorListItems({
+                    allItems,
+                    tab: SessionRecordingPlayerTab.EVENTS,
+                    miniFiltersByKey: eventsTabFilters,
+                    showMatchingEventsFilter,
+                    showOnlyMatching,
+                    windowIdFilter,
+                })
+
+                let items: (InspectorListItemEvent | InspectorListItemComment)[] = eventTabFilteredItems.filter(
                     (item): item is InspectorListItemEvent | InspectorListItemComment => {
                         if (item.type === SessionRecordingPlayerTab.EVENTS) {
                             return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')

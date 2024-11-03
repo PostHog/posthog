@@ -249,13 +249,22 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     })),
 
     selectors({
+        miniFiltersForTab: [
+            (s) => [s.selectedMiniFilters],
+            (selectedMiniFilters): ((tab: SessionRecordingPlayerTab) => SharedListMiniFilter[]) => {
+                return (tab: SessionRecordingPlayerTab) => {
+                    return MiniFilters.filter((filter) => filter.tab === tab).map((x) => ({
+                        ...x,
+                        enabled: selectedMiniFilters.includes(x.key),
+                    }))
+                }
+            },
+        ],
+
         miniFilters: [
-            (s) => [s.tab, s.selectedMiniFilters],
-            (tab, selectedMiniFilters): SharedListMiniFilter[] => {
-                return MiniFilters.filter((filter) => filter.tab === tab).map((x) => ({
-                    ...x,
-                    enabled: selectedMiniFilters.includes(x.key),
-                }))
+            (s) => [s.tab, s.miniFiltersForTab],
+            (tab, miniFiltersForTab): SharedListMiniFilter[] => {
+                return miniFiltersForTab(tab)
             },
         ],
 
@@ -266,6 +275,18 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     acc[filter.key] = filter
                     return acc
                 }, {})
+            },
+        ],
+
+        miniFiltersForTabByKey: [
+            (s) => [s.miniFiltersForTab],
+            (miniFiltersForTab): ((tab: SessionRecordingPlayerTab) => { [key: string]: SharedListMiniFilter }) => {
+                return (tab) => {
+                    return miniFiltersForTab(tab).reduce((acc, filter) => {
+                        acc[filter.key] = filter
+                        return acc
+                    }, {})
+                }
             },
         ],
     }),
