@@ -113,6 +113,10 @@ export const HeatmapsSettings = ({
                                 label: 'Rageclicks',
                             },
                             {
+                                value: 'deadclick',
+                                label: 'Dead clicks',
+                            },
+                            {
                                 value: 'mousemove',
                                 label: 'Mouse moves',
                             },
