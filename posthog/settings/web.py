@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     "django_filters",
     "axes",
     "drf_spectacular",
+    "django_linear_migrations",
     "django_otp",
     "django_otp.plugins.otp_static",
     "django_otp.plugins.otp_totp",
