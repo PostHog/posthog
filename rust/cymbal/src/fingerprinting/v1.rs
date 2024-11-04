@@ -26,7 +26,7 @@ pub fn generate_fingerprint(
         frames.retain(|f| f.in_app);
     } else {
         metrics::counter!(ERRORS, "cause" => "no_in_app_frames").increment(1);
-        frames = frames.into_iter().take(1).collect()
+        frames.truncate(1);
     }
 
     for frame in frames {
