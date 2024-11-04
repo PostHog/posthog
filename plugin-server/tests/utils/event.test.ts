@@ -74,6 +74,7 @@ describe('parseRawClickHouseEvent()', () => {
             uuid: 'uuid1',
             timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC(),
             team_id: 2,
+            project_id: 1,
             distinct_id: 'my_id',
             created_at: DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC(),
             elements_chain: null,
