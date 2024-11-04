@@ -7,9 +7,8 @@ from temporalio import activity
 # TODO: remove dependency
 
 from posthog.warehouse.external_data_source.jobs import (
-    create_external_data_job,
+    acreate_external_data_job,
 )
-from posthog.warehouse.models import aget_schema_by_id
 from posthog.warehouse.models.external_data_schema import (
     ExternalDataSchema,
 )
@@ -28,7 +27,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
     try:
-        job = await sync_to_async(create_external_data_job)(
+        job = await acreate_external_data_job(
             team_id=inputs.team_id,
             external_data_source_id=inputs.source_id,
             external_data_schema_id=inputs.schema_id,
@@ -44,11 +43,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
             f"Created external data job for external data source {inputs.source_id}",
         )
 
-        schema_model = await aget_schema_by_id(inputs.schema_id, inputs.team_id)
-        if schema_model is None:
-            raise ValueError(f"Schema with ID {inputs.schema_id} not found")
-
-        return str(job.id), schema_model.is_incremental
+        return str(job.id), schema.is_incremental
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"

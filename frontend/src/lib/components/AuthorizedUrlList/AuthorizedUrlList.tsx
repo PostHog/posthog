@@ -10,6 +10,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
+import { ExperimentIdType } from '~/types'
+
 import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
 
 function EmptyState({
@@ -45,14 +47,19 @@ function EmptyState({
     ) : null
 }
 
-function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Element {
-    const logic = authorizedUrlListLogic({ actionId: actionId ?? null, type })
+function AuthorizedUrlForm({ actionId, experimentId, query, type }: AuthorizedUrlListProps): JSX.Element {
+    const logic = authorizedUrlListLogic({
+        actionId: actionId ?? null,
+        experimentId: experimentId ?? null,
+        query: query,
+        type,
+    })
     const { isProposedUrlSubmitting } = useValues(logic)
     const { cancelProposingUrl } = useActions(logic)
     return (
         <Form
             logic={authorizedUrlListLogic}
-            props={{ actionId, type }}
+            props={{ actionId, type, experimentId, query }}
             formKey="proposedUrl"
             enableFormOnSubmit
             className="w-full space-y-2"
@@ -78,15 +85,24 @@ function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Elem
 
 export interface AuthorizedUrlListProps {
     actionId?: number
+    experimentId?: ExperimentIdType
+    query?: string | null
     type: AuthorizedUrlListType
 }
 
 export function AuthorizedUrlList({
     actionId,
+    experimentId,
+    query,
     type,
     addText = 'Add',
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
-    const logic = authorizedUrlListLogic({ actionId: actionId ?? null, type })
+    const logic = authorizedUrlListLogic({
+        experimentId: experimentId ?? null,
+        actionId: actionId ?? null,
+        type,
+        query,
+    })
     const {
         urlsKeyed,
         suggestionsLoading,
@@ -119,7 +135,12 @@ export function AuthorizedUrlList({
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
                         <div className="border rounded p-2 bg-bg-light">
-                            <AuthorizedUrlForm type={type} actionId={actionId} />
+                            <AuthorizedUrlForm
+                                type={type}
+                                actionId={actionId}
+                                experimentId={experimentId}
+                                query={query}
+                            />
                         </div>
                     )}
                     <EmptyState
@@ -156,7 +177,14 @@ export function AuthorizedUrlList({
                                         <>
                                             <LemonButton
                                                 icon={<IconOpenInApp />}
-                                                to={launchUrl(keyedURL.url)}
+                                                to={
+                                                    // toolbar urls are sent through the backend to be validated
+                                                    // and have toolbar auth information added
+                                                    type === AuthorizedUrlListType.TOOLBAR_URLS
+                                                        ? launchUrl(keyedURL.url)
+                                                        : // other urls are simply opened directly
+                                                          keyedURL.url + query
+                                                }
                                                 targetBlank
                                                 tooltip={
                                                     type === AuthorizedUrlListType.TOOLBAR_URLS

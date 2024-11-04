@@ -63,6 +63,7 @@ import {
     HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
+    HogFunctionTypeType,
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
@@ -1744,7 +1745,10 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
+        async list(params?: {
+            filters?: any
+            type?: HogFunctionTypeType
+        }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest().hogFunctions().withQueryString(params).get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
@@ -1774,9 +1778,11 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-
-        async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
-            return await new ApiRequest().hogFunctionTemplates().get()
+        async listTemplates(type?: HogFunctionTypeType): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            return new ApiRequest()
+                .hogFunctionTemplates()
+                .withQueryString({ type: type ?? 'destination' })
+                .get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()
@@ -2443,8 +2449,7 @@ const api = {
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
-        refresh?: boolean,
-        async?: boolean,
+        refresh?: RefreshType,
         filtersOverride?: DashboardFilter | null,
         variablesOverride?: Record<string, HogQLVariable> | null
     ): Promise<
@@ -2454,13 +2459,12 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest().query().create({
             ...options,
             data: {
                 query,
                 client_query_id: queryId,
-                refresh: refreshParam,
+                refresh,
                 filters_override: filtersOverride,
                 variables_override: variablesOverride,
             },

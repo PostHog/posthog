@@ -2049,6 +2049,161 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person4.uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid])
 
+        def test_funnel_exclusion_multiple_possible_no_end_event1(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(1, results[0]["count"])
+            self.assertEqual(0, results[1]["count"])
+
+        def test_funnel_exclusion_multiple_possible_no_end_event2(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 32),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(1, results[0]["count"])
+            self.assertEqual(0, results[1]["count"])
+
+        def test_funnel_exclusion_multiple_possible_no_end_event3(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(len(results), 2)
+                self.assertEqual(0, results[0]["count"])
+                self.assertEqual(0, results[1]["count"])
+
         @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
             sign_up_action = _create_action(
@@ -4275,6 +4430,127 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
+
+        def test_short_exclusions(self):
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                        },
+                        {
+                            "event": "exclusion",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                        },
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1, 1, 0, 0),
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 1, 1, 0, 29),
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 30,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(1, results[1]["count"])
+            self.assertEqual(29, results[1]["average_conversion_time"])
+
+        def test_excluded_completion(self):
+            events = [
+                {
+                    "event": "step one",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                },
+                # Exclusion happens after time expires
+                {
+                    "event": "exclusion",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 11),
+                },
+                {
+                    "event": "step one",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 12),
+                },
+                {
+                    "event": "exclusion",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 13),
+                },
+                {
+                    "event": "step two",
+                    "timestamp": datetime(2021, 5, 1, 0, 0, 14),
+                },
+            ]
+            journeys_for(
+                {
+                    "user_one": events,
+                },
+                self.team,
+            )
+
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_interval": 10,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(0, results[0]["count"])
+                self.assertEqual(0, results[1]["count"])
 
     return TestGetFunnel
 

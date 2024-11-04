@@ -25,7 +25,7 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
-from posthog.warehouse.external_data_source.jobs import create_external_data_job
+from posthog.warehouse.external_data_source.jobs import acreate_external_data_job
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
     ExternalDataJob,
@@ -238,7 +238,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -247,12 +247,12 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error=None,
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
 
@@ -283,7 +283,7 @@ async def test_update_external_job_activity_with_retryable_error(activity_enviro
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -292,12 +292,12 @@ async def test_update_external_job_activity_with_retryable_error(activity_enviro
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error="Some other retryable error",
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
 
@@ -319,17 +319,17 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         destination_id=uuid.uuid4(),
         team=team,
         status="running",
-        source_type="Stripe",
+        source_type="Postgres",
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name="test_123",
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -338,12 +338,12 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error="NoSuchTableError: TableA",
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
     with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):

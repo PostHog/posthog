@@ -222,6 +222,8 @@ def get_decide(request: HttpRequest):
             else:
                 response["featureFlags"] = {}
 
+            response["captureDeadClicks"] = True if team.capture_dead_clicks else False
+
             capture_network_timing = True if team.capture_performance_opt_in else False
             capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
             autocapture_web_vitals_allowed_metrics = None
@@ -286,7 +288,10 @@ def get_decide(request: HttpRequest):
 
             response["surveys"] = True if team.surveys_opt_in else False
             response["heatmaps"] = True if team.heatmaps_opt_in else False
-            default_identified_only = team.pk >= settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN
+            try:
+                default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
+            except Exception:
+                default_identified_only = False
             response["defaultIdentifiedOnly"] = bool(default_identified_only)
 
             site_apps = []
@@ -363,6 +368,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 "urlTriggers": team.session_recording_url_trigger_config,
+                "urlBlocklist": team.session_recording_url_blocklist_config,
             }
 
             if isinstance(team.session_replay_config, dict):

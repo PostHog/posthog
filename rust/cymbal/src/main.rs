@@ -1,4 +1,4 @@
-use std::{future::ready, sync::Arc};
+use std::{collections::HashMap, future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::RecvErr;
@@ -8,7 +8,10 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     error::Error,
-    metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
+    metric_consts::{
+        ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_FRAME_GROUP_TIME, PER_STACK_TIME,
+        STACK_PROCESSED,
+    },
     types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
@@ -60,10 +63,11 @@ async fn main() -> Result<(), Error> {
     start_health_liveness_server(&config, context.clone());
 
     loop {
+        let whole_loop = common_metrics::timing_guard(MAIN_LOOP_TIME, &[]);
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let (event, offset): (ClickHouseEvent, _) = match context.consumer.json_recv().await {
+        let (event, offset): (ClickHouseEvent, _) = match context.kafka_consumer.json_recv().await {
             Ok(r) => r,
             Err(RecvErr::Kafka(e)) => {
                 return Err(e.into()); // Just die if we recieve a Kafka error
@@ -99,30 +103,59 @@ async fn main() -> Result<(), Error> {
             }
         };
 
-        if properties.exception_list.is_empty() {
+        let Some(exception_list) = &properties.exception_list else {
+            // Known issue that $exception_list didn't exist on old clients
+            continue;
+        };
+
+        if exception_list.is_empty() {
             metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
             continue;
         }
 
-        let Some(trace) = properties.exception_list[0].stacktrace.as_ref() else {
+        // TODO - we should resolve all traces
+        let Some(trace) = exception_list[0].stacktrace.as_ref() else {
             metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
             continue;
         };
 
         let stack_trace: &Vec<RawFrame> = &trace.frames;
 
-        let mut resolved_frames = Vec::new();
+        let per_stack = common_metrics::timing_guard(PER_STACK_TIME, &[]);
+
+        // Cluster the frames by symbol set
+        let mut groups = HashMap::new();
         for frame in stack_trace {
-            let resolved = match context.resolver.resolve(frame.clone(), 1).await {
-                Ok(r) => r,
-                Err(err) => {
-                    metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
-                    error!("Error parsing stack frame: {:?}", err);
-                    continue;
-                }
-            };
-            resolved_frames.push(resolved);
+            let group = groups
+                .entry(frame.symbol_set_group_key())
+                .or_insert_with(Vec::new);
+            group.push(frame.clone());
         }
+
+        let team_id = event.team_id;
+        let mut results = Vec::with_capacity(stack_trace.len());
+        for (_, frames) in groups.into_iter() {
+            context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
+            let mut any_success = false;
+            let per_frame_group = common_metrics::timing_guard(PER_FRAME_GROUP_TIME, &[]);
+            for frame in frames {
+                results.push(frame.resolve(team_id, &context.catalog).await);
+                if results.last().unwrap().is_ok() {
+                    any_success = true;
+                }
+            }
+            per_frame_group
+                .label("resolved_any", if any_success { "true" } else { "false" })
+                .fin();
+        }
+
+        per_stack
+            .label(
+                "resolved_any",
+                if results.is_empty() { "true" } else { "false" },
+            )
+            .fin();
+        whole_loop.label("had_frame", "true").fin();
 
         metrics::counter!(STACK_PROCESSED).increment(1);
     }

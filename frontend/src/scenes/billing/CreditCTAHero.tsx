@@ -2,8 +2,6 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import useResizeObserver from 'use-resize-observer'
 
 import { billingLogic } from './billingLogic'
@@ -15,12 +13,8 @@ export const CreditCTAHero = (): JSX.Element | null => {
     const { creditOverview, isPurchaseCreditsModalOpen, isCreditCTAHeroDismissed, computedDiscount } =
         useValues(billingLogic)
     const { showPurchaseCreditsModal, toggleCreditCTAHeroDismissed } = useActions(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!creditOverview.eligible || creditOverview.status === 'paid') {
-        return null
-    }
-    if (!featureFlags[FEATURE_FLAGS.PURCHASE_CREDITS]) {
         return null
     }
 
