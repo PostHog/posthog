@@ -42,9 +42,9 @@ export function Intro(): JSX.Element {
             </div>
             <div className="text-center mb-2">
                 <h2 className="text-2xl font-bold mb-2 text-balance">{headline}</h2>
-                <span className="text-muted">
+                <div className="text-muted text-balance">
                     I'm Max, here to help you build a succesful product. Ask me about your product and your users.
-                </span>
+                </div>
             </div>
         </>
     )
