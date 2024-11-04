@@ -210,7 +210,7 @@ class TrendsAgentToolkit:
                         ```
 
                         Args:
-                            final_response: List all events, actions, and properties that you want to use to answer the question.
+                            final_response: List all events and properties that you want to use to answer the question.
                     """,
                 },
             ]
@@ -285,6 +285,9 @@ class TrendsAgentToolkit:
             ).values_list("name", "property_type")
             props = list(qs)
 
+        if not props:
+            return f"Properties do not exist in the taxonomy for the entity {entity}."
+
         return self._generate_properties_xml(props)
 
     def retrieve_event_properties(self, event_name: str) -> str:
@@ -305,15 +308,17 @@ class TrendsAgentToolkit:
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
         property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
+        props = [
+            (item.property, property_to_type.get(item.property))
+            for item in response.results
+            # Exclude properties that exist in the taxonomy, but don't have a type.
+            if item.property in property_to_type
+        ]
 
-        return self._generate_properties_xml(
-            [
-                (item.property, property_to_type.get(item.property))
-                for item in response.results
-                # Exclude properties that exist in the taxonomy, but don't have a type.
-                if item.property in property_to_type
-            ]
-        )
+        if not props:
+            return f"Properties do not exist in the taxonomy for the event {event_name}."
+
+        return self._generate_properties_xml(props)
 
     def _format_property_values(
         self, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
@@ -475,6 +480,7 @@ class GenerateTrendTool:
             "PersonPropertyFilter",
             "SessionPropertyFilter",
             "FeaturePropertyFilter",
+            "GroupPropertyFilter",
         )
 
         # Clean up the property filters
