@@ -109,12 +109,15 @@ export function SocialLoginButtons({
 type SSOEnforcedLoginButtonProps = SocialLoginButtonProps &
     Partial<LemonButtonWithoutSideActionProps> & {
         email: string
+    } & {
+        actionText?: string
     }
 
 export function SSOEnforcedLoginButton({
     provider,
     email,
     extraQueryParams,
+    actionText = 'Log in',
     ...props
 }: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
@@ -130,7 +133,7 @@ export function SSOEnforcedLoginButton({
                 size="large"
                 {...props}
             >
-                Log in with {SSO_PROVIDER_NAMES[provider]}
+                {actionText} with {SSO_PROVIDER_NAMES[provider]}
             </LemonButton>
         </SocialLoginLink>
     )

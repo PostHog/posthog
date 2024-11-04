@@ -1,9 +1,21 @@
+import { captureException } from '@sentry/react'
 import { shuffle } from 'd3'
+import { createParser } from 'eventsource-parser'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
 
-import { AssistantMessageType, NodeKind, RootAssistantMessage, SuggestedQuestionsQuery } from '~/queries/schema'
+import {
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    AssistantMessageType,
+    FailureMessage,
+    NodeKind,
+    RootAssistantMessage,
+    SuggestedQuestionsQuery,
+} from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
 
@@ -15,6 +27,11 @@ export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
     status?: MessageStatus
+}
+
+const FAILURE_MESSAGE: FailureMessage = {
+    type: AssistantMessageType.Failure,
+    content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
 }
 
 export const maxLogic = kea<maxLogicType>([
@@ -30,6 +47,7 @@ export const maxLogic = kea<maxLogicType>([
         setQuestion: (question: string) => ({ question }),
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
+        retryLastMessage: true,
     }),
     reducers({
         question: [
@@ -83,9 +101,12 @@ export const maxLogic = kea<maxLogicType>([
             null as string[] | null,
             {
                 loadSuggestions: async () => {
-                    const response = await api.query<SuggestedQuestionsQuery>({
-                        kind: NodeKind.SuggestedQuestionsQuery,
-                    })
+                    const response = await api.query<SuggestedQuestionsQuery>(
+                        { kind: NodeKind.SuggestedQuestionsQuery },
+                        undefined,
+                        undefined,
+                        'async_except_on_cache_miss'
+                    )
                     return response.questions
                 },
             },
@@ -118,40 +139,88 @@ export const maxLogic = kea<maxLogicType>([
                     messages: values.thread.map(({ status, ...message }) => message),
                 })
                 const reader = response.body?.getReader()
+
+                if (!reader) {
+                    return
+                }
+
                 const decoder = new TextDecoder()
 
-                if (reader) {
-                    let firstChunk = true
+                let firstChunk = true
 
-                    while (true) {
-                        const { done, value } = await reader.read()
-                        if (done) {
-                            actions.setMessageStatus(newIndex, 'completed')
-                            break
-                        }
-
-                        const text = decoder.decode(value)
-                        const parsedResponse = parseResponse(text)
-
-                        if (firstChunk) {
-                            firstChunk = false
-
-                            if (parsedResponse) {
-                                actions.addMessage({ ...parsedResponse, status: 'loading' })
+                const parser = createParser({
+                    onEvent: ({ data, event }) => {
+                        if (event === AssistantEventType.Message) {
+                            const parsedResponse = parseResponse<RootAssistantMessage>(data)
+                            if (!parsedResponse) {
+                                return
                             }
-                        } else if (parsedResponse) {
-                            actions.replaceMessage(newIndex, {
-                                ...parsedResponse,
-                                status: 'loading',
+
+                            if (firstChunk) {
+                                firstChunk = false
+
+                                if (parsedResponse) {
+                                    actions.addMessage({ ...parsedResponse, status: 'loading' })
+                                }
+                            } else if (parsedResponse) {
+                                actions.replaceMessage(newIndex, {
+                                    ...parsedResponse,
+                                    status: values.thread[newIndex].status,
+                                })
+                            }
+                        } else if (event === AssistantEventType.Status) {
+                            const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
+                            if (!parsedResponse) {
+                                return
+                            }
+
+                            if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
+                                actions.setMessageStatus(newIndex, 'error')
+                            }
+                        }
+                    },
+                })
+
+                while (true) {
+                    const { done, value } = await reader.read()
+
+                    parser.feed(decoder.decode(value))
+
+                    if (done) {
+                        const generatedMessage = values.thread[newIndex]
+                        if (generatedMessage && isVisualizationMessage(generatedMessage) && generatedMessage.plan) {
+                            actions.setMessageStatus(newIndex, 'completed')
+                        } else if (generatedMessage) {
+                            actions.replaceMessage(newIndex, FAILURE_MESSAGE)
+                        } else {
+                            actions.addMessage({
+                                ...FAILURE_MESSAGE,
+                                status: 'completed',
                             })
                         }
+                        break
                     }
                 }
-            } catch {
-                actions.setMessageStatus(values.thread.length - 1 === newIndex ? newIndex : newIndex - 1, 'error')
+            } catch (e) {
+                captureException(e)
+
+                if (values.thread[newIndex]) {
+                    actions.replaceMessage(newIndex, FAILURE_MESSAGE)
+                } else {
+                    actions.addMessage({
+                        ...FAILURE_MESSAGE,
+                        status: 'completed',
+                    })
+                }
             }
 
             actions.setThreadLoaded()
+        },
+        retryLastMessage: () => {
+            const lastMessage = values.thread.filter(isHumanMessage).pop()
+            if (lastMessage) {
+                actions.askMax(lastMessage.content)
+            }
         },
     })),
     selectors({
@@ -163,50 +232,11 @@ export const maxLogic = kea<maxLogicType>([
  * Parses the generation result from the API. Some generation chunks might be sent in batches.
  * @param response
  */
-function parseResponse(response: string, recursive = true): RootAssistantMessage | null {
+function parseResponse<T>(response: string): T | null | undefined {
     try {
         const parsed = JSON.parse(response)
-        return parsed as RootAssistantMessage
+        return parsed as T | null | undefined
     } catch {
-        if (!recursive) {
-            return null
-        }
-
-        const results: [number, number][] = []
-        let pair: [number, number] = [0, 0]
-        let seq = 0
-
-        for (let i = 0; i < response.length; i++) {
-            const char = response[i]
-
-            if (char === '{') {
-                if (seq === 0) {
-                    pair[0] = i
-                }
-
-                seq += 1
-            }
-
-            if (char === '}') {
-                seq -= 1
-                if (seq === 0) {
-                    pair[1] = i
-                }
-            }
-
-            if (seq === 0) {
-                results.push(pair)
-                pair = [0, 0]
-            }
-        }
-
-        const lastPair = results.pop()
-
-        if (lastPair) {
-            const [left, right] = lastPair
-            return parseResponse(response.slice(left, right + 1), false)
-        }
-
         return null
     }
 }

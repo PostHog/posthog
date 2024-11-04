@@ -27,7 +27,8 @@ let res := fetch(inputs.webhookUrl, {
                     'body': [
                         {
                             'type': 'TextBlock',
-                            'text': inputs.text
+                            'text': inputs.text,
+                            'wrap': true
                         }
                     ]
                 }

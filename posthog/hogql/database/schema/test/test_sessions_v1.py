@@ -8,6 +8,7 @@ from posthog.hogql.database.schema.sessions_v1 import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.models import Team
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
 from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode, SessionTableVersion
@@ -15,16 +16,20 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
-    _create_person,
+    ClickhouseDestroyTablesMixin,
 )
 
+# only certain team ids can insert events into this legacy sessions table, see sessions/sql.py for more info
+TEAM_ID = 2
+TEAM = Team(id=TEAM_ID, pk=TEAM_ID)
 
-class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
+
+class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseTest):
     def __execute(self, query):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
         return execute_hogql_query(
             query=query,
-            team=self.team,
+            team=TEAM,
             modifiers=modifiers,
         )
 
@@ -33,7 +38,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$current_url": "https://example.com", "$session_id": session_id},
         )
@@ -56,7 +61,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$current_url": "https://example.com", "$session_id": session_id},
         )
@@ -93,7 +98,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"gad_source": "1", "$session_id": session_id},
         )
@@ -116,7 +121,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"gad_source": "1", "$session_id": session_id},
         )
@@ -139,7 +144,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"gad_source": "1", "$session_id": session_id},
         )
@@ -157,57 +162,26 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             "Paid Search",
         )
 
-    def test_persons_and_sessions_on_events(self):
-        p1 = _create_person(distinct_ids=["d1"], team=self.team)
-        p2 = _create_person(distinct_ids=["d2"], team=self.team)
-
-        s1 = "session_test_persons_and_sessions_on_events_1"
-        s2 = "session_test_persons_and_sessions_on_events_2"
-
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="d1",
-            properties={"$session_id": s1, "utm_source": "source1"},
-        )
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="d2",
-            properties={"$session_id": s2, "utm_source": "source2"},
-        )
-
-        response = self.__execute(
-            parse_select(
-                "select events.person_id, session.$entry_utm_source from events where $session_id = {session_id} or $session_id = {session_id2} order by 2 asc",
-                placeholders={"session_id": ast.Constant(value=s1), "session_id2": ast.Constant(value=s2)},
-            ),
-        )
-
-        [row1, row2] = response.results or []
-        self.assertEqual(row1, (p1.uuid, "source1"))
-        self.assertEqual(row2, (p2.uuid, "source2"))
-
     @parameterized.expand([(BounceRatePageViewMode.UNIQ_URLS,), (BounceRatePageViewMode.COUNT_PAGEVIEWS,)])
     def test_bounce_rate(self, bounceRatePageViewMode):
         # person with 2 different sessions
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$session_id": "s1a", "$current_url": "https://example.com/1"},
             timestamp="2023-12-02",
         )
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$session_id": "s1a", "$current_url": "https://example.com/2"},
             timestamp="2023-12-03",
         )
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={"$session_id": "s1b", "$current_url": "https://example.com/3"},
             timestamp="2023-12-12",
@@ -215,7 +189,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
         # session with 1 pageview
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d2",
             properties={"$session_id": "s2", "$current_url": "https://example.com/4"},
             timestamp="2023-12-11",
@@ -223,14 +197,14 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
         # session with 1 pageview and 1 autocapture
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d3",
             properties={"$session_id": "s3", "$current_url": "https://example.com/5"},
             timestamp="2023-12-11",
         )
         _create_event(
             event="$autocapture",
-            team=self.team,
+            team=TEAM,
             distinct_id="d3",
             properties={"$session_id": "s3", "$current_url": "https://example.com/5"},
             timestamp="2023-12-11",
@@ -238,14 +212,14 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
         # short session with a pageleave
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d4",
             properties={"$session_id": "s4", "$current_url": "https://example.com/6"},
             timestamp="2023-12-11T12:00:00",
         )
         _create_event(
             event="$pageleave",
-            team=self.team,
+            team=TEAM,
             distinct_id="d4",
             properties={"$session_id": "s4", "$current_url": "https://example.com/6"},
             timestamp="2023-12-11T12:00:01",
@@ -253,14 +227,14 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
         # long session with a pageleave
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d5",
             properties={"$session_id": "s5", "$current_url": "https://example.com/7"},
             timestamp="2023-12-11T12:00:00",
         )
         _create_event(
             event="$pageleave",
-            team=self.team,
+            team=TEAM,
             distinct_id="d5",
             properties={"$session_id": "s5", "$current_url": "https://example.com/7"},
             timestamp="2023-12-11T12:00:11",
@@ -269,7 +243,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             parse_select(
                 "select $is_bounce, session_id from sessions ORDER BY session_id",
             ),
-            self.team,
+            TEAM,
             modifiers=HogQLQueryModifiers(
                 bounceRatePageViewMode=bounceRatePageViewMode, sessionTableVersion=SessionTableVersion.V1
             ),
@@ -291,7 +265,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
 
         _create_event(
             event="$pageview",
-            team=self.team,
+            team=TEAM,
             distinct_id="d1",
             properties={
                 "$current_url": "https://example.com/pathname",
@@ -372,4 +346,4 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_can_get_values_for_all(self):
         results = get_lazy_session_table_properties_v1(None)
         for prop in results:
-            get_lazy_session_table_values_v1(key=prop["id"], team=self.team, search_term=None)
+            get_lazy_session_table_values_v1(key=prop["id"], team=TEAM, search_term=None)

@@ -121,6 +121,7 @@ export const createHogExecutionGlobals = (
             url: 'http://localhost:8000/persons/1',
             properties: {
                 email: 'test@posthog.com',
+                first_name: 'Pumpkin',
             },
             ...(data.person ?? {}),
         },

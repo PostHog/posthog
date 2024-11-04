@@ -206,7 +206,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.5.4
+dlt==1.3.0
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -282,7 +282,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.45
+hogql-parser==1.0.46
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -452,6 +452,8 @@ platformdirs==3.11.0
     # via
     #   snowflake-connector-python
     #   zeep
+pluggy==1.5.0
+    # via dlt
 ply==3.11
     # via jsonpath-ng
 posthoganalytics==3.6.6

@@ -238,17 +238,16 @@ export function Goal(): JSX.Element {
                         Change goal
                     </LemonButton>
                 </div>
-                {experimentInsightType === InsightType.TRENDS &&
-                    !experimentMathAggregationForTrends(experiment.filters) && (
-                        <>
-                            <LemonDivider className="" vertical />
-                            <div className="">
-                                <div className="mt-auto ml-auto">
-                                    <ExposureMetric experimentId={experimentId} />
-                                </div>
+                {experimentInsightType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
+                    <>
+                        <LemonDivider className="" vertical />
+                        <div className="">
+                            <div className="mt-auto ml-auto">
+                                <ExposureMetric experimentId={experimentId} />
                             </div>
-                        </>
-                    )}
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     )
