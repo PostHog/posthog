@@ -67,6 +67,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     actions({
         selectExperiment: (id: ExperimentIdType | null) => ({ id: id || null }),
         selectVariant: (variant: string) => ({ variant }),
+        selectElementType: (elementType: ElementSelectorType) => ({ elementType }),
         newExperiment: (element?: HTMLElement) => ({
             element: element || null,
         }),
@@ -135,6 +136,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             '',
             {
                 selectVariant: (_, { variant }) => variant,
+            },
+        ],
+        selectedElementType: [
+            '',
+            {
+                selectElementType: (_, { elementType }) => elementType,
             },
         ],
         newExperimentForElement: [

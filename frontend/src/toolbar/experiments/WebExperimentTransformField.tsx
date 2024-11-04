@@ -22,18 +22,15 @@ export function WebExperimentTransformField({
     const [transformSelected, setTransformSelected] = useState(
         transform.html && transform.html.length > 0 ? 'html' : 'text'
     )
-    const showElementSelector = (
-        e: React.MouseEvent<HTMLElement, MouseEvent>,
-        variant: string,
-        tIndex: number,
-        type: ElementSelectorType
-    ): void => {
-        e.stopPropagation()
-        selectVariant(variant)
-        inspectForElementWithIndex(variant, type, inspectingElement === tIndex ? null : tIndex)
-    }
-    const { experimentForm, inspectingElement, selectedVariant } = useValues(experimentsTabLogic)
-    const { setExperimentFormValue, selectVariant, inspectForElementWithIndex } = useActions(experimentsTabLogic)
+    const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
+    const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
+        useActions(experimentsTabLogic)
+    const elementSelectorButtonTypes: Map<ElementSelectorType, string> = new Map([
+        ['all-elements', 'All Elements'],
+        ['headers', 'Headers'],
+        ['buttons', 'Buttons'],
+        ['images', 'Images'],
+    ])
     return (
         <>
             <div className="flex-1 mb-2">
@@ -44,30 +41,33 @@ export function WebExperimentTransformField({
                         dropdown: {
                             overlay: (
                                 <>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={(e) => showElementSelector(e, variant, tIndex, 'all-elements')}
-                                    >
-                                        All Elements
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={(e) => showElementSelector(e, variant, tIndex, 'headers')}
-                                    >
-                                        Headers (h)
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={(e) => showElementSelector(e, variant, tIndex, 'buttons')}
-                                    >
-                                        Buttons
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={(e) => showElementSelector(e, variant, tIndex, 'images')}
-                                    >
-                                        Images
-                                    </LemonButton>
+                                    {Array.from(elementSelectorButtonTypes.keys()).map((key) => {
+                                        return (
+                                            <LemonButton
+                                                key={'element-selector-' + key}
+                                                fullWidth
+                                                type={
+                                                    inspectingElement === tIndex &&
+                                                    selectedVariant === variant &&
+                                                    selectedElementType === key
+                                                        ? 'primary'
+                                                        : 'tertiary'
+                                                }
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    selectVariant(variant)
+                                                    selectElementType(key)
+                                                    inspectForElementWithIndex(
+                                                        variant,
+                                                        key,
+                                                        inspectingElement === tIndex ? null : tIndex
+                                                    )
+                                                }}
+                                            >
+                                                {elementSelectorButtonTypes.get(key)}
+                                            </LemonButton>
+                                        )
+                                    })}
                                 </>
                             ),
                             placement: 'bottom',
