@@ -344,7 +344,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
 
         assert len(self.get_mock_fetch_calls()) == snapshot(1)
         assert (
-            e.value.message  # type: ignore[attr-defined]
+            e.value.message
             == "Property type mismatch for the following properties: [{'key': 'price', 'value': '50 coins'}]. Not sending event."
         )
 

@@ -12,7 +12,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
     mock_fetch = MagicMock()
     mock_print = MagicMock()
     mock_posthog_capture = MagicMock()
-    fetch_responses = {}
+    fetch_responses: dict[str, dict[Any, Any]] = {}
 
     def setUp(self):
         super().setUp()
