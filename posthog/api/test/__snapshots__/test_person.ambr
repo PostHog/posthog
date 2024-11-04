@@ -4,7 +4,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -18,7 +18,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -32,7 +32,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -42,7 +42,7 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'distinct_id' )
@@ -55,7 +55,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -65,7 +65,7 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'another_one' )
@@ -78,7 +78,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -92,7 +92,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -106,7 +106,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -116,7 +116,7 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'inexistent' )
@@ -129,11 +129,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -151,7 +151,7 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND is_deleted = 0
        AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') IS NOT NULL
        AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') != ''
@@ -170,7 +170,7 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND is_deleted = 0
        AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
      ORDER BY id DESC
@@ -188,7 +188,7 @@
   FROM
     (SELECT "pmat_random_prop" as value
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND is_deleted = 0
        AND "pmat_random_prop" IS NOT NULL
        AND "pmat_random_prop" != ''
@@ -207,7 +207,7 @@
   FROM
     (SELECT "pmat_random_prop" as value
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND is_deleted = 0
        AND "pmat_random_prop" ILIKE '%qw%'
      ORDER BY id DESC
@@ -222,11 +222,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (JSONHas(properties, 'email')) )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -241,11 +241,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%') )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -260,11 +260,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (notEmpty("pmat_email")) )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -279,11 +279,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ("pmat_email" ILIKE '%another@gm%') )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -298,11 +298,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%')
               OR id IN
                 (SELECT person_id
@@ -310,7 +310,7 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = 'another@gm' )) )
@@ -324,7 +324,7 @@
             (SELECT distinct_id,
                     argMax(person_id, version) as person_id
              FROM person_distinct_id2
-             WHERE team_id = 2
+             WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'another@gm' ))
@@ -337,11 +337,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
               OR id IN
                 (SELECT person_id
@@ -349,7 +349,7 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = 'distinct_id_3' )) )
@@ -363,7 +363,7 @@
             (SELECT distinct_id,
                     argMax(person_id, version) as person_id
              FROM person_distinct_id2
-             WHERE team_id = 2
+             WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'distinct_id_3' ))
@@ -376,11 +376,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (("pmat_email" ILIKE '%another@gm%')
               OR id IN
                 (SELECT person_id
@@ -388,7 +388,7 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = 'another@gm' )) )
@@ -402,7 +402,7 @@
             (SELECT distinct_id,
                     argMax(person_id, version) as person_id
              FROM person_distinct_id2
-             WHERE team_id = 2
+             WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'another@gm' ))
@@ -415,11 +415,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (("pmat_email" ILIKE '%distinct_id_3%')
               OR id IN
                 (SELECT person_id
@@ -427,7 +427,7 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = 'distinct_id_3' )) )
@@ -441,7 +441,7 @@
             (SELECT distinct_id,
                     argMax(person_id, version) as person_id
              FROM person_distinct_id2
-             WHERE team_id = 2
+             WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'distinct_id_3' ))
@@ -454,11 +454,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000000%')
               OR (id = '00000000-0000-4000-8000-000000000000'
                   OR id IN
@@ -467,7 +467,7 @@
                        (SELECT distinct_id,
                                argMax(person_id, version) as person_id
                         FROM person_distinct_id2
-                        WHERE team_id = 2
+                        WHERE team_id = 99999
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
                      WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
@@ -482,7 +482,7 @@
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
@@ -495,11 +495,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (("pmat_email" ILIKE '%00000000-0000-4000-8000-000000000000%')
               OR (id = '00000000-0000-4000-8000-000000000000'
                   OR id IN
@@ -508,7 +508,7 @@
                        (SELECT distinct_id,
                                argMax(person_id, version) as person_id
                         FROM person_distinct_id2
-                        WHERE team_id = 2
+                        WHERE team_id = 99999
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
                      WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
@@ -523,7 +523,7 @@
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
@@ -536,7 +536,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -550,7 +550,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -564,7 +564,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -574,7 +574,7 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'distinct_id' )
@@ -587,7 +587,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -597,7 +597,7 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'another_one' )
@@ -610,7 +610,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -624,7 +624,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -638,7 +638,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
@@ -648,7 +648,7 @@
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'inexistent' )
@@ -661,11 +661,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -683,7 +683,7 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND is_deleted = 0
        AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') IS NOT NULL
        AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') != ''
@@ -702,7 +702,7 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND is_deleted = 0
        AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
      ORDER BY id DESC
@@ -720,7 +720,7 @@
   FROM
     (SELECT "pmat_random_prop" as value
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND is_deleted = 0
        AND "pmat_random_prop" IS NOT NULL
        AND "pmat_random_prop" != ''
@@ -739,7 +739,7 @@
   FROM
     (SELECT "pmat_random_prop" as value
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND is_deleted = 0
        AND "pmat_random_prop" ILIKE '%qw%'
      ORDER BY id DESC
@@ -754,11 +754,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (JSONHas(properties, 'email')) )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -773,11 +773,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%') )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -792,11 +792,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (notEmpty("pmat_email")) )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -811,11 +811,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ("pmat_email" ILIKE '%another@gm%') )
   GROUP BY id
   HAVING max(is_deleted) = 0
@@ -830,11 +830,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%')
               OR id IN
                 (SELECT person_id
@@ -842,7 +842,7 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = 'another@gm' )) )
@@ -856,7 +856,7 @@
             (SELECT distinct_id,
                     argMax(person_id, version) as person_id
              FROM person_distinct_id2
-             WHERE team_id = 2
+             WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'another@gm' ))
@@ -869,11 +869,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
               OR id IN
                 (SELECT person_id
@@ -881,7 +881,7 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = 'distinct_id_3' )) )
@@ -895,7 +895,7 @@
             (SELECT distinct_id,
                     argMax(person_id, version) as person_id
              FROM person_distinct_id2
-             WHERE team_id = 2
+             WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'distinct_id_3' ))
@@ -908,11 +908,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (("pmat_email" ILIKE '%another@gm%')
               OR id IN
                 (SELECT person_id
@@ -920,7 +920,7 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = 'another@gm' )) )
@@ -934,7 +934,7 @@
             (SELECT distinct_id,
                     argMax(person_id, version) as person_id
              FROM person_distinct_id2
-             WHERE team_id = 2
+             WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'another@gm' ))
@@ -947,11 +947,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (("pmat_email" ILIKE '%distinct_id_3%')
               OR id IN
                 (SELECT person_id
@@ -959,7 +959,7 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = 'distinct_id_3' )) )
@@ -973,7 +973,7 @@
             (SELECT distinct_id,
                     argMax(person_id, version) as person_id
              FROM person_distinct_id2
-             WHERE team_id = 2
+             WHERE team_id = 99999
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'distinct_id_3' ))
@@ -986,11 +986,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000000%')
               OR (id = '00000000-0000-4000-8000-000000000000'
                   OR id IN
@@ -999,7 +999,7 @@
                        (SELECT distinct_id,
                                argMax(person_id, version) as person_id
                         FROM person_distinct_id2
-                        WHERE team_id = 2
+                        WHERE team_id = 99999
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
                      WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
@@ -1014,7 +1014,7 @@
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
@@ -1027,11 +1027,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND id IN
       (SELECT id
        FROM person
-       WHERE team_id = 2
+       WHERE team_id = 99999
          AND (("pmat_email" ILIKE '%00000000-0000-4000-8000-000000000000%')
               OR (id = '00000000-0000-4000-8000-000000000000'
                   OR id IN
@@ -1040,7 +1040,7 @@
                        (SELECT distinct_id,
                                argMax(person_id, version) as person_id
                         FROM person_distinct_id2
-                        WHERE team_id = 2
+                        WHERE team_id = 99999
                         GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0)
                      WHERE distinct_id = '00000000-0000-4000-8000-000000000000' ))) )
@@ -1055,7 +1055,7 @@
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
-                 WHERE team_id = 2
+                 WHERE team_id = 99999
                  GROUP BY distinct_id
                  HAVING argMax(is_deleted, version) = 0)
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))

@@ -135,31 +135,32 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
         requestAnimationFrame(animationFrame)
     }, [count, power, duration, maxSize, dimensions])
 
-    const HogfettiComponent: React.FC = () => (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div className="fixed top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 9999 }}>
-            {particleSets.flatMap((set, setIndex) =>
-                set.map((particle, particleIndex) => {
-                    const HogComponent = images[particle.imageIndex]
-                    return (
-                        <div
-                            key={`${setIndex}-${particleIndex}`}
-                            className="absolute"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                left: `${particle.x}px`,
-                                top: `${particle.y}px`,
-                                opacity: particle.opacity,
-                                transition: 'opacity 0.1s linear',
-                            }}
-                        >
-                            <HogComponent width={particle.size} height={particle.size} />
-                        </div>
-                    )
-                })
-            )}
-        </div>
-    )
+    const HogfettiComponent: React.FC = () =>
+        particleSets.length === 0 ? null : (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div className="fixed top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 9999 }}>
+                {particleSets.flatMap((set, setIndex) =>
+                    set.map((particle, particleIndex) => {
+                        const HogComponent = images[particle.imageIndex]
+                        return (
+                            <div
+                                key={`${setIndex}-${particleIndex}`}
+                                className="absolute"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    left: `${particle.x}px`,
+                                    top: `${particle.y}px`,
+                                    opacity: particle.opacity,
+                                    transition: 'opacity 0.1s linear',
+                                }}
+                            >
+                                <HogComponent width={particle.size} height={particle.size} />
+                            </div>
+                        )
+                    })
+                )}
+            </div>
+        )
 
     return { trigger, HogfettiComponent }
 }

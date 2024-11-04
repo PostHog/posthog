@@ -5,7 +5,7 @@ import { convertToInternalPoolConfig, serializeObject } from './helpers'
 import { CyclotronJobInit, CyclotronPoolConfig } from './types'
 
 export class CyclotronManager {
-    constructor(private config: { shards: CyclotronPoolConfig[], shardDepthLimit: number }) {
+    constructor(private config: { shards: CyclotronPoolConfig[]; shardDepthLimit: number }) {
         this.config = config
     }
 
@@ -18,7 +18,7 @@ export class CyclotronManager {
         )
     }
 
-    async createJob(job: CyclotronJobInit): Promise<void> {
+    async createJob(job: CyclotronJobInit): Promise<string> {
         job.priority ??= 1
         job.scheduled ??= new Date()
 
@@ -38,7 +38,7 @@ export class CyclotronManager {
         return await cyclotron.createJob(json, job.blob ? job.blob : undefined)
     }
 
-    async bulkCreateJobs(jobs: CyclotronJobInit[]): Promise<void> {
+    async bulkCreateJobs(jobs: CyclotronJobInit[]): Promise<string[]> {
         const jobInitsInternal = jobs.map((job) => {
             job.priority ??= 1
             job.scheduled ??= new Date()
@@ -63,9 +63,9 @@ export class CyclotronManager {
         const blobs = new Uint8Array(totalBytes)
         const blobLengths = new Uint32Array(jobs.length)
 
-        let offset = 0;
+        let offset = 0
         for (let i = 0; i < jobs.length; i++) {
-            let blob = jobs[i].blob
+            const blob = jobs[i].blob
             if (blob) {
                 blobLengths[i] = blob.byteLength
                 blobs.set(blob, offset)
