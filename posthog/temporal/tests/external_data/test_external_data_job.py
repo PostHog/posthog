@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import uuid
 from unittest import mock
 from typing import Any, Optional
@@ -702,6 +703,8 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         sync_new_schemas_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
+                    activity_executor=ThreadPoolExecutor(max_workers=50),
+                    max_concurrent_activities=50,
                 ):
                     await activity_environment.client.execute_workflow(
                         ExternalDataJobWorkflow.run,

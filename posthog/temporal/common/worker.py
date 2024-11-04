@@ -40,7 +40,8 @@ async def start_worker(
         workflow_runner=UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=timedelta(minutes=5),
         interceptors=[SentryInterceptor()],
-        activity_executor=ThreadPoolExecutor(),
+        activity_executor=ThreadPoolExecutor(max_workers=50),
+        max_concurrent_activities=50,
     )
 
     # catch the TERM signal, and stop the worker gracefully

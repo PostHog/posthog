@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import functools
 import uuid
 from typing import Any, Optional
@@ -209,6 +210,8 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
             ):
                 await activity_environment.client.execute_workflow(  # type: ignore
                     ExternalDataJobWorkflow.run,
