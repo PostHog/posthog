@@ -2108,12 +2108,6 @@ export enum AssistantMessageType {
     Router = 'ai/router',
 }
 
-export interface AssistantToolCall<T = Record<string, any>> {
-    name: string
-    id: string
-    args: T
-}
-
 export interface HumanMessage {
     type: AssistantMessageType.Human
     content: string
@@ -2138,7 +2132,7 @@ export interface FailureMessage {
 
 export interface RouterMessage {
     type: AssistantMessageType.Router
-    tool_call: AssistantToolCall
+    content: string
 }
 
 export type RootAssistantMessage =
