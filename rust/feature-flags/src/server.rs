@@ -6,7 +6,7 @@ use std::time::Duration;
 use health::{HealthHandle, HealthRegistry};
 use tokio::net::TcpListener;
 
-use crate::cohort_cache::CohortCache;
+use crate::cohort_cache::CohortCacheManager;
 use crate::config::Config;
 use crate::database::get_pool;
 use crate::geoip::GeoIpClient;
@@ -55,7 +55,7 @@ where
         }
     };
 
-    let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+    let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
 
     let health = HealthRegistry::new("liveness");
 

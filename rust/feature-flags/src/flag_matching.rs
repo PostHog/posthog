@@ -1,6 +1,6 @@
 use crate::{
     api::{FlagError, FlagValue, FlagsResponse},
-    cohort_cache::CohortCache,
+    cohort_cache::CohortCacheManager,
     cohort_models::{Cohort, CohortId},
     database::Client as DatabaseClient,
     feature_flag_match_reason::FeatureFlagMatchReason,
@@ -186,7 +186,7 @@ pub struct FeatureFlagMatcher {
     pub team_id: TeamId,
     pub postgres_reader: PostgresReader,
     pub postgres_writer: PostgresWriter,
-    pub cohort_cache: Arc<CohortCache>,
+    pub cohort_cache: Arc<CohortCacheManager>,
     group_type_mapping_cache: GroupTypeMappingCache,
     properties_cache: PropertiesCache,
     groups: HashMap<String, Value>,
@@ -200,7 +200,7 @@ impl FeatureFlagMatcher {
         team_id: TeamId,
         postgres_reader: PostgresReader,
         postgres_writer: PostgresWriter,
-        cohort_cache: Arc<CohortCache>,
+        cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
     ) -> Self {
@@ -754,22 +754,22 @@ impl FeatureFlagMatcher {
                     .cloned()
                     .partition(|prop| prop.is_cohort());
 
-            // Get the relevant properties to check for the condition
+            // Get the properties we need to check for in this condition match from the flag + any overrides
             let target_properties = self
                 .get_properties_to_check(feature_flag, property_overrides, &non_cohort_filters)
                 .await?;
 
-            // Evaluate non-cohort properties first, since they're cheaper to evaluate
+            // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
             if !all_properties_match(&non_cohort_filters, &target_properties) {
                 return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
 
-            // Evaluate cohort filters, if any
+            // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
-                let cohorts_match = self
+                if !self
                     .evaluate_cohort_filters(&cohort_filters, &target_properties)
-                    .await?;
-                if !cohorts_match {
+                    .await?
+                {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
@@ -1802,7 +1802,7 @@ mod tests {
     async fn test_fetch_properties_from_pg_to_match() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
 
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
@@ -1891,7 +1891,7 @@ mod tests {
     async fn test_person_property_overrides() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -1953,7 +1953,7 @@ mod tests {
     async fn test_group_property_overrides() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2032,7 +2032,7 @@ mod tests {
         let flag = create_test_flag_with_variants(1);
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(1, postgres_reader.clone());
 
         let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
@@ -2064,7 +2064,7 @@ mod tests {
     async fn test_get_matching_variant_with_db() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2090,7 +2090,7 @@ mod tests {
     async fn test_is_condition_match_empty_properties() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -2180,7 +2180,7 @@ mod tests {
     async fn test_overrides_avoid_db_lookups() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2251,7 +2251,7 @@ mod tests {
     async fn test_fallback_to_db_when_overrides_insufficient() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2337,7 +2337,7 @@ mod tests {
     async fn test_property_fetching_and_caching() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2382,7 +2382,7 @@ mod tests {
     async fn test_property_caching() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2526,7 +2526,7 @@ mod tests {
     async fn test_concurrent_flag_evaluation() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2585,7 +2585,7 @@ mod tests {
     async fn test_property_operators() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2656,7 +2656,7 @@ mod tests {
     async fn test_empty_hashed_identifier() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -2697,7 +2697,7 @@ mod tests {
     async fn test_rollout_percentage() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let mut flag = create_test_flag(
             Some(1),
             None,
@@ -2745,7 +2745,7 @@ mod tests {
     async fn test_uneven_variant_distribution() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let mut flag = create_test_flag_with_variants(1);
 
         // Adjust variant rollout percentages to be uneven
@@ -2807,7 +2807,7 @@ mod tests {
     async fn test_missing_properties_in_db() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2869,7 +2869,7 @@ mod tests {
     async fn test_malformed_property_data() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -2932,7 +2932,7 @@ mod tests {
     async fn test_get_match_with_insufficient_overrides() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3011,7 +3011,7 @@ mod tests {
     async fn test_evaluation_reasons() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flag = create_test_flag(
             Some(1),
             None,
@@ -3056,7 +3056,7 @@ mod tests {
     async fn test_complex_conditions() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3131,7 +3131,7 @@ mod tests {
     async fn test_super_condition_matches_boolean() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3255,7 +3255,7 @@ mod tests {
     async fn test_super_condition_matches_string() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3348,7 +3348,7 @@ mod tests {
     async fn test_super_condition_matches_and_false() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3486,7 +3486,7 @@ mod tests {
     async fn test_basic_cohort_matching() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3574,7 +3574,7 @@ mod tests {
     async fn test_not_in_cohort_matching() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3662,7 +3662,7 @@ mod tests {
     async fn test_not_in_cohort_matching_user_in_cohort() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3751,7 +3751,7 @@ mod tests {
     async fn test_cohort_dependent_on_another_cohort() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -3857,7 +3857,6 @@ mod tests {
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
 
-        // This test might fail if the system doesn't support cohort dependencies
         assert!(result.matches);
     }
 
@@ -3865,7 +3864,7 @@ mod tests {
     async fn test_in_cohort_matching_user_not_in_cohort() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -4442,7 +4441,7 @@ mod tests {
     async fn test_evaluate_feature_flags_with_experience_continuity() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -4525,7 +4524,7 @@ mod tests {
     async fn test_evaluate_feature_flags_with_continuity_missing_override() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -4598,7 +4597,7 @@ mod tests {
     async fn test_evaluate_all_feature_flags_mixed_continuity() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
