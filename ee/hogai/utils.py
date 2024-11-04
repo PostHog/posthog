@@ -27,7 +27,7 @@ class Conversation(BaseModel):
     session_id: str
 
 
-class AssistantState(TypedDict):
+class AssistantState(TypedDict, total=False):
     messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
     plan: Optional[str]
