@@ -1,7 +1,5 @@
-import functools
 import re
-from typing import Any
-from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
+from typing import Any, Literal, TypedDict
 from django.db.models import Model, Value, CharField, F, QuerySet
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
@@ -10,13 +8,20 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.helpers.full_text_search import build_rank, process_query
 from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
 LIMIT = 25
 
 
-ENTITY_MAP = {
+class EntityConfig(TypedDict):
+    klass: type[Model]
+    search_fields: dict[str, Literal["A", "B", "C"]]
+    extra_fields: list[str]
+
+
+ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C"},
@@ -99,6 +104,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         # add entities
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
+            assert entity_meta is not None
             klass_qs, entity_name = class_queryset(
                 klass=entity_meta.get("klass"),
                 project_id=self.project_id,
@@ -116,28 +122,11 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"results": qs[:LIMIT], "counts": counts})
 
 
-UNSAFE_CHARACTERS = r"[\'&|!<>():]"
-"""Characters unsafe in a `tsquery`."""
-
-
-def process_query(query: str):
-    """
-    Converts a query string into a to_tsquery compatible string, where
-    the last word is a prefix match. This allows searching as you type.
-    """
-    query = re.sub(UNSAFE_CHARACTERS, " ", query).strip()
-    query = re.sub(r"\s+", " & ", query)  # combine words with &
-    if len(query) == 0:
-        return None
-    query += ":*"  # prefix match last word
-    return query
-
-
 def class_queryset(
     klass: type[Model],
     project_id: int,
     query: str | None,
-    search_fields: dict[str, str],
+    search_fields: dict[str, Literal["A", "B", "C"]],
     extra_fields: dict | None,
 ):
     """Builds a queryset for the class."""
@@ -162,11 +151,7 @@ def class_queryset(
 
     # full-text search rank
     if query:
-        search_vectors = [SearchVector(key, weight=value, config="simple") for key, value in search_fields.items()]
-        combined_vector = functools.reduce(lambda a, b: a + b, search_vectors)
-        qs = qs.annotate(
-            rank=SearchRank(combined_vector, SearchQuery(query, config="simple", search_type="raw")),
-        )
+        qs = qs.annotate(rank=build_rank(search_fields, query))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
         qs.annotate(rank=F("rank"))
