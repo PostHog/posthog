@@ -61,12 +61,12 @@ const ElementSelectorMap: Record<ElementSelectorType, string> = {
     buttons: EXPERIMENT_BUTTON_TARGETS.join(','),
     images: 'img',
 }
-export const ElementSelectorButtonTypes: Map<ElementSelectorType, string> = new Map([
-    ['all-elements', 'All Elements'],
-    ['headers', 'Headers'],
-    ['buttons', 'Buttons'],
-    ['images', 'Images'],
-])
+export const ElementSelectorButtonTypes = {
+    'all-elements': 'All Elements',
+    headers: 'Headers',
+    buttons: 'Buttons',
+    images: 'Images',
+}
 
 export const experimentsTabLogic = kea<experimentsTabLogicType>([
     path(['toolbar', 'experiments', 'experimentsTabLogic']),

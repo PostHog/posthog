@@ -5,7 +5,11 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useState } from 'react'
 
-import { ElementSelectorButtonTypes, experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import {
+    ElementSelectorButtonTypes,
+    ElementSelectorType,
+    experimentsTabLogic,
+} from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
@@ -51,10 +55,10 @@ export function WebExperimentTransformField({
                                                 onClick={(e) => {
                                                     e.stopPropagation()
                                                     selectVariant(variant)
-                                                    selectElementType(key)
+                                                    selectElementType(key as ElementSelectorType)
                                                     inspectForElementWithIndex(
                                                         variant,
-                                                        key,
+                                                        key as ElementSelectorType,
                                                         inspectingElement === tIndex ? null : tIndex
                                                     )
                                                 }}
