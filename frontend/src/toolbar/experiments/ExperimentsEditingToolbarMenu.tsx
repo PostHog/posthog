@@ -29,7 +29,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     useMemo(() => {
         if (selectedExperimentId === 'new') {
             selectVariant('test')
-            inspectForElementWithIndex('test', 0)
+            inspectForElementWithIndex('test', 'all-elements', 0)
         }
     }, [selectedExperimentId, selectVariant, inspectForElementWithIndex])
 
