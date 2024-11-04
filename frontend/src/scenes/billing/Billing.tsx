@@ -11,7 +11,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -108,9 +108,13 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {billing?.free_trial_until ? (
-                <LemonBanner type="success" className="mb-2">
-                    You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
+            {billing?.trial ? (
+                <LemonBanner type="info" className="mb-2">
+                    You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b> until{' '}
+                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
+                    {billing.trial.type === 'autosubscribe'
+                        ? 'you will be automatically subscribed to the plan.'
+                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
                 </LemonBanner>
             ) : null}
 

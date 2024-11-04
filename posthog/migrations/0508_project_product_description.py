@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0504_add_dead_clicks_setting"),
+        ("posthog", "0507_alter_externaldatasource_source_type"),
     ]
 
     operations = [
