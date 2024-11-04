@@ -847,23 +847,21 @@ impl FeatureFlagMatcher {
         target_properties: &HashMap<String, Value>,
     ) -> Result<bool, FlagError> {
         // At the start of the request, fetch all of the cohorts for the team from the cache
-        // This method also caches the cohorts in memory for the duration of the application, so we don't need to fetch from
-        // the database again until we restart the application.
+        // This method also caches any cohorts for a given team in memory for the duration of the application, so we don't need to fetch from
+        // the database again until we restart the application.  See the CohortCacheManager for more details.
         let cohorts = self.cohort_cache.get_cohorts_for_team(self.team_id).await?;
 
-        // can we split the cohorts into static and dynamic?  And then, once we've done that, use `evaluate_static_cohorts` for the static ones, and insert those results
-        // into the cohort matches map?  That way we don't need to re-evaluate the static cohorts multiple times.
+        // Split the cohorts into static and dynamic, since the dynamic ones have property filters
+        // and we need to evaluate them based on the target properties, whereas the static ones are
+        // purely based on person properties and are membership-based.
         let (static_cohorts, dynamic_cohorts): (Vec<_>, Vec<_>) =
             cohorts.iter().partition(|c| c.is_static);
 
-        // Store cohort match results in a HashMap to avoid re-evaluating the same cohort multiple times,
-        // since the same cohort could appear in multiple property filters. This is especially important
-        // because evaluating a cohort requires evaluating all of its dependencies, which can be expensive.
+        // Store all cohort match results in a HashMap to avoid re-evaluating the same cohort multiple times,
+        // since the same cohort could appear in multiple property filters.
         let mut cohort_matches = HashMap::new();
 
         if !static_cohorts.is_empty() {
-            // static cohorts don't have any property filters; they're purely based on person properties
-            // and are membership-based.  Evaluate these first since they're cheaper to evaluate.
             let results = evaluate_static_cohorts(
                 self.postgres_reader.clone(),
                 self.team_id,
@@ -875,21 +873,17 @@ impl FeatureFlagMatcher {
         }
 
         if !dynamic_cohorts.is_empty() {
-            // dynamic cohorts have property filters, so we need to evaluate them based on the target properties
             for filter in cohort_property_filters {
                 let cohort_id = filter
                     .get_cohort_id()
                     .ok_or(FlagError::CohortFiltersParsingError)?;
-                let match_result = evaluate_dynamic_cohort_based_on_dependencies(
-                    cohort_id,
-                    target_properties,
-                    cohorts.clone(),
-                )?;
+                let match_result =
+                    evaluate_dynamic_cohorts(cohort_id, target_properties, cohorts.clone())?;
                 cohort_matches.insert(cohort_id, match_result);
             }
         }
 
-        // Apply cohort membership logic (IN|NOT_IN)
+        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
         apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
     }
 
@@ -1191,7 +1185,7 @@ async fn evaluate_static_cohorts(
 /// Evaluates a dynamic cohort and its dependencies.
 /// This uses a topological sort to evaluate dependencies first, which is necessary
 /// because a cohort can depend on another cohort, and we need to respect the dependency order.
-fn evaluate_dynamic_cohort_based_on_dependencies(
+fn evaluate_dynamic_cohorts(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
     cohorts: Vec<Cohort>,
@@ -3952,7 +3946,7 @@ mod tests {
     async fn test_static_cohort_matching_user_in_cohort() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -4041,7 +4035,7 @@ mod tests {
     async fn test_static_cohort_matching_user_not_in_cohort() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -4121,7 +4115,7 @@ mod tests {
     async fn test_static_cohort_not_in_matching_user_not_in_cohort() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -4201,7 +4195,7 @@ mod tests {
     async fn test_static_cohort_not_in_matching_user_in_cohort() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
