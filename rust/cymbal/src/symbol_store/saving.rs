@@ -2,9 +2,10 @@ use axum::async_trait;
 use chrono::{DateTime, Utc};
 
 use sqlx::PgPool;
+use tracing::error;
 use uuid::Uuid;
 
-use crate::error::Error;
+use crate::error::{Error, ResolutionError};
 
 use super::{Fetcher, Parser, S3Client};
 
@@ -19,12 +20,14 @@ pub struct Saving<F> {
 }
 
 // A record of an attempt to fetch a symbol set. If it succeeded, it will have a storage pointer
+#[derive(Debug)]
 pub struct SymbolSetRecord {
     id: Uuid,
     team_id: i32,
     // "ref" is a reserved keyword in Rust, whoops
     set_ref: String,
     storage_ptr: Option<String>,
+    failure_reason: Option<String>,
     created_at: DateTime<Utc>,
 }
 
@@ -70,6 +73,7 @@ impl<F> Saving<F> {
             team_id,
             set_ref,
             storage_ptr: Some(key.clone()),
+            failure_reason: None,
             created_at: Utc::now(),
         };
 
@@ -78,12 +82,18 @@ impl<F> Saving<F> {
         Ok(key)
     }
 
-    pub async fn save_no_data(&self, team_id: i32, set_ref: String) -> Result<(), Error> {
+    pub async fn save_no_data(
+        &self,
+        team_id: i32,
+        set_ref: String,
+        reason: &ResolutionError,
+    ) -> Result<(), Error> {
         SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
             set_ref,
             storage_ptr: None,
+            failure_reason: Some(serde_json::to_string(&reason)?),
             created_at: Utc::now(),
         }
         .save(&self.pool)
@@ -117,7 +127,15 @@ where
                 });
             } else if Utc::now() - record.created_at < chrono::Duration::days(1) {
                 // We tried less than a day ago to get the set data, and failed, so bail out
-                return todo!("I need to return a language-specific error here, but don't have language context");
+                // with the stored error. We unwrap here because we should never store a "no set"
+                // row without also storing the error, and if we do, we want to panic, but we
+                // also want to log an error
+                if record.failure_reason.is_none() {
+                    error!("Found a record with no data and no error: {:?}", record);
+                    panic!("Found a record with no data and no error");
+                }
+                let error = serde_json::from_str(&record.failure_reason.unwrap())?;
+                return Err(Error::ResolutionError(error));
             }
             // We last tried to get the symbol set more than a day ago, so we should try again
         }
@@ -130,11 +148,12 @@ where
                 team_id,
                 set_ref,
             }),
-            Err(e) => {
+            Err(Error::ResolutionError(e)) => {
                 // But if we failed to get any data, we save that fact
-                self.save_no_data(team_id, set_ref).await?;
-                return Err(e);
+                self.save_no_data(team_id, set_ref, &e).await?;
+                return Err(Error::ResolutionError(e));
             }
+            Err(e) => Err(e), // If some non-resolution error occurred, we just bail out?
         }
     }
 }
@@ -157,11 +176,12 @@ where
                 }
                 return Ok(s);
             }
-            Err(e) => {
+            Err(Error::ResolutionError(e)) => {
                 // We save the no-data case here, to prevent us from fetching again for day
-                self.save_no_data(data.team_id, data.set_ref).await?;
-                return Err(e);
+                self.save_no_data(data.team_id, data.set_ref, &e).await?;
+                return Err(Error::ResolutionError(e));
             }
+            Err(e) => return Err(e),
         }
     }
 }
@@ -173,7 +193,7 @@ impl SymbolSetRecord {
     {
         let record = sqlx::query_as!(
             SymbolSetRecord,
-            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at
+            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason
             FROM posthog_errortrackingsymbolset
             WHERE team_id = $1 AND ref = $2"#,
             team_id,
@@ -190,13 +210,14 @@ impl SymbolSetRecord {
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         sqlx::query!(
-            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, created_at)
-            VALUES ($1, $2, $3, $4, $5)
+            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4"#,
             self.id,
             self.team_id,
             self.set_ref,
             self.storage_ptr,
+            self.failure_reason,
             self.created_at
         )
         .execute(e)

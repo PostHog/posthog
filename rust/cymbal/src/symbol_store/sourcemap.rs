@@ -31,7 +31,7 @@ impl SourcemapProvider {
             warn!("Internal IPs are allowed, this is a security risk");
         }
 
-        let client = client.build()?;
+        let client = client.build().unwrap();
 
         Ok(Self { client })
     }
@@ -61,7 +61,9 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
 
     // If this request fails, we cannot resolve the frame, and do not hand this error to the frames
     // failure-case handling - it just didn't work. We should tell the user about it, somehow, though.
-    let res = client.get(start).send().await?;
+    let res = client.get(start).send().await.map_err(JsResolveErr::from)?;
+
+    res.error_for_status_ref().map_err(JsResolveErr::from)?;
 
     // we use the final URL of the response in the relative case, to account for any redirects
     let mut final_url = res.url().clone();
@@ -98,7 +100,7 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
 
     // Grab the body as text, and split it into lines
     metrics::counter!(SOURCE_REF_BODY_FETCHES).increment(1);
-    let body = res.text().await?; // Transport error, unresolvable
+    let body = res.text().await.map_err(JsResolveErr::from)?;
     let lines = body.lines().rev(); // Our needle tends to be at the bottom of the haystack
     for line in lines {
         if line.starts_with("//# sourceMappingURL=") {
@@ -126,8 +128,9 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
 
 async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<Vec<u8>, Error> {
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
-    let res = client.get(url).send().await?;
-    let bytes = res.bytes().await?;
+    let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
+    res.error_for_status_ref().map_err(JsResolveErr::from)?;
+    let bytes = res.bytes().await.map_err(JsResolveErr::from)?;
     Ok(bytes.to_vec())
 }
 
