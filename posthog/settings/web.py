@@ -297,14 +297,6 @@ SPECTACULAR_SETTINGS = {
 
 EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}
 
-
-def add_recorder_js_headers(headers, path, url):
-    if url.endswith("/recorder.js") and not DEBUG:
-        headers["Cache-Control"] = "max-age=31536000, public"
-
-
-WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
-
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
