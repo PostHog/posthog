@@ -211,7 +211,7 @@ class TrendsAgentToolkit:
                         ```
 
                         Args:
-                            final_response: List all events, actions, and properties that you want to use to answer the question.
+                            final_response: List all events and properties that you want to use to answer the question.
                     """,
                 },
             ]
@@ -305,6 +305,9 @@ class TrendsAgentToolkit:
             ).values_list("name", "property_type")
             props = self._enrich_props_with_descriptions(entity, qs)
 
+        if not props:
+            return f"Properties do not exist in the taxonomy for the entity {entity}."
+
         return self._generate_properties_xml(props)
 
     def retrieve_event_properties(self, event_name: str) -> str:
@@ -331,6 +334,10 @@ class TrendsAgentToolkit:
             # Exclude properties that exist in the taxonomy, but don't have a type.
             if item.property in property_to_type
         ]
+
+        if not props:
+            return f"Properties do not exist in the taxonomy for the event {event_name}."
+
         return self._generate_properties_xml(self._enrich_props_with_descriptions("event", props))
 
     def _format_property_values(
@@ -493,6 +500,7 @@ class GenerateTrendTool:
             "PersonPropertyFilter",
             "SessionPropertyFilter",
             "FeaturePropertyFilter",
+            "GroupPropertyFilter",
         )
 
         # Clean up the property filters

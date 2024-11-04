@@ -670,6 +670,7 @@ export interface ChartSettingsFormatting {
 }
 
 export interface ChartSettingsDisplay {
+    color?: string
     label?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
@@ -916,12 +917,6 @@ export interface AIEventsNode
     fixedProperties?: AIPropertyFilter[]
 }
 
-export interface AIActionsNode
-    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
-    properties?: AIPropertyFilter[]
-    fixedProperties?: AIPropertyFilter[]
-}
-
 export interface ExperimentalAITrendsQuery {
     kind: NodeKind.TrendsQuery
     /**
@@ -931,7 +926,7 @@ export interface ExperimentalAITrendsQuery {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AIEventsNode | AIActionsNode)[]
+    series: AIEventsNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */

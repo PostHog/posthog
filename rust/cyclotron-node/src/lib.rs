@@ -198,10 +198,10 @@ fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 return;
             }
         };
-        let job = manager.create_job(job).await;
+        let res = manager.create_job(job).await;
         deferred.settle_with(&channel, move |mut cx| {
-            job.or_else(|e| cx.throw_error(format!("{}", e)))?;
-            Ok(cx.null())
+            let id = res.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            Ok(cx.string(id.to_string()))
         });
     };
 
@@ -273,8 +273,13 @@ fn bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
         let res = manager.bulk_create_jobs(jobs).await;
         deferred.settle_with(&channel, move |mut cx| {
-            res.or_else(|e| cx.throw_error(format!("{}", e)))?;
-            Ok(cx.null())
+            let ids = res.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            let returned = JsArray::new(&mut cx, ids.len());
+            for (i, id) in ids.iter().enumerate() {
+                let id = cx.string(id.to_string());
+                returned.set(&mut cx, i as u32, id)?;
+            }
+            Ok(returned)
         });
     };
 

@@ -20,7 +20,10 @@ jest.mock('../../src/utils/status', () => ({
     },
 }))
 
-const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { status?: number; body?: string }): void => {
+const setupFetchResponse = (
+    invocation: HogFunctionInvocation,
+    options?: Partial<HogFunctionInvocation['queueParameters']>
+): void => {
     invocation.queue = 'hog'
     invocation.queueParameters = {
         timings: [
@@ -30,10 +33,11 @@ const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { statu
             },
         ],
         response: {
-            status: options?.status ?? 200,
+            status: 200,
             headers: { 'Content-Type': 'application/json' },
         },
-        body: options?.body ?? 'success',
+        body: 'success',
+        ...options,
     }
 }
 
@@ -211,6 +215,39 @@ describe('Hog Executor', () => {
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                ]
+            `)
+        })
+
+        it('handles fetch errors', () => {
+            const result = executor.execute(createInvocation(hogFunction))
+            const logs = result.logs.splice(0, 100)
+            setupFetchResponse(result.invocation, {
+                body: JSON.stringify({ foo: 'bar' }),
+                response: null,
+                trace: [
+                    {
+                        kind: 'failurestatus',
+                        message: '404 Not Found',
+                        headers: {},
+                        status: 404,
+                        timestamp: DateTime.utc(),
+                    },
+                ],
+            })
+
+            const secondResult = executor.execute(result.invocation)
+            logs.push(...secondResult.logs)
+
+            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                Array [
+                  "Executing function",
+                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
+                  "Fetch failed after 1 attempts",
+                  "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
+                  "Resuming function",
+                  "Fetch response:, {\\"status\\":404,\\"body\\":{\\"foo\\":\\"bar\\"}}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)

@@ -206,7 +206,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     {"prompt": human_message.content, "response": last_message},
                 )
 
-        return StreamingHttpResponse(generate(), content_type=ServerSentEventRenderer.media_type)
+        return StreamingHttpResponse(
+            generate(), content_type=ServerSentEventRenderer.media_type, headers={"X-Accel-Buffering": "no"}
+        )
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
