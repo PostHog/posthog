@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
 
 use crate::{
     error::Error, langs::js::RawJSFrame, metric_consts::PER_FRAME_TIME, symbol_store::Catalog,
@@ -35,7 +36,7 @@ impl RawFrame {
 }
 
 // We emit a single, unified representation of a frame, which is what we pass on to users.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Frame {
     pub mangled_name: String,            // Mangled name of the function
     pub line: Option<u32>,               // Line the function is define on, if known
@@ -46,4 +47,28 @@ pub struct Frame {
     pub lang: String,                    // The language of the frame. Always known (I guess?)
     pub resolved: bool,                  // Did we manage to resolve the frame?
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
+}
+
+impl Frame {
+    pub fn include_in_fingerprint(&self, h: &mut Sha512) {
+        if let Some(resolved) = &self.resolved_name {
+            h.update(resolved.as_bytes());
+        } else {
+            h.update(self.mangled_name.as_bytes());
+        }
+
+        if let Some(source) = &self.source {
+            h.update(source.as_bytes());
+        }
+
+        if let Some(line) = self.line {
+            h.update(line.to_string().as_bytes());
+        }
+
+        if let Some(column) = self.column {
+            h.update(column.to_string().as_bytes());
+        }
+
+        h.update(self.lang.as_bytes());
+    }
 }

@@ -9,11 +9,8 @@ use cymbal::{
     config::Config,
     error::Error,
     fingerprinting,
-    metric_consts::{
-        ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_FRAME_GROUP_TIME, PER_STACK_TIME,
-        STACK_PROCESSED,
-    },
-    types::{frames::RawFrame, ErrProps},
+    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
+    types::{ErrProps, Stacktrace},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -104,7 +101,7 @@ async fn main() -> Result<(), Error> {
             }
         };
 
-        let Some(exception_list) = &properties.exception_list else {
+        let Some(mut exception_list) = properties.exception_list else {
             // Known issue that $exception_list didn't exist on old clients
             continue;
         };
@@ -114,49 +111,46 @@ async fn main() -> Result<(), Error> {
             continue;
         }
 
-        // TODO - we should resolve all traces
-        let Some(trace) = exception_list[0].stacktrace.as_ref() else {
-            metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
-            continue;
-        };
+        for exception in exception_list.iter_mut() {
+            let stack = std::mem::take(&mut exception.stack);
+            let Some(Stacktrace::Raw { frames }) = stack else {
+                continue;
+            };
 
-        let stack_trace: &Vec<RawFrame> = &trace.frames;
-
-        let per_stack = common_metrics::timing_guard(PER_STACK_TIME, &[]);
-
-        // Cluster the frames by symbol set
-        let mut groups = HashMap::new();
-        for frame in stack_trace {
-            let group = groups
-                .entry(frame.symbol_set_group_key())
-                .or_insert_with(Vec::new);
-            group.push(frame.clone());
-        }
-
-        let team_id = event.team_id;
-        let mut results = Vec::with_capacity(stack_trace.len());
-        for (_, frames) in groups.into_iter() {
-            context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
-            for frame in frames {
-                results.push(frame.resolve(team_id, &context.catalog).await?);
+            if frames.is_empty() {
+                metrics::counter!(ERRORS, "cause" => "no_frames").increment(1);
+                continue;
             }
+
+            let team_id = event.team_id;
+            let mut results = Vec::with_capacity(frames.len());
+
+            // Cluster the frames by symbol set
+            let mut groups = HashMap::new();
+            for (i, frame) in frames.into_iter().enumerate() {
+                let group = groups
+                    .entry(frame.symbol_set_group_key())
+                    .or_insert_with(Vec::new);
+                group.push((i, frame.clone()));
+            }
+
+            for (_, frames) in groups.into_iter() {
+                context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
+                for (i, frame) in frames {
+                    results.push((i, frame.resolve(team_id, &context.catalog).await?));
+                }
+            }
+
+            results.sort_unstable_by_key(|(i, _)| *i);
+
+            exception.stack = Some(Stacktrace::Resolved {
+                frames: results.into_iter().map(|(_, frame)| frame).collect(),
+            });
         }
 
-        per_stack
-            .label(
-                "resolved_any",
-                if results.is_empty() { "true" } else { "false" },
-            )
-            .fin();
-        whole_loop.label("had_frame", "true").fin();
-
-        let Ok(_fingerprint) =
-            fingerprinting::v1::generate_fingerprint(&exception_list[0], results)
-        else {
-            metrics::counter!(ERRORS, "cause" => "fingerprint_generation_failed").increment(1);
-            continue;
-        };
+        let _fingerprint = fingerprinting::generate_fingerprint(&exception_list);
 
         metrics::counter!(STACK_PROCESSED).increment(1);
+        whole_loop.label("had_frame", "true").fin();
     }
 }
