@@ -26,7 +26,6 @@ use std::time::Duration;
 /// }
 /// ```
 ///
-/// Caches only successful cohort lists to maintain cache integrity.
 #[derive(Clone)]
 pub struct CohortCache {
     postgres_reader: PostgresReader,
@@ -34,17 +33,15 @@ pub struct CohortCache {
 }
 
 impl CohortCache {
-    /// Creates a new `CohortCache` with configurable TTL and maximum capacity.
     pub fn new(
         postgres_reader: PostgresReader,
         max_capacity: Option<u64>,
         ttl_seconds: Option<u64>,
     ) -> Self {
-        // We use the size of the cohort list as the weight of the entry
+        // We use the size of the cohort list (i.e., the number of cohorts for a given team)as the weight of the entry
         let weigher =
             |_: &TeamId, value: &Vec<Cohort>| -> u32 { value.len().try_into().unwrap_or(u32::MAX) };
 
-        // Initialize the Moka cache with TTL and size-based eviction.
         let cache = Cache::builder()
             .time_to_live(Duration::from_secs(ttl_seconds.unwrap_or(300))) // Default to 5 minutes
             .weigher(weigher)
