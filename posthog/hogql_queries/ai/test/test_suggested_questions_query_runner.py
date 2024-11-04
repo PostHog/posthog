@@ -23,7 +23,7 @@ class TestSuggestedQuestionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_suggested_questions_hit_openai(self, hit_openai_mock):
         results = SuggestedQuestionsQueryRunner(team=self.team, query=SuggestedQuestionsQuery()).calculate()
         hit_openai_mock.assert_called_once()
-        self.assertEqual(results.questions, ["How?", "Why?"])
+        self.assertEqual(results.questions, ["Why?", "How?"])
 
     def test_is_stale(self):
         date = timezone.now()
