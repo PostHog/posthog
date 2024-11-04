@@ -51,6 +51,9 @@ pub struct Frame {
 
 impl Frame {
     pub fn include_in_fingerprint(&self, h: &mut Sha512) {
+        if !self.in_app {
+            return;
+        }
         if let Some(resolved) = &self.resolved_name {
             h.update(resolved.as_bytes());
         } else {
