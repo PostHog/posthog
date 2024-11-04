@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from typing import Any, Literal, TypedDict, TypeGuard, Union, cast
+from typing import Any, Literal, TypedDict, TypeGuard, Union
 
 from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
@@ -16,7 +16,11 @@ from ee.hogai.trends.nodes import (
 )
 from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
 from posthog.models.team.team import Team
-from posthog.schema import AssistantGenerationStatusEvent, AssistantGenerationStatusType, VisualizationMessage
+from posthog.schema import (
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    VisualizationMessage,
+)
 
 if settings.LANGFUSE_PUBLIC_KEY:
     langfuse_handler = CallbackHandler(
@@ -139,15 +143,14 @@ class Assistant:
             elif is_value_update(update):
                 _, state_update = update
 
-                if AssistantNodeName.GENERATE_TRENDS in state_update:
+                if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
+                    yield state_update[AssistantNodeName.ROUTER]["messages"][0]
+                elif AssistantNodeName.GENERATE_TRENDS in state_update:
                     # Reset chunks when schema validation fails.
                     chunks = AIMessageChunk(content="")
 
                     if "messages" in state_update[AssistantNodeName.GENERATE_TRENDS]:
-                        message = cast(
-                            VisualizationMessage, state_update[AssistantNodeName.GENERATE_TRENDS]["messages"][0]
-                        )
-                        yield message
+                        yield state_update[AssistantNodeName.GENERATE_TRENDS]["messages"][0]
                     elif state_update[AssistantNodeName.GENERATE_TRENDS].get("intermediate_steps", []):
                         yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
 

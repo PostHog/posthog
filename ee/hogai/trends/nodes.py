@@ -310,8 +310,8 @@ class GenerateTrendsNode(AssistantNode):
 
     def router(self, state: AssistantState):
         if state.get("intermediate_steps") is not None:
-            return "next"
-        return "tools"
+            return "tools"
+        return "next"
 
     @property
     def _model(self):

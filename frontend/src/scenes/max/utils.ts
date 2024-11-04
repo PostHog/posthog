@@ -3,6 +3,7 @@ import {
     FailureMessage,
     HumanMessage,
     RootAssistantMessage,
+    RouterMessage,
     VisualizationMessage,
 } from '~/queries/schema'
 
@@ -18,4 +19,8 @@ export function isHumanMessage(message: RootAssistantMessage | undefined | null)
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
+}
+
+export function isRouterMessage(message: RootAssistantMessage | undefined | null): message is RouterMessage {
+    return message?.type === AssistantMessageType.Router
 }

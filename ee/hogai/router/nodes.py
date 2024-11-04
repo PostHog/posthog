@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, cast
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.messages import BaseMessage
@@ -38,7 +38,7 @@ class RouterNode(AssistantNode):
     def router(self, state: AssistantState) -> RouteName:
         last_message = state["messages"][-1]
         if isinstance(last_message, RouterMessage):
-            return last_message.content
+            return cast(RouteName, last_message.content)
         raise ValueError("Invalid route.")
 
     @property
