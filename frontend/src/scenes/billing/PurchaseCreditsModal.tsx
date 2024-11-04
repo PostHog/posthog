@@ -101,14 +101,14 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 type: BillingGaugeItemKind.FreeTier,
                                 text:
-                                    creditInputValue >= 6000 && creditInputValue < 20000 ? (
+                                    creditInputValue >= 3000 && creditInputValue < 20000 ? (
                                         <>
                                             <IconCheckCircle className="text-success" /> 10% off
                                         </>
                                     ) : (
                                         '10% off'
                                     ),
-                                value: 6000,
+                                value: 3000,
                                 prefix: '$',
                                 top: true,
                             },

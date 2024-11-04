@@ -18,7 +18,7 @@ import {
     WebExperimentVariant,
 } from '~/toolbar/types'
 import { elementToQuery } from '~/toolbar/utils'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
 
@@ -65,7 +65,7 @@ const ElementSelectorMap: Map<ElementSelectorType, string> = new Map([
 export const experimentsTabLogic = kea<experimentsTabLogicType>([
     path(['toolbar', 'experiments', 'experimentsTabLogic']),
     actions({
-        selectExperiment: (id: number | 'new' | null) => ({ id: id || null }),
+        selectExperiment: (id: ExperimentIdType | null) => ({ id: id || null }),
         selectVariant: (variant: string) => ({ variant }),
         newExperiment: (element?: HTMLElement) => ({
             element: element || null,
@@ -102,7 +102,15 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            ['dataAttributes', 'apiURL', 'temporaryToken', 'buttonVisible', 'userIntent', 'dataAttributes'],
+            [
+                'dataAttributes',
+                'apiURL',
+                'temporaryToken',
+                'buttonVisible',
+                'userIntent',
+                'dataAttributes',
+                'experimentId',
+            ],
             experimentsLogic,
             ['allExperiments'],
         ],
@@ -117,7 +125,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             },
         ],
         selectedExperimentId: [
-            null as number | 'new' | null,
+            null as number | 'new' | 'web' | null,
             {
                 selectExperiment: (_, { id }) => id,
                 newExperiment: () => 'new',
@@ -163,7 +171,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         experimentForm: {
             defaults: { name: null, variants: [{}] as unknown as WebExperimentVariant[] } as unknown as ExperimentForm,
             errors: ({ name }) => ({
-                name: !name || !name.length ? 'Must name this experiment' : undefined,
+                name: !name ? 'Please enter a name for this experiment' : undefined,
             }),
             submit: async (formValues, breakpoint) => {
                 const experimentToSave = {
@@ -324,16 +332,16 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             elements.forEach((elements) => {
                                 const htmlElement = elements as HTMLElement
                                 if (htmlElement) {
-                                    if (transform.text) {
-                                        htmlElement.innerText = transform.text
-                                    }
-
                                     if (transform.html) {
                                         htmlElement.innerHTML = transform.html
                                     }
 
                                     if (transform.css) {
                                         htmlElement.setAttribute('style', transform.css)
+                                    }
+
+                                    if (transform.text) {
+                                        htmlElement.innerText = transform.text
                                     }
                                 }
                             })
@@ -349,11 +357,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             elements.forEach((elements) => {
                                 const htmlElement = elements as HTMLElement
                                 if (htmlElement) {
-                                    if (transform.text) {
-                                        undoTransform.text = htmlElement.innerText
-                                        htmlElement.innerText = transform.text
-                                    }
-
                                     if (transform.html) {
                                         undoTransform.html = htmlElement.innerHTML
                                         htmlElement.innerHTML = transform.html
@@ -362,6 +365,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                     if (transform.css) {
                                         undoTransform.css = htmlElement.getAttribute('style') || ' '
                                         htmlElement.setAttribute('style', transform.css)
+                                    }
+
+                                    if (transform.text) {
+                                        undoTransform.text = htmlElement.innerText
+                                        htmlElement.innerText = transform.text
                                     }
                                 }
                             })
@@ -411,12 +419,14 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             if (values.experimentForm.variants) {
                 const webVariant = values.experimentForm.variants[variant]
                 if (webVariant) {
-                    if (webVariant.transforms) {
-                        webVariant.transforms.push({
-                            text: '',
-                            html: '',
-                        } as unknown as WebExperimentTransform)
+                    if (webVariant.transforms == undefined) {
+                        webVariant.transforms = []
                     }
+
+                    webVariant.transforms.push({
+                        text: '',
+                        html: '',
+                    } as unknown as WebExperimentTransform)
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)
@@ -441,9 +451,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'experiments', enabled: false })
         },
         [experimentsLogic.actionTypes.getExperimentsSuccess]: () => {
-            const { userIntent, selectedExperimentId } = values
+            const { userIntent, experimentId } = values
             if (userIntent === 'edit-experiment') {
-                actions.selectExperiment(selectedExperimentId)
+                actions.selectExperiment(experimentId)
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-experiment') {
                 actions.newExperiment()

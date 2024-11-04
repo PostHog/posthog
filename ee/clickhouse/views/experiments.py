@@ -192,6 +192,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "type",
             "metrics",
         ]
         read_only_fields = [
@@ -337,6 +338,19 @@ class ExperimentSerializer(serializers.ModelSerializer):
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
+
+        # if this is a web experiment, copy over the variant data to the experiment itself.
+        if validated_data.get("type", "") == "web":
+            web_variants = {}
+            ff_variants = variants or default_variants
+
+            for variant in ff_variants:
+                web_variants[variant.get("key")] = {
+                    "rollout_percentage": variant.get("rollout_percentage"),
+                }
+
+            experiment.variants = web_variants
+            experiment.save()
 
         if saved_metrics_data:
             for saved_metric_data in saved_metrics_data:
