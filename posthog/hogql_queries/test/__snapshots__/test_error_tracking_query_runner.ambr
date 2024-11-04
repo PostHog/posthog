@@ -6,8 +6,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          multiIf(has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')), ['SyntaxError'], has([['custom_fingerprint']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')), ['custom_fingerprint'], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')) AS fingerprint
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), 1, has([['SyntaxError'], ['custom_fingerprint']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
@@ -29,8 +29,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
   FROM events
   LEFT OUTER JOIN
@@ -69,8 +69,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
   FROM events
   LEFT OUTER JOIN
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -107,8 +107,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), 1, has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
   LIMIT 101
@@ -128,8 +128,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), 1, has([['SyntaxError', 'Cannot use \'in\' operator to search for \'wireframes\' in \b\0\fýf\0ì½é"\0Ø']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
   LIMIT 101
@@ -142,8 +142,6 @@
                     max_bytes_before_external_group_by=0
   '''
 # ---
-<<<<<<< HEAD
-=======
 # name: TestErrorTrackingQueryRunner.test_fingerprints_with_null_characters.1
   '''
   SELECT "posthog_person"."id",
@@ -440,7 +438,6 @@
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   '''
 # ---
->>>>>>> master
 # name: TestErrorTrackingQueryRunner.test_hogql_filters
   '''
   SELECT count(DISTINCT events.uuid) AS occurrences,
@@ -448,8 +445,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
   FROM events
   LEFT OUTER JOIN
@@ -488,8 +485,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
   FROM events
   LEFT OUTER JOIN
@@ -528,8 +525,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
   FROM events
   LEFT OUTER JOIN
@@ -568,8 +565,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-11 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-10 00:00:00.000000', 6, 'UTC'))), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), lower('wireframe')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')), lower('wireframe')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')), lower('wireframe')), 0), 0)))
@@ -591,8 +588,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].value'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', ''))), '') AS description,
-         nullIf(coalesce(JSON_VALUE(any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), '$[0].type'), any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''))), '') AS exception_type,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-11 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-10 00:00:00.000000', 6, 'UTC'))), or(ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_list'), ''), 'null'), '^"|"$', '')), lower('f\0ì½é')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')), lower('f\0ì½é')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')), lower('f\0ì½é')), 0), 0)))
