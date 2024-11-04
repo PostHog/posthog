@@ -564,6 +564,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'JSONExtractArrayRaw',
         'JSONExtractKeysAndValues',
         'JSONExtractKeysAndValuesRaw',
+        'JSON_VALUE',
         'in',
         'notIn',
         'greatCircleDistance',

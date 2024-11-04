@@ -213,7 +213,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <>
                                 {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
                                     <h4 className="leading-5 font-bold mb-0 space-x-0.5">
-                                        {addon.trial ? (
+                                        {addon.trial && !!trialExperiment ? (
                                             <span>{addon.trial.length} day free trial</span>
                                         ) : (
                                             <span>
@@ -283,7 +283,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             thereafter.
                         </p>
                     )}
-                    {!!addon.trial && !billing?.trial && (
+                    {!!addon.trial && !!trialExperiment && !billing?.trial && (
                         <p className="mt-2 text-xs text-muted text-right">
                             You'll have {addon.trial.length} days to try it out. Then you'll be charged{' '}
                             {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.

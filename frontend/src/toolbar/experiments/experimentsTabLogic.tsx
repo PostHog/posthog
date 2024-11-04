@@ -61,7 +61,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         removeVariant: (variant: string) => ({
             variant,
         }),
-        applyVariant: (variant: string) => ({
+        applyVariant: (current_variant: string, variant: string) => ({
+            current_variant,
             variant,
         }),
         addNewElement: (variant: string) => ({ variant }),
@@ -152,6 +153,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 const experimentToSave = {
                     ...formValues,
                 }
+
+                // this property is used in the editor to undo transforms
+                // don't need to roundtrip this to the server.
+                delete experimentToSave.undo_transforms
                 const { apiURL, temporaryToken } = values
                 const { selectedExperimentId } = values
 
@@ -288,29 +293,70 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        applyVariant: ({ variant }) => {
+        applyVariant: ({ current_variant, variant }) => {
             if (values.experimentForm && values.experimentForm.variants) {
                 const selectedVariant = values.experimentForm.variants[variant]
-                selectedVariant?.transforms?.forEach((transform) => {
-                    if (transform.selector) {
-                        const elements = document.querySelectorAll(transform.selector)
-                        elements.forEach((elements) => {
-                            const htmlElement = elements as HTMLElement
-                            if (htmlElement) {
-                                if (transform.html) {
-                                    htmlElement.innerHTML = transform.html
-                                }
-
-                                if (transform.css) {
-                                    htmlElement.setAttribute('style', transform.css)
-                                }
-                                if (transform.text) {
-                                    htmlElement.innerText = transform.text
-                                }
-                            }
-                        })
+                if (selectedVariant) {
+                    if (values.experimentForm.undo_transforms === undefined) {
+                        values.experimentForm.undo_transforms = []
                     }
-                })
+
+                    // run the undo transforms first.
+                    values.experimentForm.undo_transforms?.forEach((transform) => {
+                        if (transform.selector) {
+                            const elements = document.querySelectorAll(transform.selector)
+                            elements.forEach((elements) => {
+                                const htmlElement = elements as HTMLElement
+                                if (htmlElement) {
+
+                                    if (transform.html) {
+                                        htmlElement.innerHTML = transform.html
+                                    }
+
+                                    if (transform.css) {
+                                        htmlElement.setAttribute('style', transform.css)
+                                    }
+
+                                    if (transform.text) {
+                                        htmlElement.innerText = transform.text
+                                    }
+                                }
+                            })
+                        }
+                    })
+
+                    selectedVariant.transforms?.forEach((transform) => {
+                        if (transform.selector) {
+                            const undoTransform: WebExperimentTransform = {
+                                selector: transform.selector,
+                            }
+                            const elements = document.querySelectorAll(transform.selector)
+                            elements.forEach((elements) => {
+                                const htmlElement = elements as HTMLElement
+                                if (htmlElement) {
+                                    if (transform.html) {
+                                        undoTransform.html = htmlElement.innerHTML
+                                        htmlElement.innerHTML = transform.html
+                                    }
+
+                                    if (transform.css) {
+                                        undoTransform.css = htmlElement.getAttribute('style') || ' '
+                                        htmlElement.setAttribute('style', transform.css)
+                                    }
+
+                                    if (transform.text) {
+                                        undoTransform.text = htmlElement.innerText
+                                        htmlElement.innerText = transform.text
+                                    }
+                                }
+                            })
+
+                            if ((current_variant === 'control' || current_variant === '') && variant !== 'control') {
+                                values.experimentForm.undo_transforms?.push(undoTransform)
+                            }
+                        }
+                    })
+                }
             }
         },
         rebalanceRolloutPercentage: () => {
