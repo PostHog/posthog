@@ -82,6 +82,7 @@ export type SettingId =
     | 'organization-rbac'
     | 'organization-delete'
     | 'organization-proxy'
+    | 'product-description'
     | 'details'
     | 'change-password'
     | '2fa'

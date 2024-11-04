@@ -42,6 +42,7 @@ import {
 import {
     Experiment,
     Experiment as ExperimentType,
+    ExperimentIdType,
     ExperimentResults,
     FilterType,
     InsightShortId,
@@ -56,7 +57,7 @@ export function VariantTag({
     experimentId,
     variantKey,
 }: {
-    experimentId: number | 'new'
+    experimentId: ExperimentIdType
     variantKey: string
 }): JSX.Element {
     const { experiment, experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
@@ -874,7 +875,7 @@ export function ActionBanner(): JSX.Element {
     return <></>
 }
 
-export const ResetButton = ({ experimentId }: { experimentId: number | 'new' }): JSX.Element => {
+export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element => {
     const { experiment } = useValues(experimentLogic({ experimentId }))
     const { resetRunningExperiment } = useActions(experimentLogic)
 

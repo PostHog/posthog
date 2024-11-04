@@ -155,7 +155,7 @@ export function WebExperimentTransformField({
                         }
                         setExperimentFormValue('variants', experimentForm.variants)
                     }}
-                    value={transform.css}
+                    value={transform.css || ''}
                 />
             )}
         </>
