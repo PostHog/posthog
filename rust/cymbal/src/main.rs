@@ -137,17 +137,9 @@ async fn main() -> Result<(), Error> {
         let mut results = Vec::with_capacity(stack_trace.len());
         for (_, frames) in groups.into_iter() {
             context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
-            let mut any_success = false;
-            let per_frame_group = common_metrics::timing_guard(PER_FRAME_GROUP_TIME, &[]);
             for frame in frames {
-                results.push(frame.resolve(team_id, &context.catalog).await);
-                if results.last().unwrap().is_ok() {
-                    any_success = true;
-                }
+                results.push(frame.resolve(team_id, &context.catalog).await?);
             }
-            per_frame_group
-                .label("resolved_any", if any_success { "true" } else { "false" })
-                .fin();
         }
 
         per_stack
