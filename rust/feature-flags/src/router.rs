@@ -9,7 +9,7 @@ use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
 
 use crate::{
-    cohort_cache::CohortCache,
+    cohort_cache::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
     database::Client as DatabaseClient,
     geoip::GeoIpClient,
@@ -23,7 +23,7 @@ pub struct State {
     pub redis: Arc<dyn RedisClient + Send + Sync>,
     pub postgres_reader: Arc<dyn DatabaseClient + Send + Sync>,
     pub postgres_writer: Arc<dyn DatabaseClient + Send + Sync>,
-    pub cohort_cache: Arc<CohortCache>, // TODO does this need a better name than just `cohort_cache`?
+    pub cohort_cache: Arc<CohortCacheManager>, // TODO does this need a better name than just `cohort_cache`?
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
 }
@@ -32,7 +32,7 @@ pub fn router<R, D>(
     redis: Arc<R>,
     postgres_reader: Arc<D>,
     postgres_writer: Arc<D>,
-    cohort_cache: Arc<CohortCache>,
+    cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     config: Config,

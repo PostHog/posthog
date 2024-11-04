@@ -1,6 +1,6 @@
 use crate::{
     api::{FlagError, FlagsResponse},
-    cohort_cache::CohortCache,
+    cohort_cache::CohortCacheManager,
     database::Client,
     flag_definitions::FeatureFlagList,
     flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
@@ -70,7 +70,7 @@ pub struct FeatureFlagEvaluationContext {
     feature_flags: FeatureFlagList,
     postgres_reader: Arc<dyn Client + Send + Sync>,
     postgres_writer: Arc<dyn Client + Send + Sync>,
-    cohort_cache: Arc<CohortCache>,
+    cohort_cache: Arc<CohortCacheManager>,
     #[builder(default)]
     person_property_overrides: Option<HashMap<String, Value>>,
     #[builder(default)]
@@ -359,7 +359,7 @@ mod tests {
     async fn test_evaluate_feature_flags() {
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -508,7 +508,7 @@ mod tests {
     async fn test_evaluate_feature_flags_multiple_flags() {
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flags = vec![
             FeatureFlag {
                 name: Some("Flag 1".to_string()),
@@ -613,7 +613,7 @@ mod tests {
     async fn test_evaluate_feature_flags_with_overrides() {
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -696,7 +696,7 @@ mod tests {
         let long_id = "a".repeat(1000);
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCache::new(postgres_reader.clone(), None, None));
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,

@@ -4,14 +4,14 @@ use crate::flag_matching::{PostgresReader, TeamId};
 use moka::future::Cache;
 use std::time::Duration;
 
-/// CohortCache manages the in-memory cache of cohorts using `moka` for caching.
+/// CohortCacheManager manages the in-memory cache of cohorts using `moka` for caching.
 ///
 /// Features:
 /// - **TTL**: Each cache entry expires after 5 minutes.
 /// - **Size-based eviction**: The cache evicts least recently used entries when the maximum capacity is reached.
 ///
 /// ```text
-/// CohortCache {
+/// CohortCacheManager {
 ///     postgres_reader: PostgresReader,
 ///     per_team_cohorts: Cache<TeamId, Vec<Cohort>> {
 ///         // Example:
@@ -27,12 +27,12 @@ use std::time::Duration;
 /// ```
 ///
 #[derive(Clone)]
-pub struct CohortCache {
+pub struct CohortCacheManager {
     postgres_reader: PostgresReader,
-    per_team_cohorts: Cache<TeamId, Vec<Cohort>>,
+    per_team_cohort_cache: Cache<TeamId, Vec<Cohort>>,
 }
 
-impl CohortCache {
+impl CohortCacheManager {
     pub fn new(
         postgres_reader: PostgresReader,
         max_capacity: Option<u64>,
@@ -50,7 +50,7 @@ impl CohortCache {
 
         Self {
             postgres_reader,
-            per_team_cohorts: cache,
+            per_team_cohort_cache: cache,
         }
     }
 
@@ -59,11 +59,11 @@ impl CohortCache {
     /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
     /// caches the result upon successful retrieval, and then returns it.
     pub async fn get_cohorts_for_team(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
-        if let Some(cached_cohorts) = self.per_team_cohorts.get(&team_id).await {
+        if let Some(cached_cohorts) = self.per_team_cohort_cache.get(&team_id).await {
             return Ok(cached_cohorts.clone());
         }
         let fetched_cohorts = Cohort::list_from_pg(self.postgres_reader.clone(), team_id).await?;
-        self.per_team_cohorts
+        self.per_team_cohort_cache
             .insert(team_id, fetched_cohorts.clone())
             .await;
 
@@ -109,8 +109,8 @@ mod tests {
         let team_id = setup_test_team(writer_client.clone()).await?;
         let _cohort = setup_test_cohort(writer_client.clone(), team_id, None).await?;
 
-        // Initialize CohortCache with a short TTL for testing
-        let cohort_cache = CohortCache::new(
+        // Initialize CohortCacheManager with a short TTL for testing
+        let cohort_cache = CohortCacheManager::new(
             reader_client.clone(),
             Some(100),
             Some(1), // 1-second TTL
@@ -120,14 +120,14 @@ mod tests {
         assert_eq!(cohorts.len(), 1);
         assert_eq!(cohorts[0].team_id, team_id);
 
-        let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await;
+        let cached_cohorts = cohort_cache.per_team_cohort_cache.get(&team_id).await;
         assert!(cached_cohorts.is_some());
 
         // Wait for TTL to expire
         sleep(Duration::from_secs(2)).await;
 
         // Attempt to retrieve from cache again
-        let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await;
+        let cached_cohorts = cohort_cache.per_team_cohort_cache.get(&team_id).await;
         assert!(cached_cohorts.is_none(), "Cache entry should have expired");
 
         Ok(())
@@ -142,7 +142,7 @@ mod tests {
         // Define a smaller max_capacity for testing
         let max_capacity: u64 = 3;
 
-        let cohort_cache = CohortCache::new(reader_client.clone(), Some(max_capacity), None);
+        let cohort_cache = CohortCacheManager::new(reader_client.clone(), Some(max_capacity), None);
 
         let mut inserted_team_ids = Vec::new();
 
@@ -155,8 +155,8 @@ mod tests {
             cohort_cache.get_cohorts_for_team(team_id).await?;
         }
 
-        cohort_cache.per_team_cohorts.run_pending_tasks().await;
-        let cache_size = cohort_cache.per_team_cohorts.entry_count();
+        cohort_cache.per_team_cohort_cache.run_pending_tasks().await;
+        let cache_size = cohort_cache.per_team_cohort_cache.entry_count();
         assert_eq!(
             cache_size, max_capacity,
             "Cache size should be equal to max_capacity"
@@ -167,21 +167,24 @@ mod tests {
         setup_test_cohort(writer_client.clone(), new_team_id, None).await?;
         cohort_cache.get_cohorts_for_team(new_team_id).await?;
 
-        cohort_cache.per_team_cohorts.run_pending_tasks().await;
-        let cache_size_after = cohort_cache.per_team_cohorts.entry_count();
+        cohort_cache.per_team_cohort_cache.run_pending_tasks().await;
+        let cache_size_after = cohort_cache.per_team_cohort_cache.entry_count();
         assert_eq!(
             cache_size_after, max_capacity,
             "Cache size should remain equal to max_capacity after eviction"
         );
 
         let evicted_team_id = &inserted_team_ids[0];
-        let cached_cohorts = cohort_cache.per_team_cohorts.get(evicted_team_id).await;
+        let cached_cohorts = cohort_cache
+            .per_team_cohort_cache
+            .get(evicted_team_id)
+            .await;
         assert!(
             cached_cohorts.is_none(),
             "Least recently used cache entry should have been evicted"
         );
 
-        let cached_new_team = cohort_cache.per_team_cohorts.get(&new_team_id).await;
+        let cached_new_team = cohort_cache.per_team_cohort_cache.get(&new_team_id).await;
         assert!(
             cached_new_team.is_some(),
             "Newly added cache entry should be present"
@@ -196,16 +199,20 @@ mod tests {
         let reader_client = setup_pg_reader_client(None).await;
         let team_id = setup_test_team(writer_client.clone()).await?;
         let _cohort = setup_test_cohort(writer_client.clone(), team_id, None).await?;
-        let cohort_cache = CohortCache::new(reader_client.clone(), None, None);
+        let cohort_cache = CohortCacheManager::new(reader_client.clone(), None, None);
 
-        let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await;
+        let cached_cohorts = cohort_cache.per_team_cohort_cache.get(&team_id).await;
         assert!(cached_cohorts.is_none(), "Cache should initially be empty");
 
         let cohorts = cohort_cache.get_cohorts_for_team(team_id).await?;
         assert_eq!(cohorts.len(), 1);
         assert_eq!(cohorts[0].team_id, team_id);
 
-        let cached_cohorts = cohort_cache.per_team_cohorts.get(&team_id).await.unwrap();
+        let cached_cohorts = cohort_cache
+            .per_team_cohort_cache
+            .get(&team_id)
+            .await
+            .unwrap();
         assert_eq!(cached_cohorts.len(), 1);
         assert_eq!(cached_cohorts[0].team_id, team_id);
 
