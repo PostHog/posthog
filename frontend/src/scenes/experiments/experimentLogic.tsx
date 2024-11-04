@@ -87,6 +87,7 @@ const NEW_EXPERIMENT: Experiment = {
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
+    type?: string
 }
 
 interface SecondaryMetricResult {
@@ -360,6 +361,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
+            console.log(`isUpdate is `, isUpdate)
             try {
                 if (isUpdate) {
                     response = await api.update(
