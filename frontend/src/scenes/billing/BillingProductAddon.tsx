@@ -275,14 +275,18 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             </>
                         )}
                     </div>
-                    {!addon.inclusion_only && !addon.trial && isProrated && !addon.contact_support && (
-                        <p className="mt-2 text-xs text-muted text-right">
-                            Pay ~${prorationAmount} today (prorated) and
-                            <br />
-                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
-                            thereafter.
-                        </p>
-                    )}
+                    {!addon.inclusion_only &&
+                        !addon.trial &&
+                        isProrated &&
+                        !addon.contact_support &&
+                        !billing?.trial && (
+                            <p className="mt-2 text-xs text-muted text-right">
+                                Pay ~${prorationAmount} today (prorated) and
+                                <br />
+                                {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
+                                thereafter.
+                            </p>
+                        )}
                     {!!addon.trial && !!trialExperiment && !billing?.trial && (
                         <p className="mt-2 text-xs text-muted text-right">
                             You'll have {addon.trial.length} days to try it out. Then you'll be charged{' '}
