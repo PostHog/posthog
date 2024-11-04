@@ -8,8 +8,6 @@ pub fn generate_fingerprint(exception: &[Exception]) -> String {
     for exc in exception {
         exc.include_in_fingerprint(&mut hasher);
     }
-    // TODO: Handle anonymous functions somehow? Not sure if these would have a resolved name at all. How would they show up
-    // as unresolved names?
 
     let result = hasher.finalize();
 
