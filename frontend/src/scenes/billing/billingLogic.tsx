@@ -4,7 +4,6 @@ import { FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -345,11 +344,7 @@ export const billingLogic = kea<billingLogicType>([
                             )
                         }
 
-                        if (
-                            response.eligible &&
-                            response.status === 'none' &&
-                            values.featureFlags[FEATURE_FLAGS.PURCHASE_CREDITS]
-                        ) {
+                        if (response.eligible && response.status === 'none') {
                             actions.reportCreditsCTAShown(response)
                         }
                         return response
