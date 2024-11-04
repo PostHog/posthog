@@ -41,7 +41,7 @@ export function WebExperimentTransformField({
                         dropdown: {
                             overlay: (
                                 <>
-                                    {Array.from(elementSelectorButtonTypes.keys()).map((key) => {
+                                    {Object.entries(elementSelectorButtonTypes).map(([key, value]) => {
                                         return (
                                             <LemonButton
                                                 key={'element-selector-' + key}
