@@ -348,6 +348,47 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             == "Property type mismatch for the following properties: [{'key': 'price', 'value': '50 coins'}]. Not sending event."
         )
 
+    def test_allowed_event_names(self):
+        for event_name, allowed in [
+            ("$identify", False),
+            ("$pageview", False),
+            ("sign up", False),
+            ("purchase", True),
+            ("6month_subscribed", False),
+            ("event-name", True),
+            ("subscribed_6-months", True),
+            ("custom", True),
+        ]:
+            if allowed:
+                self.run_function(
+                    inputs=self._inputs(),
+                    globals={
+                        "event": {
+                            "event": event_name,
+                            "properties": {"url": "https://example.com", "$browser": "Chrome"},
+                        },
+                    },
+                )
+                assert (
+                    self.get_mock_fetch_calls()[0][0]
+                    == f"https://api.hubapi.com/events/v3/event-definitions/{event_name}/?includeProperties=true"
+                )
+            else:
+                with pytest.raises(UncaughtHogVMException) as e:
+                    self.run_function(
+                        inputs=self._inputs(),
+                        globals={
+                            "event": {
+                                "event": event_name,
+                                "properties": {"url": "https://example.com", "$browser": "Chrome"},
+                            },
+                        },
+                    )
+                    assert (
+                        e.value.message
+                        == f"Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event: {event_name}"
+                    )
+
 
 class TestTemplateMigration(BaseTest):
     def get_plugin_config(self, config: dict):

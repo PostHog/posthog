@@ -110,6 +110,11 @@ if (empty(inputs.email)) {
     return
 }
 
+if (not match(event.event, '^([a-z])([a-z0-9_-])+$')) {
+    throw Error(f'Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event: {event.event}')
+    return
+}
+
 let properties := {}
 
 for (let key, value in inputs.properties) {
