@@ -486,6 +486,7 @@ export interface SessionRecordingAIConfig {
 }
 
 export interface ProjectType extends ProjectBasicType {
+    product_description: string | null
     created_at: string
 }
 

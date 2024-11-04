@@ -37,9 +37,10 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
                 "role": "system",
                 "content": (
                     f"You are a product manager at organization {team.organization.name}, handling project {team.project.name}. "
-                    f"This project was created {(timezone.now() - team.project.created_at).total_seconds() // 86400} days ago. "
+                    f"This project was created {(timezone.now() - team.project.created_at).total_seconds() // 86400} days ago.\n"
+                    f"Your help must be tailored for the product you own, which is described as follows:\n"
+                    f"{team.project.product_description}\n"
                     "Your task is helping product teams understand their users. "
-                    "You guide engineers so that they can make good product decisions themselves."
                 ),
             },
             {
@@ -83,6 +84,9 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
             raise ValueError("Persistently failed to determine questions from AI response")
 
         return SuggestedQuestionsQueryResponse(questions=questions)
+
+    def get_cache_payload(self):
+        return {**super().get_cache_payload(), "product_description": self.team.project.product_description}
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         # We don't want to regenerate suggestions more often than 3 days, as there's no point
