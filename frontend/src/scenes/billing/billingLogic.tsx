@@ -503,9 +503,9 @@ export const billingLogic = kea<billingLogicType>([
             errors: ({ creditInput, collectionMethod }) => ({
                 creditInput: !creditInput
                     ? 'Please enter the amount of credits you want to purchase'
-                    : // This value is used because 3334 - 10% = 6000
-                    +creditInput < 3334
-                    ? 'Please enter a credit amount greater than $6,666'
+                    : // This value is used because 3333 - 10% = 3000
+                    +creditInput < 3333
+                    ? 'Please enter a credit amount of at least $3,333'
                     : undefined,
                 collectionMethod: !collectionMethod ? 'Please select a collection method' : undefined,
             }),
@@ -650,7 +650,7 @@ export const billingLogic = kea<billingLogicType>([
                     discount = 0.25
                 } else if (spend >= 20000) {
                     discount = 0.2
-                } else if (spend >= 6000) {
+                } else if (spend >= 3000) {
                     discount = 0.1
                 }
                 actions.setComputedDiscount(discount)
