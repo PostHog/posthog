@@ -55,12 +55,12 @@ const EXPERIMENT_BUTTON_TARGETS = ['input[type="button"]', 'button']
 
 export type ElementSelectorType = 'all-elements' | 'headers' | 'buttons' | 'images'
 
-const ElementSelectorMap: Map<ElementSelectorType, string> = new Map([
-    ['all-elements', EXPERIMENT_TARGET_SELECTOR],
-    ['headers', EXPERIMENT_HEADER_TARGETS.join(',')],
-    ['buttons', EXPERIMENT_BUTTON_TARGETS.join(',')],
-    ['images', 'img'],
-])
+const ElementSelectorMap: Record<ElementSelectorType, string> = {
+    'all-elements': EXPERIMENT_TARGET_SELECTOR,
+    headers: EXPERIMENT_HEADER_TARGETS.join(','),
+    buttons: EXPERIMENT_BUTTON_TARGETS.join(','),
+    images: 'img',
+}
 export const ElementSelectorButtonTypes: Map<ElementSelectorType, string> = new Map([
     ['all-elements', 'All Elements'],
     ['headers', 'Headers'],
@@ -160,7 +160,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         elementSelector: [
             '',
             {
-                inspectForElementWithIndex: (_, { type }) => ElementSelectorMap.get(type) || '',
+                inspectForElementWithIndex: (_, { type }) => ElementSelectorMap[type] || '',
             },
         ],
         inspectingElement: [
