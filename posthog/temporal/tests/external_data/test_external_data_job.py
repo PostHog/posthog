@@ -25,7 +25,7 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
-from posthog.warehouse.external_data_source.jobs import create_external_data_job
+from posthog.warehouse.external_data_source.jobs import acreate_external_data_job
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
     ExternalDataJob,
@@ -238,7 +238,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -283,7 +283,7 @@ async def test_update_external_job_activity_with_retryable_error(activity_enviro
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -329,7 +329,7 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
