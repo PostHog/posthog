@@ -4,23 +4,25 @@ use crate::{
     types::{frames::Frame, Exception},
 };
 use reqwest::Url;
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha512};
 
 // Given resolved Frames vector and the original Exception, we can now generate a fingerprint for it
 pub fn generate_fingerprint(
     exception: &Exception,
     mut frames: Vec<Frame>,
 ) -> Result<String, Error> {
-    let mut fingerprint = format!(
-        "{}-{}",
-        exception.exception_type, exception.exception_message
-    );
+    let mut hasher = Sha512::new();
 
+    hasher.update(&exception.exception_type);
+    hasher.update(&exception.exception_message);
+
+    // only use resolved frames if any exist
     let has_resolved_frames: bool = frames.iter().any(|f| f.resolved);
     if has_resolved_frames {
         frames.retain(|f| f.resolved);
     }
 
+    // only use in app frames if any exist, otherwise only use the first frame
     let has_in_app_frames: bool = frames.iter().any(|f| f.in_app);
     if has_in_app_frames {
         frames.retain(|f| f.in_app);
@@ -35,23 +37,15 @@ pub fn generate_fingerprint(
             Err(_) => "unknown".to_string(),
         };
 
-        fingerprint.push('-');
-        fingerprint.push_str(&source_fn);
-        fingerprint.push(':');
-        fingerprint.push_str(&frame.resolved_name.unwrap_or(frame.mangled_name));
+        hasher.update(&source_fn);
+        hasher.update(frame.resolved_name.unwrap_or(frame.mangled_name));
     }
     // TODO: Handle anonymous functions somehow? Not sure if these would have a resolved name at all. How would they show up
     // as unresolved names?
 
-    Ok(fingerprint)
-}
-
-// Generate sha256 hash of the fingerprint to get a unique fingerprint identifier
-pub fn hash_fingerprint(fingerprint: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(fingerprint.as_bytes());
     let result = hasher.finalize();
-    format!("{:x}", result)
+
+    Ok(format!("{:x}", result))
 }
 
 #[cfg(test)]
@@ -78,6 +72,7 @@ mod test {
                 in_app: true,
                 resolved_name: Some("bar".to_string()),
                 resolved: true,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
             Frame {
@@ -88,6 +83,7 @@ mod test {
                 in_app: true,
                 resolved_name: Some("baz".to_string()),
                 resolved: true,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
             Frame {
@@ -98,6 +94,7 @@ mod test {
                 in_app: true,
                 resolved_name: None,
                 resolved: true,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
             Frame {
@@ -108,6 +105,7 @@ mod test {
                 in_app: false,
                 resolved_name: None,
                 resolved: true,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
         ];
@@ -115,7 +113,7 @@ mod test {
         let fingerprint = super::generate_fingerprint(&exception, resolved_frames).unwrap();
         assert_eq!(
             fingerprint,
-            "TypeError-Cannot read property 'foo' of undefined-/alpha/foo.js:bar-/bar.js:baz-unknown:xyz"
+            "e2a134db8585bafb19fa6c15b92bd46c699e06df7f39ce74281227e7c915adf0c997ab61757820710d85817b4a11823e57f9bcae526432c085b53e28397f3007"
         );
     }
 
@@ -139,6 +137,7 @@ mod test {
                 in_app: true,
                 resolved_name: Some("bar".to_string()),
                 resolved: true,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
             Frame {
@@ -149,6 +148,7 @@ mod test {
                 in_app: true,
                 resolved_name: Some("baz".to_string()),
                 resolved: true,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
             Frame {
@@ -159,6 +159,7 @@ mod test {
                 in_app: true,
                 resolved_name: None,
                 resolved: false,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
         ];
@@ -166,7 +167,7 @@ mod test {
         let fingerprint = super::generate_fingerprint(&exception, resolved_frames).unwrap();
         assert_eq!(
             fingerprint,
-            "TypeError-Cannot read property 'foo' of undefined-/alpha/foo.js:bar-/bar.js:baz"
+            "528bf82706cdcf928b3382d6bfb717c9572aa6855ffe8b620132a813dd54f2ee5c13437d22bb557634c4ceec104ce9c8c5a87d5d7cf36239be052ace8b9962aa"
         );
     }
 
@@ -190,6 +191,7 @@ mod test {
                 in_app: true,
                 resolved_name: Some("bar".to_string()),
                 resolved: false,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
             Frame {
@@ -200,6 +202,7 @@ mod test {
                 in_app: true,
                 resolved_name: Some("baz".to_string()),
                 resolved: false,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
             Frame {
@@ -210,6 +213,7 @@ mod test {
                 in_app: true,
                 resolved_name: None,
                 resolved: false,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
         ];
@@ -217,7 +221,7 @@ mod test {
         let fingerprint = super::generate_fingerprint(&exception, resolved_frames).unwrap();
         assert_eq!(
             fingerprint,
-            "TypeError-Cannot read property 'foo' of undefined-/alpha/foo.js:bar-/bar.js:baz-unknown:xyz"
+            "e2a134db8585bafb19fa6c15b92bd46c699e06df7f39ce74281227e7c915adf0c997ab61757820710d85817b4a11823e57f9bcae526432c085b53e28397f3007"
         );
     }
 
@@ -241,6 +245,7 @@ mod test {
                 in_app: false,
                 resolved_name: Some("bar".to_string()),
                 resolved: false,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
             Frame {
@@ -251,6 +256,7 @@ mod test {
                 in_app: false,
                 resolved_name: Some("baz".to_string()),
                 resolved: false,
+                resolve_failure: None,
                 lang: "javascript".to_string(),
             },
         ];
@@ -258,7 +264,7 @@ mod test {
         let fingerprint = super::generate_fingerprint(&exception, resolved_frames).unwrap();
         assert_eq!(
             fingerprint,
-            "TypeError-Cannot read property 'foo' of undefined-/alpha/foo.js:bar"
+            "c0fea2676a395a11577fd7a7b3006bcc416f6ceeb13290f831c4b5dc4de443ff51c5866d5c378137307c25cc8837cca6c82737e9704c47ed8408ff3937033e70"
         );
     }
 }
