@@ -745,22 +745,22 @@ impl FeatureFlagMatcher {
                     .cloned()
                     .partition(|prop| prop.is_cohort());
 
-            // Get the relevant properties to check for the condition
+            // Get the properties we need to check for in this condition match from the flag + any overrides
             let target_properties = self
                 .get_properties_to_check(feature_flag, property_overrides, &non_cohort_filters)
                 .await?;
 
-            // Evaluate non-cohort properties first, since they're cheaper to evaluate
+            // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
             if !all_properties_match(&non_cohort_filters, &target_properties) {
                 return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
 
-            // Evaluate cohort filters, if any
+            // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
-                let cohorts_match = self
+                if !self
                     .evaluate_cohort_filters(&cohort_filters, &target_properties)
-                    .await?;
-                if !cohorts_match {
+                    .await?
+                {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
@@ -3760,7 +3760,6 @@ mod tests {
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
 
-        // This test might fail if the system doesn't support cohort dependencies
         assert!(result.matches);
     }
 
