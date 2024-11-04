@@ -97,6 +97,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let team = request
         .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres_reader.clone())
         .await?;
+
     let distinct_id = request.extract_distinct_id()?;
     let groups = request.groups.clone();
     let team_id = team.id;
