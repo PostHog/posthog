@@ -75,6 +75,7 @@ export function Experiments(): JSX.Element {
         createdByColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         createdAtColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         atColumn('start_date', 'Started') as LemonTableColumn<Experiment, keyof Experiment | undefined>,
+        atColumn('end_date', 'Ended') as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         {
             title: 'Duration',
             key: 'duration',
