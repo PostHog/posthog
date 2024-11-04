@@ -5,7 +5,7 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useState } from 'react'
 
-import { ElementSelectorType, experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { ElementSelectorButtonTypes, experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
@@ -25,12 +25,7 @@ export function WebExperimentTransformField({
     const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
     const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
         useActions(experimentsTabLogic)
-    const elementSelectorButtonTypes: Map<ElementSelectorType, string> = new Map([
-        ['all-elements', 'All Elements'],
-        ['headers', 'Headers'],
-        ['buttons', 'Buttons'],
-        ['images', 'Images'],
-    ])
+
     return (
         <>
             <div className="flex-1 mb-2">
@@ -41,7 +36,7 @@ export function WebExperimentTransformField({
                         dropdown: {
                             overlay: (
                                 <>
-                                    {Object.entries(elementSelectorButtonTypes).map(([key, value]) => {
+                                    {Array.from(ElementSelectorButtonTypes.keys()).map((key) => {
                                         return (
                                             <LemonButton
                                                 key={'element-selector-' + key}
@@ -64,7 +59,7 @@ export function WebExperimentTransformField({
                                                     )
                                                 }}
                                             >
-                                                {elementSelectorButtonTypes.get(key)}
+                                                {ElementSelectorButtonTypes.get(key)}
                                             </LemonButton>
                                         )
                                     })}
