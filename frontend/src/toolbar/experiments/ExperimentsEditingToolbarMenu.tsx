@@ -84,7 +84,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                     onChange={(variant) => {
                                         if (variant) {
                                             selectVariant(variant)
-                                            applyVariant(variant)
+                                            applyVariant(selectedVariant, variant)
                                         }
                                     }}
                                     panels={Object.keys(experimentForm.variants || {})

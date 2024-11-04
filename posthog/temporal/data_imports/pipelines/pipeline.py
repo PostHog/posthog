@@ -96,6 +96,9 @@ class DataImportPipeline:
         pipeline_name = self._get_pipeline_name()
         destination = self._get_destination()
 
+        dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
+        dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
+
         return dlt.pipeline(
             pipeline_name=pipeline_name, destination=destination, dataset_name=self.inputs.dataset_name, progress="log"
         )

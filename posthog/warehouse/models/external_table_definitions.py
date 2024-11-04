@@ -707,8 +707,8 @@ HOGQL_FIELD_DLT_TYPE_MAP = {
     IntegerDatabaseField: "bigint",
     BooleanDatabaseField: "bool",
     DateTimeDatabaseField: "timestamp",
-    StringJSONDatabaseField: "complex",
-    StringArrayDatabaseField: "complex",
+    StringJSONDatabaseField: "json",
+    StringArrayDatabaseField: "json",
     FloatDatabaseField: "double",
     DateDatabaseField: "date",
 }

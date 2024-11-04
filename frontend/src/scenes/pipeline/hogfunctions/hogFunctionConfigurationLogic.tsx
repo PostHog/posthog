@@ -653,8 +653,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         sparklineQuery: [
-            (s) => [s.configuration, s.matchingFilters],
-            (configuration, matchingFilters): TrendsQuery => {
+            (s) => [s.configuration, s.matchingFilters, s.type],
+            (configuration, matchingFilters, type): TrendsQuery | null => {
+                if (type !== 'destination') {
+                    return null
+                }
                 return {
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,

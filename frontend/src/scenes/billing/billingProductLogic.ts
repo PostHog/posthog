@@ -1,6 +1,7 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -37,6 +38,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             [
                 'updateBillingLimits',
                 'updateBillingLimitsSuccess',
+                'loadBilling',
                 'loadBillingSuccess',
                 'deactivateProduct',
                 'setProductSpecificAlert',
@@ -75,6 +77,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             products,
             redirectPath,
         }),
+        activateTrial: true,
+        cancelTrial: true,
+        setTrialModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setTrialLoading: (loading: boolean) => ({ loading }),
         setUnsubscribeModalStep: (step: number) => ({ step }),
         resetUnsubscribeModalStep: true,
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
@@ -154,6 +160,18 @@ export const billingProductLogic = kea<billingProductLogicType>([
             null as string | null,
             {
                 toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
+            },
+        ],
+        trialModalOpen: [
+            false,
+            {
+                setTrialModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        trialLoading: [
+            false,
+            {
+                setTrialLoading: (_, { loading }) => loading,
             },
         ],
         unsubscribeModalStep: [
@@ -348,6 +366,36 @@ export const billingProductLogic = kea<billingProductLogicType>([
             window.location.href = `/api/billing/activate?products=${products}${
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
+        },
+        activateTrial: async (_, breakpoint) => {
+            actions.setTrialLoading(true)
+            try {
+                await api.create(`api/billing/trials/activate`, {
+                    type: 'autosubscribe',
+                    target: props.product.type,
+                })
+                lemonToast.success('Your trial has been activated!')
+            } catch (e) {
+                lemonToast.error('There was an error activating your trial. Please try again or contact support.')
+            } finally {
+                await breakpoint(400)
+                window.location.reload()
+                actions.setTrialLoading(false)
+                actions.setTrialModalOpen(false)
+            }
+        },
+        cancelTrial: async () => {
+            actions.setTrialLoading(true)
+            try {
+                await api.create(`api/billing/trials/cancel`)
+                lemonToast.success('Your trial has been cancelled!')
+            } catch (e) {
+                console.error(e)
+                lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
+            } finally {
+                actions.loadBilling()
+                actions.setTrialLoading(false)
+            }
         },
         triggerMoreHedgehogs: async (_, breakpoint) => {
             for (let i = 0; i < 5; i++) {

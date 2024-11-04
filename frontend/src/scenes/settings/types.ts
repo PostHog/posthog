@@ -96,6 +96,7 @@ export type SettingId =
     | 'bounce-rate-page-view-mode'
     | 'session-table-version'
     | 'web-vitals-autocapture'
+    | 'dead-clicks-autocapture'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
