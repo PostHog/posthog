@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.helpers.full_text_search import build_rank, process_query
+from posthog.helpers.full_text_search import build_rank
 from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
@@ -76,9 +76,6 @@ class QuerySerializer(serializers.Serializer):
 
     q = serializers.CharField(required=False, default="")
     entities = serializers.MultipleChoiceField(required=False, choices=list(ENTITY_MAP.keys()))
-
-    def validate_q(self, value: str):
-        return process_query(value)
 
 
 class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
