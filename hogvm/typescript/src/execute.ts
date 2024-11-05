@@ -337,9 +337,11 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
             // Return or jump back to the previous call frame if ran out of bytecode to execute in this one
             if (frame.ip >= chunkBytecode.length) {
                 const lastCallFrame = callStack.pop()
+                // Also ran out of call frames. We're done.
                 if (!lastCallFrame || callStack.length === 0) {
                     return {
-                        result: undefined,
+                        // Don't pop the stack if we're in repl mode
+                        result: options?.repl ? undefined : stack.length > 0 ? popStack() : null,
                         finished: true,
                         state: getVMState(),
                     } satisfies ExecResult

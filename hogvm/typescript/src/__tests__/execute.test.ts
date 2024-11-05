@@ -27,7 +27,7 @@ describe('hogvm execute', () => {
                 },
             },
         }
-        expect(execSync(['_h'], options)).toBe(undefined)
+        expect(execSync(['_h'], options)).toBe(null)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS], options)).toBe(3)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.MINUS], options)).toBe(-1)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 3, op.MULTIPLY], options)).toBe(6)
@@ -605,7 +605,7 @@ describe('hogvm execute', () => {
         ]
         expect(exec(bytecode)).toEqual({
             finished: true,
-            result: undefined,
+            result: '0.002',
             state: {
                 asyncSteps: 0,
                 bytecodes: { root: { bytecode } },
@@ -613,7 +613,7 @@ describe('hogvm execute', () => {
                 declaredFunctions: {},
                 maxMemUsed: 13,
                 ops: 2,
-                stack: ['0.002'],
+                stack: [],
                 upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
@@ -2527,11 +2527,11 @@ describe('hogvm execute', () => {
         const bytecode = ['_h', op.FALSE, op.TRUE, op.CALL_GLOBAL, 'concat', 2]
         const result = exec(bytecode, { telemetry: true })
         expect(result).toEqual({
-            result: undefined,
+            result: 'truefalse',
             finished: true,
             state: {
                 bytecodes: expect.any(Object),
-                stack: ['truefalse'],
+                stack: [],
                 upvalues: [],
                 callStack: [],
                 throwStack: [],

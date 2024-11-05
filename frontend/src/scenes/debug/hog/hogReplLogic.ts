@@ -1,4 +1,4 @@
-import { newHogCallable, newHogClosure, printHogStringOutput, VMState } from '@posthog/hogvm'
+import { ExecOptions, newHogCallable, newHogClosure, printHogStringOutput, VMState } from '@posthog/hogvm'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { execHogAsync } from 'lib/hog'
@@ -94,7 +94,8 @@ export const hogReplLogic = kea<hogReplLogicType>([
             actions.setReplChunks(values.replChunks.slice(0, index))
         },
         runCode: async ({ code }) => {
-            const options = {
+            const options: ExecOptions = {
+                repl: true,
                 asyncFunctions: {
                     sleep: async (ms: number) => {
                         await new Promise((resolve) => setTimeout(resolve, ms))
