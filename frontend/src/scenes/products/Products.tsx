@@ -139,10 +139,8 @@ export function ProductCard({
 export function Products(): JSX.Element {
     const { isFirstProductOnboarding } = useValues(onboardingLogic)
     const { showInviteModal } = useActions(inviteLogic)
-    const { addProductIntent } = useActions(teamLogic)
-    const { setIncludeIntro } = useActions(onboardingLogic)
 
-    const { toggleSelectedProduct, setFirstProductOnboarding } = useActions(productsLogic)
+    const { toggleSelectedProduct, setFirstProductOnboarding, handleStartOnboarding } = useActions(productsLogic)
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
 
     return (
@@ -151,7 +149,7 @@ export function Products(): JSX.Element {
                 <>
                     <div className="flex flex-col justify-center flex-grow items-center">
                         <div className="mb-8">
-                            <h2 className="text-center text-4xl">Which products would you like to use?</h2>
+                            <h2 className="text-center text-4xl">What would you like to set up?</h2>
                         </div>
                         <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
@@ -180,7 +178,12 @@ export function Products(): JSX.Element {
                                         placeholder="Select a product"
                                         className="bg-bg-light"
                                     />
-                                    <LemonButton sideIcon={<IconArrowRight />} type="primary" status="alt">
+                                    <LemonButton
+                                        sideIcon={<IconArrowRight />}
+                                        onClick={handleStartOnboarding}
+                                        type="primary"
+                                        status="alt"
+                                    >
                                         Go
                                     </LemonButton>
                                 </>
@@ -188,15 +191,7 @@ export function Products(): JSX.Element {
                                 <LemonButton
                                     type="primary"
                                     status="alt"
-                                    onClick={() => {
-                                        const firstProductKey = selectedProducts[0]
-                                        setIncludeIntro(false)
-                                        router.actions.push(urls.onboarding(firstProductKey))
-                                        addProductIntent({
-                                            product_type: firstProductKey as ProductKey,
-                                            intent_context: 'onboarding product selected',
-                                        })
-                                    }}
+                                    onClick={handleStartOnboarding}
                                     sideIcon={<IconArrowRight />}
                                     disabledReason={
                                         selectedProducts.length === 0 ? 'Select a product to start with' : undefined
