@@ -248,7 +248,7 @@ pub async fn insert_new_team_in_pg(
             r#"INSERT INTO posthog_grouptypemapping
             (group_type, group_type_index, name_singular, name_plural, team_id, project_id)
             VALUES
-            ($1, $2, NULL, NULL, $3, $4)"#,
+            ($1, $2, NULL, NULL, $3, $3)"#,
         )
         .bind(group_type)
         .bind(group_type_index)
