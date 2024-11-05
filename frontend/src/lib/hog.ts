@@ -2,6 +2,9 @@ import { exec as hogExec, execAsync as hogExecAsync, ExecOptions, ExecResult, VM
 import * as crypto from 'crypto'
 import { RE2JS } from 're2js'
 
+import { performQuery } from '~/queries/query'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
+
 const external = {
     crypto, // TODO: switch to webcrypto and polyfill on the node side
     regex: {
@@ -37,6 +40,11 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             },
             posthogCapture: () => {
                 throw new Error('posthogCapture is not yet supported')
+            },
+            run: async (queryString: string) => {
+                const hogQLQuery: HogQLQuery = { kind: NodeKind.HogQLQuery, query: queryString }
+                const response = await performQuery(hogQLQuery)
+                return { results: response.results, columns: response.columns }
             },
         },
     })

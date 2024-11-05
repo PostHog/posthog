@@ -141,8 +141,8 @@ export const hogReplLogic = kea<hogReplLogicType>([
                     },
                 },
                 functions: {
-                    print: (value: any) => {
-                        actions.print(index, printHogStringOutput(value))
+                    print: (...args: any[]) => {
+                        actions.print(index, args.map((arg) => printHogStringOutput(arg)).join(' '))
                     },
                 },
             }
