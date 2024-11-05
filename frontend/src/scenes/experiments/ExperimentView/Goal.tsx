@@ -93,12 +93,14 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading } = useValues(
-        experimentLogic({ experimentId })
-    )
+    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading, experimentInsightType } =
+        useValues(experimentLogic({ experimentId }))
     const { closeExperimentGoalModal, updateExperimentGoal, setNewExperimentInsight } = useActions(
         experimentLogic({ experimentId })
     )
+
+    const experimentFiltersLength =
+        (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
 
     return (
         <LemonModal
@@ -113,7 +115,10 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                     </LemonButton>
                     <LemonButton
                         disabledReason={
-                            goalInsightDataLoading && 'The insight needs to be loaded before saving the goal'
+                            (goalInsightDataLoading && 'The insight needs to be loaded before saving the goal') ||
+                            (experimentInsightType === InsightType.FUNNELS &&
+                                experimentFiltersLength < 2 &&
+                                'The experiment needs at least two funnel steps')
                         }
                         form="edit-experiment-goal-form"
                         onClick={() => {
