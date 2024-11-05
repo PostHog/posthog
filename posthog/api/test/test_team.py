@@ -18,11 +18,15 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.product_intent import ProductIntent
+from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
+from posthog.utils import get_instance_realm
 
 
 def team_api_test_factory():
@@ -1039,9 +1043,83 @@ def team_api_test_factory():
                     "$session_id": "test_session_id",
                     "intent_context": "onboarding product selected",
                     "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                    "is_first_intent_for_product": True,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
                 },
                 team=self.team,
             )
+
+        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
+        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        @freeze_time("2024-01-01T00:00:00Z")
+        def test_can_update_product_intent_if_already_exists(
+            self,
+            mock_report_user_action: MagicMock,
+            mock_report_user_action_legacy_endpoint: MagicMock,
+            mock_check_and_update_activation: MagicMock,
+        ) -> None:
+            intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            original_created_at = intent.created_at
+            assert original_created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            # change the time of the existing intent
+            with freeze_time("2024-01-02T00:00:00Z"):
+                if self.client_class is EnvironmentToProjectRewriteClient:
+                    mock_report_user_action = mock_report_user_action_legacy_endpoint
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/add_product_intent/",
+                    {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+                )
+                assert response.status_code == status.HTTP_201_CREATED
+                product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+                assert product_intent.updated_at == datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC)
+                assert product_intent.created_at == original_created_at
+                mock_check_and_update_activation.assert_called_once()
+                mock_report_user_action.assert_called_once_with(
+                    self.user,
+                    "user showed product intent",
+                    {
+                        "product_key": "product_analytics",
+                        "$current_url": "https://posthogtest.com/my-url",
+                        "$session_id": "test_session_id",
+                        "intent_context": None,
+                        "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                        "is_first_intent_for_product": False,
+                        "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                        "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
+                        "realm": get_instance_realm(),
+                    },
+                    team=self.team,
+                )
+
+        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
+        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        @freeze_time("2024-01-05T00:00:00Z")
+        def test_doesnt_send_event_for_already_activated_intent(
+            self,
+            mock_report_user_action: MagicMock,
+            mock_report_user_action_legacy_endpoint: MagicMock,
+            mock_check_and_update_activation: MagicMock,
+        ) -> None:
+            ProductIntent.objects.create(
+                team=self.team, product_type="product_analytics", activated_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            )
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/add_product_intent/",
+                {"product_type": "product_analytics"},
+                headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+            mock_check_and_update_activation.assert_not_called()
+            mock_report_user_action.assert_not_called()
 
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
@@ -1070,6 +1148,10 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
+                    "intent_context": None,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
                 },
                 team=self.team,
             )
@@ -1147,7 +1229,7 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
     """
     This is a helper that just creates a team. It currently uses the orm, but we
     could use either the api, or django admin to create, to get better parity
-    with real world  scenarios.
+    with real world scenarios.
     """
     return Team.objects.create(
         organization=organization,
@@ -1160,4 +1242,45 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
-    pass
+    def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scoped_teams=[other_team_in_project.id],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {other_team_in_project.id},
+            "Only the scoped team listed here, the other two should be excluded",
+        )
+
+    def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
+        other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scoped_organizations=[other_org.id],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {team_in_other_org.id},
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
+        )

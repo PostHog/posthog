@@ -1,7 +1,6 @@
 from typing import Optional, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 import dateutil
-
 
 from freezegun import freeze_time
 
@@ -29,7 +28,7 @@ from posthog.models import AlertConfiguration
 FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 
 
-@freeze_time("2024-06-02T08:55:00.000Z")
+@freeze_time(FROZEN_TIME)
 @patch("posthog.tasks.alerts.checks.send_notifications_for_errors")
 @patch("posthog.tasks.alerts.checks.send_notifications_for_breaches")
 class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
@@ -97,7 +96,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         return insight
 
-    def test_alert_properties(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
+    def test_alert_lower_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, lower=1)
 
@@ -119,11 +118,15 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value for previous week is (0) less than lower threshold (1.0)"]
+        )
+
     def test_trend_high_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time("2024-06-02T07:55:00.000Z"):
+        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -149,11 +152,15 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value for previous week is (2) more than upper threshold (1.0)"]
+        )
+
     def test_trend_no_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, lower=0, upper=2)
 
-        with freeze_time("2024-06-02T07:55:00.000Z"):
+        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -171,46 +178,4 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 1
         assert alert_check.state == AlertState.NOT_FIRING
-        assert alert_check.error is None
-
-    # TODO: support breakdowns
-    def test_trend_with_single_breakdown_threshold_breached(
-        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ) -> None:
-        insight = self.create_time_series_trend_insight(
-            breakdown=BreakdownFilter(breakdown_type="event", breakdown="$browser")
-        )
-        alert = self.create_alert(insight, series_index=0, lower=0, upper=1)
-
-        with freeze_time("2024-06-02T07:55:00.000Z"):
-            _create_event(
-                team=self.team,
-                event="signed_up",
-                distinct_id="1",
-                properties={"$browser": "Chrome"},
-            )
-            _create_event(
-                team=self.team,
-                event="signed_up",
-                distinct_id="2",
-                properties={"$browser": "Chrome"},
-            )
-            _create_event(
-                team=self.team,
-                event="signed_up",
-                distinct_id="1",
-                properties={"$browser": "Firefox"},
-            )
-            flush_persons_and_events()
-
-        check_alert(alert["id"])
-
-        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
-        assert updated_alert.state == AlertState.FIRING
-        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
-
-        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
-        # calculated value should only be from browser = Chrome
-        assert alert_check.calculated_value == 2
-        assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None

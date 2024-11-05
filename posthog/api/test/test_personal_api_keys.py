@@ -483,7 +483,8 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
 
     def test_denies_access_to_non_scoped_org_and_team(self):
         response = self._do_request(f"/api/organizations/{self.other_organization.id}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        # In the organizations endpoint this is a 404s, as we filter out at the queryset level
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
         response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 

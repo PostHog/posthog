@@ -5,6 +5,7 @@ from django.db import models
 # to add group keys
 class GroupTypeMapping(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     group_type = models.CharField(max_length=400, null=False, blank=False)
     group_type_index = models.IntegerField(null=False, blank=False)
     # Used to display in UI

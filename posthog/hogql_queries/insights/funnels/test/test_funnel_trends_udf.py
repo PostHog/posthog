@@ -2,7 +2,10 @@ import datetime
 from typing import cast
 from unittest.mock import patch, Mock
 
+from hogql_parser import parse_expr
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
+from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_trends import BaseTestFunnelTrends
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -18,6 +21,7 @@ from posthog.schema import (
     IntervalType,
 )
 from posthog.test.base import _create_person, _create_event
+from posthog.test.test_journeys import journeys_for
 
 
 @patch(
@@ -26,6 +30,52 @@ from posthog.test.base import _create_person, _create_event
 )
 class TestFunnelTrendsUDF(BaseTestFunnelTrends):
     __test__ = True
+
+    def test_redundant_event_filtering(self):
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "-14d",
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "events": [
+                {"id": "$pageview", "order": 1},
+                {"id": "insight viewed", "order": 2},
+            ],
+        }
+
+        _create_person(
+            distinct_ids=["many_other_events"],
+            team_id=self.team.pk,
+            properties={"test": "okay"},
+        )
+        now = datetime.datetime.now()
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="many_other_events",
+                timestamp=now - datetime.timedelta(days=11 + i),
+            )
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
+        inner_aggregation_query.select.append(
+            parse_expr(f"{runner.funnel_class.udf_event_array_filter()} AS filtered_array")
+        )
+        inner_aggregation_query.having = None
+        response = execute_hogql_query(
+            query_type="FunnelsQuery",
+            query=inner_aggregation_query,
+            team=self.team,
+            settings=HogQLGlobalSettings(
+                # Make sure funnel queries never OOM
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+                allow_experimental_analyzer=True,
+            ),
+        )
+        # Make sure the events have been condensed down to two
+        self.assertEqual(2, len(response.results[0][-1]))
 
     def test_assert_udf_flag_is_working(self):
         filters = {
@@ -173,3 +223,56 @@ class TestFunnelTrendsUDF(BaseTestFunnelTrends):
 
         assert len(results) == 2
         assert all(data == 0 for result in results for data in result["data"])
+
+    # This is a change in behavior that only applies to UDFs - it seems more correct than what was happening before
+    # In old style UDFs, an exclusion like this would still count, even if it were outside of the match window
+    def test_excluded_after_time_expires(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime.datetime(2021, 5, 1, 0, 0, 0),
+            },
+            # Exclusion happens after time expires
+            {
+                "event": "exclusion",
+                "timestamp": datetime.datetime(2021, 5, 1, 0, 0, 11),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime.datetime(2021, 5, 1, 0, 0, 12),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])

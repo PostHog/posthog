@@ -1,3 +1,4 @@
+import { IconBalance } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -31,7 +32,8 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
     const { experiment } = useValues(experimentLogic({ experimentId: experimentId ?? 'new' }))
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
-    const { featureFlag, areVariantRolloutsValid, variantRolloutSum, featureFlagLoading } = useValues(_featureFlagLogic)
+    const { featureFlag, areVariantRolloutsValid, variantRolloutSum, featureFlagLoading, nonEmptyVariants } =
+        useValues(_featureFlagLogic)
     const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag, distributeVariantsEqually } =
         useActions(_featureFlagLogic)
 
@@ -99,8 +101,11 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                             title: (
                                 <div className="flex items-center justify-between space-x-2">
                                     <span>Rollout Percentage</span>
-                                    <LemonButton type="secondary" size="xsmall" onClick={distributeVariantsEqually}>
-                                        Redistribute
+                                    <LemonButton
+                                        onClick={distributeVariantsEqually}
+                                        tooltip="Redistribute variant rollout percentages equally"
+                                    >
+                                        <IconBalance />
                                     </LemonButton>
                                 </div>
                             ),
@@ -121,6 +126,7 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                                     }}
                                     min={0}
                                     max={100}
+                                    suffix={<span>%</span>}
                                 />
                             ),
                         },
@@ -138,6 +144,7 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                 id={`${experiment.feature_flag?.id}`}
                 filters={featureFlag?.filters ?? []}
                 onChange={setFeatureFlagFilters}
+                nonEmptyFeatureFlagVariants={nonEmptyVariants}
             />
             <LemonDivider />
             <div>

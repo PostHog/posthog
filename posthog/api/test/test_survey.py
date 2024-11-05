@@ -11,6 +11,7 @@ from nanoid import generate
 from rest_framework import status
 
 from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Team
 from posthog.models.cohort.cohort import Cohort
@@ -2781,6 +2782,41 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
             assert surveys[0]["name"] == "Survey 1"
             assert surveys[1]["name"] == "Survey 2"
+
+
+class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["survey:read"]
+        self.key.save()
+
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_works_with_survey_read(self):
+        survey_counts = {
+            "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
+            "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
+            "daed7689-d498-49fe-936f-e85554351b6c": 100,
+        }
+
+        earliest_survey = Survey.objects.create(team_id=self.team.id)
+        earliest_survey.start_date = datetime.now() - timedelta(days=101)
+        earliest_survey.save()
+
+        for survey_id, count in survey_counts.items():
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=count),
+                )
+
+        response = self._do_request(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data, survey_counts)
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):

@@ -10,7 +10,7 @@ class InsightVariableSerializer(serializers.ModelSerializer):
     class Meta:
         model = InsightVariable
 
-        fields = ["id", "name", "type", "default_value", "created_by", "created_at", "code_name"]
+        fields = ["id", "name", "type", "default_value", "created_by", "created_at", "code_name", "values"]
 
         read_only_fields = ["id", "code_name", "created_by", "created_at"]
 

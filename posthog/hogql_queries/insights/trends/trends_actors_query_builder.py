@@ -167,7 +167,7 @@ class TrendsActorsQueryBuilder:
     def is_total_value(self) -> bool:
         return self.trends_display.is_total_value()
 
-    def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["actor_id"]),
@@ -292,7 +292,6 @@ class TrendsActorsQueryBuilder:
     def _event_or_action_where_expr(self) -> ast.Expr | None:
         if isinstance(self.entity, ActionsNode):
             # Actions
-            assert self.team.project_id is not None
             try:
                 action = Action.objects.get(pk=int(self.entity.id), team__project_id=self.team.project_id)
                 return action_to_expr(action)

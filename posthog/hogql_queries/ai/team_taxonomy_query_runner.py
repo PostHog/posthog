@@ -43,7 +43,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers
         )
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         query = parse_select(
             """
                 SELECT
@@ -56,6 +56,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                     event
                 ORDER BY
                     count DESC
+                LIMIT 500
             """
         )
 

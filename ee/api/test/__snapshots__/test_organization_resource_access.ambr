@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -62,7 +62,7 @@
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 1
   '''
 # ---
@@ -76,7 +76,7 @@
          "posthog_organizationmembership"."updated_at"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -146,7 +146,7 @@
   SELECT 1 AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 1
   '''
 # ---
@@ -160,7 +160,7 @@
          "posthog_organizationmembership"."updated_at"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -213,7 +213,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---

@@ -49,7 +49,7 @@ class UserAdmin(DjangoUserAdmin):
             },
         ),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
-        (_("Permissions"), {"fields": ("is_active", "is_staff")}),
+        (_("Permissions"), {"fields": ("is_active", "is_staff", "groups")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
         (_("Toolbar authentication"), {"fields": ("temporary_token",)}),
     )

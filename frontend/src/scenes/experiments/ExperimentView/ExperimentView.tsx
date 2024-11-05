@@ -2,6 +2,7 @@ import '../Experiment.scss'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
@@ -66,7 +67,12 @@ export function ExperimentView(): JSX.Element {
                                         <DataCollection />
                                     </div>
                                 </div>
-                                <ExperimentImplementationDetails experiment={experiment} />
+                                {experiment.type === 'web' ? (
+                                    <WebExperimentImplementationDetails experiment={experiment} />
+                                ) : (
+                                    <ExperimentImplementationDetails experiment={experiment} />
+                                )}
+
                                 {experiment.start_date && (
                                     <div>
                                         <ResultsHeader />

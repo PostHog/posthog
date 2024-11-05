@@ -97,7 +97,7 @@ export function InsightMeta({
             refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            topHeading={<TopHeading insight={insight} />}
+            topHeading={<TopHeading query={insight.query} />}
             meta={
                 <>
                     <Link to={urls.insightView(short_id, dashboardId, variablesOverride)}>

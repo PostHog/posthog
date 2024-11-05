@@ -22,7 +22,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
             {selectedExperimentId === 'new' && experimentForm.variants && experimentForm.variants[variant].is_new && (
                 <LemonInput
                     key="variant-name-small"
-                    className="m-2"
+                    className="mb-2"
                     value={localTentativeValue}
                     onChange={(newName) => {
                         setLocalTentativeValue(newName)
@@ -41,25 +41,32 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                     placeholder="Variant name"
                 />
             )}
-            <LemonCollapse
-                size="small"
-                activeKey={experimentForm.variants![variant].transforms.length === 1 ? 0 : undefined}
-                panels={experimentForm.variants![variant].transforms.map((transform, tIndex) => {
-                    return {
-                        key: tIndex,
-                        header: (
-                            <WebExperimentTransformHeader
-                                variant={variant}
-                                transformIndex={tIndex}
-                                transform={transform}
-                            />
-                        ),
-                        content: (
-                            <WebExperimentTransformField tIndex={tIndex} variant={variant} transform={transform} />
-                        ),
-                    }
-                })}
-            />
+            {experimentForm?.variants &&
+            experimentForm?.variants[variant] &&
+            experimentForm?.variants[variant].transforms &&
+            experimentForm?.variants[variant].transforms?.length > 0 ? (
+                <LemonCollapse
+                    size="small"
+                    activeKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
+                    panels={experimentForm?.variants[variant].transforms.map((transform, tIndex) => {
+                        return {
+                            key: tIndex,
+                            header: (
+                                <WebExperimentTransformHeader
+                                    variant={variant}
+                                    transformIndex={tIndex}
+                                    transform={transform}
+                                />
+                            ),
+                            content: (
+                                <WebExperimentTransformField tIndex={tIndex} variant={variant} transform={transform} />
+                            ),
+                        }
+                    })}
+                />
+            ) : (
+                <span className="m-2"> This experiment variant doesn't modify any elements. </span>
+            )}
 
             <div className="grid grid-cols-3 gap-2 m-1">
                 <LemonButton
@@ -72,7 +79,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                         addNewElement(variant)
                     }}
                 >
-                    Add new
+                    Add element
                 </LemonButton>
                 <div className="col-span-1" />
             </div>

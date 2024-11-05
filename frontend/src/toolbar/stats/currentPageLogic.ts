@@ -21,6 +21,28 @@ const replaceWithWildcard = (part: string): string => {
     return part
 }
 
+/**
+ * Sometimes we are able to set the href before the posthog init fragment is removed
+ * we never want to store it as it will mean the heatmap URL is too specific and doesn't match
+ * this ensures we never store it
+ */
+export function withoutPostHogInit(href: string): string {
+    try {
+        // we can't use `new URL(href)` because it behaves differently between browsers
+        // and e.g. converts `https://*.example.com/` to `https://%2A.example.com/`
+        const firstHash = href.indexOf('#')
+        if (firstHash === -1) {
+            return href
+        }
+        return href
+            .replace(/__posthog=\{[^}]*}[^#]*/, '')
+            .replace('##', '#')
+            .replace(/#$/, '')
+    } catch {
+        return href
+    }
+}
+
 export const currentPageLogic = kea<currentPageLogicType>([
     path(['toolbar', 'stats', 'currentPageLogic']),
     actions(() => ({
@@ -29,10 +51,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
         autoWildcardHref: true,
     })),
     reducers(() => ({
-        href: [window.location.href, { setHref: (_, { href }) => href }],
+        href: [window.location.href, { setHref: (_, { href }) => withoutPostHogInit(href) }],
         wildcardHref: [
             window.location.href,
-            { setHref: (_, { href }) => href, setWildcardHref: (_, { href }) => href },
+            {
+                setHref: (_, { href }) => withoutPostHogInit(href),
+                setWildcardHref: (_, { href }) => withoutPostHogInit(href),
+            },
         ],
     })),
 
@@ -62,6 +87,14 @@ export const currentPageLogic = kea<currentPageLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
+        // an earlier bug means that some folk have a bad URL saved
+        // this auto-fixes things for those folks
+        // to save us having to explain the fix individually
+        // can be removed by end of Nov 2024
+        if (values.href && values.href.includes('#__posthog=')) {
+            actions.setHref(withoutPostHogInit(values.href))
+        }
+
         cache.interval = window.setInterval(() => {
             if (window.location.href !== values.href) {
                 actions.setHref(window.location.href)

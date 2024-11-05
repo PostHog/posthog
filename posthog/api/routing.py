@@ -18,7 +18,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
 )
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -242,14 +242,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     @cached_property
     def project_id(self) -> int:
         if team_from_token := self._get_team_from_request():
-            assert team_from_token.project_id is not None
             return team_from_token.project_id
 
         if self.param_derived_from_user_current_team == "project_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
-            assert team.project_id is not None
             return team.project_id
 
         return self.parents_query_dict["project_id"]
