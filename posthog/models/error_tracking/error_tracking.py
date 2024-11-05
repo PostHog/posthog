@@ -82,6 +82,10 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # we can know which frame resolution results below to drop.
     storage_ptr = models.TextField(null=True, blank=False)
 
+    # If we failed to resolve this symbol set, we store the reason here, so
+    # we can return the language-relevant error in the future.
+    failure_reason = models.TextField(null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "ref"]),
