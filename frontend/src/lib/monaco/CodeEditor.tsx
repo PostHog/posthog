@@ -26,6 +26,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     queryKey?: string
     autocompleteContext?: string
     onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
+    onPressUpArrow?: () => void
     autoFocus?: boolean
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
@@ -56,30 +57,42 @@ function initEditor(
     if (editorProps?.language === 'hogJson') {
         initHogJsonLanguage(monaco)
     }
-    if (options.tabFocusMode) {
+    if (options.tabFocusMode || editorProps.onPressUpArrow) {
         editor.onKeyDown((evt) => {
-            if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
-                const selection = editor.getSelection()
-                if (
-                    selection &&
-                    (selection.startColumn !== selection.endColumn ||
-                        selection.startLineNumber !== selection.endLineNumber)
-                ) {
-                    return
-                }
-                evt.preventDefault()
-                evt.stopPropagation()
+            if (options.tabFocusMode) {
+                if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
+                    const selection = editor.getSelection()
+                    if (
+                        selection &&
+                        (selection.startColumn !== selection.endColumn ||
+                            selection.startLineNumber !== selection.endLineNumber)
+                    ) {
+                        return
+                    }
+                    evt.preventDefault()
+                    evt.stopPropagation()
 
-                const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
-                if (!element) {
-                    return
-                }
-                const nextElement = evt.shiftKey
-                    ? findPreviousFocusableElement(element)
-                    : findNextFocusableElement(element)
+                    const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
+                    if (!element) {
+                        return
+                    }
+                    const nextElement = evt.shiftKey
+                        ? findPreviousFocusableElement(element)
+                        : findNextFocusableElement(element)
 
-                if (nextElement && 'focus' in nextElement) {
-                    nextElement.focus()
+                    if (nextElement && 'focus' in nextElement) {
+                        nextElement.focus()
+                    }
+                }
+            }
+            if (editorProps.onPressUpArrow) {
+                if (evt.keyCode === monaco.KeyCode.UpArrow && !evt.metaKey && !evt.ctrlKey) {
+                    // if there is no value
+                    if (editor.getValue() === '') {
+                        evt.preventDefault()
+                        evt.stopPropagation()
+                        editorProps.onPressUpArrow()
+                    }
                 }
             }
         })

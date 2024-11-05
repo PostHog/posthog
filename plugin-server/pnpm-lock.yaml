@@ -10743,5 +10743,5 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
-    version: 0.1.6
+    version: 0.1.7
     dev: false

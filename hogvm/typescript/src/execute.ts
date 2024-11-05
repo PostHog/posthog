@@ -32,9 +32,12 @@ import {
     unifyComparisonTypes,
 } from './utils'
 
-export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): any {
+export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): ExecResult {
     const response = exec(bytecode, options)
     if (response.finished) {
+        if (response.result === undefined && (response.state?.stack?.length || 0) > 0) {
+            return response.state?.stack[response.state.stack.length - 1]
+        }
         return response.result
     }
     if (response.error) {
@@ -43,12 +46,12 @@ export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOp
     throw new HogVMException('Unexpected async function call: ' + response.asyncFunctionName)
 }
 
-export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): Promise<any> {
+export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): Promise<ExecResult> {
     let vmState: VMState | undefined = undefined
     while (true) {
         const response = exec(vmState ?? bytecode, options)
         if (response.finished) {
-            return response.result
+            return response
         }
         if (response.error) {
             throw response.error
@@ -335,13 +338,10 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
             if (frame.ip >= chunkBytecode.length) {
                 const lastCallFrame = callStack.pop()
                 if (!lastCallFrame || callStack.length === 0) {
-                    if (stack.length > 1) {
-                        throw new HogVMException('Invalid bytecode. More than one value left on stack')
-                    }
                     return {
-                        result: stack.length > 0 ? popStack() : null,
+                        result: undefined,
                         finished: true,
-                        state: { ...getVMState(), bytecodes: {}, stack: [], callStack: [], upvalues: [] },
+                        state: getVMState(),
                     } satisfies ExecResult
                 }
                 stackKeepFirstElements(lastCallFrame.stackStart)

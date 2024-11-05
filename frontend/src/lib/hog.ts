@@ -1,23 +1,41 @@
-import { exec as hogExec, ExecOptions, ExecResult, VMState } from '@posthog/hogvm'
+import { exec as hogExec, execAsync as hogExecAsync, ExecOptions, ExecResult, VMState } from '@posthog/hogvm'
 import * as crypto from 'crypto'
 import { RE2JS } from 're2js'
 
+const external = {
+    crypto, // TODO: switch to webcrypto and polyfill on the node side
+    regex: {
+        match: (regex: string, value: string): boolean => {
+            const { regex: newRegex, insensitive, multiline, dotall } = gatherRegExModifiers(regex, 's')
+            const flags =
+                (insensitive ? RE2JS.CASE_INSENSITIVE : 0) |
+                (multiline ? RE2JS.MULTILINE : 0) |
+                (dotall ? RE2JS.DOTALL : 0)
+            return RE2JS.compile(newRegex, flags).matcher(value).find()
+        },
+    },
+}
+
 export function execHog(code: any[] | VMState, options?: ExecOptions): ExecResult {
     return hogExec(code, {
-        external: {
-            crypto, // TODO: switch to webcrypto and polyfill on the node side
-            regex: {
-                match: (regex: string, value: string): boolean => {
-                    const { regex: newRegex, insensitive, multiline, dotall } = gatherRegExModifiers(regex, 's')
-                    const flags =
-                        (insensitive ? RE2JS.CASE_INSENSITIVE : 0) |
-                        (multiline ? RE2JS.MULTILINE : 0) |
-                        (dotall ? RE2JS.DOTALL : 0)
-                    return RE2JS.compile(newRegex, flags).matcher(value).find()
-                },
+        external,
+        ...(options ?? {}),
+    })
+}
+
+export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Promise<ExecResult> {
+    return hogExecAsync(code, {
+        external,
+        ...(options ?? {}),
+        asyncFunctions: {
+            ...(options?.asyncFunctions ?? {}),
+            sleep: (seconds: number) => {
+                return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
+            },
+            fetch: () => {
+                throw new Error('fetch is not yet supported')
             },
         },
-        ...(options ?? {}),
     })
 }
 

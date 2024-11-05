@@ -18,7 +18,7 @@ def generate_template_bytecode(obj: Any) -> Any:
     elif isinstance(obj, list):
         return [generate_template_bytecode(item) for item in obj]
     elif isinstance(obj, str):
-        return create_bytecode(parse_string_template(obj))
+        return create_bytecode(parse_string_template(obj)).bytecode
     else:
         return obj
 
@@ -139,11 +139,13 @@ def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: O
     return validated_inputs
 
 
-def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> list[Any]:
+def compile_hog(hog: str, supported_functions: Optional[set[str]] = None, in_repl: Optional[bool] = True) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
-        return create_bytecode(program, supported_functions=supported_functions or {"fetch", "postHogCapture"})
+        return create_bytecode(
+            program, supported_functions=supported_functions or {"fetch", "postHogCapture"}, in_repl=in_repl
+        ).bytecode
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})
