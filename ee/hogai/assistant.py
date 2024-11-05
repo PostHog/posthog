@@ -9,10 +9,10 @@ from pydantic import BaseModel
 from ee import settings
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.trends.nodes import (
-    CreateTrendsPlanNode,
-    CreateTrendsPlanToolsNode,
     GenerateTrendsNode,
     GenerateTrendsToolsNode,
+    TrendsPlannerNode,
+    TrendsPlannerToolsNode,
 )
 from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
 from posthog.models.team.team import Team
@@ -77,7 +77,7 @@ class Assistant:
             path_map={"trends": AssistantNodeName.CREATE_TRENDS_PLAN},
         )
 
-        create_trends_plan_node = CreateTrendsPlanNode(self._team)
+        create_trends_plan_node = TrendsPlannerNode(self._team)
         builder.add_node(AssistantNodeName.CREATE_TRENDS_PLAN, create_trends_plan_node.run)
         builder.add_conditional_edges(
             AssistantNodeName.CREATE_TRENDS_PLAN,
@@ -87,7 +87,7 @@ class Assistant:
             },
         )
 
-        create_trends_plan_tools_node = CreateTrendsPlanToolsNode(self._team)
+        create_trends_plan_tools_node = TrendsPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS, create_trends_plan_tools_node.run)
         builder.add_conditional_edges(
             AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS,
