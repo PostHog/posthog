@@ -1,6 +1,7 @@
 import threading
 from typing import Any
 from temporalio import activity
+from contextvars import copy_context
 
 
 class HeartbeaterSync:
@@ -18,12 +19,13 @@ class HeartbeaterSync:
         if not heartbeat_timeout:
             return
 
+        context = copy_context()
         self.stop_event = threading.Event()
 
         interval = heartbeat_timeout.total_seconds() / self.factor
 
         self.heartbeat_thread = threading.Thread(
-            target=self.heartbeat_regularly, args=(self.stop_event, interval, self.details), daemon=True
+            target=context.run, args=(self.heartbeat_regularly, self.stop_event, interval, self.details), daemon=True
         )
         self.heartbeat_thread.start()
 
