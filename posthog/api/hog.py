@@ -1,3 +1,4 @@
+import structlog
 from rest_framework import status
 from rest_framework import viewsets
 from rest_framework.response import Response
@@ -6,7 +7,10 @@ from hogql_parser import parse_program
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql.bytecode import create_bytecode, Local
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.schema import HogCompileResponse
+
+logger = structlog.get_logger(__name__)
 
 
 class HogViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -31,5 +35,8 @@ class HogViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 ).model_dump(),
                 status=status.HTTP_200_OK,
             )
+        except ExposedHogQLError as e:
+            return Response({"error": str(e.message)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            logger.error(f"Failed to compile hog: {e}", exc_info=True, error=e)
+            return Response({"error": "Internal error when compiling hog"}, status=status.HTTP_400_BAD_REQUEST)

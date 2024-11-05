@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, BytecodeResult
 from hogvm.python.stl import STL
+from hogvm.python.stl.bytecode import BYTECODE_STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
@@ -364,7 +365,7 @@ class BytecodeCompiler(Visitor):
                     self.context.add_notice(
                         start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
-                elif node.name in self.supported_functions or node.name in STL:
+                elif node.name in self.supported_functions or node.name in STL or node.name in BYTECODE_STL:
                     pass
                 else:
                     self.context.add_error(

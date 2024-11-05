@@ -35,16 +35,16 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             sleep: (seconds: number) => {
                 return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
             },
+            run: async (queryString: string) => {
+                const hogQLQuery: HogQLQuery = { kind: NodeKind.HogQLQuery, query: queryString }
+                const response = await performQuery(hogQLQuery)
+                return { results: response.results, columns: response.columns }
+            },
             fetch: () => {
                 throw new Error('fetch is not yet supported')
             },
             posthogCapture: () => {
                 throw new Error('posthogCapture is not yet supported')
-            },
-            run: async (queryString: string) => {
-                const hogQLQuery: HogQLQuery = { kind: NodeKind.HogQLQuery, query: queryString }
-                const response = await performQuery(hogQLQuery)
-                return { results: response.results, columns: response.columns }
             },
         },
     })
