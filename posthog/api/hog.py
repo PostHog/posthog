@@ -24,7 +24,7 @@ class HogViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         try:
             compiled = create_bytecode(
                 program,
-                supported_functions={"fetch", "postHogCapture", "run"},
+                supported_functions={"sleep", "fetch", "postHogCapture", "run"},
                 in_repl=in_repl,
                 locals=[Local(name=local[0], depth=local[1], is_captured=local[2]) for local in locals],
             )

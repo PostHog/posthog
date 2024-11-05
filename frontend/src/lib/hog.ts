@@ -31,7 +31,6 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
         external,
         ...(options ?? {}),
         asyncFunctions: {
-            ...(options?.asyncFunctions ?? {}),
             sleep: (seconds: number) => {
                 return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
             },
@@ -46,6 +45,7 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             posthogCapture: () => {
                 throw new Error('posthogCapture is not yet supported here')
             },
+            ...(options?.asyncFunctions ?? {}),
         },
     })
 }

@@ -1,4 +1,4 @@
-import { ExecOptions, newHogCallable, newHogClosure, printHogStringOutput, VMState } from '@posthog/hogvm'
+import { newHogCallable, newHogClosure, printHogStringOutput, VMState } from '@posthog/hogvm'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { execHogAsync } from 'lib/hog'
@@ -91,14 +91,6 @@ export const hogReplLogic = kea<hogReplLogicType>([
             actions.setReplChunks(values.replChunks.slice(0, index))
         },
         runCode: async ({ code }) => {
-            const options: ExecOptions = {
-                repl: true,
-                functions: {
-                    print: (...args: any[]) => {
-                        actions.print(index, args.map((arg) => printHogStringOutput(arg)).join(' '))
-                    },
-                },
-            }
             const index = values.replChunks.length - 1
             const { lastLocals, lastState } = values
 
@@ -150,9 +142,16 @@ export const hogReplLogic = kea<hogReplLogicType>([
                     maxMemUsed: lastState?.maxMemUsed ?? 0,
                     syncDuration: lastState?.syncDuration ?? 0,
                 }
-                const result = await execHogAsync(state, options)
+                const result = await execHogAsync(state, {
+                    repl: true,
+                    functions: {
+                        print: (...args: any[]) => {
+                            actions.print(index, args.map((arg) => printHogStringOutput(arg)).join(' '))
+                        },
+                    },
+                })
 
-                // Set the result
+                // Show the last stack value if no other result is returned
                 const response =
                     result.result !== undefined
                         ? result.result

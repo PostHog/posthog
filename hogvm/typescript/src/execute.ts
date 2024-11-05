@@ -32,12 +32,9 @@ import {
     unifyComparisonTypes,
 } from './utils'
 
-export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): ExecResult {
+export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): any {
     const response = exec(bytecode, options)
     if (response.finished) {
-        if (response.result === undefined && (response.state?.stack?.length || 0) > 0) {
-            return response.state?.stack[response.state.stack.length - 1]
-        }
         return response.result
     }
     if (response.error) {

@@ -619,27 +619,27 @@ describe('hogvm execute', () => {
                 syncDuration: expect.any(Number),
             },
         })
-
-        const bytecode2 = [
+    })
+    test('no stack pop with repl:true', () => {
+        const bytecode = [
             '_h',
             33,
             0.002, // seconds to sleep
             2,
             'toString',
             1,
-            op.RETURN,
         ]
-        expect(exec(bytecode2)).toEqual({
+        expect(exec(bytecode, { repl: true })).toEqual({
             finished: true,
-            result: '0.002',
+            result: undefined,
             state: {
                 asyncSteps: 0,
-                bytecodes: {},
+                bytecodes: { root: { bytecode } },
                 callStack: [],
                 declaredFunctions: {},
                 maxMemUsed: 13,
-                ops: 3,
-                stack: [],
+                ops: 2,
+                stack: ['0.002'],
                 upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
