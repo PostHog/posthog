@@ -1,7 +1,6 @@
 from typing import Literal, cast
 
-from langchain_core.messages import AIMessage as LangchainAIMessage
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage as LangchainAIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -23,7 +22,7 @@ class RouterOutput(BaseModel):
 
 
 class RouterNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig):
+    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", router_system_prompt),

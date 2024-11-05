@@ -51,7 +51,7 @@ class AssistantNode(ABC):
         self._team = team
 
     @abstractmethod
-    def run(cls, state: AssistantState, config: RunnableConfig):
+    def run(cls, state: AssistantState, config: RunnableConfig) -> AssistantState:
         raise NotImplementedError
 
 

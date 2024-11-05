@@ -30,7 +30,7 @@ else:
     langfuse_handler = None
 
 
-def is_value_update(update: list[Any]) -> TypeGuard[tuple[Literal["values"], dict[AssistantNodeName, Any]]]:
+def is_value_update(update: list[Any]) -> TypeGuard[tuple[Literal["values"], dict[AssistantNodeName, AssistantState]]]:
     """
     Transition between nodes.
     """

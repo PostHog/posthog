@@ -5,8 +5,7 @@ from typing import Optional, cast
 
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain_core.agents import AgentAction
-from langchain_core.messages import AIMessage as LangchainAssistantMessage
-from langchain_core.messages import BaseMessage, merge_message_runs
+from langchain_core.messages import AIMessage as LangchainAssistantMessage, BaseMessage, merge_message_runs
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -61,7 +60,7 @@ from posthog.schema import (
 
 
 class CreateTrendsPlanNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig):
+    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps") or []
 
         prompt = (
@@ -218,7 +217,7 @@ class CreateTrendsPlanNode(AssistantNode):
 
 
 class CreateTrendsPlanToolsNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig):
+    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         toolkit = TrendsAgentToolkit(self._team)
         intermediate_steps = state.get("intermediate_steps") or []
         action, _ = intermediate_steps[-1]
@@ -231,7 +230,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
             )
-            return {"intermediate_steps": [*intermediate_steps[:-1], (action, observation)]}
+            return {"intermediate_steps": [*intermediate_steps[:-1], (action, str(observation))]}
 
         # The plan has been found. Move to the generation.
         if input.name == "final_answer":
@@ -261,7 +260,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
 
 
 class GenerateTrendsNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig):
+    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         generated_plan = state.get("plan", "")
         intermediate_steps = state.get("intermediate_steps") or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
@@ -405,7 +404,7 @@ class GenerateTrendsToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig):
+    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps", [])
         if not intermediate_steps:
             return state
@@ -420,6 +419,6 @@ class GenerateTrendsToolsNode(AssistantNode):
         return {
             "intermediate_steps": [
                 *intermediate_steps[:-1],
-                (action, prompt),
+                (action, str(prompt)),
             ]
         }
