@@ -73,6 +73,13 @@ impl Exception {
         };
 
         let has_no_resolved = !frames.iter().any(|f| f.resolved);
+        let has_no_in_app = !frames.iter().any(|f| f.in_app);
+
+        if has_no_in_app {
+            // TODO: this could be better.
+            frames.get(0).map(|f| f.include_in_fingerprint(h));
+            return;
+        }
 
         for frame in frames {
             if has_no_resolved || frame.resolved {
