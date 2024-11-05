@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import functools
 import uuid
 from typing import Any, Optional
@@ -209,6 +210,8 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
             ):
                 await activity_environment.client.execute_workflow(  # type: ignore
                     ExternalDataJobWorkflow.run,
@@ -908,9 +911,9 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer):
         return list(jobs)
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.create_job_model.create_external_data_job",
-    ) as mock_list_limited_team_attributes:
-        mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
+        "posthog.temporal.data_imports.workflow_activities.create_job_model.acreate_external_data_job",
+    ) as acreate_external_data_job:
+        acreate_external_data_job.side_effect = Exception("Ruhoh!")
 
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
