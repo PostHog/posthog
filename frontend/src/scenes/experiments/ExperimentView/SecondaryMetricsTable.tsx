@@ -17,6 +17,8 @@ import { MetricSelector } from '../MetricSelector'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
 import { ResultsQuery, VariantTag } from './components'
 
+const MAX_SECONDARY_METRICS = 10
+
 export function SecondaryMetricsModal({
     onMetricsChange,
     initialMetrics,
@@ -292,7 +294,7 @@ export function SecondaryMetricsTable({
 
                     <div className="w-1/2 flex flex-col justify-end">
                         <div className="ml-auto">
-                            {metrics && metrics.length > 0 && metrics.length < 3 && (
+                            {metrics && metrics.length > 0 && metrics.length < MAX_SECONDARY_METRICS && (
                                 <div className="mb-2 mt-4 justify-end">
                                     <LemonButton
                                         type="secondary"
@@ -318,7 +320,8 @@ export function SecondaryMetricsTable({
                         <div className="flex flex-col items-center mx-auto space-y-3">
                             <IconAreaChart fontSize="30" />
                             <div className="text-sm text-center text-balance">
-                                Add up to 3 secondary metrics to monitor side effects of your experiment.
+                                Add up to {MAX_SECONDARY_METRICS} secondary metrics to monitor side effects of your
+                                experiment.
                             </div>
                             <LemonButton
                                 icon={<IconPlus />}
