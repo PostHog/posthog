@@ -42,7 +42,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
 
         logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
-        logger.info("Running *ASYNC* import_data")
+        logger.debug("Running *ASYNC* import_data")
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
