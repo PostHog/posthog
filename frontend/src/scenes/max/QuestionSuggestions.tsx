@@ -1,6 +1,5 @@
 import { IconArrowUpRight, IconGear, IconOpenSidebar, IconShuffle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
@@ -30,22 +29,17 @@ export function QuestionSuggestions(): JSX.Element {
     }
 
     return (
-        <div
-            className={clsx(
-                'flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5',
-                !visibleSuggestions && allSuggestionsLoading ? 'w-[min(40rem,100%)]' : 'w-[min(48rem,100%)]'
-            )}
-        >
+        <div className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5 w-[min(44rem,100%)]">
             {
                 allSuggestionsLoading ? (
-                    Array.from({ length: 4 }).map((_, index) => (
+                    Array.from({ length: 3 }).map((_, index) => (
                         <LemonButton
                             key={index}
                             size="xsmall"
                             type="secondary"
                             disabled
                             style={{
-                                flexGrow: [2, 1.5, 3, 1][index],
+                                width: ['35%', '42.5%', '50%'][index],
                             }}
                         >
                             <LemonSkeleton className="h-3 w-full" />
