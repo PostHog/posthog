@@ -50,8 +50,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.56
-    version: 1.0.56(luxon@3.5.0)
+    specifier: ^1.0.57
+    version: 1.0.57(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.8.5
     version: 0.8.5(react-dom@18.2.0)(react@18.2.0)
@@ -5415,8 +5415,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.56(luxon@3.5.0):
-    resolution: {integrity: sha512-28d2E3j2f4QJBJk/a3YTwFLEUodJ16s2hGhGVX4XsZ0qekkkich9vGsSYM3A8D6aAg/aZxAf78PtlakGyHyx1Q==}
+  /@posthog/hogvm@1.0.57(luxon@3.5.0):
+    resolution: {integrity: sha512-Y9zeK3AoIxKYeXZAjAIznZjFQj5olS5Tpa9iNa20dS4kUGOw95cNSBKDcBgtyAIriv5NWwg5sdJLo5XcSUuzew==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
