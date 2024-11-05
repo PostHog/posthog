@@ -4,8 +4,8 @@ use sourcemap::{SourceMap, Token};
 
 use crate::{
     error::{Error, JsResolveErr, ResolutionError},
+    frames::Frame,
     symbol_store::SymbolCatalog,
-    types::frames::Frame,
 };
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
