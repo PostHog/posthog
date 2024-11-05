@@ -14,10 +14,8 @@ import { InsightType } from '~/types'
 import { SECONDARY_METRIC_INSIGHT_ID } from '../constants'
 import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
 import { MetricSelector } from '../MetricSelector'
-import { secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
+import { MAX_SECONDARY_METRICS, secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
 import { ResultsQuery, VariantTag } from './components'
-
-const MAX_SECONDARY_METRICS = 10
 
 export function SecondaryMetricsModal({
     onMetricsChange,
