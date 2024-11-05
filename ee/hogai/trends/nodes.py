@@ -12,7 +12,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
-from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool
+from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentToolsNode
 from ee.hogai.trends.parsers import (
     PydanticOutputParserException,
     ReActParserException,
@@ -26,7 +26,6 @@ from ee.hogai.trends.prompts import (
     react_malformed_json_prompt,
     react_missing_action_correction_prompt,
     react_missing_action_prompt,
-    react_pydantic_validation_exception_prompt,
     react_scratchpad_prompt,
     react_system_prompt,
     react_user_prompt,
@@ -213,47 +212,10 @@ class CreateTrendsPlanNode(AssistantNode):
         return format_log_to_str(actions)
 
 
-class CreateTrendsPlanToolsNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        toolkit = TrendsTaxonomyAgentToolkit(self._team)
-        intermediate_steps = state.get("intermediate_steps") or []
-        action, _ = intermediate_steps[-1]
-
-        try:
-            input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
-        except ValidationError as e:
-            observation = (
-                ChatPromptTemplate.from_template(react_pydantic_validation_exception_prompt, template_format="mustache")
-                .format_messages(exception=e.errors(include_url=False))[0]
-                .content
-            )
-            return {"intermediate_steps": [*intermediate_steps[:-1], (action, str(observation))]}
-
-        # The plan has been found. Move to the generation.
-        if input.name == "final_answer":
-            return {
-                "plan": input.arguments,
-                "intermediate_steps": None,
-            }
-
-        output = ""
-        if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_properties(input.arguments)
-        elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
-        elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments)
-        elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
-        else:
-            output = toolkit.handle_incorrect_response(input.arguments)
-
-        return {"intermediate_steps": [*intermediate_steps[:-1], (action, output)]}
-
-    def router(self, state: AssistantState):
-        if state.get("plan") is not None:
-            return "next"
-        return "continue"
+class CreateTrendsPlanToolsNode(TaxonomyAgentToolsNode):
+    @property
+    def _toolkit(self) -> TrendsTaxonomyAgentToolkit:
+        return TrendsTaxonomyAgentToolkit(self._team)
 
 
 class GenerateTrendsNode(AssistantNode):
