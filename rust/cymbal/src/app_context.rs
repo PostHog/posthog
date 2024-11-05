@@ -75,7 +75,7 @@ impl AppContext {
         );
 
         let catalog = Catalog::new(caching_smp);
-        let resolver = Resolver::new(&config);
+        let resolver = Resolver::new(config);
 
         Ok(Self {
             health_registry,
