@@ -126,7 +126,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
             <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
                 <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
                     <div>
-                        <strong>We're making improvements:</strong> Our team is attending an offsite so we can make long-term enhancements. We're working slightly different hours, so non-urgent inquiries without priority support may experience a slight delay. We’ll be back to full speed soon!
+                        <strong>We're making improvements:</strong> Our team is attending an offsite so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We’ll be back to full speed next week!
                     </div>
                     <div>
                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
