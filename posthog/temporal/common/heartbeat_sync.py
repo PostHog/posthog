@@ -12,9 +12,9 @@ class HeartbeaterSync:
         self.factor = factor
         self.logger = logger
 
-    def log_debug(self, message: str) -> None:
+    def log_debug(self, message: str, exc_info: Optional[Any] = None) -> None:
         if self.logger:
-            self.logger.debug(message)
+            self.logger.debug(message, exc_info=exc_info)
 
     def heartbeat_regularly(self, stop_event: threading.Event, interval: int, details: tuple[Any, ...]):
         while not stop_event.is_set():
@@ -22,7 +22,7 @@ class HeartbeaterSync:
                 activity.heartbeat(*details)
                 self.log_debug("Heartbeat")
             except Exception as e:
-                self.log_debug(f"Heartbeat failed with {e}")
+                self.log_debug(f"Heartbeat failed", exc_info=e)
             stop_event.wait(interval)
 
     def __enter__(self):

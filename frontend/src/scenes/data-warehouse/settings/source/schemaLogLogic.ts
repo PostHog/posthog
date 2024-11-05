@@ -8,8 +8,8 @@ import { ExternalDataJob, ExternalDataSourceSchema, LogEntry, LogEntryLevel } fr
 
 import type { schemaLogLogicType } from './schemaLogLogicType'
 
-export const LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
-export const STAFF_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
+export const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
+export const STAFF_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 
 export interface SchemaLogLogicProps {
     job: ExternalDataJob
