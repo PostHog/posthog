@@ -71,7 +71,7 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             toolkit.retrieve_entity_properties("person"),
-            "<properties><String><name>test</name><br /></String></properties>",
+            "<properties><String><prop><name>test</name></prop></String></properties>",
         )
 
         GroupTypeMapping.objects.create(team=self.team, group_type_index=0, group_type="group")
@@ -80,7 +80,7 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             toolkit.retrieve_entity_properties("group"),
-            "<properties><Numeric><name>test</name><br /></Numeric></properties>",
+            "<properties><Numeric><prop><name>test</name></prop></Numeric></properties>",
         )
 
         self.assertNotEqual(
@@ -90,6 +90,13 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(
             "$session_duration",
             toolkit.retrieve_entity_properties("session"),
+        )
+
+    def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
+        toolkit = TrendsAgentToolkit(self.team)
+        self.assertEqual(
+            toolkit.retrieve_entity_properties("person"),
+            "Properties do not exist in the taxonomy for the entity person.",
         )
 
     def test_retrieve_entity_property_values(self):
@@ -173,6 +180,13 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         toolkit = TrendsAgentToolkit(self.team)
         self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
 
+    def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
+        toolkit = TrendsAgentToolkit(self.team)
+        self.assertEqual(
+            toolkit.retrieve_event_properties("pageview"),
+            "Properties do not exist in the taxonomy for the event pageview.",
+        )
+
     def test_empty_events(self):
         toolkit = TrendsAgentToolkit(self.team)
         self.assertEqual(
@@ -203,19 +217,19 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         prompt = toolkit.retrieve_event_properties("event1")
 
         self.assertIn(
-            "<Numeric><name>id</name><br /></Numeric>",
+            "<Numeric><prop><name>id</name></prop></Numeric>",
             prompt,
         )
         self.assertIn(
-            "<String><name>$browser</name><br /></String>",
+            "<String><prop><name>$browser</name><description>Name of the browser the user has used.</description></prop></String>",
             prompt,
         )
         self.assertIn(
-            "<DateTime><name>date</name><br /></DateTime>",
+            "<DateTime><prop><name>date</name></prop></DateTime>",
             prompt,
         )
         self.assertIn(
-            "<Boolean><name>bool</name><br /></Boolean>",
+            "<Boolean><prop><name>bool</name></prop></Boolean>",
             prompt,
         )
 
@@ -233,3 +247,12 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             toolkit.retrieve_event_property_values("event1", "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
         )
+
+    def test_enrich_props_with_descriptions(self):
+        toolkit = TrendsAgentToolkit(self.team)
+        res = toolkit._enrich_props_with_descriptions("event", [("$geoip_city_name", "String")])
+        self.assertEqual(len(res), 1)
+        prop, type, description = res[0]
+        self.assertEqual(prop, "$geoip_city_name")
+        self.assertEqual(type, "String")
+        self.assertIsNotNone(description)

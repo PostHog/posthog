@@ -6,7 +6,9 @@ CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@loca
 
 echo "Performing cyclotron migrations for $CYCLOTRON_DATABASE_URL (DATABASE_NAME=$CYCLOTRON_DATABASE_NAME)"
 
-cargo install sqlx-cli
+cd $SCRIPT_DIR/..
+
+cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
 
 sqlx database create -D "$CYCLOTRON_DATABASE_URL"
-sqlx migrate run -D "$CYCLOTRON_DATABASE_URL" --source $SCRIPT_DIR/../cyclotron-core/migrations
+sqlx migrate run -D "$CYCLOTRON_DATABASE_URL" --source cyclotron-core/migrations/

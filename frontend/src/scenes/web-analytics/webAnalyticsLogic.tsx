@@ -449,6 +449,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         conversionGoal: [
             null as WebAnalyticsConversionGoal | null,
+            { persist: true },
             {
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
             },

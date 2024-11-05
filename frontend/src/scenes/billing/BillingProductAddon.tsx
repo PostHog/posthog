@@ -1,24 +1,20 @@
-import { IconCheckCircle, IconPlus } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
-import { ReactNode, useMemo, useRef } from 'react'
+import { humanFriendlyCurrency } from 'lib/utils'
+import { ReactNode, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
-import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
+import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
-const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
+export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {
         return `$${flatRate}`
     }
@@ -33,39 +29,16 @@ const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNo
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
-    const {
-        isPricingModalOpen,
-        currentAndUpgradePlans,
-        surveyID,
-        billingProductLoading,
-        trialModalOpen,
-        trialLoading,
-    } = useValues(billingProductLogic({ product: addon, productRef }))
-    const {
-        toggleIsPricingModalOpen,
-        reportSurveyShown,
-        setSurveyResponse,
-        initiateProductUpgrade,
-        setTrialModalOpen,
-        activateTrial,
-    } = useActions(billingProductLogic({ product: addon }))
+    const { billing } = useValues(billingLogic)
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, trialModalOpen, trialLoading } = useValues(
+        billingProductLogic({ product: addon, productRef })
+    )
+    const { toggleIsPricingModalOpen, setTrialModalOpen, activateTrial } = useActions(
+        billingProductLogic({ product: addon })
+    )
     const { openSupportForm } = useActions(supportLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
-
-    const { prorationAmount, isProrated } = useMemo(
-        () =>
-            getProration({
-                timeRemainingInSeconds,
-                timeTotalInSeconds,
-                amountUsd: upgradePlan?.unit_amount_usd,
-                hasActiveSubscription: billing?.has_active_subscription,
-            }),
-        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
-    )
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -86,21 +59,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         addon.type === 'enhanced_persons' &&
         addon.plans?.find((plan) => plan.plan_key === 'addon-20240404-og-customers')
 
-    const trialExperiment = featureFlags[FEATURE_FLAGS.BILLING_TRIAL_FLOW]
-
-    const handleTrialActivation = (): void => {
-        if (trialExperiment === 'modal') {
-            // Modal - Show trial modal (default behavior)
-            setTrialModalOpen(true)
-        } else if (trialExperiment === 'control') {
-            // Direct - Activate trial immediately
-            activateTrial()
-        } else {
-            // No trial flow even without the feature flag
-            initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, redirectPath)
-        }
-    }
-
     return (
         <div
             className="bg-bg-3000 rounded p-6 flex flex-col"
@@ -108,6 +66,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             data-attr={`billing-product-addon-${addon.type}`}
         >
             <div className="sm:flex justify-between gap-x-4">
+                {/* Header */}
                 <div className="flex gap-x-4">
                     <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
                     <div>
@@ -151,146 +110,12 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         )}
                     </div>
                 </div>
-                <div className="min-w-64">
-                    <div className="ml-4 mt-2 self-center flex items-center justify-end gap-x-3 whitespace-nowrap">
-                        {addon.subscribed && !addon.inclusion_only ? (
-                            !addon.contact_support && (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                fullWidth
-                                                onClick={() => {
-                                                    setSurveyResponse('$survey_response_1', addon.type)
-                                                    reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                                                }}
-                                            >
-                                                Remove add-on
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                            )
-                        ) : billing?.trial?.target === addon.type ? (
-                            <div className="flex flex-col items-end justify-end">
-                                <Tooltip
-                                    title={
-                                        <p>
-                                            You are currently on a free trial for{' '}
-                                            <b>{toSentenceCase(billing.trial.target)}</b> until{' '}
-                                            <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the
-                                            trial{' '}
-                                            {billing.trial.type === 'autosubscribe'
-                                                ? 'you will be automatically subscribed to the plan.'
-                                                : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
-                                        </p>
-                                    }
-                                >
-                                    <LemonTag type="completion" icon={<IconCheckCircle />}>
-                                        You're on a trial for this add-on
-                                    </LemonTag>
-                                </Tooltip>
-                                {/* Comment out until we can make sure a customer can't activate a trial multiple times */}
-                                {/* <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={cancelTrial}
-                                    loading={trialLoading}
-                                    className="mt-1"
-                                >
-                                    Cancel trial
-                                </LemonButton> */}
-                            </div>
-                        ) : addon.included_with_main_product ? (
-                            <LemonTag type="completion" icon={<IconCheckCircle />}>
-                                Included with plan
-                            </LemonTag>
-                        ) : addon.contact_support ? (
-                            <LemonButton type="secondary" to="https://posthog.com/talk-to-a-human">
-                                Contact support
-                            </LemonButton>
-                        ) : (
-                            <>
-                                {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
-                                    <h4 className="leading-5 font-bold mb-0 space-x-0.5">
-                                        {addon.trial ? (
-                                            <span>{addon.trial.length} day free trial</span>
-                                        ) : (
-                                            <span>
-                                                {formatFlatRate(
-                                                    Number(upgradePlan?.unit_amount_usd),
-                                                    upgradePlan?.unit
-                                                )}
-                                            </span>
-                                        )}
-                                    </h4>
-                                ) : (
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() => {
-                                            toggleIsPricingModalOpen()
-                                        }}
-                                    >
-                                        View pricing
-                                    </LemonButton>
-                                )}
-                                {!addon.inclusion_only &&
-                                    (addon.trial && !!trialExperiment ? (
-                                        <LemonButton
-                                            type="primary"
-                                            icon={<IconPlus />}
-                                            size="small"
-                                            disableClientSideRouting
-                                            disabledReason={
-                                                (billingError && billingError.message) ||
-                                                (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
-                                            }
-                                            loading={billingProductLoading === addon.type}
-                                            onClick={handleTrialActivation}
-                                        >
-                                            Start trial
-                                        </LemonButton>
-                                    ) : (
-                                        <LemonButton
-                                            type="primary"
-                                            icon={<IconPlus />}
-                                            size="small"
-                                            disableClientSideRouting
-                                            disabledReason={
-                                                (billingError && billingError.message) ||
-                                                (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
-                                            }
-                                            loading={billingProductLoading === addon.type}
-                                            onClick={() =>
-                                                initiateProductUpgrade(
-                                                    addon,
-                                                    currentAndUpgradePlans?.upgradePlan,
-                                                    redirectPath
-                                                )
-                                            }
-                                        >
-                                            Add
-                                        </LemonButton>
-                                    ))}
-                            </>
-                        )}
-                    </div>
-                    {!addon.inclusion_only && !addon.trial && isProrated && !addon.contact_support && (
-                        <p className="mt-2 text-xs text-muted text-right">
-                            Pay ~${prorationAmount} today (prorated) and
-                            <br />
-                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
-                            thereafter.
-                        </p>
-                    )}
-                    {!!addon.trial && !billing?.trial && (
-                        <p className="mt-2 text-xs text-muted text-right">
-                            You'll have {addon.trial.length} days to try it out. Then you'll be charged{' '}
-                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.
-                        </p>
-                    )}
-                </div>
+
+                {/* Actions */}
+                <BillingProductAddonActions productRef={productRef} addon={addon} />
             </div>
+
+            {/* Features */}
             <div className="mt-3 ml-11">
                 {addonFeatures?.length > 2 && (
                     <div>
@@ -316,6 +141,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     </div>
                 )}
             </div>
+
+            {/* Pricing modal */}
             <ProductPricingModal
                 modalOpen={isPricingModalOpen}
                 onClose={toggleIsPricingModalOpen}
@@ -326,7 +153,11 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         : currentAndUpgradePlans?.upgradePlan?.plan_key
                 }
             />
+
+            {/* Unsubscribe survey modal */}
             {surveyID && <UnsubscribeSurveyModal product={addon} />}
+
+            {/* Trial modal */}
             <LemonModal
                 isOpen={trialModalOpen}
                 onClose={() => setTrialModalOpen(false)}
