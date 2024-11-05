@@ -139,7 +139,7 @@ def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: O
     return validated_inputs
 
 
-def compile_hog(hog: str, supported_functions: Optional[set[str]] = None, in_repl: Optional[bool] = True) -> list[Any]:
+def compile_hog(hog: str, supported_functions: Optional[set[str]] = None, in_repl: Optional[bool] = False) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
