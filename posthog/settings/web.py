@@ -78,7 +78,6 @@ INSTALLED_APPS = [
     "django_filters",
     "axes",
     "drf_spectacular",
-    "django_linear_migrations",
     "django_otp",
     "django_otp.plugins.otp_static",
     "django_otp.plugins.otp_totp",
@@ -128,6 +127,8 @@ MIDDLEWARE = [
 if DEBUG:
     # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000
     INSTALLED_APPS.append("revproxy")
+    # rebase_migration command
+    INSTALLED_APPS.append("django_linear_migrations")
 
 # Append Enterprise Edition as an app if available
 try:
