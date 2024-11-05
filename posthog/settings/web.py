@@ -127,6 +127,8 @@ MIDDLEWARE = [
 if DEBUG:
     # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000
     INSTALLED_APPS.append("revproxy")
+    # rebase_migration command
+    INSTALLED_APPS.append("django_linear_migrations")
 
 # Append Enterprise Edition as an app if available
 try:
@@ -296,14 +298,6 @@ SPECTACULAR_SETTINGS = {
 }
 
 EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}
-
-
-def add_recorder_js_headers(headers, path, url):
-    if url.endswith("/recorder.js") and not DEBUG:
-        headers["Cache-Control"] = "max-age=31536000, public"
-
-
-WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)

@@ -49,6 +49,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         initiateProductUpgrade,
         setTrialModalOpen,
         activateTrial,
+        cancelTrial,
     } = useActions(billingProductLogic({ product: addon }))
     const { openSupportForm } = useActions(supportLogic)
 
@@ -190,8 +191,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         You're on a trial for this add-on
                                     </LemonTag>
                                 </Tooltip>
-                                {/* Comment out until we can make sure a customer can't activate a trial multiple times */}
-                                {/* <LemonButton
+                                <LemonButton
                                     type="primary"
                                     size="small"
                                     onClick={cancelTrial}
@@ -199,7 +199,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     className="mt-1"
                                 >
                                     Cancel trial
-                                </LemonButton> */}
+                                </LemonButton>
                             </div>
                         ) : addon.included_with_main_product ? (
                             <LemonTag type="completion" icon={<IconCheckCircle />}>
@@ -275,14 +275,18 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             </>
                         )}
                     </div>
-                    {!addon.inclusion_only && !addon.trial && isProrated && !addon.contact_support && (
-                        <p className="mt-2 text-xs text-muted text-right">
-                            Pay ~${prorationAmount} today (prorated) and
-                            <br />
-                            {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
-                            thereafter.
-                        </p>
-                    )}
+                    {!addon.inclusion_only &&
+                        !addon.trial &&
+                        isProrated &&
+                        !addon.contact_support &&
+                        !billing?.trial && (
+                            <p className="mt-2 text-xs text-muted text-right">
+                                Pay ~${prorationAmount} today (prorated) and
+                                <br />
+                                {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month
+                                thereafter.
+                            </p>
+                        )}
                     {!!addon.trial && !!trialExperiment && !billing?.trial && (
                         <p className="mt-2 text-xs text-muted text-right">
                             You'll have {addon.trial.length} days to try it out. Then you'll be charged{' '}
