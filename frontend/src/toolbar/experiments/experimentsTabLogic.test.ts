@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -248,6 +249,52 @@ describe('experimentsTabLogic', () => {
 
         return elParent
     }
+
+    describe('selecting html elements', () => {
+        it('can highlight all elements on a page', async () => {
+            await expectLogic(theExperimentsTabLogic, () => {
+                theExperimentsTabLogic.actions.selectExperiment(1)
+                theExperimentsTabLogic.actions.inspectForElementWithIndex('test', 'all-elements', 0)
+            })
+                .toDispatchActions(['selectExperiment', 'inspectForElementWithIndex'])
+                .toMatchValues({
+                    elementSelector: EXPERIMENT_TARGET_SELECTOR,
+                })
+        })
+
+        it('can highlight only images on a page', async () => {
+            await expectLogic(theExperimentsTabLogic, () => {
+                theExperimentsTabLogic.actions.selectExperiment(1)
+                theExperimentsTabLogic.actions.inspectForElementWithIndex('test', 'images', 0)
+            })
+                .toDispatchActions(['selectExperiment', 'inspectForElementWithIndex'])
+                .toMatchValues({
+                    elementSelector: 'img',
+                })
+        })
+
+        it('can highlight only buttons on a page', async () => {
+            await expectLogic(theExperimentsTabLogic, () => {
+                theExperimentsTabLogic.actions.selectExperiment(1)
+                theExperimentsTabLogic.actions.inspectForElementWithIndex('test', 'buttons', 0)
+            })
+                .toDispatchActions(['selectExperiment', 'inspectForElementWithIndex'])
+                .toMatchValues({
+                    elementSelector: 'input[type="button"],button',
+                })
+        })
+
+        it('can highlight only headers on a page', async () => {
+            await expectLogic(theExperimentsTabLogic, () => {
+                theExperimentsTabLogic.actions.selectExperiment(1)
+                theExperimentsTabLogic.actions.inspectForElementWithIndex('test', 'headers', 0)
+            })
+                .toDispatchActions(['selectExperiment', 'inspectForElementWithIndex'])
+                .toMatchValues({
+                    elementSelector: 'h1,h2,h3,h4,h5,h6',
+                })
+        })
+    })
 
     describe('editing experiments', () => {
         it('can edit an existing experiment', async () => {

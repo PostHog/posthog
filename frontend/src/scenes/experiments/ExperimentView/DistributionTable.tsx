@@ -1,8 +1,11 @@
 import '../Experiment.scss'
 
 import { IconFlag } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { MultivariateFlagVariant, SidePanelTab } from '~/types'
@@ -16,9 +19,29 @@ export function DistributionTable(): JSX.Element {
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
+    const onSelectElement = (variant: string): void => {
+        LemonDialog.open({
+            title: 'Select a domain',
+            description: 'Choose the domain on which to preview this experiment variant',
+            content: (
+                <>
+                    <AuthorizedUrlList
+                        query={'?__experiment_id=' + experiment?.id + '&__experiment_variant=' + variant}
+                        experimentId={experiment?.id}
+                        type={AuthorizedUrlListType.WEB_EXPERIMENTS}
+                    />
+                </>
+            ),
+            primaryButton: {
+                children: 'Close',
+                type: 'secondary',
+            },
+        })
+    }
+    const className = experiment?.type === 'web' ? 'w-1/2.5' : 'w-1/3'
     const columns: LemonTableColumns<MultivariateFlagVariant> = [
         {
-            className: 'w-1/3',
+            className: className,
             key: 'key',
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
@@ -29,7 +52,7 @@ export function DistributionTable(): JSX.Element {
             },
         },
         {
-            className: 'w-1/3',
+            className: className,
             key: 'rollout_percentage',
             title: 'Rollout',
             render: function Key(_, item): JSX.Element {
@@ -37,7 +60,7 @@ export function DistributionTable(): JSX.Element {
             },
         },
         {
-            className: 'w-1/3',
+            className: className,
             key: 'variant_screenshot',
             title: 'Screenshot',
             render: function Key(_, item): JSX.Element {
@@ -49,6 +72,31 @@ export function DistributionTable(): JSX.Element {
             },
         },
     ]
+
+    if (experiment.type === 'web') {
+        columns.push({
+            className: className,
+            key: 'preview_web_experiment',
+            title: 'Preview',
+            render: function Key(_, item): JSX.Element {
+                return (
+                    <div className="my-2">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                onSelectElement(item.key)
+                            }}
+                            sideIcon={<IconOpenInApp />}
+                        >
+                            Preview variant
+                        </LemonButton>
+                    </div>
+                )
+            },
+        })
+    }
 
     return (
         <div>
