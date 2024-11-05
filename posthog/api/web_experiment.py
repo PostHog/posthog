@@ -58,10 +58,8 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         for name, variant in variants.items():
             if variant.get("rollout_percentage") is None:
                 raise ValidationError(f"Experiment variant '{name}' does not have any rollout percentage")
-            transforms = variant.get("transforms")
-            if transforms is None:
-                raise ValidationError(f"Experiment variant '{name}' does not have any element transforms")
             if name != "control":
+                transforms = variant.get("transforms", {})
                 for idx, transform in enumerate(transforms):
                     if transform.get("selector") is None:
                         raise ValidationError(

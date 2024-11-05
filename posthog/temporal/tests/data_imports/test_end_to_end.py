@@ -1,19 +1,29 @@
-from typing import Any, Optional
-from unittest import mock
-import aioboto3
 import functools
 import uuid
+from typing import Any, Optional
+from unittest import mock
+
+import aioboto3
+import posthoganalytics
+import psycopg
+import pytest
+import pytest_asyncio
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
-import posthoganalytics
-import pytest
-import pytest_asyncio
-import psycopg
+from dlt.common.configuration.specs.aws_credentials import AwsCredentials
+from dlt.sources.helpers.rest_client.client import RESTClient
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel import Funnel
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.funnel_query_context import (
+    FunnelQueryContext,
+)
 from posthog.models.team.team import Team
 from posthog.schema import (
     BreakdownFilter,
@@ -26,22 +36,14 @@ from posthog.schema import (
 from posthog.temporal.data_imports import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models import (
     ExternalDataJob,
-    ExternalDataSource,
     ExternalDataSchema,
+    ExternalDataSource,
 )
-from temporalio.testing import WorkflowEnvironment
-from temporalio.common import RetryPolicy
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
-from dlt.sources.helpers.rest_client.client import RESTClient
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
-
+from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
-
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -458,6 +460,19 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
             "zendesk_email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_chargebee_customer(team, chargebee_customer):
+    await _run(
+        team=team,
+        schema_name="Customers",
+        table_name="chargebee_customers",
+        source_type="Chargebee",
+        job_inputs={"api_key": "test-key", "site_name": "site-test"},
+        mock_data_response=[chargebee_customer["list"][0]["customer"]],
     )
 
 
@@ -893,9 +908,9 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer):
         return list(jobs)
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.create_job_model.create_external_data_job",
-    ) as mock_list_limited_team_attributes:
-        mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
+        "posthog.temporal.data_imports.workflow_activities.create_job_model.acreate_external_data_job",
+    ) as acreate_external_data_job:
+        acreate_external_data_job.side_effect = Exception("Ruhoh!")
 
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
