@@ -41,10 +41,10 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
                 return { results: response.results, columns: response.columns }
             },
             fetch: () => {
-                throw new Error('fetch is not yet supported')
+                throw new Error('fetch is disabled in the browser')
             },
             posthogCapture: () => {
-                throw new Error('posthogCapture is not yet supported')
+                throw new Error('posthogCapture is not yet supported here')
             },
         },
     })

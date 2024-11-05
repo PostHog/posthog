@@ -3,9 +3,6 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { execHogAsync } from 'lib/hog'
 
-import { performQuery } from '~/queries/query'
-import { HogQLQuery, NodeKind } from '~/queries/schema'
-
 import type { hogReplLogicType } from './hogReplLogicType'
 
 export interface ReplChunk {
@@ -96,50 +93,6 @@ export const hogReplLogic = kea<hogReplLogicType>([
         runCode: async ({ code }) => {
             const options: ExecOptions = {
                 repl: true,
-                asyncFunctions: {
-                    sleep: async (ms: number) => {
-                        await new Promise((resolve) => setTimeout(resolve, ms))
-                    },
-                    fetch: async ([url, fetchOptions]: [string | undefined, Record<string, any> | undefined]) => {
-                        if (typeof url !== 'string') {
-                            throw new Error('fetch: Invalid URL')
-                        }
-
-                        const method = fetchOptions?.method || 'POST'
-                        const headers = fetchOptions?.headers || {
-                            'Content-Type': 'application/json',
-                        }
-                        // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-                        const body: string | undefined = fetchOptions?.body
-                            ? typeof fetchOptions.body === 'string'
-                                ? fetchOptions.body
-                                : JSON.stringify(fetchOptions.body)
-                            : fetchOptions?.body
-
-                        const result = await fetch(url, {
-                            method,
-                            headers,
-                            body,
-                        })
-                        const response = {
-                            status: result.status,
-                            body: await result.text(),
-                        }
-                        if (result.headers.get('content-type')?.includes('application/json')) {
-                            try {
-                                response.body = JSON.parse(response.body)
-                            } catch (e) {
-                                console.error('Failed to parse JSON response', e)
-                            }
-                        }
-                        return response
-                    },
-                    run: async (queryString: string) => {
-                        const hogQLQuery: HogQLQuery = { kind: NodeKind.HogQLQuery, query: queryString }
-                        const response = await performQuery(hogQLQuery)
-                        return { results: response.results, columns: response.columns }
-                    },
-                },
                 functions: {
                     print: (...args: any[]) => {
                         actions.print(index, args.map((arg) => printHogStringOutput(arg)).join(' '))
