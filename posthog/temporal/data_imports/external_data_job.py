@@ -8,10 +8,12 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.data_imports.util import is_posthog_team
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
 )
+from posthog.temporal.data_imports.workflow_activities.import_data_sync import import_data_activity_sync
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
@@ -207,7 +209,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
             )
 
-            job_id, incremental = await workflow.execute_activity(
+            job_id, incremental, source_type = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -260,12 +262,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 else {"start_to_close_timeout": dt.timedelta(hours=12), "retry_policy": RetryPolicy(maximum_attempts=3)}
             )
 
-            await workflow.execute_activity(
-                import_data_activity,
-                job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=5),
-                **timeout_params,
-            )  # type: ignore
+            if is_posthog_team(inputs.team_id) and (
+                source_type == ExternalDataSource.Type.POSTGRES or source_type == ExternalDataSource.Type.BIGQUERY
+            ):
+                # Sync activity for testing
+                await workflow.execute_activity(
+                    import_data_activity_sync,
+                    job_inputs,
+                    heartbeat_timeout=dt.timedelta(minutes=5),
+                    **timeout_params,
+                )  # type: ignore
+            else:
+                # Async activity for everyone else
+                await workflow.execute_activity(
+                    import_data_activity,
+                    job_inputs,
+                    heartbeat_timeout=dt.timedelta(minutes=5),
+                    **timeout_params,
+                )  # type: ignore
 
             # Create source templates
             await workflow.execute_activity(
