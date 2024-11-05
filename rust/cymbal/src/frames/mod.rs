@@ -5,6 +5,9 @@ use crate::{
     error::Error, langs::js::RawJSFrame, metric_consts::PER_FRAME_TIME, symbol_store::Catalog,
 };
 
+pub mod records;
+pub mod resolver;
+
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -29,9 +32,19 @@ impl RawFrame {
         res
     }
 
-    pub fn symbol_set_group_key(&self) -> String {
+    pub fn needs_symbols(&self) -> bool {
+        // For now, we only support JS, so this is always true
+        true
+    }
+
+    pub fn symbol_set_ref(&self) -> String {
         let RawFrame::JavaScript(raw) = self;
         raw.source_url().map(String::from).unwrap_or_default()
+    }
+
+    pub fn frame_id(&self) -> String {
+        let RawFrame::JavaScript(raw) = self;
+        raw.frame_id()
     }
 }
 

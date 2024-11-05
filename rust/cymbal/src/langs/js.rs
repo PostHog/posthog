@@ -1,5 +1,6 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
 use sourcemap::{SourceMap, Token};
 
 use crate::{
@@ -99,6 +100,20 @@ impl RawJSFrame {
 
         Url::parse(&source_url[..useful])
             .map_err(|_| JsResolveErr::InvalidSourceUrl(source_url.to_string()))
+    }
+
+    pub fn frame_id(&self) -> String {
+        let mut hasher = Sha512::new();
+        hasher.update(self.fn_name.as_bytes());
+        hasher.update(self.line.to_string().as_bytes());
+        hasher.update(self.column.to_string().as_bytes());
+        hasher.update(
+            self.source_url
+                .as_ref()
+                .unwrap_or(&"".to_string())
+                .as_bytes(),
+        );
+        format!("{:x}", hasher.finalize())
     }
 }
 
