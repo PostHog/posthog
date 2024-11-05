@@ -1,4 +1,5 @@
 import * as Icons from '@posthog/icons'
+import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -148,56 +149,63 @@ export function Products(): JSX.Element {
         <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-bg-3000 h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
             {true ? (
                 <>
-                    <div className="mb-8">
-                        <h2 className="text-center text-4xl">Which products would you like to use?</h2>
-                    </div>
-                    <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
-                        {Object.keys(availableOnboardingProducts).map((productKey) => (
-                            <SelectableProductCard
-                                product={availableOnboardingProducts[productKey]}
-                                key={productKey}
-                                productKey={productKey}
-                                onClick={() => {
-                                    toggleSelectedProduct(productKey)
-                                }}
-                                selected={selectedProducts.includes(productKey)}
-                            />
-                        ))}
-                    </div>
-                    <div className="mt-8 flex gap-2 justify-center items-center">
-                        {selectedProducts.length > 1 ? (
-                            <>
-                                <LemonLabel>Get started with</LemonLabel>
-                                <LemonSelect
-                                    value={firstProductOnboarding}
-                                    options={selectedProducts.map((productKey) => ({
-                                        label: availableOnboardingProducts[productKey].name,
-                                        value: productKey,
-                                    }))}
-                                    onChange={(value) => value && setFirstProductOnboarding(value)}
-                                    placeholder="Select a product"
+                    <div className="flex flex-col justify-center flex-grow items-center">
+                        <div className="mb-8">
+                            <h2 className="text-center text-4xl">Which products would you like to use?</h2>
+                        </div>
+                        <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
+                            {Object.keys(availableOnboardingProducts).map((productKey) => (
+                                <SelectableProductCard
+                                    product={availableOnboardingProducts[productKey]}
+                                    key={productKey}
+                                    productKey={productKey}
+                                    onClick={() => {
+                                        toggleSelectedProduct(productKey)
+                                    }}
+                                    selected={selectedProducts.includes(productKey)}
                                 />
-                                <LemonButton type="primary">Go</LemonButton>
-                            </>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    const firstProductKey = selectedProducts[0]
-                                    setIncludeIntro(false)
-                                    router.actions.push(urls.onboarding(firstProductKey))
-                                    addProductIntent({
-                                        product_type: firstProductKey as ProductKey,
-                                        intent_context: 'onboarding product selected',
-                                    })
-                                }}
-                                disabledReason={
-                                    selectedProducts.length === 0 ? 'Select a product to start with' : undefined
-                                }
-                            >
-                                Get started
-                            </LemonButton>
-                        )}
+                            ))}
+                        </div>
+                        <div className="mt-12 flex gap-2 justify-center items-center">
+                            {selectedProducts.length > 1 ? (
+                                <>
+                                    <LemonLabel>Get started with</LemonLabel>
+                                    <LemonSelect
+                                        value={firstProductOnboarding}
+                                        options={selectedProducts.map((productKey) => ({
+                                            label: availableOnboardingProducts[productKey].name,
+                                            value: productKey,
+                                        }))}
+                                        onChange={(value) => value && setFirstProductOnboarding(value)}
+                                        placeholder="Select a product"
+                                        className="bg-bg-light"
+                                    />
+                                    <LemonButton sideIcon={<IconArrowRight />} type="primary" status="alt">
+                                        Go
+                                    </LemonButton>
+                                </>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    status="alt"
+                                    onClick={() => {
+                                        const firstProductKey = selectedProducts[0]
+                                        setIncludeIntro(false)
+                                        router.actions.push(urls.onboarding(firstProductKey))
+                                        addProductIntent({
+                                            product_type: firstProductKey as ProductKey,
+                                            intent_context: 'onboarding product selected',
+                                        })
+                                    }}
+                                    sideIcon={<IconArrowRight />}
+                                    disabledReason={
+                                        selectedProducts.length === 0 ? 'Select a product to start with' : undefined
+                                    }
+                                >
+                                    Get started
+                                </LemonButton>
+                            )}
+                        </div>
                     </div>
                     <p className="text-center mt-8">
                         Need help from a team member? <Link onClick={() => showInviteModal()}>Invite them</Link>
