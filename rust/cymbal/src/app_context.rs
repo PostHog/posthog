@@ -57,7 +57,7 @@ impl AppContext {
             config.symbol_store_cache_max_bytes,
         )));
 
-        let smp = SourcemapProvider::new(config)?;
+        let smp = SourcemapProvider::new(config);
         let saving_smp = Saving::new(
             smp,
             pool.clone(),

@@ -60,7 +60,7 @@ async fn end_to_end_resolver_test() {
     let mut config = Config::init_with_defaults().unwrap();
     config.allow_internal_ips = true; // We're hitting localhost for the tests
 
-    let sourcemap = SourcemapProvider::new(&config).unwrap();
+    let sourcemap = SourcemapProvider::new(&config);
     let cache = Arc::new(Mutex::new(SymbolSetCache::new(
         config.symbol_store_cache_max_bytes,
     )));

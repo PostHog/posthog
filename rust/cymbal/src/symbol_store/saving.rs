@@ -287,7 +287,7 @@ mod test {
             )
             .returning(|_, _| Ok(Vec::from(MAP)));
 
-        let smp = SourcemapProvider::new(&config).unwrap();
+        let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(
             smp,
             db.clone(),
@@ -326,7 +326,7 @@ mod test {
         // We don't expect any S3 operations since we won't get any valid data
         let client = S3Client::default();
 
-        let smp = SourcemapProvider::new(&config).unwrap();
+        let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(
             smp,
             db.clone(),
@@ -381,7 +381,7 @@ mod test {
         // We don't expect any S3 operations since we won't get any valid data
         let client = S3Client::default();
 
-        let smp = SourcemapProvider::new(&config).unwrap();
+        let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(
             smp,
             db.clone(),

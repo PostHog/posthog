@@ -21,7 +21,7 @@ pub struct SourcemapProvider {
 }
 
 impl SourcemapProvider {
-    pub fn new(config: &Config) -> Result<Self, Error> {
+    pub fn new(config: &Config) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
         let mut client = reqwest::Client::builder().timeout(timeout);
 
@@ -33,7 +33,7 @@ impl SourcemapProvider {
 
         let client = client.build().unwrap();
 
-        Ok(Self { client })
+        Self { client }
     }
 }
 
@@ -197,7 +197,7 @@ mod test {
         let mut config = Config::init_with_defaults().unwrap();
         // Needed because we're using mockserver, so hitting localhost
         config.allow_internal_ips = true;
-        let store = SourcemapProvider::new(&config).unwrap();
+        let store = SourcemapProvider::new(&config);
 
         let start_url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
 
