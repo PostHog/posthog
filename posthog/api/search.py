@@ -106,11 +106,11 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
             assert entity_meta is not None
             klass_qs, entity_name = class_queryset(
-                klass=entity_meta.get("klass"),
+                klass=entity_meta["klass"],
                 project_id=self.project_id,
                 query=query,
-                search_fields=entity_meta.get("search_fields"),
-                extra_fields=entity_meta.get("extra_fields"),
+                search_fields=entity_meta["search_fields"],
+                extra_fields=entity_meta["extra_fields"],
             )
             qs = qs.union(klass_qs)
             counts[entity_name] = klass_qs.count()
@@ -127,7 +127,7 @@ def class_queryset(
     project_id: int,
     query: str | None,
     search_fields: dict[str, Literal["A", "B", "C"]],
-    extra_fields: dict | None,
+    extra_fields: list[str] | None,
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)

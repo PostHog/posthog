@@ -1,8 +1,8 @@
 import functools
 import re
 from typing import Literal
-
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
+from django.db.models.expressions import CombinedExpression
 
 UNSAFE_CHARACTERS = r"[\'&|!<>():]"
 """Characters unsafe in a `tsquery`."""
@@ -23,14 +23,13 @@ def process_query(query: str) -> str | None:
     return query
 
 
-def build_search_vector(search_fields: dict[str, Literal["A", "B", "C"]]) -> SearchVector:
+def build_search_vector(search_fields: dict[str, Literal["A", "B", "C"]]) -> CombinedExpression:
     """
     Builds a search vector from a dict, whereby the key is the search field and the value
     is the Postgres weight e.g. `{"name": "A", "description": "C"}`.
     """
     search_vectors = [SearchVector(key, weight=value, config="simple") for key, value in search_fields.items()]
-    combined_vector = functools.reduce(lambda a, b: a + b, search_vectors)
-    return combined_vector
+    return functools.reduce(lambda a, b: a + b, search_vectors)
 
 
 def build_rank(search_fields: dict[str, Literal["A", "B", "C"]], search_query: str) -> SearchRank | None:
@@ -39,7 +38,7 @@ def build_rank(search_fields: dict[str, Literal["A", "B", "C"]], search_query: s
     but does not do additional stemming. Search fields are weighted according to the configuration and
     the search query gets processed to allow searching as you type.
 
-    Returns none for empty search (after removing unsafe characters and stop words).
+    Returns `None` for empty search (after removing unsafe characters and stop words).
     """
     vector = build_search_vector(search_fields)
     search = process_query(search_query)
