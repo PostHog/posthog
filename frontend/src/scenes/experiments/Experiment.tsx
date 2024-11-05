@@ -12,7 +12,7 @@ export const scene: SceneExport = {
     component: Experiment,
     logic: experimentLogic,
     paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
-        experimentId: id === 'new' || id === 'web' ? 'new' : parseInt(id),
+        experimentId: id === 'new' ? 'new' : parseInt(id),
     }),
 }
 

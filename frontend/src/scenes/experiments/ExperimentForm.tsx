@@ -26,7 +26,8 @@ import { ExperimentInsightCreator } from './MetricSelector'
 
 const StepInfo = (): JSX.Element => {
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { addExperimentGroup, removeExperimentGroup, moveToNextFormStep, setExperiment } = useActions(experimentLogic)
+    const { addExperimentGroup, removeExperimentGroup, moveToNextFormStep, setExperimentType } =
+        useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
     return (
         <div>
@@ -59,7 +60,7 @@ const StepInfo = (): JSX.Element => {
                         <LemonRadio
                             value={experiment.type}
                             onChange={(type) => {
-                                setExperiment({ type: type })
+                                setExperimentType(type)
                             }}
                             options={[
                                 {

@@ -1557,14 +1557,10 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setEditExperiment(false)
 
             if (id && didPathChange) {
-                const parsedId = id === 'new' || id === 'web' ? 'new' : parseInt(id)
+                const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.resetExperiment()
                     actions.setNewExperimentInsight()
-                }
-
-                if (id === 'web') {
-                    actions.setExperimentType('web')
                 }
 
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
