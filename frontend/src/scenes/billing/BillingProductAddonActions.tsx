@@ -1,54 +1,69 @@
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
+import { useMemo } from 'react'
 
-import { BillingPlanType, BillingProductV2AddonType, BillingType } from '~/types'
+import { BillingProductV2AddonType } from '~/types'
 
-import { BillingError } from './billingLogic'
+import { getProration } from './billing-utils'
+import { billingLogic } from './billingLogic'
 import { formatFlatRate } from './BillingProductAddon'
+import { billingProductLogic } from './billingProductLogic'
 
 interface BillingProductAddonActionsProps {
+    productRef: React.RefObject<HTMLDivElement>
     addon: BillingProductV2AddonType
-    billing: BillingType | null
-    billingProductLoading: string | null
-    billingError: BillingError | null
-    upgradePlan: BillingPlanType
-    currentAndUpgradePlans: any
-    trialExperiment: string
-    trialLoading: boolean
-    isProrated: boolean
-    prorationAmount: string
-    // Actions
-    setSurveyResponse: (key: string, value: string) => void
-    reportSurveyShown: (surveyId: string, type: string) => void
-    toggleIsPricingModalOpen: () => void
-    handleTrialActivation: () => void
-    initiateProductUpgrade: (addon: BillingProductV2AddonType, plan: any, redirectPath: string) => void
-    cancelTrial: () => void
 }
 
-export const BillingProductAddonActions = ({
-    addon,
-    billing,
-    billingProductLoading,
-    billingError,
-    upgradePlan,
-    currentAndUpgradePlans,
-    trialExperiment,
-    trialLoading,
-    isProrated,
-    prorationAmount,
-    // Actions
-    setSurveyResponse,
-    reportSurveyShown,
-    toggleIsPricingModalOpen,
-    handleTrialActivation,
-    initiateProductUpgrade,
-    cancelTrial,
-}: BillingProductAddonActionsProps): JSX.Element => {
+export const BillingProductAddonActions = ({ addon, productRef }: BillingProductAddonActionsProps): JSX.Element => {
+    const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
+    const { currentAndUpgradePlans, billingProductLoading, trialLoading } = useValues(
+        billingProductLogic({ product: addon, productRef })
+    )
+
+    const {
+        toggleIsPricingModalOpen,
+        reportSurveyShown,
+        setSurveyResponse,
+        initiateProductUpgrade,
+        setTrialModalOpen,
+        activateTrial,
+        cancelTrial,
+    } = useActions(billingProductLogic({ product: addon }))
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const upgradePlan = currentAndUpgradePlans?.upgradePlan
+    const { prorationAmount, isProrated } = useMemo(
+        () =>
+            getProration({
+                timeRemainingInSeconds,
+                timeTotalInSeconds,
+                amountUsd: upgradePlan?.unit_amount_usd,
+                hasActiveSubscription: billing?.has_active_subscription,
+            }),
+        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
+    )
+
+    const trialExperiment = featureFlags[FEATURE_FLAGS.BILLING_TRIAL_FLOW]
+
+    const handleTrialActivation = (): void => {
+        if (trialExperiment === 'modal') {
+            // Modal - Show trial modal (default behavior)
+            setTrialModalOpen(true)
+        } else if (trialExperiment === 'control') {
+            // Direct - Activate trial immediately
+            activateTrial()
+        } else {
+            // No trial flow even without the feature flag
+            initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, redirectPath)
+        }
+    }
+
     const renderSubscribedActions = (): JSX.Element | null => {
         if (addon.contact_support) {
             return null

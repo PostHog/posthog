@@ -2,15 +2,12 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency } from 'lib/utils'
-import { ReactNode, useMemo, useRef } from 'react'
+import { ReactNode, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
-import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
@@ -32,40 +29,16 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
-    const {
-        isPricingModalOpen,
-        currentAndUpgradePlans,
-        surveyID,
-        billingProductLoading,
-        trialModalOpen,
-        trialLoading,
-    } = useValues(billingProductLogic({ product: addon, productRef }))
-    const {
-        toggleIsPricingModalOpen,
-        reportSurveyShown,
-        setSurveyResponse,
-        initiateProductUpgrade,
-        setTrialModalOpen,
-        activateTrial,
-        cancelTrial,
-    } = useActions(billingProductLogic({ product: addon }))
+    const { billing } = useValues(billingLogic)
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, trialModalOpen, trialLoading } = useValues(
+        billingProductLogic({ product: addon, productRef })
+    )
+    const { toggleIsPricingModalOpen, setTrialModalOpen, activateTrial } = useActions(
+        billingProductLogic({ product: addon })
+    )
     const { openSupportForm } = useActions(supportLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
-
-    const { prorationAmount, isProrated } = useMemo(
-        () =>
-            getProration({
-                timeRemainingInSeconds,
-                timeTotalInSeconds,
-                amountUsd: upgradePlan?.unit_amount_usd,
-                hasActiveSubscription: billing?.has_active_subscription,
-            }),
-        [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
-    )
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -85,21 +58,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const is_enhanced_persons_og_customer =
         addon.type === 'enhanced_persons' &&
         addon.plans?.find((plan) => plan.plan_key === 'addon-20240404-og-customers')
-
-    const trialExperiment = featureFlags[FEATURE_FLAGS.BILLING_TRIAL_FLOW]
-
-    const handleTrialActivation = (): void => {
-        if (trialExperiment === 'modal') {
-            // Modal - Show trial modal (default behavior)
-            setTrialModalOpen(true)
-        } else if (trialExperiment === 'control') {
-            // Direct - Activate trial immediately
-            activateTrial()
-        } else {
-            // No trial flow even without the feature flag
-            initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, redirectPath)
-        }
-    }
 
     return (
         <div
@@ -154,24 +112,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 </div>
 
                 {/* Actions */}
-                <BillingProductAddonActions
-                    addon={addon}
-                    billing={billing}
-                    billingProductLoading={billingProductLoading}
-                    billingError={billingError}
-                    upgradePlan={upgradePlan}
-                    currentAndUpgradePlans={currentAndUpgradePlans}
-                    trialExperiment={trialExperiment as string}
-                    trialLoading={trialLoading}
-                    isProrated={isProrated}
-                    prorationAmount={prorationAmount}
-                    setSurveyResponse={setSurveyResponse}
-                    reportSurveyShown={reportSurveyShown}
-                    toggleIsPricingModalOpen={toggleIsPricingModalOpen}
-                    handleTrialActivation={handleTrialActivation}
-                    initiateProductUpgrade={initiateProductUpgrade}
-                    cancelTrial={cancelTrial}
-                />
+                <BillingProductAddonActions productRef={productRef} addon={addon} />
             </div>
 
             {/* Features */}
