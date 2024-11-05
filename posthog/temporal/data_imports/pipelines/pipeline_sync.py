@@ -423,21 +423,3 @@ def validate_schema_and_update_table_sync(
             exc_info=e,
         )
         raise
-
-    previous_jobs = list(
-        ExternalDataJob.objects.prefetch_related(
-            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-        )
-        .filter(schema_id=_schema_id)
-        .order_by("-created_at")
-        .all()
-    )
-    if len(previous_jobs) > 1:
-        for previous_job in previous_jobs[1:]:
-            try:
-                previous_job.delete_deprecated_data_in_bucket()
-            except Exception as e:
-                logger.exception(
-                    f"Data Warehouse: Could not delete deprecated data source {previous_job.pk}",
-                    exc_info=e,
-                )
