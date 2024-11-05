@@ -1,6 +1,6 @@
 {
     "db_name": "PostgreSQL",
-    "query": "SELECT id, team_id, ref as set_ref, storage_ptr, created_at\n            FROM posthog_errortrackingsymbolset\n            WHERE team_id = $1 AND ref = $2",
+    "query": "SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason\n            FROM posthog_errortrackingsymbolset\n            WHERE team_id = $1 AND ref = $2",
     "describe": {
         "columns": [
             {
@@ -27,12 +27,17 @@
                 "ordinal": 4,
                 "name": "created_at",
                 "type_info": "Timestamptz"
+            },
+            {
+                "ordinal": 5,
+                "name": "failure_reason",
+                "type_info": "Text"
             }
         ],
         "parameters": {
             "Left": ["Int4", "Text"]
         },
-        "nullable": [false, false, false, true, false]
+        "nullable": [false, false, false, true, false, true]
     },
-    "hash": "5fe19c6d2b81d7a279406b4b3d8cf3139020766f10dae87dbda39350ce7c7d21"
+    "hash": "361eb26d51d253242a8af33e45d8686c4393f6420e61b6b141143974ff362213"
 }
