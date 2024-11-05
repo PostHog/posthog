@@ -4,7 +4,9 @@ import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/le
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableOnboardingProducts, getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -139,13 +141,14 @@ export function ProductCard({
 export function Products(): JSX.Element {
     const { isFirstProductOnboarding } = useValues(onboardingLogic)
     const { showInviteModal } = useActions(inviteLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { toggleSelectedProduct, setFirstProductOnboarding, handleStartOnboarding } = useActions(productsLogic)
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
 
     return (
         <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-bg-3000 h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
-            {true ? (
+            {featureFlags[FEATURE_FLAGS.ONBOARDING_PRODUCT_MULTISELECT] === 'test' ? (
                 <>
                     <div className="flex flex-col justify-center flex-grow items-center">
                         <div className="mb-8">
