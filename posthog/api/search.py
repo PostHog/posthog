@@ -151,7 +151,7 @@ def class_queryset(
 
     # full-text search rank
     if query:
-        qs = qs.annotate(rank=build_rank(search_fields, query))
+        qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
         qs.annotate(rank=F("rank"))
