@@ -20,7 +20,7 @@ pub struct Saving<F> {
 }
 
 // A record of an attempt to fetch a symbol set. If it succeeded, it will have a storage pointer
-#[derive(Debug)]
+#[derive(Debug, sqlx::FromRow)]
 pub struct SymbolSetRecord {
     id: Uuid,
     team_id: i32,
@@ -236,7 +236,11 @@ mod test {
 
     use crate::{
         config::Config,
-        symbol_store::{saving::Saving, sourcemap::SourcemapProvider, Provider, S3Client},
+        symbol_store::{
+            saving::{Saving, SymbolSetRecord},
+            sourcemap::SourcemapProvider,
+            Provider, S3Client,
+        },
     };
 
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
@@ -342,12 +346,12 @@ mod test {
         source_mock.assert_hits(1); // Still only 1 hit
 
         // Verify the failure was recorded in postgres
-        let record = sqlx::query!(
+        let record: SymbolSetRecord = sqlx::query_as(
             r#"SELECT storage_ptr FROM posthog_errortrackingsymbolset
                 WHERE team_id = $1 AND ref = $2"#,
-            0,
-            test_url.to_string()
         )
+        .bind(0)
+        .bind(test_url.to_string())
         .fetch_one(&db)
         .await
         .unwrap();
@@ -399,12 +403,12 @@ mod test {
         map_mock.assert_hits(1); // Still only 1 hit
 
         // Verify the failure was recorded in postgres
-        let record = sqlx::query!(
+        let record: SymbolSetRecord = sqlx::query_as(
             r#"SELECT storage_ptr FROM posthog_errortrackingsymbolset
                 WHERE team_id = $1 AND ref = $2"#,
-            0,
-            test_url.to_string()
         )
+        .bind(0)
+        .bind(test_url.to_string())
         .fetch_one(&db)
         .await
         .unwrap();
