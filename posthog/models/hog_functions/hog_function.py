@@ -42,6 +42,7 @@ class HogFunctionType(models.TextChoices):
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
+TYPES_WITH_COMPILED_FILTERS = HogFunctionType.DESTINATION
 
 
 class HogFunction(UUIDModel):
@@ -144,7 +145,8 @@ class HogFunction(UUIDModel):
         from posthog.cdp.filters import compile_filters_bytecode
 
         self.move_secret_inputs()
-        self.filters = compile_filters_bytecode(self.filters, self.team)
+        if self.type in TYPES_WITH_COMPILED_FILTERS:
+            self.filters = compile_filters_bytecode(self.filters, self.team)
 
         return super().save(*args, **kwargs)
 
