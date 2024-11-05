@@ -35,6 +35,9 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             fetch: () => {
                 throw new Error('fetch is not yet supported')
             },
+            posthogCapture: () => {
+                throw new Error('posthogCapture is not yet supported')
+            },
         },
     })
 }

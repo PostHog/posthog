@@ -91,7 +91,6 @@ def create_bytecode(
     enclosing: Optional["BytecodeCompiler"] = None,
     in_repl: Optional[bool] = False,
     locals: Optional[list[Local]] = None,
-    # TODO: also add upvalues?
 ) -> CompiledBytecode:
     supported_functions = supported_functions or set()
     bytecode: list[Any] = []
