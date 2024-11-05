@@ -346,15 +346,10 @@ mod test {
         source_mock.assert_hits(1); // Still only 1 hit
 
         // Verify the failure was recorded in postgres
-        let record: SymbolSetRecord = sqlx::query_as(
-            r#"SELECT storage_ptr FROM posthog_errortrackingsymbolset
-                WHERE team_id = $1 AND ref = $2"#,
-        )
-        .bind(0)
-        .bind(test_url.to_string())
-        .fetch_one(&db)
-        .await
-        .unwrap();
+        let record = SymbolSetRecord::load(&db, 0, &test_url.to_string())
+            .await
+            .unwrap()
+            .unwrap();
 
         assert!(record.storage_ptr.is_none());
     }
@@ -403,15 +398,10 @@ mod test {
         map_mock.assert_hits(1); // Still only 1 hit
 
         // Verify the failure was recorded in postgres
-        let record: SymbolSetRecord = sqlx::query_as(
-            r#"SELECT storage_ptr FROM posthog_errortrackingsymbolset
-                WHERE team_id = $1 AND ref = $2"#,
-        )
-        .bind(0)
-        .bind(test_url.to_string())
-        .fetch_one(&db)
-        .await
-        .unwrap();
+        let record = SymbolSetRecord::load(&db, 0, &test_url.to_string())
+            .await
+            .unwrap()
+            .unwrap();
 
         assert!(record.storage_ptr.is_none());
     }
