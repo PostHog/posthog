@@ -2,7 +2,11 @@ import { IconEllipsis, IconGear } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -133,7 +137,7 @@ function Warnings(): JSX.Element {
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
-        actionId: null,
+        ...defaultAuthorizedUrlProperties,
         type: AuthorizedUrlListType.RECORDING_DOMAINS,
     })
     const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
