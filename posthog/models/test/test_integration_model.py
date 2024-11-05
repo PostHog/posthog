@@ -89,6 +89,8 @@ class TestOauthIntegrationModel(BaseTest):
         "SALESFORCE_CONSUMER_SECRET": "salesforce-client-secret",
         "HUBSPOT_APP_CLIENT_ID": "hubspot-client-id",
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY": "google-client-id",
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET": "google-client-secret",
     }
 
     def create_integration(
@@ -111,6 +113,14 @@ class TestOauthIntegrationModel(BaseTest):
             assert (
                 url
                 == "https://login.salesforce.com/services/oauth2/authorize?client_id=salesforce-client-id&scope=full+refresh_token&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fsalesforce%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest"
+            )
+
+    def test_authorize_url_with_additional_authorize_params(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-ads", next="/projects/test")
+            assert (
+                url
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+email&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")

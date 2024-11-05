@@ -65,7 +65,7 @@ class PostgresInsertInputs:
     host: str
     database: str
     table_name: str
-    data_interval_start: str
+    data_interval_start: str | None
     data_interval_end: str
     has_self_signed_cert: bool = False
     schema: str = "public"
@@ -81,13 +81,23 @@ class PostgresInsertInputs:
 class PostgreSQLClient:
     """PostgreSQL connection client used in batch exports."""
 
-    def __init__(self, user: str, password: str, host: str, port: int, database: str, has_self_signed_cert: bool):
+    def __init__(
+        self,
+        user: str,
+        password: str,
+        host: str,
+        port: int,
+        database: str,
+        has_self_signed_cert: bool,
+        connection_timeout: int = 30,
+    ):
         self.user = user
         self.password = password
         self.database = database
         self.host = host
         self.port = port
         self.has_self_signed_cert = has_self_signed_cert
+        self.connection_timeout = connection_timeout
 
         self._connection: None | psycopg.AsyncConnection = None
 
@@ -123,20 +133,34 @@ class PostgreSQLClient:
             # Disable certificate verification for self-signed certificates.
             kwargs["sslrootcert"] = None
 
+        max_attempts = 5
         connect = make_retryable_with_exponential_backoff(
             psycopg.AsyncConnection.connect,
-            retryable_exceptions=(psycopg.OperationalError,),
+            max_attempts=max_attempts,
+            retryable_exceptions=(psycopg.OperationalError, psycopg.errors.ConnectionTimeout),
         )
 
-        connection: psycopg.AsyncConnection = await connect(
-            user=self.user,
-            password=self.password,
-            dbname=self.database,
-            host=self.host,
-            port=self.port,
-            sslmode="prefer" if settings.TEST else "require",
-            **kwargs,
-        )
+        try:
+            connection: psycopg.AsyncConnection = await connect(
+                user=self.user,
+                password=self.password,
+                dbname=self.database,
+                host=self.host,
+                port=self.port,
+                connect_timeout=self.connection_timeout,
+                sslmode="prefer" if settings.TEST else "require",
+                **kwargs,
+            )
+        except psycopg.errors.ConnectionTimeout as err:
+            raise PostgreSQLConnectionError(
+                f"Timed-out while trying to connect for {max_attempts} attempts. Is the "
+                f"server running at '{self.host}', port '{self.port}' and accepting "
+                "TCP/IP connections?"
+            ) from err
+        except psycopg.OperationalError as err:
+            raise PostgreSQLConnectionError(
+                f"Failed to connect after {max_attempts} attempts. Please review connection configuration."
+            ) from err
 
         async with connection as connection:
             self._connection = connection
@@ -436,8 +460,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
     await logger.ainfo(
         "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.database,
         inputs.schema,
         inputs.table_name,
@@ -605,11 +629,12 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: PostgresBatchExportInputs):
         """Workflow implementation to export data to Postgres."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -644,11 +669,12 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             schema=inputs.schema,
             table_name=inputs.table_name,
             has_self_signed_cert=inputs.has_self_signed_cert,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
         )
@@ -676,6 +702,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "StringDataRightTruncation",
                 # Raised by PostgreSQL client. Self explanatory.
                 "DiskFull",
+                # Raised by our PostgreSQL client when failing to connect after several attempts.
+                "PostgreSQLConnectionError",
             ],
             finish_inputs=finish_inputs,
         )

@@ -5,6 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
+import { SourceConfiguration } from 'scenes/data-warehouse/settings/source/SourceConfiguration'
 import { Syncs } from 'scenes/data-warehouse/settings/source/Syncs'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -56,12 +57,12 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     if (!stage) {
         return <NotFound object="pipeline stage" />
     }
-
     const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> =
         node.backend === PipelineBackend.ManagedSource
             ? {
                   [PipelineNodeTab.Schemas]: <Schemas id={node.id} />,
                   [PipelineNodeTab.Syncs]: <Syncs id={node.id} />,
+                  [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} />,
               }
             : {
                   [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
@@ -80,6 +81,15 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
 
     if (node.backend === PipelineBackend.Plugin) {
         tabToContent[PipelineNodeTab.History] = <ActivityLog id={id} scope={ActivityScope.PLUGIN} />
+    }
+
+    if (node.backend === PipelineBackend.HogFunction) {
+        tabToContent[PipelineNodeTab.History] = (
+            <ActivityLog
+                id={String(id).startsWith('hog-') ? String(id).substring(4) : id}
+                scope={ActivityScope.HOG_FUNCTION}
+            />
+        )
     }
 
     return (

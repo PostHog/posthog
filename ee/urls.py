@@ -6,6 +6,7 @@ from django.urls import include
 from django.urls.conf import path
 
 from ee.api import integration
+from .api.rbac import organization_resource_access, role
 
 from .api import (
     authentication,
@@ -15,8 +16,6 @@ from .api import (
     feature_flag_role_access,
     hooks,
     license,
-    organization_resource_access,
-    role,
     sentry_stats,
     subscription,
 )
@@ -30,7 +29,8 @@ def extend_api_router() -> None:
         projects_router,
         organizations_router,
         project_feature_flags_router,
-        project_dashboards_router,
+        environment_dashboards_router,
+        legacy_project_dashboards_router,
     )
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
@@ -48,6 +48,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
+    # Start: routes to be deprecated
     project_feature_flags_router.register(
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
@@ -60,6 +61,7 @@ def extend_api_router() -> None:
         "organization_resource_access",
         ["organization_id"],
     )
+    # End: routes to be deprecated
     register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
     register_grandfathered_environment_nested_viewset(
         r"explicit_members",
@@ -67,7 +69,14 @@ def extend_api_router() -> None:
         "environment_explicit_members",
         ["team_id"],
     )
-    project_dashboards_router.register(
+
+    environment_dashboards_router.register(
+        r"collaborators",
+        dashboard_collaborator.DashboardCollaboratorViewSet,
+        "environment_dashboard_collaborators",
+        ["project_id", "dashboard_id"],
+    )
+    legacy_project_dashboards_router.register(
         r"collaborators",
         dashboard_collaborator.DashboardCollaboratorViewSet,
         "project_dashboard_collaborators",

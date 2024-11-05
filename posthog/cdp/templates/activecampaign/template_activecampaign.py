@@ -3,6 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-activecampaign",
     name="ActiveCampaign",
     description="Creates a new contact in ActiveCampaign whenever an event is triggered.",
@@ -41,7 +42,7 @@ let res := fetch(f'https://{inputs.accountName}.api-us1.com/api/3/contact/sync',
 })
 
 if (res.status >= 400) {
-    print(f'Error from {inputs.accountName}.api-us1.com api:', res.status, res.body)
+    throw Error(f'Error from {inputs.accountName}.api-us1.com (status {res.status}): {res.body}')
 } else {
     print('Contact has been created or updated successfully!')
 }

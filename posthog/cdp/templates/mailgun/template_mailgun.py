@@ -6,6 +6,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template_mailgun_send_email: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-mailgun-send-email",
     name="Mailgun",
     description="Send emails using the Mailgun HTTP API",
@@ -51,7 +52,7 @@ let res := fetch(f'https://{inputs.host}/v3/{inputs.domain_name}/messages', {
 })
 
 if (res.status >= 400) {
-    print('Error from Mailgun API:', res.status, res.body)
+    throw Error(f'Error from mailgun api (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[

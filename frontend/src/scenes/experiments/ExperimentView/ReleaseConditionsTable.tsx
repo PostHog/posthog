@@ -1,17 +1,20 @@
 import '../Experiment.scss'
 
-import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { urls } from 'scenes/urls'
+import { IconFlag } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagGroupType } from '~/types'
+import { FeatureFlagGroupType, SidePanelTab } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 
 export function ReleaseConditionsTable(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
+    const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const columns: LemonTableColumns<FeatureFlagGroupType> = [
         {
@@ -61,13 +64,18 @@ export function ReleaseConditionsTable(): JSX.Element {
 
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto mb-2">
-                        <Link
-                            target="_blank"
+                        <LemonButton
+                            icon={<IconFlag />}
+                            onClick={() => {
+                                openSidePanel(SidePanelTab.ExperimentFeatureFlag)
+                                reportExperimentReleaseConditionsViewed(experiment.id)
+                            }}
+                            type="secondary"
+                            size="xsmall"
                             className="font-semibold"
-                            to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
                         >
                             Manage release conditions
-                        </Link>
+                        </LemonButton>
                     </div>
                 </div>
             </div>

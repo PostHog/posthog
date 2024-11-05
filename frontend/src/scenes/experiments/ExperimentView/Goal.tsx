@@ -23,13 +23,15 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                 .map((event: ActionFilterType, idx: number) => (
                     <div key={idx} className="mb-2">
                         <div className="flex mb-1">
-                            <div
-                                className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ backgroundColor: 'var(--bg-table)' }}
-                            >
-                                {experimentInsightType === InsightType.FUNNELS ? (event.order || 0) + 1 : idx + 1}
-                            </div>
+                            {experimentInsightType === InsightType.FUNNELS && (
+                                <div
+                                    className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ backgroundColor: 'var(--bg-table)' }}
+                                >
+                                    {(event.order || 0) + 1}
+                                </div>
+                            )}
                             <b>
                                 <InsightLabel
                                     action={event}
@@ -238,17 +240,16 @@ export function Goal(): JSX.Element {
                         Change goal
                     </LemonButton>
                 </div>
-                {experimentInsightType === InsightType.TRENDS &&
-                    !experimentMathAggregationForTrends(experiment.filters) && (
-                        <>
-                            <LemonDivider className="" vertical />
-                            <div className="">
-                                <div className="mt-auto ml-auto">
-                                    <ExposureMetric experimentId={experimentId} />
-                                </div>
+                {experimentInsightType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
+                    <>
+                        <LemonDivider className="" vertical />
+                        <div className="">
+                            <div className="mt-auto ml-auto">
+                                <ExposureMetric experimentId={experimentId} />
                             </div>
-                        </>
-                    )}
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     )

@@ -1,32 +1,32 @@
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, cast, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Q
-from pydantic import ConfigDict, BaseModel
+from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    ExpressionField,
     FieldOrTable,
     FieldTraverser,
-    SavedQuery,
-    StringDatabaseField,
-    DatabaseField,
-    IntegerDatabaseField,
-    DateTimeDatabaseField,
-    BooleanDatabaseField,
-    StringJSONDatabaseField,
-    StringArrayDatabaseField,
-    LazyJoin,
-    VirtualTable,
-    Table,
-    DateDatabaseField,
     FloatDatabaseField,
     FunctionCallTable,
-    ExpressionField,
+    IntegerDatabaseField,
+    LazyJoin,
+    SavedQuery,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+    VirtualTable,
 )
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
@@ -34,9 +34,9 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
+    BatchExportLogEntriesTable,
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
-    BatchExportLogEntriesTable,
 )
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
@@ -60,8 +60,8 @@ from posthog.hogql.database.schema.session_replay_events import (
 )
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import (
-    SessionsTableV2,
     RawSessionsTableV2,
+    SessionsTableV2,
     join_events_table_to_sessions_table_v2,
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
@@ -167,7 +167,7 @@ class Database(BaseModel):
         raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> list[str]:
-        return self._table_names + self._warehouse_table_names
+        return self._table_names + self._warehouse_table_names + self._view_table_names
 
     def get_posthog_tables(self) -> list[str]:
         return self._table_names
@@ -213,13 +213,13 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
 def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
-    from posthog.models import Team
     from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
+    from posthog.models import Team
     from posthog.warehouse.models import (
-        DataWarehouseTable,
-        DataWarehouseSavedQuery,
         DataWarehouseJoin,
+        DataWarehouseSavedQuery,
+        DataWarehouseTable,
     )
 
     team = team_arg or Team.objects.get(pk=team_id)
@@ -238,7 +238,7 @@ def create_hogql_database(
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
         _use_person_id_from_person_overrides(database)
         _use_person_properties_from_events(database)
-        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
+        cast(VirtualTable, database.events.fields["poe"]).fields["id"] = database.events.fields["person_id"]
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
         _use_person_id_from_person_overrides(database)
@@ -268,14 +268,14 @@ def create_hogql_database(
             join_table=sessions,
             join_function=join_replay_table_to_sessions_table_v2,
         )
-        replay_events.fields["events"].join_table = events
+        cast(LazyJoin, replay_events.fields["events"]).join_table = events
         raw_replay_events = database.raw_session_replay_events
         raw_replay_events.fields["session"] = LazyJoin(
             from_field=["session_id"],
             join_table=sessions,
             join_function=join_replay_table_to_sessions_table_v2,
         )
-        raw_replay_events.fields["events"].join_table = events
+        cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"

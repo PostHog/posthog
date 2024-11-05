@@ -2,7 +2,7 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -14,6 +14,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -35,9 +36,11 @@ const Component = ({
     const { expanded } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
-    const { insightName } = useValues(
-        insightLogic({ dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : 'new' })
-    )
+
+    const insightLogicProps = {
+        dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
+    }
+    const { insightName } = useValues(insightLogic(insightLogicProps))
 
     useEffect(() => {
         let title = 'Query'
@@ -95,20 +98,24 @@ const Component = ({
     }
 
     return (
-        <div className="flex flex-1 flex-col h-full">
-            <Query
-                // use separate keys for the settings and visualization to avoid conflicts with insightProps
-                uniqueKey={nodeId + '-component'}
-                query={modifiedQuery}
-                setQuery={(t) => {
-                    updateAttributes({
-                        query: {
-                            ...attributes.query,
-                            source: (t as DataTableNode | InsightVizNode).source,
-                        } as QuerySchema,
-                    })
-                }}
-            />
+        <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+            <BindLogic logic={insightLogic} props={insightLogicProps}>
+                <Query
+                    // use separate keys for the settings and visualization to avoid conflicts with insightProps
+                    uniqueKey={nodeId + '-component'}
+                    query={modifiedQuery}
+                    setQuery={(t) => {
+                        updateAttributes({
+                            query: {
+                                ...attributes.query,
+                                source: (t as DataTableNode | InsightVizNode).source,
+                            } as QuerySchema,
+                        })
+                    }}
+                    embedded
+                    readOnly
+                />
+            </BindLogic>
         </div>
     )
 }
@@ -132,6 +139,7 @@ export const Settings = ({
             modifiedQuery.showResultsTable = false
 
             modifiedQuery.showReload = true
+            modifiedQuery.showExport = true
             modifiedQuery.showElapsedTime = false
             modifiedQuery.showTimings = false
 
@@ -235,7 +243,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             : undefined,
     Settings,
     pasteOptions: {
-        find: urls.insightView('(.+)' as InsightShortId),
+        find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
         getAttributes: async (match) => {
             return {
                 query: {

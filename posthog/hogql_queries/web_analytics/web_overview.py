@@ -28,7 +28,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.outer_select
 
     def calculate(self):
@@ -100,7 +100,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     @cached_property
     def conversion_goal_expr(self) -> ast.Expr:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId)
+            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
             return action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             return ast.CompareOperation(

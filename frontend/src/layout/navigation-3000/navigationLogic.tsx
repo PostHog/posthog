@@ -8,6 +8,7 @@ import {
     IconHome,
     IconLive,
     IconLogomark,
+    IconMegaphone,
     IconNotebook,
     IconPeople,
     IconPieChart,
@@ -409,7 +410,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               identifier: Scene.Activity,
                               label: 'Activity',
                               icon: <IconLive />,
-                              to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
+                              to: urls.activity(),
                           },
                       ]
                     : [
@@ -524,6 +525,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Data pipeline',
                                   icon: <IconDecisionTree />,
                                   to: urls.pipeline(),
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.MessagingBroadcasts,
+                                  label: 'Messaging',
+                                  icon: <IconMegaphone />,
+                                  to: urls.messagingBroadcasts(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                     ].filter(isNotNil),

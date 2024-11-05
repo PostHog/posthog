@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import uuid
 from unittest import mock
 from typing import Any, Optional
@@ -21,12 +22,17 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs, import_data_activity
-from posthog.warehouse.external_data_source.jobs import create_external_data_job
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
+    SyncNewSchemasActivityInputs,
+    sync_new_schemas_activity,
+)
+from posthog.warehouse.external_data_source.jobs import acreate_external_data_job
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
     ExternalDataJob,
     ExternalDataSource,
     ExternalDataSchema,
+    get_external_data_job,
 )
 
 from posthog.temporal.data_imports.pipelines.schemas import (
@@ -151,7 +157,7 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
         team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id
     )
 
-    run_id, _ = await activity_environment.run(create_external_data_job_model_activity, inputs)
+    run_id, _, __ = await activity_environment.run(create_external_data_job_model_activity, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()
@@ -177,7 +183,7 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
 
     inputs = CreateExternalDataJobModelActivityInputs(team_id=team.id, source_id=new_source.pk, schema_id=schema.id)
 
-    run_id, _ = await activity_environment.run(create_external_data_job_model_activity, inputs)
+    run_id, _, __ = await activity_environment.run(create_external_data_job_model_activity, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()
@@ -195,19 +201,16 @@ async def test_create_external_job_activity_update_schemas(activity_environment,
         source_type="Stripe",
     )
 
-    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+    await sync_to_async(ExternalDataSchema.objects.create)(
         name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    inputs = CreateExternalDataJobModelActivityInputs(team_id=team.id, source_id=new_source.pk, schema_id=schema.id)
+    inputs = SyncNewSchemasActivityInputs(source_id=str(new_source.pk), team_id=team.id)
 
-    run_id, _ = await activity_environment.run(create_external_data_job_model_activity, inputs)
-
-    runs = ExternalDataJob.objects.filter(id=run_id)
-    assert await sync_to_async(runs.exists)()
+    await activity_environment.run(sync_new_schemas_activity, inputs)
 
     all_schemas = await sync_to_async(get_all_schemas_for_source_id)(new_source.pk, team.id)
 
@@ -236,7 +239,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -245,12 +248,12 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error=None,
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
 
@@ -281,7 +284,7 @@ async def test_update_external_job_activity_with_retryable_error(activity_enviro
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -290,12 +293,12 @@ async def test_update_external_job_activity_with_retryable_error(activity_enviro
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error="Some other retryable error",
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
 
@@ -317,17 +320,17 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         destination_id=uuid.uuid4(),
         team=team,
         status="running",
-        source_type="Stripe",
+        source_type="Postgres",
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name="test_123",
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    new_job = await sync_to_async(create_external_data_job)(
+    new_job = await acreate_external_data_job(
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
@@ -336,12 +339,12 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error="NoSuchTableError: TableA",
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
     with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
@@ -379,9 +382,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             schema=customer_schema,
         )
 
-        new_job = await sync_to_async(
-            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get
-        )()
+        new_job = await get_external_data_job(new_job.id)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -403,16 +404,17 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
+        charge_schema = await _create_schema("Charge", new_source, team)
+
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
             team_id=team.id,
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
+            schema=charge_schema,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
-
-        charge_schema = await _create_schema("Charge", new_source, team)
+        new_job = await get_external_data_job(new_job.id)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -698,8 +700,11 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         import_data_activity,
                         create_source_templates,
                         check_billing_limits_activity,
+                        sync_new_schemas_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
+                    activity_executor=ThreadPoolExecutor(max_workers=50),
+                    max_concurrent_activities=50,
                 ):
                     await activity_environment.client.execute_workflow(
                         ExternalDataJobWorkflow.run,

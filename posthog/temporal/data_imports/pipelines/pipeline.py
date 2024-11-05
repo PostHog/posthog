@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
@@ -11,7 +12,6 @@ import asyncio
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.common.libs.deltalake import get_delta_tables
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.load.exceptions import LoadClientJobRetry
 from dlt.sources import DltSource
 from deltalake.exceptions import DeltaError
@@ -96,6 +96,9 @@ class DataImportPipeline:
         pipeline_name = self._get_pipeline_name()
         destination = self._get_destination()
 
+        dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
+        dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
+
         return dlt.pipeline(
             pipeline_name=pipeline_name, destination=destination, dataset_name=self.inputs.dataset_name, progress="log"
         )
@@ -104,9 +107,7 @@ class DataImportPipeline:
         job: ExternalDataJob = await get_external_data_job(job_id=self.inputs.run_id)
         schema: ExternalDataSchema = await aget_schema_by_id(self.inputs.schema_id, self.inputs.team_id)
 
-        normalized_schema_name = NamingConvention().normalize_identifier(schema.name)
-
-        prepare_s3_files_for_querying(job.folder_path(), normalized_schema_name, file_uris)
+        prepare_s3_files_for_querying(job.folder_path(), schema.name, file_uris)
 
     def _run(self) -> dict[str, int]:
         if self.refresh_dlt:
@@ -256,7 +257,10 @@ class DataImportPipeline:
 
     async def run(self) -> dict[str, int]:
         try:
-            return await asyncio.to_thread(self._run)
+            # Use a dedicated thread pool to not interfere with the heartbeater thread
+            with ThreadPoolExecutor(max_workers=5) as pipeline_executor:
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(pipeline_executor, self._run)
         except PipelineStepFailed as e:
             self.logger.exception(f"Data import failed for endpoint with exception {e}", exc_info=e)
             raise

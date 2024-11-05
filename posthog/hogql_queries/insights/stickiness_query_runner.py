@@ -128,8 +128,8 @@ class StickinessQueryRunner(QueryRunner):
 
         return cast(ast.SelectQuery, select_query)
 
-    def to_query(self) -> ast.SelectUnionQuery:
-        return ast.SelectUnionQuery(select_queries=self.to_queries())
+    def to_query(self) -> ast.SelectSetQuery:
+        return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
     def to_queries(self) -> list[ast.SelectQuery]:
         queries = []
@@ -170,7 +170,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(self, interval_num: Optional[int] = None) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self, interval_num: Optional[int] = None) -> ast.SelectQuery | ast.SelectSetQuery:
         queries: list[ast.SelectQuery] = []
 
         for series in self.series:
@@ -194,7 +194,7 @@ class StickinessQueryRunner(QueryRunner):
 
             queries.append(events_query)
 
-        return ast.SelectUnionQuery(select_queries=queries)
+        return ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
     def calculate(self):
         queries = self.to_queries()
@@ -276,7 +276,7 @@ class StickinessQueryRunner(QueryRunner):
             )
         elif isinstance(series, ActionsNode):
             try:
-                action = Action.objects.get(pk=int(series.id), team=self.team)
+                action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
                 filters.append(action_to_expr(action))
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events
@@ -331,7 +331,7 @@ class StickinessQueryRunner(QueryRunner):
 
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team=self.team)
+            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name
 
     def intervals_num(self):

@@ -6,7 +6,6 @@ import { CSS } from '@dnd-kit/utilities'
 import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
-    LemonCheckbox,
     LemonDivider,
     LemonMenu,
     LemonSelect,
@@ -21,8 +20,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconWithCount } from 'lib/lemon-ui/icons'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -125,6 +123,8 @@ export interface ActionFilterRowProps {
         deleteButton,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
     trendsDisplayCategory: ChartDisplayCategory | null
+    /** Whether properties shown should be limited to just numerical types */
+    showNumericalPropsOnly?: boolean
 }
 
 export function ActionFilterRow({
@@ -153,6 +153,7 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
     trendsDisplayCategory,
+    showNumericalPropsOnly,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -179,6 +180,7 @@ export function ActionFilterRow({
     const {
         math,
         math_property: mathProperty,
+        math_property_type: mathPropertyType,
         math_hogql: mathHogQL,
         math_group_type_index: mathGroupTypeIndex,
     } = filter
@@ -198,9 +200,11 @@ export function ActionFilterRow({
                       mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
                           ? mathHogQL ?? 'count()'
                           : undefined,
+                  mathPropertyType,
               }
             : {
                   math_property: undefined,
+                  mathPropertyType: undefined,
                   math_hogql: undefined,
                   math_group_type_index: undefined,
                   math: undefined,
@@ -212,11 +216,12 @@ export function ActionFilterRow({
             ...mathProperties,
         })
     }
-    const onMathPropertySelect = (_: unknown, property: string): void => {
+    const onMathPropertySelect = (_: unknown, property: string, groupType: TaxonomicFilterGroupType): void => {
         updateFilterMath({
             ...filter,
             math_hogql: undefined,
             math_property: property,
+            math_property_type: groupType,
             index,
         })
     }
@@ -225,6 +230,7 @@ export function ActionFilterRow({
         updateFilterMath({
             ...filter,
             math_property: undefined,
+            math_property_type: undefined,
             math_hogql: hogql,
             index,
         })
@@ -283,6 +289,7 @@ export function ActionFilterRow({
             placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}
+            showNumericalPropsOnly={showNumericalPropsOnly}
         />
     )
 
@@ -427,6 +434,8 @@ export function ActionFilterRow({
                                                         TaxonomicFilterGroupType.DataWarehouseProperties,
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
+                                                        TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
                                                     schemaColumns={
                                                         filter.type == TaxonomicFilterGroupType.DataWarehouse &&
@@ -437,11 +446,12 @@ export function ActionFilterRow({
                                                             : []
                                                     }
                                                     value={mathProperty}
-                                                    onChange={(currentValue) =>
-                                                        onMathPropertySelect(index, currentValue)
+                                                    onChange={(currentValue, groupType) =>
+                                                        onMathPropertySelect(index, currentValue, groupType)
                                                     }
                                                     eventNames={name ? [name] : []}
                                                     data-attr="math-property-select"
+                                                    showNumericalPropsOnly={showNumericalPropsOnly}
                                                     renderValue={(currentValue) => (
                                                         <Tooltip
                                                             title={
@@ -529,20 +539,15 @@ export function ActionFilterRow({
                                                     {
                                                         label: () => (
                                                             <>
-                                                                <LemonCheckbox
-                                                                    className="py-1 px-2 flex-row-reverse [&_svg]:ml-1 [&>label]:gap-2.5"
-                                                                    checked={math === BaseMathType.FirstTimeForUser}
-                                                                    onChange={(checked) => {
-                                                                        onMathSelect(
-                                                                            index,
-                                                                            checked
-                                                                                ? BaseMathType.FirstTimeForUser
-                                                                                : undefined
-                                                                        )
-                                                                    }}
-                                                                    data-attr={`math-first-time-for-user-${index}`}
-                                                                    label="Count by first time for user"
-                                                                    fullWidth
+                                                                <MathSelector
+                                                                    math={math}
+                                                                    mathGroupTypeIndex={mathGroupTypeIndex}
+                                                                    index={index}
+                                                                    onMathSelect={onMathSelect}
+                                                                    disabled={readOnly}
+                                                                    style={{ maxWidth: '100%', width: 'initial' }}
+                                                                    mathAvailability={mathAvailability}
+                                                                    trendsDisplayCategory={trendsDisplayCategory}
                                                                 />
                                                                 <LemonDivider />
                                                             </>
@@ -570,7 +575,7 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={math === BaseMathType.FirstTimeForUser}
+                                                visible={math !== undefined}
                                             />
                                         </div>
                                     </>
@@ -649,8 +654,13 @@ function useMathSelectorOptions({
 
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
 
-    const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
-        useValues(mathsLogic)
+    const {
+        needsUpgradeForGroups,
+        canStartUsingGroups,
+        staticMathDefinitions,
+        funnelMathDefinitions,
+        staticActorsOnlyMathDefinitions,
+    } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
         isPropertyValueMath(math) ? math : PropertyMathType.Average
@@ -659,9 +669,14 @@ function useMathSelectorOptions({
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
 
-    const options: LemonSelectOption<string>[] = Object.entries(
-        mathAvailability != MathAvailability.ActorsOnly ? staticMathDefinitions : staticActorsOnlyMathDefinitions
-    )
+    let definitions = staticMathDefinitions
+    if (mathAvailability === MathAvailability.FunnelsOnly) {
+        definitions = funnelMathDefinitions
+    } else if (mathAvailability === MathAvailability.ActorsOnly) {
+        definitions = staticActorsOnlyMathDefinitions
+    }
+
+    const options: LemonSelectOption<string>[] = Object.entries(definitions)
         .filter(([key]) => {
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
@@ -691,7 +706,7 @@ function useMathSelectorOptions({
             }
         })
 
-    if (mathAvailability !== MathAvailability.ActorsOnly) {
+    if (mathAvailability !== MathAvailability.ActorsOnly && mathAvailability !== MathAvailability.FunnelsOnly) {
         options.splice(1, 0, {
             value: countPerActorMathTypeShown,
             label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
@@ -749,12 +764,14 @@ function useMathSelectorOptions({
         })
     }
 
-    options.push({
-        value: HogQLMathType.HogQL,
-        label: 'HogQL expression',
-        tooltip: 'Aggregate events by custom SQL expression.',
-        'data-attr': `math-node-hogql-expression-${index}`,
-    })
+    if (mathAvailability !== MathAvailability.FunnelsOnly) {
+        options.push({
+            value: HogQLMathType.HogQL,
+            label: 'HogQL expression',
+            tooltip: 'Aggregate events by custom SQL expression.',
+            'data-attr': `math-node-hogql-expression-${index}`,
+        })
+    }
 
     return [
         {

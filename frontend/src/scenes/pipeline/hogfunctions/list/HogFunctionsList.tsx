@@ -5,6 +5,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
+import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { AppMetricSparkLineV2 } from 'scenes/pipeline/metrics/AppMetricsV2Sparkline'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +18,7 @@ export function HogFunctionList({
     extraControls,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
-    const { user, loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
+    const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
         hogFunctionListLogic(props)
     )
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction } = useActions(
@@ -47,15 +48,6 @@ export function HogFunctionList({
                         onChange={(e) => setFilters({ showPaused: e ?? undefined })}
                     />
                 )}
-                {(user?.is_staff || user?.is_impersonated) && typeof props.forceFilters?.showHidden !== 'boolean' && (
-                    <LemonCheckbox
-                        label="Show hidden"
-                        bordered
-                        size="small"
-                        checked={filters.showHidden}
-                        onChange={(e) => setFilters({ showHidden: e ?? undefined })}
-                    />
-                )}
                 {extraControls}
             </div>
 
@@ -81,11 +73,7 @@ export function HogFunctionList({
                             render: (_, hogFunction) => {
                                 return (
                                     <LemonTableLink
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            `hog-${hogFunction.id}`,
-                                            PipelineNodeTab.Configuration
-                                        )}
+                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">
@@ -105,6 +93,7 @@ export function HogFunctionList({
                                 return (
                                     <Link
                                         to={urls.pipelineNode(
+                                            // TODO: metrics page for emails
                                             PipelineStage.Destination,
                                             `hog-${hogFunction.id}`,
                                             PipelineNodeTab.Metrics

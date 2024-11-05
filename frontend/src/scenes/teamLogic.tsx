@@ -9,7 +9,7 @@ import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/ut
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'
@@ -143,6 +143,24 @@ export const teamLogic = kea<teamLogicType>([
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
                 resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                /**
+                 * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
+                 */
+                addProductIntent: async ({
+                    product_type,
+                    intent_context,
+                }: {
+                    product_type: ProductKey
+                    intent_context?: string | null
+                }) =>
+                    await api.update(`api/environments/${values.currentTeamId}/add_product_intent`, {
+                        product_type,
+                        intent_context: intent_context ?? undefined,
+                    }),
+                recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) =>
+                    await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
+                        product_type,
+                    }),
             },
         ],
     })),
@@ -246,7 +264,7 @@ export const teamLogic = kea<teamLogicType>([
         if (switchedTeam) {
             lemonToast.info(
                 <>
-                    You've switched to&nbsp;project
+                    You've switched to&nbsp;project{' '}
                     {values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
                         ? `${currentProject?.name}, environment ${currentTeam?.name}`
                         : currentTeam?.name}

@@ -2,7 +2,9 @@ from datetime import date, datetime, timedelta
 from typing import cast
 
 from zoneinfo import ZoneInfo
+
 from freezegun.api import freeze_time
+from parameterized import parameterized
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -16,6 +18,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_person,
     snapshot_clickhouse_queries,
+    _create_event,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -101,7 +104,11 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 7)
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
 
-    def test_only_one_user_reached_one_step(self):
+    @parameterized.expand(["US/Pacific", "UTC"])
+    def test_only_one_user_reached_one_step(self, timezone):
+        self.team.timezone = timezone
+        self.team.save()
+
         journeys_for(
             {"user a": [{"event": "step one", "timestamp": datetime(2021, 6, 7, 19)}]},
             self.team,
@@ -133,43 +140,43 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     "reached_to_step_count": 0,
                     "conversion_rate": 0.0,
                     "reached_from_step_count": 1,
-                    "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
                 },
                 {
                     "reached_to_step_count": 0,
                     "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
                 },
             ],
         )
@@ -292,7 +299,11 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, len(results))
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
-    def test_month_interval(self):
+    @parameterized.expand(["US/Pacific", "UTC"])
+    def test_month_interval(self, timezone):
+        self.team.timezone = timezone
+        self.team.save()
+
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "trends",
@@ -344,15 +355,15 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     "timestamp": date(2020, 3, 1),
                 },
                 {
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "reached_to_step_count": 0,
+                    "conversion_rate": 100.0 if timezone == "US/Pacific" else 0.0,
+                    "reached_from_step_count": 1 if timezone == "US/Pacific" else 0,
+                    "reached_to_step_count": 1 if timezone == "US/Pacific" else 0,
                     "timestamp": date(2020, 4, 1),
                 },
                 {
-                    "conversion_rate": 100.0,
-                    "reached_from_step_count": 1,
-                    "reached_to_step_count": 1,
+                    "conversion_rate": 100.0 if timezone == "UTC" else 0.0,
+                    "reached_from_step_count": 1 if timezone == "UTC" else 0,
+                    "reached_to_step_count": 1 if timezone == "UTC" else 0,
                     "timestamp": date(2020, 5, 1),
                 },
                 {
@@ -369,8 +380,8 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
-
-        persons = self._get_actors_at_step(filters, "2020-05-01 00:00:00", False)
+        entrance_period_start = "2020-05-01 00:00:00" if timezone == "UTC" else "2020-04-01 00:00:00"
+        persons = self._get_actors_at_step(filters, entrance_period_start, False)
 
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
@@ -1612,6 +1623,724 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(len(results), 1)
+
+    def test_short_exclusions(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "exclusion",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                    },
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 1, 0, 0),
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 1, 0, 29),
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 30,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual([100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], results[0]["data"])
+
+    def test_funnel_exclusion_no_end_event(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "funnel_window_interval": 1,
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-14 00:00:00",
+            "exclusions": [
+                {
+                    "id": "x",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        # person 1
+        _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person1",
+            timestamp="2021-05-01 01:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="person1",
+            timestamp="2021-05-01 02:00:00",
+        )
+
+        # person 2
+        _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person2",
+            timestamp="2021-05-01 03:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="x",
+            distinct_id="person2",
+            timestamp="2021-05-01 03:30:00",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="person2",
+            timestamp="2021-05-01 04:00:00",
+        )
+
+        # person 3
+        _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+        # should be discarded, even if nothing happened after x, since within conversion window
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person3",
+            timestamp="2021-05-01 05:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="x",
+            distinct_id="person3",
+            timestamp="2021-05-01 06:00:00",
+        )
+
+        # person 4 - outside conversion window
+        _create_person(distinct_ids=["person4"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person4",
+            timestamp="2021-05-01 07:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="x",
+            distinct_id="person4",
+            timestamp="2021-05-02 08:00:00",
+        )
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(len(results), 1)
+        # person2 and person3 should be excluded, person 1 and 4 should make it
+        self.assertEqual([50, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], results[0]["data"])
+
+    def test_funnel_exclusion_multiple_possible_no_end_event1(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "exclusion",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    },
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
+
+    def test_funnel_exclusion_multiple_possible_no_end_event2(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 31),
+                    },
+                    {
+                        "event": "exclusion",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 32),
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
+
+    def test_funnel_exclusion_multiple_possible_no_end_event3(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+                    },
+                    {
+                        "event": "exclusion",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(0, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
+
+    def test_exclusion_after_goal(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+            },
+            {
+                "event": "step three",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 3),
+            },
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 4),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 5),
+            },
+            {
+                "event": "exclusion",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 6),
+            },
+            {
+                "event": "step three",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 7),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 1,
+                    "funnel_to_step": 2,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(1, results[0]["reached_to_step_count"])
+
+    def test_exclusion_multiday_completion_on_first_day(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+            },
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 4),
+            },
+            {
+                "event": "exclusion",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 5),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 6),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(1, results[0]["reached_to_step_count"])
+        self.assertEqual(0, results[1]["reached_from_step_count"])
+        self.assertEqual(0, results[1]["reached_to_step_count"])
+
+    def test_exclusion_multiday_completion_on_second_day(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+            },
+            {
+                "event": "exclusion",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 2),
+            },
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 4),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 6),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(0, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
+        self.assertEqual(1, results[1]["reached_from_step_count"])
+        self.assertEqual(1, results[1]["reached_to_step_count"])
+
+    # When there is a partial match and then an exclusion, the partial match gets dropped
+    # When there is a full match and then an exclusion, the full match doesn't get dropped
+    def test_exclusion_multiday_partial_first_day_exclusion_second_day(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 2, 0, 0, 30),
+                    },
+                    {
+                        "event": "exclusion",
+                        "timestamp": datetime(2021, 5, 2, 0, 0, 31),
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 2, 0, 0, 32),
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(0, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
+        self.assertEqual(0, results[1]["reached_from_step_count"])
+        self.assertEqual(0, results[1]["reached_to_step_count"])
+
+    def test_exclusion_multiday_partial_first_day_open_exclusion_second_day(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+                    },
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 2, 0, 0, 30),
+                    },
+                    {
+                        "event": "exclusion",
+                        "timestamp": datetime(2021, 5, 2, 0, 0, 31),
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
+        self.assertEqual(0, results[1]["reached_from_step_count"])
+        self.assertEqual(0, results[1]["reached_to_step_count"])
+
+    def test_open_exclusion_multiday(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 1),
+            },
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 4),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 5),
+            },
+            {
+                "event": "exclusion",
+                "timestamp": datetime(2021, 5, 2, 0, 0, 6),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 1,
+                    "funnel_to_step": 2,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
+        self.assertEqual(0, results[1]["reached_from_step_count"])
+        self.assertEqual(0, results[1]["reached_to_step_count"])
+
+    def test_excluded_completion(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+            },
+            # Exclusion happens after time expires
+            {
+                "event": "exclusion",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 11),
+            },
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 12),
+            },
+            {
+                "event": "exclusion",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 13),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 14),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(0, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
 
 
 class TestFunnelTrends(BaseTestFunnelTrends):

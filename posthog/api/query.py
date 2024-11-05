@@ -1,4 +1,3 @@
-import json
 import re
 import uuid
 
@@ -12,7 +11,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception, set_tag
 
-from ee.hogai.generate_trends_agent import Conversation, GenerateTrendsAgent
+from ee.hogai.assistant import Assistant
+from ee.hogai.utils import Conversation
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
@@ -28,17 +28,27 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
-    HogQLQueryThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    HogQLQueryThrottle,
 )
-from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
+from posthog.schema import (
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    HumanMessage,
+    QueryRequest,
+    QueryResponseAlternative,
+    QueryStatusResponse,
+)
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -78,6 +88,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             data.query = apply_dashboard_filters_to_dict(
                 data.query.model_dump(), data.filters_override.model_dump(), self.team
             )  # type: ignore
+
+        if data.variables_override is not None:
+            if isinstance(data.query, BaseModel):
+                query_as_dict = data.query.model_dump()
+            else:
+                query_as_dict = data.query
+
+            data.query = apply_dashboard_variables_to_dict(query_as_dict, data.variables_override, self.team)  # type: ignore
 
         client_query_id = data.client_query_id or uuid.uuid4().hex
         execution_mode = execution_mode_from_refresh(data.refresh)
@@ -168,25 +186,29 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def chat(self, request: Request, *args, **kwargs):
         assert request.user is not None
         validated_body = Conversation.model_validate(request.data)
-        chain = GenerateTrendsAgent(self.team).bootstrap(validated_body.messages)
+        assistant = Assistant(self.team)
 
         def generate():
             last_message = None
-            for message in chain.stream({"question": validated_body.messages[0].content}):
-                if message:
-                    last_message = message[0].model_dump_json()
-                    yield last_message
+            for message in assistant.stream(validated_body):
+                last_message = message
+                if isinstance(message, AssistantGenerationStatusEvent):
+                    yield f"event: {AssistantEventType.STATUS}\n"
+                else:
+                    yield f"event: {AssistantEventType.MESSAGE}\n"
+                yield f"data: {message.model_dump_json()}\n\n"
 
-            if not last_message:
-                yield json.dumps({"reasoning_steps": ["Schema validation failed"]})
+            human_message = validated_body.messages[-1].root
+            if isinstance(human_message, HumanMessage):
+                report_user_action(
+                    request.user,  # type: ignore
+                    "chat with ai",
+                    {"prompt": human_message.content, "response": last_message},
+                )
 
-            report_user_action(
-                request.user,  # type: ignore
-                "chat with ai",
-                {"prompt": validated_body.messages[-1].content, "response": last_message},
-            )
-
-        return StreamingHttpResponse(generate(), content_type=ServerSentEventRenderer.media_type)
+        return StreamingHttpResponse(
+            generate(), content_type=ServerSentEventRenderer.media_type, headers={"X-Accel-Buffering": "no"}
+        )
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

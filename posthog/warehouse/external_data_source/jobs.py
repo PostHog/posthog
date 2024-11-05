@@ -9,7 +9,8 @@ def get_external_data_source(team_id: str, external_data_source_id: str) -> Exte
     return ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
 
 
-def create_external_data_job(
+@database_sync_to_async
+def acreate_external_data_job(
     external_data_source_id: UUID,
     external_data_schema_id: UUID,
     workflow_id: str,
@@ -27,6 +28,15 @@ def create_external_data_job(
     )
 
     return job
+
+
+@database_sync_to_async
+def aget_running_job_for_schema(schema_id: str) -> ExternalDataJob | None:
+    return (
+        ExternalDataJob.objects.filter(schema_id=schema_id, status=ExternalDataJob.Status.RUNNING)
+        .order_by("-created_at")
+        .first()
+    )
 
 
 @database_sync_to_async

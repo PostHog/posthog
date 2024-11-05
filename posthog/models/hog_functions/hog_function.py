@@ -31,6 +31,19 @@ class HogFunctionState(enum.Enum):
     DISABLED_PERMANENTLY = 4
 
 
+class HogFunctionType(models.TextChoices):
+    DESTINATION = "destination"
+    EMAIL = "email"
+    SMS = "sms"
+    PUSH = "push"
+    ACTIVITY = "activity"
+    ALERT = "alert"
+    BROADCAST = "broadcast"
+
+
+TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
+
+
 class HogFunction(UUIDModel):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400, null=True, blank=True)
@@ -40,6 +53,7 @@ class HogFunction(UUIDModel):
     deleted = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
+    type = models.CharField(max_length=24, choices=HogFunctionType.choices, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
     hog = models.TextField()
@@ -140,7 +154,8 @@ class HogFunction(UUIDModel):
 
 @receiver(post_save, sender=HogFunction)
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
-    reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+    if instance.type is None or instance.type in TYPES_THAT_RELOAD_PLUGIN_SERVER:
+        reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
 
 
 @receiver(post_save, sender=Action)

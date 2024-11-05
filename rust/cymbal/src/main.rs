@@ -1,4 +1,4 @@
-use std::{future::ready, sync::Arc};
+use std::{collections::HashMap, future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::RecvErr;
@@ -8,7 +8,9 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     error::Error,
-    symbols::types::{PropertyView, RawFrame},
+    fingerprinting,
+    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
+    types::{ErrProps, Stacktrace},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -59,10 +61,11 @@ async fn main() -> Result<(), Error> {
     start_health_liveness_server(&config, context.clone());
 
     loop {
+        let whole_loop = common_metrics::timing_guard(MAIN_LOOP_TIME, &[]);
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let (event, offset): (ClickHouseEvent, _) = match context.consumer.json_recv().await {
+        let (event, offset): (ClickHouseEvent, _) = match context.kafka_consumer.json_recv().await {
             Ok(r) => r,
             Err(RecvErr::Kafka(e)) => {
                 return Err(e.into()); // Just die if we recieve a Kafka error
@@ -70,12 +73,12 @@ async fn main() -> Result<(), Error> {
             Err(err) => {
                 // If we failed to parse the message, or it was empty, just log and continue, our
                 // consumer has already stored the offset for us.
-                metrics::counter!("cymbal_errors", "cause" => "recv_err").increment(1);
+                metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
                 error!("Error receiving message: {:?}", err);
                 continue;
             }
         };
-        metrics::counter!("cymbal_events_received").increment(1);
+        metrics::counter!(EVENT_RECEIVED).increment(1);
 
         offset.store().unwrap();
 
@@ -85,31 +88,69 @@ async fn main() -> Result<(), Error> {
         }
 
         let Some(properties) = &event.properties else {
-            metrics::counter!("cymbal_errors", "cause" => "no_properties").increment(1);
+            metrics::counter!(ERRORS, "cause" => "no_properties").increment(1);
             continue;
         };
 
-        let properties: PropertyView = match serde_json::from_str(properties) {
+        let properties: ErrProps = match serde_json::from_str(properties) {
             Ok(r) => r,
             Err(err) => {
-                metrics::counter!("cymbal_errors", "cause" => "invalid_exception_properties")
-                    .increment(1);
+                metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
                 error!("Error parsing properties: {:?}", err);
                 continue;
             }
         };
 
-        let _stack_trace: Vec<RawFrame> =
-            match serde_json::from_str(&properties.exception_stack_trace_raw) {
-                Ok(r) => r,
-                Err(err) => {
-                    metrics::counter!("cymbal_errors", "cause" => "invalid_stack_trace")
-                        .increment(1);
-                    error!("Error parsing stack trace: {:?}", err);
-                    continue;
-                }
+        let Some(mut exception_list) = properties.exception_list else {
+            // Known issue that $exception_list didn't exist on old clients
+            continue;
+        };
+
+        if exception_list.is_empty() {
+            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
+            continue;
+        }
+
+        for exception in exception_list.iter_mut() {
+            let stack = std::mem::take(&mut exception.stack);
+            let Some(Stacktrace::Raw { frames }) = stack else {
+                continue;
             };
 
-        metrics::counter!("cymbal_stack_track_processed").increment(1);
+            if frames.is_empty() {
+                metrics::counter!(ERRORS, "cause" => "no_frames").increment(1);
+                continue;
+            }
+
+            let team_id = event.team_id;
+            let mut results = Vec::with_capacity(frames.len());
+
+            // Cluster the frames by symbol set
+            let mut groups = HashMap::new();
+            for (i, frame) in frames.into_iter().enumerate() {
+                let group = groups
+                    .entry(frame.symbol_set_group_key())
+                    .or_insert_with(Vec::new);
+                group.push((i, frame.clone()));
+            }
+
+            for (_, frames) in groups.into_iter() {
+                context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
+                for (i, frame) in frames {
+                    results.push((i, frame.resolve(team_id, &context.catalog).await?));
+                }
+            }
+
+            results.sort_unstable_by_key(|(i, _)| *i);
+
+            exception.stack = Some(Stacktrace::Resolved {
+                frames: results.into_iter().map(|(_, frame)| frame).collect(),
+            });
+        }
+
+        let _fingerprint = fingerprinting::generate_fingerprint(&exception_list);
+
+        metrics::counter!(STACK_PROCESSED).increment(1);
+        whole_loop.label("had_frame", "true").fin();
     }
 }

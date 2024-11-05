@@ -19,6 +19,7 @@ from posthog.warehouse.models.util import (
 )
 from posthog.hogql.database.s3_table import S3Table
 from posthog.warehouse.util import database_sync_to_async
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def validate_saved_query_name(value):
@@ -45,6 +46,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         """Possible states of this SavedQuery."""
 
         CANCELLED = "Cancelled"
+        MODIFIED = "Modified"  # if the model definition has changed and hasn't been materialized since
         COMPLETED = "Completed"
         FAILED = "Failed"
         RUNNING = "Running"
@@ -137,9 +139,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     @property
     def url_pattern(self):
-        return (
-            f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.name}"
-        )
+        normalized_name = NamingConvention().normalize_identifier(self.name)
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{normalized_name}"
 
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING

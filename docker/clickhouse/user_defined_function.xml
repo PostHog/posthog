@@ -1,6 +1,6 @@
 <functions>
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel</name>
         <return_type>Array(Tuple(Int8, Nullable(String), Array(Float64), Array(Array(UUID))))</return_type>
         <return_name>result</return_name>
@@ -29,12 +29,12 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_cohort</name>
         <return_type>Array(Tuple(Int8, UInt64, Array(Float64), Array(Array(UUID))))</return_type>
         <return_name>result</return_name>
@@ -63,12 +63,12 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_array</name>
         <return_type>Array(Tuple(Int8, Array(String), Array(Float64), Array(Array(UUID))))</return_type>
         <return_name>result</return_name>
@@ -97,12 +97,12 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_test</name>
         <return_type>String</return_type>
         <return_name>result</return_name>
@@ -136,9 +136,9 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_trends</name>
-        <return_type>Array(Tuple(DateTime, Int8, Nullable(String)))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, Nullable(String), UUID))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -169,19 +169,19 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Nullable(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_trends.py</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_array_trends</name>
         <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
-        <return_type>Array(Tuple(DateTime, Int8, Array(String)))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, Array(String), UUID))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -208,19 +208,19 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Array(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_array_trends.py</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_cohort_trends</name>
         <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
-        <return_type>Array(Tuple(DateTime, Int8, UInt64))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, UInt64, UUID))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -247,16 +247,16 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), UInt64, Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_cohort_trends.py</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_array_trends_test</name>
         <return_type>String</return_type>
         <return_name>result</return_name>
@@ -285,7 +285,7 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Array(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>

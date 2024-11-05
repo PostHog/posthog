@@ -57,6 +57,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.Billing]: () => import('./billing/Billing'),
+    [Scene.BillingAuthorizationStatus]: () => import('./billing/AuthorizationStatus'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
@@ -76,4 +77,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
+    [Scene.MessagingProviders]: () => import('./messaging/Providers'),
+    [Scene.MessagingBroadcasts]: () => import('./messaging/Broadcasts'),
 }

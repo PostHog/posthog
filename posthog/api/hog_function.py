@@ -3,6 +3,7 @@ from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
+from loginas.utils import is_impersonated_session
 
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
@@ -22,6 +23,7 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
@@ -43,6 +45,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
         model = HogFunction
         fields = [
             "id",
+            "type",
             "name",
             "description",
             "created_at",
@@ -80,6 +83,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         model = HogFunction
         fields = [
             "id",
+            "type",
             "name",
             "description",
             "created_at",
@@ -136,16 +140,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     {"template_id": "The Data Pipelines addon is required for this template."}
                 )
 
-            if attrs.get("hog"):
-                raise serializers.ValidationError(
-                    {"hog": "The Data Pipelines addon is required to create custom functions."}
-                )
-
-            if attrs.get("inputs_schema"):
-                raise serializers.ValidationError(
-                    {"inputs_schema": "The Data Pipelines addon is required to create custom functions."}
-                )
-
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
@@ -174,6 +168,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])
+
+        if "type" not in attrs:
+            attrs["type"] = "destination"
 
         return super().validate(attrs)
 
@@ -234,7 +231,8 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            type = self.request.GET.get("type", "destination")
+            queryset = queryset.filter(deleted=False, type=type)
 
         if self.request.GET.get("filters"):
             try:
@@ -306,3 +304,41 @@ class HogFunctionViewSet(
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=serializer.instance.id,
+            scope="HogFunction",
+            activity="created",
+            detail=Detail(name=serializer.instance.name, type=serializer.instance.type or "destination"),
+        )
+
+    def perform_update(self, serializer):
+        instance_id = serializer.instance.id
+
+        try:
+            before_update = HogFunction.objects.get(pk=instance_id)
+        except HogFunction.DoesNotExist:
+            before_update = None
+
+        serializer.save()
+
+        changes = changes_between("HogFunction", previous=before_update, current=serializer.instance)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=instance_id,
+            scope="HogFunction",
+            activity="updated",
+            detail=Detail(
+                changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
+            ),
+        )

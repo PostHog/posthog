@@ -1,6 +1,6 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, Realm } from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -82,6 +82,7 @@ export type SettingId =
     | 'organization-rbac'
     | 'organization-delete'
     | 'organization-proxy'
+    | 'product-description'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -96,6 +97,7 @@ export type SettingId =
     | 'bounce-rate-page-view-mode'
     | 'session-table-version'
     | 'web-vitals-autocapture'
+    | 'dead-clicks-autocapture'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -110,6 +112,7 @@ export type Setting = {
      */
     flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     features?: AvailableFeature[]
+    hideOn?: Realm[]
 }
 
 export type SettingSection = {

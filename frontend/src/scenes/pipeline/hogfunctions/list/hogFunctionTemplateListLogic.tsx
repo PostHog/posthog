@@ -5,10 +5,10 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
-import { urls } from 'scenes/urls'
 
-import { HogFunctionTemplateType, PipelineStage } from '~/types'
+import { HogFunctionTemplateType, HogFunctionTypeType } from '~/types'
 
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
 
@@ -22,6 +22,7 @@ export type HogFunctionTemplateListFilters = {
 }
 
 export type HogFunctionTemplateListLogicProps = {
+    type: HogFunctionTypeType
     defaultFilters?: HogFunctionTemplateListFilters
     forceFilters?: HogFunctionTemplateListFilters
     syncFiltersWithUrl?: boolean
@@ -29,7 +30,7 @@ export type HogFunctionTemplateListLogicProps = {
 
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
     props({} as HogFunctionTemplateListLogicProps),
-    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
+    key((props) => `${props.syncFiltersWithUrl ? 'scene' : 'default'}/${props.type ?? 'destination'}`),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect({
         values: [pipelineAccessLogic, ['canEnableNewDestinations'], featureFlagLogic, ['featureFlags']],
@@ -53,12 +54,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
     })),
-    loaders(() => ({
+    loaders(({ props }) => ({
         rawTemplates: [
             [] as HogFunctionTemplateType[],
             {
                 loadHogFunctionTemplates: async () => {
-                    return (await api.hogFunctions.listTemplates()).results
+                    return (await api.hogFunctions.listTemplates(props.type)).results
                 },
             },
         ],
@@ -125,7 +126,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     const subTemplateId = filters.subTemplateId
 
                     return combineUrl(
-                        urls.pipelineNodeNew(PipelineStage.Destination, `hog-${template.id}`),
+                        hogFunctionNewUrl(template.type, template.id),
                         {
                             sub_template: subTemplateId,
                         },

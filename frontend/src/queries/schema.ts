@@ -9,14 +9,13 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
-    CohortPropertyFilter,
     CountPerActorMathType,
-    DurationType,
     EventPropertyFilter,
     EventType,
     FeaturePropertyFilter,
     FilterLogicalOperator,
     FilterType,
+    FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
     GroupPropertyFilter,
@@ -99,11 +98,17 @@ export enum NodeKind {
     WebGoalsQuery = 'WebGoalsQuery',
 
     // Experiment queries
-    ExperimentFunnelQuery = 'ExperimentFunnelQuery',
-    ExperimentTrendQuery = 'ExperimentTrendQuery',
+    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentTrendsQuery = 'ExperimentTrendsQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
+
+    // AI queries
+    SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
+    TeamTaxonomyQuery = 'TeamTaxonomyQuery',
+    EventTaxonomyQuery = 'EventTaxonomyQuery',
+    ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -126,8 +131,8 @@ export type AnyDataNode =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentFunnelQuery
-    | ExperimentTrendQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
 
 /**
  * @discriminator kind
@@ -154,8 +159,8 @@ export type QuerySchema =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentFunnelQuery
-    | ExperimentTrendQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -163,7 +168,7 @@ export type QuerySchema =
     | SavedInsightNode
     | InsightVizNode
 
-    // New queries, not yet implemented
+    // Classic insights
     | TrendsQuery
     | FunnelsQuery
     | RetentionQuery
@@ -174,6 +179,12 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+
+    // AI
+    | SuggestedQuestionsQuery
+    | TeamTaxonomyQuery
+    | EventTaxonomyQuery
+    | ActorsPropertyTaxonomyQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -301,6 +312,18 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
+export type RecordingOrder =
+    | 'duration'
+    | 'recording_duration'
+    | 'inactive_seconds'
+    | 'active_seconds'
+    | 'start_time'
+    | 'console_error_count'
+    | 'click_count'
+    | 'keypress_count'
+    | 'mouse_activity_count'
+    | 'activity_score'
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     date_from?: string | null
@@ -314,13 +337,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
-    order:
-        | DurationType
-        | 'start_time'
-        | 'console_error_count'
-        | 'click_count'
-        | 'keypress_count'
-        | 'mouse_activity_count'
+    order?: RecordingOrder
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>
@@ -342,6 +359,36 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
     query_status?: never
 }
+
+export type AutocompleteCompletionItemKind =
+    | 'Method'
+    | 'Function'
+    | 'Constructor'
+    | 'Field'
+    | 'Variable'
+    | 'Class'
+    | 'Struct'
+    | 'Interface'
+    | 'Module'
+    | 'Property'
+    | 'Event'
+    | 'Operator'
+    | 'Unit'
+    | 'Value'
+    | 'Constant'
+    | 'Enum'
+    | 'EnumMember'
+    | 'Keyword'
+    | 'Text'
+    | 'Color'
+    | 'File'
+    | 'Reference'
+    | 'Customcolor'
+    | 'Folder'
+    | 'TypeParameter'
+    | 'User'
+    | 'Issue'
+    | 'Snippet'
 
 export interface AutocompleteCompletionItem {
     /**
@@ -368,35 +415,7 @@ export interface AutocompleteCompletionItem {
      * The kind of this completion item. Based on the kind
      * an icon is chosen by the editor.
      */
-    kind:
-        | 'Method'
-        | 'Function'
-        | 'Constructor'
-        | 'Field'
-        | 'Variable'
-        | 'Class'
-        | 'Struct'
-        | 'Interface'
-        | 'Module'
-        | 'Property'
-        | 'Event'
-        | 'Operator'
-        | 'Unit'
-        | 'Value'
-        | 'Constant'
-        | 'Enum'
-        | 'EnumMember'
-        | 'Keyword'
-        | 'Text'
-        | 'Color'
-        | 'File'
-        | 'Reference'
-        | 'Customcolor'
-        | 'Folder'
-        | 'TypeParameter'
-        | 'User'
-        | 'Issue'
-        | 'Snippet'
+    kind: AutocompleteCompletionItemKind
 }
 
 export interface HogQLAutocompleteResponse {
@@ -456,13 +475,20 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     endPosition: integer
 }
 
-export type MathType = BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
+export type MathType =
+    | BaseMathType
+    | FunnelMathType
+    | PropertyMathType
+    | CountPerActorMathType
+    | GroupMathType
+    | HogQLMathType
 
 export interface EntityNode extends Node {
     name?: string
     custom_name?: string
     math?: MathType
     math_property?: string
+    math_property_type?: string
     math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
@@ -594,8 +620,8 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
-                    | ExperimentFunnelQuery
-                    | ExperimentTrendQuery
+                    | ExperimentFunnelsQuery
+                    | ExperimentTrendsQuery
                 )['response']
             >
         >,
@@ -615,8 +641,8 @@ export interface DataTableNode
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-        | ExperimentFunnelQuery
-        | ExperimentTrendQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -644,6 +670,7 @@ export interface ChartSettingsFormatting {
 }
 
 export interface ChartSettingsDisplay {
+    color?: string
     label?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
@@ -818,6 +845,8 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /** @default false */
+    showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
@@ -878,25 +907,11 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
 export type AIPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
-    // | ElementPropertyFilter
     | SessionPropertyFilter
-    | CohortPropertyFilter
-    // | RecordingPropertyFilter
-    // | LogEntryPropertyFilter
-    // | HogQLPropertyFilter
-    // | EmptyPropertyFilter
-    // | DataWarehousePropertyFilter
-    // | DataWarehousePersonPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
 
 export interface AIEventsNode
-    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
-    properties?: AIPropertyFilter[]
-    fixedProperties?: AIPropertyFilter[]
-}
-
-export interface AIActionsNode
     extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
     properties?: AIPropertyFilter[]
     fixedProperties?: AIPropertyFilter[]
@@ -911,7 +926,7 @@ export interface ExperimentalAITrendsQuery {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AIEventsNode | AIActionsNode)[]
+    series: AIEventsNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -1164,6 +1179,7 @@ export type LifecycleFilter = {
 export type RefreshType =
     | boolean
     | 'async'
+    | 'async_except_on_cache_miss'
     | 'blocking'
     | 'force_async'
     | 'force_blocking'
@@ -1205,6 +1221,7 @@ export interface QueryRequest {
      */
     query: QuerySchema
     filters_override?: DashboardFilter
+    variables_override?: Record<string, Record<string, any>>
 }
 
 /**
@@ -1399,11 +1416,12 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     includeLCPScore?: boolean
 }
 
+export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage'
 export interface WebOverviewItem {
     key: string
     value?: number
     previous?: number
-    kind: 'unit' | 'duration_s' | 'percentage'
+    kind: WebOverviewItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
 }
@@ -1579,42 +1597,67 @@ export type InsightQueryNode =
     | StickinessQuery
     | LifecycleQuery
 
-export interface ExperimentVariantTrendResult {
+export interface ExperimentVariantTrendsBaseStats {
+    key: string
     count: number
     exposure: number
+    absolute_exposure: number
 }
 
-export interface ExperimentVariantFunnelResult {
+export interface ExperimentVariantFunnelsBaseStats {
     key: string
     success_count: number
     failure_count: number
 }
 
-export interface ExperimentTrendQueryResponse {
-    insight: InsightType.TRENDS
-    results: Record<string, ExperimentVariantTrendResult>
+export enum ExperimentSignificanceCode {
+    Significant = 'significant',
+    NotEnoughExposure = 'not_enough_exposure',
+    LowWinProbability = 'low_win_probability',
+    HighLoss = 'high_loss',
+    HighPValue = 'high_p_value',
 }
 
-export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
-
-export interface ExperimentFunnelQueryResponse {
-    insight: InsightType.FUNNELS
-    results: Record<string, ExperimentVariantFunnelResult>
+export interface ExperimentTrendsQueryResponse {
+    kind: NodeKind.ExperimentTrendsQuery
+    insight: Record<string, any>[]
+    count_query?: TrendsQuery
+    exposure_query?: TrendsQuery
+    variants: ExperimentVariantTrendsBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    p_value: number
+    credible_intervals: Record<string, [number, number]>
 }
 
-export type CachedExperimentFunnelQueryResponse = CachedQueryResponse<ExperimentFunnelQueryResponse>
+export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
 
-export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
-    kind: NodeKind.ExperimentFunnelQuery
-    source: FunnelsQuery
+export interface ExperimentFunnelsQueryResponse {
+    kind: NodeKind.ExperimentFunnelsQuery
+    insight: Record<string, any>[][]
+    funnels_query?: FunnelsQuery
+    variants: ExperimentVariantFunnelsBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    expected_loss: number
+    credible_intervals: Record<string, [number, number]>
+}
+
+export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
+
+export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
+    kind: NodeKind.ExperimentFunnelsQuery
+    funnels_query: FunnelsQuery
     experiment_id: integer
 }
 
-export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
-    kind: NodeKind.ExperimentTrendQuery
+export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
+    kind: NodeKind.ExperimentTrendsQuery
     count_query: TrendsQuery
     // Defaults to $feature_flag_called if not specified
-    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trend_query_runner.py
+    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
     experiment_id: integer
 }
@@ -1943,25 +1986,38 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
 }
 
-export interface InsightsThresholdAbsolute {
+export interface InsightsThresholdBounds {
     lower?: number
     upper?: number
 }
 
+export enum InsightThresholdType {
+    ABSOLUTE = 'absolute',
+    PERCENTAGE = 'percentage',
+}
+
 export interface InsightThreshold {
-    absoluteThreshold?: InsightsThresholdAbsolute
-    // More types of thresholds or conditions can be added here
+    type: InsightThresholdType
+    bounds?: InsightsThresholdBounds
+}
+
+export enum AlertConditionType {
+    ABSOLUTE_VALUE = 'absolute_value', // default alert, checks absolute value of current interval
+    RELATIVE_INCREASE = 'relative_increase', // checks increase in value during current interval compared to previous interval
+    RELATIVE_DECREASE = 'relative_decrease', // checks decrease in value during current interval compared to previous interval
 }
 
 export interface AlertCondition {
     // Conditions in addition to the separate threshold
     // TODO: Think about things like relative thresholds, rate of change, etc.
+    type: AlertConditionType
 }
 
 export enum AlertState {
     FIRING = 'Firing',
     NOT_FIRING = 'Not firing',
     ERRORED = 'Errored',
+    SNOOZED = 'Snoozed',
 }
 
 export enum AlertCalculationInterval {
@@ -1978,4 +2034,108 @@ export interface TrendsAlertConfig {
 
 export interface HogCompileResponse {
     bytecode: any[]
+}
+
+export interface SuggestedQuestionsQuery extends DataNode<SuggestedQuestionsQueryResponse> {
+    kind: NodeKind.SuggestedQuestionsQuery
+}
+
+export interface SuggestedQuestionsQueryResponse {
+    questions: string[]
+}
+
+export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<SuggestedQuestionsQueryResponse>
+
+export interface TeamTaxonomyItem {
+    event: string
+    count: integer
+}
+
+export type TeamTaxonomyResponse = TeamTaxonomyItem[]
+
+export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
+    kind: NodeKind.TeamTaxonomyQuery
+}
+
+export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse>
+
+export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
+
+export interface EventTaxonomyItem {
+    property: string
+    sample_values: string[]
+    sample_count: integer
+}
+
+export type EventTaxonomyResponse = EventTaxonomyItem[]
+
+export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
+    kind: NodeKind.EventTaxonomyQuery
+    event: string
+}
+
+export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
+
+export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
+
+export interface ActorsPropertyTaxonomyResponse {
+    // Values can be floats and integers. The comment below is to preserve the `integer` type.
+    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    sample_values: (string | number | boolean | integer)[]
+    sample_count: integer
+}
+
+export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
+    kind: NodeKind.ActorsPropertyTaxonomyQuery
+    property: string
+    group_type_index?: integer
+}
+
+export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
+
+export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
+
+export enum AssistantMessageType {
+    Human = 'human',
+    Assistant = 'ai',
+    Visualization = 'ai/viz',
+    Failure = 'ai/failure',
+}
+
+export interface HumanMessage {
+    type: AssistantMessageType.Human
+    content: string
+}
+
+export interface AssistantMessage {
+    type: AssistantMessageType.Assistant
+    content: string
+}
+
+export interface VisualizationMessage {
+    type: AssistantMessageType.Visualization
+    plan?: string
+    reasoning_steps?: string[] | null
+    answer?: ExperimentalAITrendsQuery
+}
+
+export interface FailureMessage {
+    type: AssistantMessageType.Failure
+    content?: string
+}
+
+export type RootAssistantMessage = VisualizationMessage | AssistantMessage | HumanMessage | FailureMessage
+
+export enum AssistantEventType {
+    Status = 'status',
+    Message = 'message',
+}
+
+export enum AssistantGenerationStatusType {
+    Acknowledged = 'ack',
+    GenerationError = 'generation_error',
+}
+
+export interface AssistantGenerationStatusEvent {
+    type: AssistantGenerationStatusType
 }

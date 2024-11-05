@@ -10,15 +10,20 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.geoip import get_geoip_properties
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
-from posthog.api.utils import get_project_id, get_token, hostname_in_allowed_url_list, parse_domain
+from posthog.api.utils import (
+    get_project_id,
+    get_token,
+    hostname_in_allowed_url_list,
+    parse_domain,
+)
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
-    UnspecifiedCompressionFallbackParsingError,
     RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
+from posthog.geoip import get_geoip_properties
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
@@ -217,6 +222,8 @@ def get_decide(request: HttpRequest):
             else:
                 response["featureFlags"] = {}
 
+            response["captureDeadClicks"] = True if team.capture_dead_clicks else False
+
             capture_network_timing = True if team.capture_performance_opt_in else False
             capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
             autocapture_web_vitals_allowed_metrics = None
@@ -265,7 +272,11 @@ def get_decide(request: HttpRequest):
             response["sessionRecording"] = _session_recording_config_response(request, team, token)
 
             if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
-                from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+                from ee.billing.quota_limiting import (
+                    QuotaLimitingCaches,
+                    QuotaResource,
+                    list_limited_team_attributes,
+                )
 
                 limited_tokens_recordings = list_limited_team_attributes(
                     QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
@@ -277,6 +288,11 @@ def get_decide(request: HttpRequest):
 
             response["surveys"] = True if team.surveys_opt_in else False
             response["heatmaps"] = True if team.heatmaps_opt_in else False
+            try:
+                default_identified_only = team.pk >= int(settings.DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN)
+            except Exception:
+                default_identified_only = False
+            response["defaultIdentifiedOnly"] = bool(default_identified_only)
 
             site_apps = []
             # errors mean the database is unavailable, bail in this case
@@ -351,6 +367,8 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 "minimumDurationMilliseconds": minimum_duration,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+                "urlTriggers": team.session_recording_url_trigger_config,
+                "urlBlocklist": team.session_recording_url_blocklist_config,
             }
 
             if isinstance(team.session_replay_config, dict):

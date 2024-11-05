@@ -37,6 +37,8 @@ export interface TaxonomicFilterProps {
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
+    hideBehavioralCohorts?: boolean
+    showNumericalPropsOnly?: boolean
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {

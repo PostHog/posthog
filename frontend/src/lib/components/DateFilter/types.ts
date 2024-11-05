@@ -17,6 +17,7 @@ export type DateFilterLogicProps = {
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
     isFixedDateMode?: boolean
+    placeholder?: string
 }
 
 export const CUSTOM_OPTION_KEY = 'Custom'

@@ -22,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -29,10 +30,19 @@ import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import {
+    CachedExperimentFunnelsQueryResponse,
+    CachedExperimentTrendsQueryResponse,
+    ExperimentFunnelsQueryResponse,
+    ExperimentTrendsQueryResponse,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema'
 import {
     Experiment,
     Experiment as ExperimentType,
+    ExperimentIdType,
     ExperimentResults,
     FilterType,
     InsightShortId,
@@ -47,13 +57,28 @@ export function VariantTag({
     experimentId,
     variantKey,
 }: {
-    experimentId: number | 'new'
+    experimentId: ExperimentIdType
     variantKey: string
 }): JSX.Element {
-    const { experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
+    const { experiment, experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
+
+    if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
+        return (
+            <span className="flex items-center space-x-2">
+                <div
+                    className="w-2 h-2 rounded-full mr-0.5"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
+                    }}
+                />
+                <LemonTag type="option">{experiment.holdout.name}</LemonTag>
+            </span>
+        )
+    }
 
     return (
-        <span className="flex items-center space-x-1">
+        <span className="flex items-center space-x-2">
             <div
                 className="w-2 h-2 rounded-full mr-0.5"
                 // eslint-disable-next-line react/forbid-dom-props
@@ -93,29 +118,77 @@ export function ResultsQuery({
     targetResults,
     showTable,
 }: {
-    targetResults: ExperimentResults['result'] | null
+    targetResults: ExperimentResults['result'] | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     showTable: boolean
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+        const newQueryResults = targetResults as unknown as
+            | CachedExperimentTrendsQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+
+        const query =
+            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
+                ? newQueryResults.count_query
+                : newQueryResults.funnels_query
+        const fakeInsightId = Math.random().toString(36).substring(2, 15)
+
+        return (
+            <Query
+                query={{
+                    kind: NodeKind.InsightVizNode,
+                    source: query,
+                    showTable,
+                    showLastComputation: true,
+                    showLastComputationRefresh: false,
+                }}
+                context={{
+                    insightProps: {
+                        dashboardItemId: fakeInsightId as InsightShortId,
+                        cachedInsight: {
+                            short_id: fakeInsightId as InsightShortId,
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                source: query,
+                            } as InsightVizNode,
+                            result: newQueryResults?.insight,
+                            disable_baseline: true,
+                            last_refresh: newQueryResults?.last_refresh,
+                        },
+                        doNotLoad: true,
+                    },
+                }}
+                readOnly
+            />
+        )
+    }
+
+    const oldQueryResults = targetResults as ExperimentResults['result']
+
+    if (!oldQueryResults?.filters) {
+        return <></>
+    }
+
     return (
         <Query
             query={{
                 kind: NodeKind.InsightVizNode,
-                source: filtersToQueryNode(transformResultFilters(targetResults?.filters ?? {})),
+                source: filtersToQueryNode(transformResultFilters(oldQueryResults?.filters ?? {})),
                 showTable,
                 showLastComputation: true,
                 showLastComputationRefresh: false,
             }}
             context={{
                 insightProps: {
-                    dashboardItemId: targetResults?.fakeInsightId as InsightShortId,
+                    dashboardItemId: oldQueryResults?.fakeInsightId as InsightShortId,
                     cachedInsight: {
-                        short_id: targetResults?.fakeInsightId as InsightShortId,
-                        query: targetResults?.filters
-                            ? queryFromFilters(transformResultFilters(targetResults.filters))
+                        short_id: oldQueryResults?.fakeInsightId as InsightShortId,
+                        query: oldQueryResults?.filters
+                            ? queryFromFilters(transformResultFilters(oldQueryResults.filters))
                             : null,
-                        result: targetResults?.insight,
+                        result: oldQueryResults?.insight,
                         disable_baseline: true,
-                        last_refresh: targetResults?.last_refresh,
+                        last_refresh: oldQueryResults?.last_refresh,
                     },
                     doNotLoad: true,
                 },
@@ -126,7 +199,7 @@ export function ResultsQuery({
 }
 
 export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element }): JSX.Element {
-    const { experimentResults, experiment } = useValues(experimentLogic)
+    const { experimentResults, experiment, featureFlags } = useValues(experimentLogic)
 
     // keep in sync with https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/funnel_experiment_result.py#L71
     // :TRICKY: In the case of no results, we still want users to explore the query, so they can debug further.
@@ -141,18 +214,41 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         properties: [],
     }
 
-    const query: InsightVizNode = {
-        kind: NodeKind.InsightVizNode,
-        source: filtersToQueryNode(
-            transformResultFilters(
-                experimentResults?.filters
-                    ? { ...experimentResults.filters, explicit_date: true }
-                    : filtersFromExperiment
-            )
-        ),
-        showTable: true,
-        showLastComputation: true,
-        showLastComputationRefresh: false,
+    let query: InsightVizNode
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+        const newQueryResults = experimentResults as unknown as
+            | CachedExperimentTrendsQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+
+        const source =
+            newQueryResults.kind === NodeKind.ExperimentTrendsQuery
+                ? newQueryResults.count_query
+                : newQueryResults.funnels_query
+
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: source as InsightQueryNode,
+        }
+    } else {
+        const oldQueryResults = experimentResults as ExperimentResults['result']
+
+        if (!oldQueryResults?.filters) {
+            return <></>
+        }
+
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: filtersToQueryNode(
+                transformResultFilters(
+                    oldQueryResults?.filters
+                        ? { ...oldQueryResults.filters, explicit_date: true }
+                        : filtersFromExperiment
+                )
+            ),
+            showTable: true,
+            showLastComputation: true,
+            showLastComputationRefresh: false,
+        }
     }
 
     return (
@@ -360,7 +456,6 @@ export function PageHeaderCustom(): JSX.Element {
         launchExperiment,
         endExperiment,
         archiveExperiment,
-        setEditExperiment,
         loadExperimentResults,
         loadSecondaryMetricResults,
         createExposureCohort,
@@ -374,9 +469,6 @@ export function PageHeaderCustom(): JSX.Element {
                 <>
                     {experiment && !isExperimentRunning && (
                         <div className="flex items-center">
-                            <LemonButton type="secondary" className="mr-2" onClick={() => setEditExperiment(true)}>
-                                Edit
-                            </LemonButton>
                             <LemonButton
                                 type="primary"
                                 data-attr="launch-experiment"
@@ -783,7 +875,7 @@ export function ActionBanner(): JSX.Element {
     return <></>
 }
 
-export const ResetButton = ({ experimentId }: { experimentId: number | 'new' }): JSX.Element => {
+export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element => {
     const { experiment } = useValues(experimentLogic({ experimentId }))
     const { resetRunningExperiment } = useActions(experimentLogic)
 

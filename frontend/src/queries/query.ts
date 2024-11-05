@@ -6,7 +6,17 @@ import posthog from 'posthog-js'
 
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import { DashboardFilter, DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
+import {
+    DashboardFilter,
+    DataNode,
+    HogQLQuery,
+    HogQLQueryResponse,
+    HogQLVariable,
+    NodeKind,
+    PersonsNode,
+    QueryStatus,
+    RefreshType,
+} from './schema'
 import {
     isAsyncResponse,
     isDataTableNode,
@@ -79,6 +89,7 @@ async function executeQuery<N extends DataNode>(
     queryId?: string,
     setPollResponse?: (response: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
+    variablesOverride?: Record<string, HogQLVariable> | null,
     /**
      * Whether to limit the function to just polling the provided query ID.
      * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
@@ -91,7 +102,16 @@ async function executeQuery<N extends DataNode>(
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
     if (!pollOnly) {
-        const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery, filtersOverride)
+        const refreshParam: RefreshType | undefined =
+            refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
+        const response = await api.query(
+            queryNode,
+            methodOptions,
+            queryId,
+            refreshParam,
+            filtersOverride,
+            variablesOverride
+        )
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
@@ -124,6 +144,7 @@ export async function performQuery<N extends DataNode>(
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
+    variablesOverride?: Record<string, HogQLVariable> | null,
     pollOnly = false
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
@@ -141,16 +162,27 @@ export async function performQuery<N extends DataNode>(
                 queryId,
                 setPollResponse,
                 filtersOverride,
+                variablesOverride,
                 pollOnly
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
         }
-        posthog.capture('query completed', { query: queryNode, duration: performance.now() - startTime, ...logParams })
+        posthog.capture('query completed', {
+            query: queryNode,
+            queryId,
+            duration: performance.now() - startTime,
+            ...logParams,
+        })
         return response
     } catch (e) {
-        posthog.capture('query failed', { query: queryNode, duration: performance.now() - startTime, ...logParams })
+        posthog.capture('query failed', {
+            query: queryNode,
+            queryId,
+            duration: performance.now() - startTime,
+            ...logParams,
+        })
         throw e
     }
 }

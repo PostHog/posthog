@@ -20,6 +20,7 @@ import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
+import { filterOutBehavioralCohorts } from './cohortFilterUtils'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
@@ -68,7 +69,7 @@ async function fetchCachedListResponse(path: string, searchParams: Record<string
 }
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
-    props({} as InfiniteListLogicProps),
+    props({ showNumericalPropsOnly: false } as InfiniteListLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
     connect((props: InfiniteListLogicProps) => ({
@@ -240,11 +241,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             (selectors) => [
-                (state, props) => {
+                (state, props: InfiniteListLogicProps) => {
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
+
                     if (group?.logic && group?.value) {
-                        return group.logic.selectors[group.value]?.(state) || null
+                        const items = group.logic.selectors[group.value]?.(state)
+                        // TRICKY: Feature flags don't support dynamic behavioral cohorts,
+                        // so we don't want to show them as selectable options in the taxonomic filter
+                        // in the feature flag UI.
+                        // TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
+                        // and remove this kludge.
+                        if (Array.isArray(items) && items.every((item) => 'filters' in item)) {
+                            return filterOutBehavioralCohorts(items, props.hideBehavioralCohorts)
+                        }
+                        return items
                     }
                     if (group?.options) {
                         return group.options
@@ -299,15 +310,34 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         items: [
-            (s) => [s.remoteItems, s.localItems],
-            (remoteItems, localItems) => ({
-                results: [...localItems.results, ...remoteItems.results],
-                count: localItems.count + remoteItems.count,
-                searchQuery: localItems.searchQuery,
-                expandedCount: remoteItems.expandedCount,
-                queryChanged: remoteItems.queryChanged,
-                first: localItems.first && remoteItems.first,
-            }),
+            (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
+            (remoteItems, localItems, showNumericalPropsOnly) => {
+                const results = [...localItems.results, ...remoteItems.results].filter((n) => {
+                    if (!showNumericalPropsOnly) {
+                        return true
+                    }
+
+                    if ('is_numerical' in n) {
+                        return !!n.is_numerical
+                    }
+
+                    if ('property_type' in n) {
+                        const property_type = n.property_type as string // Data warehouse props dont conformt to PropertyType for some reason
+                        return property_type === 'Integer' || property_type === 'Float'
+                    }
+
+                    return true
+                })
+
+                return {
+                    results,
+                    count: results.length,
+                    searchQuery: localItems.searchQuery,
+                    expandedCount: remoteItems.expandedCount,
+                    queryChanged: remoteItems.queryChanged,
+                    first: localItems.first && remoteItems.first,
+                }
+            },
         ],
         totalResultCount: [(s) => [s.items], (items) => items.count || 0],
         totalExtraCount: [

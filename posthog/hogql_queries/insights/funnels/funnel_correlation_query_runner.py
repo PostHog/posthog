@@ -7,8 +7,8 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
-from posthog.hogql_queries.insights.funnels.funnel_strict_persons import FunnelStrictActors
-from posthog.hogql_queries.insights.funnels.funnel_unordered_persons import FunnelUnorderedActors
+from posthog.hogql_queries.insights.funnels.funnel_strict_actors import FunnelStrictActors
+from posthog.hogql_queries.insights.funnels.funnel_unordered_actors import FunnelUnorderedActors
 from posthog.models.action.action import Action
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
@@ -332,7 +332,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return EventDefinition(event=event, properties={}, elements=[])
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
@@ -345,7 +345,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return self.get_event_query()
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         assert self.correlation_actors_query is not None
 
         if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
@@ -362,7 +362,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         else:
             return self.events_actor_query()
 
-    def events_actor_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def events_actor_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         assert self.correlation_actors_query is not None
 
         if not self.correlation_actors_query.funnelCorrelationPersonEntity:
@@ -431,7 +431,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def properties_actor_query(
         self,
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         assert self.correlation_actors_query is not None
 
         if not self.correlation_actors_query.funnelCorrelationPropertyValues:
@@ -470,7 +470,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return query
 
-    def get_event_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def get_event_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         funnel_persons_query = self.get_funnel_actors_cte()
         event_join_query = self._get_events_join_query()
         target_step = self.context.max_steps
@@ -548,7 +548,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return event_correlation_query
 
-    def get_event_property_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def get_event_property_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if not self.query.funnelCorrelationEventNames:
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
@@ -646,7 +646,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return query
 
-    def get_properties_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def get_properties_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if not self.query.funnelCorrelationNames:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
@@ -830,7 +830,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         events: set[str] = set()
         for entity in self.funnels_query.series:
             if isinstance(entity, ActionsNode):
-                action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+                action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
                 events.update([x for x in action.get_step_events() if x])
             elif isinstance(entity, EventsNode):
                 if entity.event is not None:

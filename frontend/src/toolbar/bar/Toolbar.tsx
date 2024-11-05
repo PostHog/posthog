@@ -174,6 +174,10 @@ export function Toolbar(): JSX.Element | null {
             setVisibleMenu('actions')
         }
 
+        if (userIntent === 'add-experiment' || userIntent === 'edit-experiment') {
+            setVisibleMenu('experiments')
+        }
+
         if (userIntent === 'heatmaps') {
             setVisibleMenu('heatmap')
         }
@@ -191,7 +195,8 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar',
                     minimized && 'Toolbar--minimized',
                     hedgehogMode && 'Toolbar--hedgehog-mode',
-                    isDragging && 'Toolbar--dragging'
+                    isDragging && 'Toolbar--dragging',
+                    showExperiments && 'Toolbar--with-experiments'
                 )}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}

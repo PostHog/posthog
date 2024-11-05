@@ -101,7 +101,7 @@ beforeEach(() => {
         req.reply({ statusCode: 404, body: 'Cypress forced 404' })
     )
 
-    cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?/).as('getInsights')
+    cy.intercept('GET', /\/api\/environments\/\d+\/insights\/?\?/).as('getInsights')
 
     cy.request('POST', '/api/login/', {
         email: 'test@posthog.com',
