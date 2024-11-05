@@ -294,12 +294,17 @@ export function SecondaryMetricsTable({
 
                     <div className="w-1/2 flex flex-col justify-end">
                         <div className="ml-auto">
-                            {metrics && metrics.length > 0 && metrics.length < MAX_SECONDARY_METRICS && (
+                            {metrics && metrics.length > 0 && (
                                 <div className="mb-2 mt-4 justify-end">
                                     <LemonButton
                                         type="secondary"
                                         size="small"
                                         onClick={openModalToCreateSecondaryMetric}
+                                        disabledReason={
+                                            metrics.length >= MAX_SECONDARY_METRICS
+                                                ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
+                                                : undefined
+                                        }
                                     >
                                         Add metric
                                     </LemonButton>
