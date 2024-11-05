@@ -5,17 +5,18 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { toSentenceCase } from 'lib/utils'
 
-import { BillingProductV2AddonType } from '~/types'
+import { BillingPlanType, BillingProductV2AddonType, BillingType } from '~/types'
 
+import { BillingError } from './billingLogic'
 import { formatFlatRate } from './BillingProductAddon'
 
 interface BillingProductAddonActionsProps {
     addon: BillingProductV2AddonType
-    billing: any // Replace with proper type
+    billing: BillingType | null
     billingProductLoading: string | null
-    billingError: any // Replace with proper type
-    upgradePlan: any // Replace with proper type
-    currentAndUpgradePlans: any // Replace with proper type
+    billingError: BillingError | null
+    upgradePlan: BillingPlanType
+    currentAndUpgradePlans: any
     trialExperiment: string
     trialLoading: boolean
     isProrated: boolean
@@ -74,9 +75,9 @@ export const BillingProductAddonActions = ({
             <Tooltip
                 title={
                     <p>
-                        You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)}</b> until{' '}
-                        <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
-                        {billing.trial.type === 'autosubscribe'
+                        You are currently on a free trial for <b>{toSentenceCase(billing?.trial?.target || '')}</b>{' '}
+                        until <b>{dayjs(billing?.trial?.expires_at).format('LL')}</b>. At the end of the trial{' '}
+                        {billing?.trial?.type === 'autosubscribe'
                             ? 'you will be automatically subscribed to the plan.'
                             : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
                     </p>
@@ -174,7 +175,7 @@ export const BillingProductAddonActions = ({
                 Included with plan
             </LemonTag>
         )
-    } else if (billing?.trial?.target === addon.type) {
+    } else if (billing?.trial && billing?.trial?.target === addon.type) {
         // Current trial on this addon
         content = renderTrialActions()
     } else if (addon.contact_support) {
