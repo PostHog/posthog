@@ -8,8 +8,6 @@ use cymbal::{
         sourcemap::SourcemapProvider,
         Catalog,
     },
-    symbol_store::{sourcemap::SourcemapProvider, Catalog},
-    types::{frames::RawFrame, ErrProps},
     types::{frames::RawFrame, ErrProps, Stacktrace},
 };
 use httpmock::MockServer;
