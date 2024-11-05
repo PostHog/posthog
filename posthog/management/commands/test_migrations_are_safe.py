@@ -5,6 +5,8 @@ from typing import Optional
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
+SKIPPED_MIGRATIONS = ["posthog/migrations/0511_remove_errortrackingissuefingerprint.py"]
+
 
 def _get_new_tables(sql: str):
     return re.findall(r'CREATE TABLE "([a-zA-Z0-9_]*)"', sql)
@@ -125,6 +127,8 @@ class Command(BaseCommand):
 
         if not migrations:
             migrations = ["posthog/migrations/0339_add_session_recording_storage_version.py"]
+
+        migrations = [x for x in migrations if x not in SKIPPED_MIGRATIONS]
 
         if len(migrations) > 1:
             print(
