@@ -126,33 +126,12 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
             <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
                 <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
                     <div>
-                        <strong>Avg support response times</strong>
+                        <strong>We're making improvements:</strong> Our team is attending an offsite so we can make long-term enhancements. We're working slightly different hours, so non-urgent inquiries without priority support may experience a slight delay. We’ll be back to full speed soon!
                     </div>
                     <div>
                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
                     </div>
                 </div>
-                {supportPlans?.map((plan) => {
-                    // If they have an addon plan, only show the addon plan
-                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
-                    return (
-                        <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                            <div className={currentPlan ? 'font-bold' : undefined}>
-                                {plan.name}
-                                {currentPlan && (
-                                    <>
-                                        {' '}
-                                        <span className="font-normal opacity-60 text-sm">(your plan)</span>
-                                    </>
-                                )}
-                            </div>
-                            <div className={currentPlan ? 'font-bold' : undefined}>
-                                {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
-                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
-                            </div>
-                        </React.Fragment>
-                    )
-                })}
             </div>
         </Section>
     )
