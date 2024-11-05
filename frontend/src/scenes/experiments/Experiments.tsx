@@ -40,7 +40,6 @@ export function Experiments(): JSX.Element {
         searchStatus,
         userFilter,
         featureFlags,
-        webExperimentsAvailable,
     } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
@@ -194,26 +193,7 @@ export function Experiments(): JSX.Element {
         <div>
             <PageHeader
                 buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr="create-experiment"
-                        to={urls.experiment('new')}
-                        sideAction={
-                            webExperimentsAvailable
-                                ? {
-                                      dropdown: {
-                                          placement: 'bottom-start',
-                                          overlay: (
-                                              <LemonButton size="small" to={urls.experiment('web')}>
-                                                  New Web experiment
-                                              </LemonButton>
-                                          ),
-                                      },
-                                      'data-attr': 'create-web-experiment',
-                                  }
-                                : null
-                        }
-                    >
+                    <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
                         New experiment
                     </LemonButton>
                 }
