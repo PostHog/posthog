@@ -10,8 +10,8 @@ from ee import settings
 from ee.hogai.funnels.nodes import FunnelGeneratorNode, FunnelPlannerNode, FunnelPlannerToolsNode
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.trends.nodes import (
-    GenerateTrendsNode,
-    GenerateTrendsToolsNode,
+    TrendsGeneratorNode,
+    TrendsGeneratorToolsNode,
     TrendsPlannerNode,
     TrendsPlannerToolsNode,
 )
@@ -75,42 +75,42 @@ class Assistant:
         builder.add_conditional_edges(
             AssistantNodeName.ROUTER,
             router_node.router,
-            path_map={"trends": AssistantNodeName.CREATE_TRENDS_PLAN, "funnel": AssistantNodeName.FUNNEL_PLANNER},
+            path_map={"trends": AssistantNodeName.TRENDS_PLANNER, "funnel": AssistantNodeName.FUNNEL_PLANNER},
         )
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
-        builder.add_node(AssistantNodeName.CREATE_TRENDS_PLAN, create_trends_plan_node.run)
+        builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node.run)
         builder.add_conditional_edges(
-            AssistantNodeName.CREATE_TRENDS_PLAN,
+            AssistantNodeName.TRENDS_PLANNER,
             create_trends_plan_node.router,
             path_map={
-                "tools": AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS,
+                "tools": AssistantNodeName.TRENDS_PLANNER_TOOLS,
             },
         )
 
         create_trends_plan_tools_node = TrendsPlannerToolsNode(self._team)
-        builder.add_node(AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS, create_trends_plan_tools_node.run)
+        builder.add_node(AssistantNodeName.TRENDS_PLANNER_TOOLS, create_trends_plan_tools_node.run)
         builder.add_conditional_edges(
-            AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS,
+            AssistantNodeName.TRENDS_PLANNER_TOOLS,
             create_trends_plan_tools_node.router,
             path_map={
-                "continue": AssistantNodeName.CREATE_TRENDS_PLAN,
-                "plan_found": AssistantNodeName.GENERATE_TRENDS,
+                "continue": AssistantNodeName.TRENDS_PLANNER,
+                "plan_found": AssistantNodeName.TRENDS_GENERATOR,
             },
         )
 
-        generate_trends_node = GenerateTrendsNode(self._team)
-        builder.add_node(AssistantNodeName.GENERATE_TRENDS, generate_trends_node.run)
+        generate_trends_node = TrendsGeneratorNode(self._team)
+        builder.add_node(AssistantNodeName.TRENDS_GENERATOR, generate_trends_node.run)
 
-        generate_trends_tools_node = GenerateTrendsToolsNode(self._team)
-        builder.add_node(AssistantNodeName.GENERATE_TRENDS_TOOLS, generate_trends_tools_node.run)
+        generate_trends_tools_node = TrendsGeneratorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, generate_trends_tools_node.run)
 
-        builder.add_edge(AssistantNodeName.GENERATE_TRENDS_TOOLS, AssistantNodeName.GENERATE_TRENDS)
+        builder.add_edge(AssistantNodeName.TRENDS_GENERATOR_TOOLS, AssistantNodeName.TRENDS_GENERATOR)
         builder.add_conditional_edges(
-            AssistantNodeName.GENERATE_TRENDS,
+            AssistantNodeName.TRENDS_GENERATOR,
             generate_trends_node.router,
             path_map={
-                "tools": AssistantNodeName.GENERATE_TRENDS_TOOLS,
+                "tools": AssistantNodeName.TRENDS_GENERATOR_TOOLS,
                 "next": AssistantNodeName.END,
             },
         )
@@ -132,13 +132,13 @@ class Assistant:
             funnel_planner_tools.router,
             path_map={
                 "continue": AssistantNodeName.FUNNEL_PLANNER,
-                "plan_found": AssistantNodeName.GENERATE_FUNNEL,
+                "plan_found": AssistantNodeName.FUNNEL_GENERATOR,
             },
         )
 
         funnel_generator = FunnelGeneratorNode(self._team)
-        builder.add_node(AssistantNodeName.GENERATE_FUNNEL, funnel_generator.run)
-        builder.add_edge(AssistantNodeName.GENERATE_FUNNEL, AssistantNodeName.END)
+        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator.run)
+        builder.add_edge(AssistantNodeName.FUNNEL_GENERATOR, AssistantNodeName.END)
 
         return builder.compile()
 
@@ -171,22 +171,22 @@ class Assistant:
 
                 if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
                     yield state_update[AssistantNodeName.ROUTER]["messages"][0]
-                elif AssistantNodeName.GENERATE_TRENDS in state_update:
+                elif AssistantNodeName.TRENDS_GENERATOR in state_update:
                     # Reset chunks when schema validation fails.
                     chunks = AIMessageChunk(content="")
 
-                    if "messages" in state_update[AssistantNodeName.GENERATE_TRENDS]:
-                        yield state_update[AssistantNodeName.GENERATE_TRENDS]["messages"][0]
-                    elif state_update[AssistantNodeName.GENERATE_TRENDS].get("intermediate_steps", []):
+                    if "messages" in state_update[AssistantNodeName.TRENDS_GENERATOR]:
+                        yield state_update[AssistantNodeName.TRENDS_GENERATOR]["messages"][0]
+                    elif state_update[AssistantNodeName.TRENDS_GENERATOR].get("intermediate_steps", []):
                         yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
 
             elif is_message_update(update):
                 langchain_message, langgraph_state = update[1]
-                if langgraph_state["langgraph_node"] == AssistantNodeName.GENERATE_TRENDS and isinstance(
+                if langgraph_state["langgraph_node"] == AssistantNodeName.TRENDS_GENERATOR and isinstance(
                     langchain_message, AIMessageChunk
                 ):
                     chunks += langchain_message  # type: ignore
-                    parsed_message = GenerateTrendsNode.parse_output(chunks.tool_calls[0]["args"])
+                    parsed_message = TrendsGeneratorNode.parse_output(chunks.tool_calls[0]["args"])
                     if parsed_message:
                         yield VisualizationMessage(
                             reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer

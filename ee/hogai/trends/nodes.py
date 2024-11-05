@@ -53,7 +53,7 @@ class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
         return super()._run(state, toolkit, config=config)
 
 
-class GenerateTrendsNode(AssistantNode):
+class TrendsGeneratorNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         generated_plan = state.get("plan", "")
         intermediate_steps = state.get("intermediate_steps") or []
@@ -193,7 +193,7 @@ class GenerateTrendsNode(AssistantNode):
             return None
 
 
-class GenerateTrendsToolsNode(AssistantNode):
+class TrendsGeneratorToolsNode(AssistantNode):
     """
     Used for failover from generation errors.
     """

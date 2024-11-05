@@ -38,14 +38,13 @@ class AssistantNodeName(StrEnum):
     START = START
     END = END
     ROUTER = "router"
-    CREATE_TRENDS_PLAN = "create_trends_plan"
-    CREATE_TRENDS_PLAN_TOOLS = "create_trends_plan_tools"
-    GENERATE_TRENDS = "generate_trends_schema"
-    GENERATE_TRENDS_TOOLS = "generate_trends_tools"
-    CREATE_FUNNEL_PLAN = "create_funnel_plan"
+    TRENDS_PLANNER = "trends_planner"
+    TRENDS_PLANNER_TOOLS = "trends_planner_tools"
+    TRENDS_GENERATOR = "trends_generator"
+    TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
     FUNNEL_PLANNER = "funnel_planner"
     FUNNEL_PLANNER_TOOLS = "funnel_planner_tools"
-    GENERATE_FUNNEL = "generate_funnel"
+    FUNNEL_GENERATOR = "funnel_generator"
 
 
 class AssistantNode(ABC):

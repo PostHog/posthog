@@ -6,8 +6,8 @@ from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableLambda
 
 from ee.hogai.trends.nodes import (
-    GenerateTrendsNode,
-    GenerateTrendsToolsNode,
+    TrendsGeneratorNode,
+    TrendsGeneratorToolsNode,
 )
 from ee.hogai.trends.utils import GenerateTrendOutputModel
 from posthog.schema import (
@@ -25,8 +25,8 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.schema = ExperimentalAITrendsQuery(series=[])
 
     def test_node_runs(self):
-        node = GenerateTrendsNode(self.team)
-        with patch("ee.hogai.trends.nodes.GenerateTrendsNode._model") as generator_model_mock:
+        node = TrendsGeneratorNode(self.team)
+        with patch("ee.hogai.trends.nodes.TrendsGeneratorNode._model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: GenerateTrendOutputModel(reasoning_steps=["step"], answer=self.schema).model_dump()
             )
@@ -46,7 +46,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_agent_reconstructs_conversation(self):
-        node = GenerateTrendsNode(self.team)
+        node = TrendsGeneratorNode(self.team)
         history = node._reconstruct_conversation({"messages": [HumanMessage(content="Text")]})
         self.assertEqual(len(history), 2)
         self.assertEqual(history[0].type, "human")
@@ -68,7 +68,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Text", history[2].content)
 
-        node = GenerateTrendsNode(self.team)
+        node = TrendsGeneratorNode(self.team)
         history = node._reconstruct_conversation(
             {
                 "messages": [
@@ -103,7 +103,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Follow Up", history[5].content)
 
     def test_agent_reconstructs_conversation_and_merges_messages(self):
-        node = GenerateTrendsNode(self.team)
+        node = TrendsGeneratorNode(self.team)
         history = node._reconstruct_conversation(
             {
                 "messages": [HumanMessage(content="Te"), HumanMessage(content="xt")],
@@ -122,7 +122,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Te\nxt", history[2].content)
 
-        node = GenerateTrendsNode(self.team)
+        node = TrendsGeneratorNode(self.team)
         history = node._reconstruct_conversation(
             {
                 "messages": [
@@ -158,8 +158,8 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Follow\nUp", history[5].content)
 
     def test_failover_with_incorrect_schema(self):
-        node = GenerateTrendsNode(self.team)
-        with patch("ee.hogai.trends.nodes.GenerateTrendsNode._model") as generator_model_mock:
+        node = TrendsGeneratorNode(self.team)
+        with patch("ee.hogai.trends.nodes.TrendsGeneratorNode._model") as generator_model_mock:
             schema = GenerateTrendOutputModel(reasoning_steps=[], answer=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
             schema["answer"] = []
@@ -180,9 +180,9 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(new_state["intermediate_steps"]), 2)
 
     def test_node_leaves_failover(self):
-        node = GenerateTrendsNode(self.team)
+        node = TrendsGeneratorNode(self.team)
         with patch(
-            "ee.hogai.trends.nodes.GenerateTrendsNode._model",
+            "ee.hogai.trends.nodes.TrendsGeneratorNode._model",
             return_value=RunnableLambda(
                 lambda _: GenerateTrendOutputModel(reasoning_steps=[], answer=self.schema).model_dump()
             ),
@@ -209,8 +209,8 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(new_state["intermediate_steps"])
 
     def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
-        node = GenerateTrendsNode(self.team)
-        with patch("ee.hogai.trends.nodes.GenerateTrendsNode._model") as generator_model_mock:
+        node = TrendsGeneratorNode(self.team)
+        with patch("ee.hogai.trends.nodes.TrendsGeneratorNode._model") as generator_model_mock:
             schema = GenerateTrendOutputModel(reasoning_steps=[], answer=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
             schema["answer"] = []
@@ -232,7 +232,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
-        node = GenerateTrendsNode(self.team)
+        node = TrendsGeneratorNode(self.team)
         history = node._reconstruct_conversation(
             {
                 "messages": [HumanMessage(content="Text")],
@@ -257,7 +257,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("uniqexception", history[3].content)
 
     def test_agent_reconstructs_conversation_with_failed_messages(self):
-        node = GenerateTrendsNode(self.team)
+        node = TrendsGeneratorNode(self.team)
         history = node._reconstruct_conversation(
             {
                 "messages": [
@@ -281,7 +281,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Text", history[2].content)
 
     def test_router(self):
-        node = GenerateTrendsNode(self.team)
+        node = TrendsGeneratorNode(self.team)
         state = node.router({"messages": [], "intermediate_steps": None})
         self.assertEqual(state, "next")
         state = node.router(
@@ -292,7 +292,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
 
 class TestGenerateTrendsToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_tools_node(self):
-        node = GenerateTrendsToolsNode(self.team)
+        node = TrendsGeneratorToolsNode(self.team)
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = node.run({"messages": [], "intermediate_steps": [(action, None)]}, {})
         self.assertIsNotNone("validationerror", state["intermediate_steps"][0][1])
