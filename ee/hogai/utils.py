@@ -43,6 +43,9 @@ class AssistantNodeName(StrEnum):
     GENERATE_TRENDS = "generate_trends_schema"
     GENERATE_TRENDS_TOOLS = "generate_trends_tools"
     CREATE_FUNNEL_PLAN = "create_funnel_plan"
+    FUNNEL_PLANNER = "funnel_planner"
+    FUNNEL_PLANNER_TOOLS = "funnel_planner_tools"
+    GENERATE_FUNNEL = "generate_funnel"
 
 
 class AssistantNode(ABC):

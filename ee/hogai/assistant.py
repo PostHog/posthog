@@ -7,6 +7,7 @@ from langgraph.graph.state import StateGraph
 from pydantic import BaseModel
 
 from ee import settings
+from ee.hogai.funnels.nodes import FunnelGeneratorNode, FunnelPlannerNode, FunnelPlannerToolsNode
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.trends.nodes import (
     GenerateTrendsNode,
@@ -74,7 +75,7 @@ class Assistant:
         builder.add_conditional_edges(
             AssistantNodeName.ROUTER,
             router_node.router,
-            path_map={"trends": AssistantNodeName.CREATE_TRENDS_PLAN},
+            path_map={"trends": AssistantNodeName.CREATE_TRENDS_PLAN, "funnel": AssistantNodeName.FUNNEL_PLANNER},
         )
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
@@ -94,7 +95,7 @@ class Assistant:
             create_trends_plan_tools_node.router,
             path_map={
                 "continue": AssistantNodeName.CREATE_TRENDS_PLAN,
-                "next": AssistantNodeName.GENERATE_TRENDS,
+                "plan_found": AssistantNodeName.GENERATE_TRENDS,
             },
         )
 
@@ -113,6 +114,31 @@ class Assistant:
                 "next": AssistantNodeName.END,
             },
         )
+
+        funnel_planner = FunnelPlannerNode(self._team)
+        builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.FUNNEL_PLANNER,
+            funnel_planner.router,
+            path_map={
+                "tools": AssistantNodeName.FUNNEL_PLANNER_TOOLS,
+            },
+        )
+
+        funnel_planner_tools = FunnelPlannerToolsNode(self._team)
+        builder.add_node(AssistantNodeName.FUNNEL_PLANNER_TOOLS, funnel_planner_tools.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.FUNNEL_PLANNER_TOOLS,
+            funnel_planner_tools.router,
+            path_map={
+                "continue": AssistantNodeName.FUNNEL_PLANNER,
+                "plan_found": AssistantNodeName.GENERATE_FUNNEL,
+            },
+        )
+
+        funnel_generator = FunnelGeneratorNode(self._team)
+        builder.add_node(AssistantNodeName.GENERATE_FUNNEL, funnel_generator.run)
+        builder.add_edge(AssistantNodeName.GENERATE_FUNNEL, AssistantNodeName.END)
 
         return builder.compile()
 

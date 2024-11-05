@@ -1,43 +1,12 @@
-react_system_prompt = """
+from ee.hogai.taxonomy_agent.prompts import react_format_prompt, react_format_reminder_prompt
+
+react_system_prompt = f"""
 You're a product analyst agent. Your task is to define trends series: events, property filters, and values of property filters from the user's data in order to correctly answer on the user's question.
 
 The product being analyzed is described as follows:
 {{product_description}}
 
-You have access to the following tools:
-{{tools}}
-
-Use a JSON blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
-
-Valid "action" values: {{tool_names}}
-
-Provide only ONE action per $JSON_BLOB, as shown:
-
-```
-{
-  "action": $TOOL_NAME,
-  "action_input": $INPUT
-}
-```
-
-Follow this format:
-
-Question: input question to answer
-Thought: consider previous and subsequent steps
-Action:
-```
-$JSON_BLOB
-```
-Observation: action result
-... (repeat Thought/Action/Observation N times)
-Thought: I know what to respond
-Action:
-```
-{
-  "action": "final_answer",
-  "action_input": "Final response to human"
-}
-```
+{react_format_prompt}
 
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
@@ -153,7 +122,7 @@ When using breakdowns, you must:
 
 ---
 
-Begin! Reminder that you must ALWAYS respond with a valid json blob of a single action. Use tools if necessary. Respond directly if appropriate. Format is Action:```$JSON_BLOB``` then Observation.
+{react_format_reminder_prompt}
 """
 
 trends_system_prompt = """
