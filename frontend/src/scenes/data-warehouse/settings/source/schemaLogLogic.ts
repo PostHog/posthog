@@ -1,14 +1,15 @@
-import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
 
 import { ExternalDataJob, ExternalDataSourceSchema, LogEntry, LogEntryLevel } from '~/types'
 
 import type { schemaLogLogicType } from './schemaLogLogicType'
 
-export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
+export const LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
+export const STAFF_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
 
 export interface SchemaLogLogicProps {
     job: ExternalDataJob
@@ -18,9 +19,11 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'source', 'schemaLogLogic']),
     props({} as SchemaLogLogicProps),
     key(({ job }) => job.id),
+    connect({
+        values: [userLogic, ['user']],
+    }),
     actions({
         clearBackgroundLogs: true,
-        setLogLevelFilters: (levelFilters: LogEntryLevel[]) => ({ levelFilters }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSchema: (schemaId: ExternalDataSourceSchema['id']) => ({ schemaId }),
         markLogsEnd: true,
@@ -79,12 +82,6 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
         },
     })),
     reducers({
-        levelFilters: [
-            DEFAULT_LOG_LEVELS,
-            {
-                setLogLevelFilters: (_, { levelFilters }) => levelFilters,
-            },
-        ],
         searchTerm: [
             '',
             {
@@ -118,11 +115,18 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
                 return null
             },
         ],
+        levelFilters: [
+            (s) => [s.user],
+            (user) => {
+                if (user && user.is_staff) {
+                    return STAFF_LOG_LEVELS
+                }
+
+                return LOG_LEVELS
+            },
+        ],
     }),
     listeners(({ actions }) => ({
-        setLogLevelFilters: () => {
-            actions.loadSchemaLogs()
-        },
         setSearchTerm: async ({ searchTerm }, breakpoint) => {
             if (searchTerm) {
                 await breakpoint(1000)
