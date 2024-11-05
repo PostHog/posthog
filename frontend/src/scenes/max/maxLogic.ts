@@ -211,13 +211,15 @@ export const maxLogic = kea<maxLogicType>([
             } catch (e) {
                 captureException(e)
 
-                if (values.thread[newIndex]) {
-                    actions.replaceMessage(newIndex, FAILURE_MESSAGE)
-                } else {
-                    actions.addMessage({
-                        ...FAILURE_MESSAGE,
-                        status: 'completed',
-                    })
+                if (generatingMessageIndex !== -1) {
+                    if (values.thread[generatingMessageIndex]) {
+                        actions.replaceMessage(generatingMessageIndex, FAILURE_MESSAGE)
+                    } else {
+                        actions.addMessage({
+                            ...FAILURE_MESSAGE,
+                            status: 'completed',
+                        })
+                    }
                 }
             }
 
