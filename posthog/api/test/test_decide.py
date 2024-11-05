@@ -2206,7 +2206,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
         Person.objects.create(
             team=self.team,
             distinct_ids=["example_id"],
@@ -4694,8 +4696,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
 
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         client = APIClient()
         client.force_login(self.user)
