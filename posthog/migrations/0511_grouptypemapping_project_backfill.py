@@ -7,7 +7,7 @@ from django.contrib.postgres.operations import AddConstraintNotValid, AddIndexCo
 class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
     dependencies = [
-        ("posthog", "0508_project_product_description"),
+        ("posthog", "0510_salesforce_missing_schemas"),
     ]
 
     operations = [
