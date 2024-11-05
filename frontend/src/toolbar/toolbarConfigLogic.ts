@@ -8,6 +8,12 @@ import { ToolbarProps } from '~/types'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import { LOCALSTORAGE_KEY } from './utils'
 
+const safeURL = (url: string): string => {
+    const new_url = new URL(url)
+    const pathname = new_url.pathname.endsWith('/') ? new_url.pathname.replace(/\/+$/, '') : new_url.pathname
+    return `${new_url.origin}${encodeURI(pathname)}`
+}
+
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
     props({} as ToolbarProps),
@@ -41,17 +47,14 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             (s) => [s.props],
             (props: ToolbarProps) => {
                 if (!props.apiURL) {
-                    return
+                    return 'https://us.posthog.com'
                 }
-                const url = new URL(props.apiURL)
-                const apiUrl = url.origin + url.pathname
-                return `${apiUrl?.endsWith('/') ? apiUrl.replace(/\/+$/, '') : apiUrl}`
+                return safeURL(props.apiURL)
             },
         ],
         jsURL: [
             (s) => [s.props, s.apiURL],
-            (props: ToolbarProps, apiUrl) =>
-                props.jsURL ? new URL(props.jsURL).origin : apiUrl && new URL(apiUrl).origin,
+            (props: ToolbarProps, apiUrl) => (props.jsURL ? safeURL(props.jsURL) : apiUrl),
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
