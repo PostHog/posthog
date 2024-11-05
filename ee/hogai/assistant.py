@@ -168,17 +168,19 @@ class Assistant:
 
             elif is_value_update(update):
                 _, state_update = update
+                visualization_nodes = {AssistantNodeName.TRENDS_GENERATOR, AssistantNodeName.FUNNEL_GENERATOR}
 
                 if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
                     yield state_update[AssistantNodeName.ROUTER]["messages"][0]
-                elif AssistantNodeName.TRENDS_GENERATOR in state_update:
+                elif state_update.keys() & visualization_nodes:
                     # Reset chunks when schema validation fails.
                     chunks = AIMessageChunk(content="")
 
-                    if "messages" in state_update[AssistantNodeName.TRENDS_GENERATOR]:
-                        yield state_update[AssistantNodeName.TRENDS_GENERATOR]["messages"][0]
-                    elif state_update[AssistantNodeName.TRENDS_GENERATOR].get("intermediate_steps", []):
-                        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+                    for node_name in visualization_nodes:
+                        if "messages" in state_update[node_name]:
+                            yield state_update[node_name]["messages"][0]
+                        elif state_update[node_name].get("intermediate_steps", []):
+                            yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
 
             elif is_message_update(update):
                 langchain_message, langgraph_state = update[1]
