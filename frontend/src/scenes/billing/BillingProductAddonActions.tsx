@@ -201,7 +201,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
         )
     } else if (!billing?.trial) {
         // Customer is not subscribed to any trial
-        // TODO: add support for when subscription to paid here
+        // TODO: add support for when a customer has a Paid Plan trial
         content = renderPurchaseActions()
     }
 
