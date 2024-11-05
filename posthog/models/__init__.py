@@ -29,6 +29,7 @@ from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
+from .error_tracking import ErrorTrackingSymbolSet, ErrorTrackingStackFrame
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -75,7 +76,6 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
-from .error_tracking import ErrorTrackingSymbolSet, ErrorTrackingStackFrame
 
 __all__ = [
     "AlertConfiguration",
@@ -99,6 +99,8 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
+    "ErrorTrackingStackFrame",
+    "ErrorTrackingSymbolSet",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -159,8 +161,6 @@ __all__ = [
     "ScheduledChange",
     "WebExperiment",
     "Comment",
-    "ErrorTrackingSymbolSet",
-    "ErrorTrackingStackFrame",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",
