@@ -203,14 +203,13 @@ export function Experiments(): JSX.Element {
                                 ? {
                                       dropdown: {
                                           placement: 'bottom-start',
-                                          actionable: true,
                                           overlay: (
                                               <LemonButton size="small" to={urls.experiment('web')}>
                                                   New Web experiment
                                               </LemonButton>
                                           ),
                                       },
-                                      'data-attr': 'saved-insights-new-insight-dropdown',
+                                      'data-attr': 'create-web-experiment',
                                   }
                                 : null
                         }

@@ -87,7 +87,6 @@ const NEW_EXPERIMENT: Experiment = {
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
-    type?: string
 }
 
 interface SecondaryMetricResult {
@@ -160,6 +159,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        setExperimentType: (type?: string) => ({ type }),
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -394,7 +394,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 } else {
                     response = await api.create(`api/projects/${values.currentTeamId}/experiments`, {
                         ...values.experiment,
-                        type: values.experimentType,
                         parameters: {
                             ...values.experiment?.parameters,
                             recommended_running_time: recommendedRunningTime,
@@ -423,6 +422,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 })
             }
+        },
+        setExperimentType: async ({ type }) => {
+            actions.setExperiment({ type: type })
         },
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
@@ -932,10 +934,6 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
-        ],
-        experimentType: [
-            () => [(_, props) => props.type ?? 'product'],
-            (experimentType): Experiment['type'] => experimentType,
         ],
         experimentInsightType: [
             (s) => [s.experiment, s.featureFlags],
@@ -1559,10 +1557,14 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setEditExperiment(false)
 
             if (id && didPathChange) {
-                const parsedId = id === 'new' ? 'new' : parseInt(id)
+                const parsedId = id === 'new' || id === 'web' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.resetExperiment()
                     actions.setNewExperimentInsight()
+                }
+
+                if (id === 'web') {
+                    actions.setExperimentType('web')
                 }
 
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
