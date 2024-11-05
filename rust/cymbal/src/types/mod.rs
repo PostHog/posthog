@@ -82,7 +82,7 @@ impl Exception {
         }
 
         for frame in frames {
-            if has_no_resolved || frame.resolved {
+            if (has_no_resolved || frame.resolved) && frame.in_app {
                 frame.include_in_fingerprint(h)
             }
         }
