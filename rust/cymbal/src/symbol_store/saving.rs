@@ -346,7 +346,7 @@ mod test {
         source_mock.assert_hits(1); // Still only 1 hit
 
         // Verify the failure was recorded in postgres
-        let record = SymbolSetRecord::load(&db, 0, &test_url.to_string())
+        let record = SymbolSetRecord::load(&db, 0, test_url.as_ref())
             .await
             .unwrap()
             .unwrap();
@@ -398,7 +398,7 @@ mod test {
         map_mock.assert_hits(1); // Still only 1 hit
 
         // Verify the failure was recorded in postgres
-        let record = SymbolSetRecord::load(&db, 0, &test_url.to_string())
+        let record = SymbolSetRecord::load(&db, 0, test_url.as_ref())
             .await
             .unwrap()
             .unwrap();
