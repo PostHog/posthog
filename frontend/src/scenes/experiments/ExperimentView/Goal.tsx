@@ -115,10 +115,10 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                     </LemonButton>
                     <LemonButton
                         disabledReason={
-                            (goalInsightDataLoading && 'The insight needs to be loaded before saving the goal') ||
+                            (goalInsightDataLoading && 'The insight needs to be loaded before saving the goal.') ||
                             (experimentInsightType === InsightType.FUNNELS &&
                                 experimentFiltersLength < 2 &&
-                                'The experiment needs at least two funnel steps')
+                                'The experiment needs at least two funnel steps.')
                         }
                         form="edit-experiment-goal-form"
                         onClick={() => {
