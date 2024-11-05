@@ -155,7 +155,19 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
     }
 
     const renderPricingInfo = (): JSX.Element | null => {
-        if (addon.inclusion_only || addon.contact_support || billing?.trial || addon.subscribed) {
+        // Don't render if
+        // - the product is inclusion only (it's automatically included and can't be subscribed to)
+        // - the plan requires contacting support
+        // - the customer is on a trial
+        // - the customer is already subscribed to the product
+        // - the product is included with the main product
+        if (
+            addon.inclusion_only ||
+            addon.contact_support ||
+            billing?.trial ||
+            addon.subscribed ||
+            addon.included_with_main_product
+        ) {
             return null
         }
 
