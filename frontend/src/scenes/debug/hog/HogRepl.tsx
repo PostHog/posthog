@@ -101,7 +101,7 @@ export function HogRepl(): JSX.Element {
                             value={currentCode}
                             onChange={(value) => setCurrentCode(value ?? '')}
                             onPressCmdEnter={runCurrentCode}
-                            onPressUpArrow={() => {
+                            onPressUpNoValue={() => {
                                 if ((hogReplLogic.findMounted()?.values.replChunks.length ?? 0) > 0) {
                                     editFromHere(replChunks.length - 1)
                                 }

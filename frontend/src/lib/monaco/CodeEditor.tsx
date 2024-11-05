@@ -26,7 +26,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     queryKey?: string
     autocompleteContext?: string
     onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
-    onPressUpArrow?: () => void
+    onPressUpNoValue?: () => void
     autoFocus?: boolean
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
@@ -57,7 +57,7 @@ function initEditor(
     if (editorProps?.language === 'hogJson') {
         initHogJsonLanguage(monaco)
     }
-    if (options.tabFocusMode || editorProps.onPressUpArrow) {
+    if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
             if (options.tabFocusMode) {
                 if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
@@ -85,14 +85,16 @@ function initEditor(
                     }
                 }
             }
-            if (editorProps.onPressUpArrow) {
-                if (evt.keyCode === monaco.KeyCode.UpArrow && !evt.metaKey && !evt.ctrlKey) {
-                    // if there is no value
-                    if (editor.getValue() === '') {
-                        evt.preventDefault()
-                        evt.stopPropagation()
-                        editorProps.onPressUpArrow()
-                    }
+            if (editorProps.onPressUpNoValue) {
+                if (
+                    evt.keyCode === monaco.KeyCode.UpArrow &&
+                    !evt.metaKey &&
+                    !evt.ctrlKey &&
+                    editor.getValue() === ''
+                ) {
+                    evt.preventDefault()
+                    evt.stopPropagation()
+                    editorProps.onPressUpNoValue()
                 }
             }
         })
