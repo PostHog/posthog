@@ -24,14 +24,14 @@ from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
 @activity.defn
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
-    with HeartbeaterSync(factor=30):
+    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+
+    with HeartbeaterSync(factor=30, logger=logger):
         model = ExternalDataJob.objects.prefetch_related(
             "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
         ).get(id=inputs.run_id)
 
-        logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
-
-        logger.info("Running *SYNC* import_data")
+        logger.debug("Running *SYNC* import_data")
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
