@@ -61,6 +61,34 @@ export interface AxisSeries<T> {
     settings?: AxisSeriesSettings
 }
 
+export interface AxisBreakoutSeries<T> {
+    name: string
+    data: T[]
+    settings?: AxisSeriesSettings
+}
+
+export interface BreakoutSeriesData<T> {
+    xData: AxisSeries<string>
+    seriesData: AxisBreakoutSeries<T>[]
+    isUnaggregated?: boolean
+}
+
+export const EmptyBreakoutSeries: BreakoutSeriesData<number> = {
+    xData: {
+        column: {
+            name: 'None',
+            type: {
+                name: 'INTEGER',
+                isNumerical: false,
+            },
+            label: 'None',
+            dataIndex: -1,
+        },
+        data: [],
+    },
+    seriesData: [],
+}
+
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
@@ -266,7 +294,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             allColumns: values.columns,
         }),
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
-        addSeriesBreakout: (columnName: string | null) => ({ columnName }),
+        addSeriesBreakout: (columnName: string | null) => ({ columnName, response: values.response }),
         deleteSeriesBreakout: () => ({}),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
@@ -449,7 +477,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 deleteSeriesBreakout: () => false,
             },
         ],
-        selectedSeriesBreakout: [
+        selectedSeriesBreakoutColumn: [
             null as string | null,
             {
                 clearAxis: () => null,
@@ -680,6 +708,147 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return {
                     column,
                     data: data.map((n) => n[column.dataIndex]),
+                }
+            },
+        ],
+        breakoutColumnValues: [
+            (state) => [state.selectedSeriesBreakoutColumn, state.response, state.columns],
+            (breakoutColumn, response, columns): string[] => {
+                if (!response || breakoutColumn === null) {
+                    return []
+                }
+
+                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+
+                const column = columns.find((n) => n.name === breakoutColumn)
+                if (!column) {
+                    return []
+                }
+
+                // return list of unique column values
+                return Array.from(new Set(data.map((n) => n[column.dataIndex])))
+            },
+        ],
+        seriesBreakoutData: [
+            (state) => [
+                state.selectedSeriesBreakoutColumn,
+                state.breakoutColumnValues,
+                state.selectedYAxis,
+                state.selectedXAxis,
+                state.response,
+                state.columns,
+            ],
+            (
+                selectedBreakoutColumn,
+                breakoutColumnValues,
+                ySeries,
+                xSeries,
+                response,
+                columns
+            ): BreakoutSeriesData<number> => {
+                if (
+                    !response ||
+                    !selectedBreakoutColumn ||
+                    ySeries === null ||
+                    ySeries.length === 0 ||
+                    xSeries === null ||
+                    columns === null ||
+                    columns.length === 0
+                ) {
+                    return EmptyBreakoutSeries
+                }
+
+                // shouldn't be possible to have more than 1 ySeries with a breakout
+                if (ySeries.length > 1) {
+                    console.error('More than 1 ySeries with a breakout column')
+                    return EmptyBreakoutSeries
+                }
+
+                const selectedYAxis = ySeries[0]
+                if (!selectedYAxis) {
+                    return EmptyBreakoutSeries
+                }
+                const yColumn = columns.find((n) => n.name === selectedYAxis.name)
+                if (!yColumn) {
+                    return EmptyBreakoutSeries
+                }
+                const xColumn = columns.find((n) => n.name === xSeries)
+                if (!xColumn) {
+                    return EmptyBreakoutSeries
+                }
+
+                const breakoutColumn = columns.find((n) => n.name === selectedBreakoutColumn)
+                if (!breakoutColumn) {
+                    return EmptyBreakoutSeries
+                }
+
+                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+
+                // xData is unique x values
+                const xData = Array.from(new Set(data.map((n) => n[xColumn.dataIndex])))
+
+                let isUnaggregated = false
+
+                const seriesData: AxisBreakoutSeries<number>[] = breakoutColumnValues.map((value) => {
+                    // first filter data by breakout column value
+                    const filteredData = data.filter((n) => n[breakoutColumn.dataIndex] === value)
+                    if (filteredData.length === 0) {
+                        return {
+                            name: value,
+                            data: [],
+                        }
+                    }
+
+                    // check if there are any duplicates of xColumn values
+                    // (if we know there is unaggregated data, we don't need to check again)
+                    if (!isUnaggregated) {
+                        const xColumnValues = filteredData.map((n) => n[xColumn.dataIndex])
+                        const xColumnValuesSet = new Set(xColumnValues)
+                        if (xColumnValues.length !== xColumnValuesSet.size) {
+                            isUnaggregated = true
+                        }
+                    }
+
+                    // sum y values for each x value, setting to 0 if no corresponding y value
+                    const dataset = xData.map((xValue) => {
+                        const yValue = filteredData
+                            .filter((n) => n[xColumn.dataIndex] === xValue)
+                            .map((n) => {
+                                try {
+                                    const value = n[yColumn.dataIndex]
+                                    const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
+
+                                    if (selectedYAxis.settings.formatting?.decimalPlaces) {
+                                        return parseFloat(
+                                            (parseFloat(value) * multiplier).toFixed(
+                                                selectedYAxis.settings.formatting.decimalPlaces
+                                            )
+                                        )
+                                    }
+
+                                    const isInt = Number.isInteger(value)
+                                    return isInt ? parseInt(value) * multiplier : parseFloat(value) * multiplier
+                                } catch {
+                                    return 0
+                                }
+                            })
+                            .reduce((a, b) => a + b, 0)
+                        return yValue
+                    })
+
+                    return {
+                        name: value || '[No value]',
+                        data: dataset,
+                    }
+                })
+
+                return {
+                    xData: {
+                        column: xColumn,
+                        data: xData,
+                    },
+                    seriesData,
+                    isUnaggregated,
                 }
             },
         ],

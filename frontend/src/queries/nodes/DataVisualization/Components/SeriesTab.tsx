@@ -19,7 +19,7 @@ import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisBreakoutSeries, AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColorPickerButton } from './ColorPickerButton'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
@@ -89,7 +89,7 @@ export const SeriesTab = (): JSX.Element => {
                     Add series breakout
                 </LemonButton>
             )}
-            {showSeriesBreakout && <SeriesBreakout />}
+            {showSeriesBreakout && <SeriesBreakoutSelector />}
 
             <LemonLabel className="mt-4">Y-axis</LemonLabel>
             {yData.map((series, index) => (
@@ -244,15 +244,17 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
             <div className="flex gap-3">
-                <LemonField name="color" label="Color">
-                    {({ value, onChange }) => (
-                        <ColorPickerButton
-                            color={value}
-                            onColorSelect={onChange}
-                            colorChoices={getSeriesColorPalette()}
-                        />
-                    )}
-                </LemonField>
+                {!showTableSettings && (
+                    <LemonField name="color" label="Color">
+                        {({ value, onChange }) => (
+                            <ColorPickerButton
+                                color={value}
+                                onColorSelect={onChange}
+                                colorChoices={getSeriesColorPalette()}
+                            />
+                        )}
+                    </LemonField>
+                )}
                 <LemonField name="label" label="Label">
                     <LemonInput />
                 </LemonField>
@@ -323,8 +325,9 @@ const Y_SERIES_SETTINGS_TABS = {
     },
 }
 
-export const SeriesBreakout = (): JSX.Element => {
-    const { columns, responseLoading, selectedXAxis, selectedSeriesBreakout } = useValues(dataVisualizationLogic)
+export const SeriesBreakoutSelector = (): JSX.Element => {
+    const { columns, responseLoading, selectedXAxis, selectedSeriesBreakoutColumn, seriesBreakoutData } =
+        useValues(dataVisualizationLogic)
     const { addSeriesBreakout } = useActions(dataVisualizationLogic)
 
     const seriesBreakoutOptions = columns
@@ -342,17 +345,49 @@ export const SeriesBreakout = (): JSX.Element => {
         .filter((column) => column.value !== selectedXAxis)
 
     return (
-        <LemonSelect
-            className="w-full mt-1"
-            value={selectedSeriesBreakout !== null ? selectedSeriesBreakout : 'None'}
-            options={seriesBreakoutOptions}
-            disabledReason={responseLoading ? 'Query loading...' : undefined}
-            onChange={(value) => {
-                const column = columns.find((n) => n.name === value)
-                if (column) {
-                    addSeriesBreakout(column.name)
-                }
-            }}
-        />
+        <>
+            <LemonSelect
+                className="w-full mt-1"
+                value={selectedSeriesBreakoutColumn !== null ? selectedSeriesBreakoutColumn : 'None'}
+                options={seriesBreakoutOptions}
+                disabledReason={responseLoading ? 'Query loading...' : undefined}
+                onChange={(value) => {
+                    const column = columns.find((n) => n.name === value)
+                    if (column) {
+                        addSeriesBreakout(column.name)
+                    }
+                }}
+            />
+            {seriesBreakoutData.seriesData.map((series, index) => (
+                <BreakoutSeries series={series} index={index} key={`${name}-${index}`} />
+            ))}
+        </>
+    )
+}
+
+const BreakoutSeries = ({ series, index }: { series: AxisBreakoutSeries<number>; index: number }): JSX.Element => {
+    const { isDarkModeOn } = useValues(themeLogic)
+    const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
+
+    return (
+        <div className="flex gap-1 mb-1">
+            <div className="flex gap-2">
+                <SeriesGlyph
+                    style={{
+                        borderColor: seriesColor,
+                        color: seriesColor,
+                        backgroundColor: isDarkModeOn
+                            ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
+                            : hexToRGBA(seriesColor, 0.2),
+                    }}
+                    className="mr-2"
+                >
+                    <></>
+                </SeriesGlyph>
+                <span>{series.name ? series.name : '[No value]'}</span>
+            </div>
+            {/* For now let's keep things simple and not allow too much configuration */}
+            {/* We may just want to add a show/hide button here */}
+        </div>
     )
 }
