@@ -12,7 +12,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
-import {useEffect, useMemo} from 'react'
+import { useEffect } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -314,14 +314,8 @@ export const HoldoutSelector = (): JSX.Element => {
 
 export function ExperimentForm(): JSX.Element {
     const { currentFormStep, props } = useValues(experimentLogic)
-    const { setCurrentFormStep, setExperiment } = useActions(experimentLogic)
-    useMemo(() => {
-        if (props.type === 'web') {
-            setExperiment({
-                type: 'web'
-            })
-        }
-    }, [props, setExperiment])
+    const { setCurrentFormStep } = useActions(experimentLogic)
+
     const stepComponents = {
         0: <StepInfo />,
         1: <StepGoal />,

@@ -361,7 +361,6 @@ export const experimentLogic = kea<experimentLogicType>([
 
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
-            console.log(`isUpdate is `, isUpdate)
             try {
                 if (isUpdate) {
                     response = await api.update(
@@ -395,6 +394,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 } else {
                     response = await api.create(`api/projects/${values.currentTeamId}/experiments`, {
                         ...values.experiment,
+                        type: values.experimentType,
                         parameters: {
                             ...values.experiment?.parameters,
                             recommended_running_time: recommendedRunningTime,
@@ -932,6 +932,10 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
+        ],
+        experimentType: [
+            () => [(_, props) => props.type ?? 'product'],
+            (experimentType): Experiment['type'] => experimentType,
         ],
         experimentInsightType: [
             (s) => [s.experiment, s.featureFlags],
