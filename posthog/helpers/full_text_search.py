@@ -8,7 +8,7 @@ UNSAFE_CHARACTERS = r"[\'&|!<>():]"
 """Characters unsafe in a `tsquery`."""
 
 
-def process_query(query: str) -> str:
+def process_query(query: str) -> str | None:
     """
     Converts a query string into a to_tsquery compatible string, where
     the last word is a prefix match. This allows searching as you type.
@@ -33,13 +33,17 @@ def build_search_vector(search_fields: dict[str, Literal["A", "B", "C"]]) -> Sea
     return combined_vector
 
 
-def build_rank(search_fields: dict[str, Literal["A", "B", "C"]], search_query: str) -> SearchRank:
+def build_rank(search_fields: dict[str, Literal["A", "B", "C"]], search_query: str) -> SearchRank | None:
     """
     Builds a "simple" search rank that converts the input to lower case and removes stop words,
     but does not do additional stemming. Search fields are weighted according to the configuration and
     the search query gets processed to allow searching as you type.
+
+    Returns none for empty search (after removing unsafe characters and stop words).
     """
-    # lower case, remove stop words, but no stemming.
     vector = build_search_vector(search_fields)
-    query = SearchQuery(process_query(search_query), config="simple", search_type="raw")
+    search = process_query(search_query)
+    if search is None:
+        return None
+    query = SearchQuery(search, config="simple", search_type="raw")
     return SearchRank(vector, query)
