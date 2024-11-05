@@ -75,6 +75,7 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
+from .error_tracking import ErrorTrackingSymbolSet, ErrorTrackingStackFrame
 
 __all__ = [
     "AlertConfiguration",
@@ -158,6 +159,8 @@ __all__ = [
     "ScheduledChange",
     "WebExperiment",
     "Comment",
+    "ErrorTrackingSymbolSet",
+    "ErrorTrackingStackFrame",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",
