@@ -7,13 +7,13 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightType } from '~/types'
+import { ExperimentIdType, InsightType } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 
 interface ExperimentCalculatorProps {
-    experimentId: number | 'new'
+    experimentId: ExperimentIdType
 }
 
 function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {

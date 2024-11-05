@@ -7,6 +7,7 @@ from posthog.clickhouse.table_engines import (
     AggregatingMergeTree,
 )
 
+# V1 Sessions table
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
 
@@ -21,6 +22,32 @@ DROP_SESSION_MATERIALIZED_VIEW_SQL = (
 )
 DROP_SESSION_VIEW_SQL = lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
+# Only teams that were grandfathered into the V1 sessions table are allowed to use it. Everyone else should use V2,
+# i.e. raw_sessions. These teams were those who were seen to have changed their session table version in these metabase
+# queries:
+# US: https://metabase.prod-us.posthog.dev/question#eyJkYXRhc2V0X3F1ZXJ5Ijp7InR5cGUiOiJuYXRpdmUiLCJuYXRpdmUiOnsicXVlcnkiOiJTRUxFQ1QgdGVhbV9pZCwgc1xuRlJPTSAoXG4gICAgU0VMRUNUIG1vZGlmaWVycy0-PidzZXNzaW9uVGFibGVWZXJzaW9uJyBBUyBzLCBpZCBhcyB0ZWFtX2lkXG4gICAgRlJPTSBwb3N0aG9nX3RlYW1cbikgc3ViXG5XSEVSRSBzICE9ICcnIiwidGVtcGxhdGUtdGFncyI6e319LCJkYXRhYmFzZSI6MzR9LCJkaXNwbGF5IjoidGFibGUiLCJwYXJhbWV0ZXJzIjpbXSwidmlzdWFsaXphdGlvbl9zZXR0aW5ncyI6e319
+# EU: https://metabase.prod-eu.posthog.dev/question#eyJkYXRhc2V0X3F1ZXJ5Ijp7InR5cGUiOiJuYXRpdmUiLCJuYXRpdmUiOnsicXVlcnkiOiJTRUxFQ1QgdGVhbV9pZCwgc1xuRlJPTSAoXG4gICAgU0VMRUNUIG1vZGlmaWVycy0-PidzZXNzaW9uVGFibGVWZXJzaW9uJyBBUyBzLCBpZCBhcyB0ZWFtX2lkXG4gICAgRlJPTSBwb3N0aG9nX3RlYW1cbikgc3ViXG5XSEVSRSBzICE9ICcnIiwidGVtcGxhdGUtdGFncyI6e319LCJkYXRhYmFzZSI6MzR9LCJkaXNwbGF5IjoidGFibGUiLCJwYXJhbWV0ZXJzIjpbXSwidmlzdWFsaXphdGlvbl9zZXR0aW5ncyI6e319
+# or had contacted support about an issue.
+# This list exists because we want to reduce the number of writes happening to this table, and so we don't write to it
+# for any team not in this list. Adding a team to this is possible if needed, but would require changing this MV in
+# production and backfilling this table with the management command backfill_sessions_table.
+ALLOWED_TEAM_IDS = [
+    # posthog
+    1,
+    2,
+    # US query
+    13610,  # zendesk: https://posthoghelp.zendesk.com/agent/tickets/18001
+    19279,
+    21173,
+    29929,
+    32050,
+    # EU query
+    9910,
+    11775,
+    21129,
+    31490,
+]
+ALLOWED_TEAM_IDS_SQL = ", ".join(str(team_id) for team_id in ALLOWED_TEAM_IDS)
 
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
@@ -144,7 +171,7 @@ sumIf(1, event='$pageview') as pageview_count,
 sumIf(1, event='$autocapture') as autocapture_count
 
 FROM {database}.sharded_events
-WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
+WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN ({allowed_team_ids})
 GROUP BY `$session_id`, team_id
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
@@ -168,6 +195,7 @@ GROUP BY `$session_id`, team_id
         mc_cid_property=source_column("mc_cid"),
         igshid_property=source_column("igshid"),
         ttclid_property=source_column("ttclid"),
+        allowed_team_ids=ALLOWED_TEAM_IDS_SQL,
     )
 )
 

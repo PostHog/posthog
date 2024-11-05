@@ -262,14 +262,16 @@ export async function createUserTeamAndOrganization(
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
-    return (
-        await hub.db.postgres.query(
-            PostgresUse.COMMON_READ,
-            'SELECT * FROM posthog_team ORDER BY id',
-            undefined,
-            'fetchAllTeams'
-        )
-    ).rows
+    const selectResult = await hub.db.postgres.query<Team>(
+        PostgresUse.COMMON_READ,
+        'SELECT * FROM posthog_team ORDER BY id',
+        undefined,
+        'fetchAllTeams'
+    )
+    for (const row of selectResult.rows) {
+        row.project_id = parseInt(row.project_id as unknown as string)
+    }
+    return selectResult.rows
 }
 
 export async function getFirstTeam(hub: Hub): Promise<Team> {

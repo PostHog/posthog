@@ -6,6 +6,7 @@ import api from 'lib/api'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -16,6 +17,7 @@ import {
     manualLinkSources,
     ManualLinkSourceType,
     PipelineTab,
+    ProductKey,
     SourceConfig,
     SourceFieldConfig,
 } from '~/types'
@@ -626,6 +628,26 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         caption: '',
     },
+    Chargebee: {
+        name: 'Chargebee',
+        fields: [
+            {
+                name: 'api_key',
+                label: 'API key',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                type: 'text',
+                name: 'site_name',
+                label: 'Site name (subdomain)',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        caption: '',
+    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (
@@ -731,6 +753,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['resetTable', 'createTableSuccess'],
             dataWarehouseSettingsLogic,
             ['loadSources'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     }),
     reducers({
@@ -1128,6 +1152,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         setManualLinkingProvider: () => {
             actions.onNext()
+        },
+        selectConnector: () => {
+            actions.addProductIntent({ product_type: ProductKey.DATA_WAREHOUSE, intent_context: 'selected connector' })
         },
     })),
     urlToAction(({ actions }) => ({

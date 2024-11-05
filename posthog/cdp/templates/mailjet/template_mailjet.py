@@ -10,6 +10,13 @@ input_api_key = {
     "secret": True,
     "required": True,
 }
+input_secret_key = {
+    "key": "secret_key",
+    "type": "string",
+    "label": "Mailjet Secret Key",
+    "secret": True,
+    "required": True,
+}
 input_email = {
     "key": "email",
     "type": "string",
@@ -43,7 +50,7 @@ if (empty(inputs.email)) {
 fetch(f'https://api.mailjet.com/v3/REST/contact/', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
+        'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
         'Content-Type': 'application/json'
     },
     'body': {
@@ -55,6 +62,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 """.strip(),
     inputs_schema=[
         input_api_key,
+        input_secret_key,
         input_email,
         {
             "key": "name",
@@ -95,7 +103,7 @@ if (empty(inputs.email)) {
 fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlists', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
+        'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
         'Content-Type': 'application/json'
     },
     'body': {
@@ -110,6 +118,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
 """.strip(),
     inputs_schema=[
         input_api_key,
+        input_secret_key,
         input_email,
         {
             "key": "contact_list_id",
@@ -163,24 +172,24 @@ fun sendEmail(email) {
     fetch(f'https://api.mailjet.com/v3.1/send', {
         'method': 'POST',
         'headers': {
-            'Authorization': f'Bearer {inputs.api_key}',
+            'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
             'Content-Type': 'application/json'
         },
         'body': {
             'Messages': [
                 {
                     'From': {
-                        'Email': inputs.email.from,
+                        'Email': email.from,
                         'Name': ''
                     },
                     'To': [
                         {
-                            'Email': inputs.email.to,
+                            'Email': email.to,
                             'Name': ''
                         }
                     ],
-                    'Subject': inputs.email.subject,
-                    'HTMLPart': inputs.email.html
+                    'Subject': email.subject,
+                    'HTMLPart': email.html
                 }
             ]
         }
@@ -191,6 +200,7 @@ return {'sendEmail': sendEmail}
 """.strip(),
     inputs_schema=[
         input_api_key,
+        input_secret_key,
         {
             "key": "from_email",
             "type": "string",

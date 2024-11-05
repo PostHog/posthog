@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
+use frames::{Frame, RawFrame};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{digest::Update, Sha512};
 
 pub mod frames;
 
@@ -19,8 +21,10 @@ pub struct Mechanism {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Stacktrace {
-    pub frames: Vec<frames::RawFrame>,
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Stacktrace {
+    Raw { frames: Vec<RawFrame> },
+    Resolved { frames: Vec<Frame> },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -34,8 +38,8 @@ pub struct Exception {
     pub module: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stacktrace: Option<Stacktrace>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "stacktrace")]
+    pub stack: Option<Stacktrace>,
 }
 
 // Given a Clickhouse Event's properties, we care about the contents
@@ -60,12 +64,40 @@ pub struct ErrProps {
     pub other: HashMap<String, Value>,
 }
 
+impl Exception {
+    pub fn include_in_fingerprint(&self, h: &mut Sha512) {
+        h.update(self.exception_type.as_bytes());
+        h.update(self.exception_message.as_bytes());
+        let Some(Stacktrace::Resolved { frames }) = &self.stack else {
+            return;
+        };
+
+        let has_no_resolved = !frames.iter().any(|f| f.resolved);
+        let has_no_in_app = !frames.iter().any(|f| f.in_app);
+
+        if has_no_in_app {
+            // TODO: we should try to be smarter about handling the case when
+            // there are no in-app frames
+            if let Some(f) = frames.first() {
+                f.include_in_fingerprint(h)
+            }
+            return;
+        }
+
+        for frame in frames {
+            if (has_no_resolved || frame.resolved) && frame.in_app {
+                frame.include_in_fingerprint(h)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_types::ClickHouseEvent;
     use serde_json::Error;
 
-    use crate::types::frames::RawFrame;
+    use crate::types::{frames::RawFrame, Stacktrace};
 
     use super::ErrProps;
 
@@ -93,9 +125,11 @@ mod test {
         assert_eq!(mechanism.source, None);
         assert_eq!(mechanism.synthetic, Some(false));
 
-        let stacktrace = exception_list[0].stacktrace.as_ref().unwrap();
-        assert_eq!(stacktrace.frames.len(), 2);
-        let RawFrame::JavaScript(frame) = &stacktrace.frames[0];
+        let Stacktrace::Raw { frames } = exception_list[0].stack.as_ref().unwrap() else {
+            panic!("Expected a Raw stacktrace")
+        };
+        assert_eq!(frames.len(), 2);
+        let RawFrame::JavaScript(frame) = &frames[0];
 
         assert_eq!(
             frame.source_url,
@@ -106,7 +140,7 @@ mod test {
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 25112);
 
-        let RawFrame::JavaScript(frame) = &stacktrace.frames[1];
+        let RawFrame::JavaScript(frame) = &frames[1];
         assert_eq!(
             frame.source_url,
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())

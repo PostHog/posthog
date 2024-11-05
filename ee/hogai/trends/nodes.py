@@ -1,29 +1,37 @@
 import itertools
-import json
 import xml.etree.ElementTree as ET
 from functools import cached_property
-from typing import Union, cast
+from typing import Optional, cast
 
 from langchain.agents.format_scratchpad import format_log_to_str
-from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
-from langchain_core.agents import AgentAction, AgentFinish
-from langchain_core.exceptions import OutputParserException
+from langchain_core.agents import AgentAction
 from langchain_core.messages import AIMessage as LangchainAssistantMessage
 from langchain_core.messages import BaseMessage, merge_message_runs
-from langchain_core.messages import HumanMessage as LangchainHumanMessage
-from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
+from ee.hogai.trends.parsers import (
+    PydanticOutputParserException,
+    ReActParserException,
+    ReActParserMissingActionException,
+    parse_generated_trends_output,
+    parse_react_agent_output,
+)
 from ee.hogai.trends.prompts import (
     react_definitions_prompt,
     react_follow_up_prompt,
+    react_malformed_json_prompt,
+    react_missing_action_correction_prompt,
+    react_missing_action_prompt,
+    react_pydantic_validation_exception_prompt,
     react_scratchpad_prompt,
     react_system_prompt,
     react_user_prompt,
+    trends_failover_output_prompt,
+    trends_failover_prompt,
     trends_group_mapping_prompt,
     trends_new_plan_prompt,
     trends_plan_prompt,
@@ -35,7 +43,7 @@ from ee.hogai.trends.toolkit import (
     TrendsAgentToolkit,
     TrendsAgentToolModel,
 )
-from ee.hogai.trends.utils import GenerateTrendOutputModel
+from ee.hogai.trends.utils import GenerateTrendOutputModel, filter_trends_conversation
 from ee.hogai.utils import (
     AssistantNode,
     AssistantNodeName,
@@ -45,7 +53,12 @@ from ee.hogai.utils import (
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import CachedTeamTaxonomyQueryResponse, HumanMessage, TeamTaxonomyQuery, VisualizationMessage
+from posthog.schema import (
+    CachedTeamTaxonomyQueryResponse,
+    FailureMessage,
+    TeamTaxonomyQuery,
+    VisualizationMessage,
+)
 
 
 class CreateTrendsPlanNode(AssistantNode):
@@ -75,40 +88,43 @@ class CreateTrendsPlanNode(AssistantNode):
         )
 
         toolkit = TrendsAgentToolkit(self._team)
-        output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
-        agent = prompt | merger | self._model | output_parser
+        agent = prompt | merger | self._model | parse_react_agent_output
 
         try:
             result = cast(
-                Union[AgentAction, AgentFinish],
+                AgentAction,
                 agent.invoke(
                     {
+                        "product_description": self._team.project.product_description,
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
-                        "agent_scratchpad": format_log_to_str(
-                            [(action, output) for action, output in intermediate_steps if output is not None]
-                        ),
+                        "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                     },
                     config,
                 ),
             )
-        except OutputParserException as e:
-            text = str(e)
-            if e.send_to_llm:
-                observation = str(e.observation)
-                text = str(e.llm_output)
+        except ReActParserException as e:
+            if isinstance(e, ReActParserMissingActionException):
+                # When the agent doesn't output the "Action:" block, we need to correct the log and append the action block,
+                # so that it has a higher chance to recover.
+                corrected_log = str(
+                    ChatPromptTemplate.from_template(react_missing_action_correction_prompt, template_format="mustache")
+                    .format_messages(output=e.llm_output)[0]
+                    .content
+                )
+                result = AgentAction(
+                    "handle_incorrect_response",
+                    react_missing_action_prompt,
+                    corrected_log,
+                )
             else:
-                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
-            result = AgentAction("handle_incorrect_response", observation, text)
-
-        if isinstance(result, AgentFinish):
-            # Exceptional case
-            return {
-                "plan": result.log,
-                "intermediate_steps": None,
-            }
+                result = AgentAction(
+                    "handle_incorrect_response",
+                    react_malformed_json_prompt,
+                    e.llm_output,
+                )
 
         return {
             "intermediate_steps": [*intermediate_steps, (result, None)],
@@ -125,12 +141,12 @@ class CreateTrendsPlanNode(AssistantNode):
 
     @property
     def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
 
     @cached_property
     def _events_prompt(self) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
@@ -170,28 +186,43 @@ class CreateTrendsPlanNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        messages = state.get("messages", [])
-        if len(messages) == 0:
+        human_messages, visualization_messages = filter_trends_conversation(state.get("messages", []))
+
+        if not human_messages:
             return []
 
-        conversation = [
-            HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
-                question=messages[0].content if isinstance(messages[0], HumanMessage) else ""
-            )
-        ]
+        conversation = []
 
-        for message in messages[1:]:
-            if isinstance(message, HumanMessage):
-                conversation.append(
-                    HumanMessagePromptTemplate.from_template(
-                        react_follow_up_prompt,
-                        template_format="mustache",
-                    ).format(feedback=message.content)
-                )
-            elif isinstance(message, VisualizationMessage):
-                conversation.append(LangchainAssistantMessage(content=message.plan or ""))
+        for idx, messages in enumerate(itertools.zip_longest(human_messages, visualization_messages)):
+            human_message, viz_message = messages
+
+            if human_message:
+                if idx == 0:
+                    conversation.append(
+                        HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
+                            question=human_message.content
+                        )
+                    )
+                else:
+                    conversation.append(
+                        HumanMessagePromptTemplate.from_template(
+                            react_follow_up_prompt,
+                            template_format="mustache",
+                        ).format(feedback=human_message.content)
+                    )
+
+            if viz_message:
+                conversation.append(LangchainAssistantMessage(content=viz_message.plan or ""))
 
         return conversation
+
+    def _get_agent_scratchpad(self, scratchpad: list[tuple[AgentAction, str | None]]) -> str:
+        actions = []
+        for action, observation in scratchpad:
+            if observation is None:
+                continue
+            actions.append((action, observation))
+        return format_log_to_str(actions)
 
 
 class CreateTrendsPlanToolsNode(AssistantNode):
@@ -205,8 +236,12 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         try:
             input = TrendsAgentToolModel.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
-            feedback = f"Invalid tool call. Pydantic exception: {e.errors(include_url=False)}"
-            return {"intermediate_steps": [*intermediate_steps, (action, feedback)]}
+            observation = (
+                ChatPromptTemplate.from_template(react_pydantic_validation_exception_prompt, template_format="mustache")
+                .format_messages(exception=e.errors(include_url=False))[0]
+                .content
+            )
+            return {"intermediate_steps": [*intermediate_steps[:-1], (action, observation)]}
 
         # The plan has been found. Move to the generation.
         if input.name == "final_answer":
@@ -240,30 +275,38 @@ class GenerateTrendsNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig):
         generated_plan = state.get("plan", "")
+        intermediate_steps = state.get("intermediate_steps") or []
+        validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
         trends_generation_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", trends_system_prompt),
             ],
             template_format="mustache",
-        ) + self._reconstruct_conversation(state)
+        ) + self._reconstruct_conversation(state, validation_error_message=validation_error_message)
         merger = merge_message_runs()
 
-        chain = (
-            trends_generation_prompt
-            | merger
-            | self._model
-            # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
-            | RunnableLambda(lambda x: json.dumps(x))
-            # Validate a string input.
-            | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
-        )
+        chain = trends_generation_prompt | merger | self._model | parse_generated_trends_output
 
         try:
             message: GenerateTrendOutputModel = chain.invoke({}, config)
-        except OutputParserException:
+        except PydanticOutputParserException as e:
+            # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
+            if len(intermediate_steps) >= 2:
+                return {
+                    "messages": [
+                        FailureMessage(
+                            content="Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?"
+                        )
+                    ],
+                    "intermediate_steps": None,
+                }
+
             return {
-                "messages": [VisualizationMessage(plan=generated_plan, reasoning_steps=["Schema validation failed"])]
+                "intermediate_steps": [
+                    *intermediate_steps,
+                    (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
+                ],
             }
 
         return {
@@ -273,17 +316,18 @@ class GenerateTrendsNode(AssistantNode):
                     reasoning_steps=message.reasoning_steps,
                     answer=message.answer,
                 )
-            ]
+            ],
+            "intermediate_steps": None,
         }
 
     def router(self, state: AssistantState):
-        if state.get("tool_argument") is not None:
+        if state.get("intermediate_steps") is not None:
             return AssistantNodeName.GENERATE_TRENDS_TOOLS
         return AssistantNodeName.END
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True).with_structured_output(
             GenerateTrendTool().schema,
             method="function_calling",
             include_raw=False,
@@ -301,7 +345,9 @@ class GenerateTrendsNode(AssistantNode):
         )
         return ET.tostring(root, encoding="unicode")
 
-    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+    def _reconstruct_conversation(
+        self, state: AssistantState, validation_error_message: Optional[str] = None
+    ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
         """
@@ -317,22 +363,7 @@ class GenerateTrendsNode(AssistantNode):
             )
         ]
 
-        stack: list[LangchainHumanMessage] = []
-        human_messages: list[LangchainHumanMessage] = []
-        visualization_messages: list[VisualizationMessage] = []
-
-        for message in messages:
-            if isinstance(message, HumanMessage):
-                stack.append(LangchainHumanMessage(content=message.content))
-            elif isinstance(message, VisualizationMessage) and message.answer:
-                if stack:
-                    human_messages += merge_message_runs(stack)
-                    stack = []
-                visualization_messages.append(message)
-
-        if stack:
-            human_messages += merge_message_runs(stack)
-
+        human_messages, visualization_messages = filter_trends_conversation(messages)
         first_ai_message = True
 
         for human_message, ai_message in itertools.zip_longest(human_messages, visualization_messages):
@@ -364,6 +395,13 @@ class GenerateTrendsNode(AssistantNode):
                     LangchainAssistantMessage(content=ai_message.answer.model_dump_json() if ai_message.answer else "")
                 )
 
+        if validation_error_message:
+            conversation.append(
+                HumanMessagePromptTemplate.from_template(trends_failover_prompt, template_format="mustache").format(
+                    validation_error_message=validation_error_message
+                )
+            )
+
         return conversation
 
     @classmethod
@@ -382,4 +420,20 @@ class GenerateTrendsToolsNode(AssistantNode):
     name = AssistantNodeName.GENERATE_TRENDS_TOOLS
 
     def run(self, state: AssistantState, config: RunnableConfig):
-        return state
+        intermediate_steps = state.get("intermediate_steps", [])
+        if not intermediate_steps:
+            return state
+
+        action, _ = intermediate_steps[-1]
+        prompt = (
+            ChatPromptTemplate.from_template(trends_failover_output_prompt, template_format="mustache")
+            .format_messages(output=action.tool_input, exception_message=action.log)[0]
+            .content
+        )
+
+        return {
+            "intermediate_steps": [
+                *intermediate_steps[:-1],
+                (action, prompt),
+            ]
+        }
