@@ -4596,9 +4596,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.setup_flags_in_db("replica", team, user, flags, persons)
 
         GroupTypeMapping.objects.db_manager("replica").create(
-            team=self.team, group_type="organization", group_type_index=0
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.db_manager("default").create(team=self.team, group_type="project", group_type_index=1)
+        GroupTypeMapping.objects.db_manager("default").create(
+            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
+        )
 
         Group.objects.db_manager("replica").create(
             team_id=self.team.pk,
