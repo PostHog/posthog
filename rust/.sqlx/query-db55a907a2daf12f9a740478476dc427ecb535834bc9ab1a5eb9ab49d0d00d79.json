@@ -1,0 +1,12 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\n            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved)\n            VALUES ($1, $2, $3, $4, $5, $6)\n            ON CONFLICT (raw_id, team_id) DO UPDATE SET\n                created_at = $3,\n                symbol_set_id = $4,\n                contents = $5,\n                resolved = $6\n            ",
+    "describe": {
+        "columns": [],
+        "parameters": {
+            "Left": ["Text", "Int4", "Timestamptz", "Uuid", "Jsonb", "Bool"]
+        },
+        "nullable": []
+    },
+    "hash": "db55a907a2daf12f9a740478476dc427ecb535834bc9ab1a5eb9ab49d0d00d79"
+}
