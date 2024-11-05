@@ -3,15 +3,20 @@ from datetime import datetime
 from django.test import override_settings
 from freezegun import freeze_time
 
-from ee.hogai.trends.toolkit import TrendsAgentToolkit
+from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
+class TestToolkit(TaxonomyAgentToolkit):
+    def _get_tools(self) -> list[ToolkitTool]:
+        return self._default_tools
+
+
 @override_settings(IN_UNIT_TESTING=True)
-class TestToolkit(ClickhouseTestMixin, APIBaseTest):
+class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
     def _create_taxonomy(self):
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.EVENT, name="$browser", property_type=PropertyType.String
@@ -64,7 +69,7 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_retrieve_entity_properties(self):
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
 
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="test", property_type="String"
@@ -93,14 +98,14 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_entity_properties("person"),
             "Properties do not exist in the taxonomy for the entity person.",
         )
 
     def test_retrieve_entity_property_values(self):
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "$session_duration"),
             "30, 146, 2 and many more distinct values.",
@@ -141,7 +146,7 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
             "5, 4, 3, 2, 1 and 1 more distinct value.",
         )
 
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         GroupTypeMapping.objects.create(team=self.team, group_type_index=0, group_type="proj")
         GroupTypeMapping.objects.create(team=self.team, group_type_index=1, group_type="org")
         PropertyDefinition.objects.create(
@@ -177,18 +182,18 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
     def test_group_names(self):
         GroupTypeMapping.objects.create(team=self.team, group_type_index=0, group_type="proj")
         GroupTypeMapping.objects.create(team=self.team, group_type_index=1, group_type="org")
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
 
     def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_event_properties("pageview"),
             "Properties do not exist in the taxonomy for the event pageview.",
         )
 
     def test_empty_events(self):
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_event_properties("test"), "Properties do not exist in the taxonomy for the event test."
         )
@@ -205,7 +210,7 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_event_properties("event1"),
             "Properties do not exist in the taxonomy for the event event1.",
@@ -213,7 +218,7 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_event_properties(self):
         self._create_taxonomy()
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         prompt = toolkit.retrieve_event_properties("event1")
 
         self.assertIn(
@@ -235,7 +240,7 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_event_property_values(self):
         self._create_taxonomy()
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
 
         self.assertIn('"Chrome"', toolkit.retrieve_event_property_values("event1", "$browser"))
         self.assertIn('"Firefox"', toolkit.retrieve_event_property_values("event1", "$browser"))
@@ -249,7 +254,7 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_enrich_props_with_descriptions(self):
-        toolkit = TrendsAgentToolkit(self.team)
+        toolkit = TestToolkit(self.team)
         res = toolkit._enrich_props_with_descriptions("event", [("$geoip_city_name", "String")])
         self.assertEqual(len(res), 1)
         prop, type, description = res[0]

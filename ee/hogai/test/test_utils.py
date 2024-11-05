@@ -1,13 +1,13 @@
 from langchain_core.messages import HumanMessage as LangchainHumanMessage
 
-from ee.hogai.trends import utils
+from ee.hogai.utils import filter_visualization_conversation, merge_human_messages
 from posthog.schema import ExperimentalAITrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
 from posthog.test.base import BaseTest
 
 
 class TestTrendsUtils(BaseTest):
     def test_merge_human_messages(self):
-        res = utils.merge_human_messages(
+        res = merge_human_messages(
             [
                 LangchainHumanMessage(content="Text"),
                 LangchainHumanMessage(content="Text"),
@@ -19,7 +19,7 @@ class TestTrendsUtils(BaseTest):
         self.assertEqual(res, [LangchainHumanMessage(content="Text\nTe\nxt")])
 
     def test_filter_trends_conversation(self):
-        human_messages, visualization_messages = utils.filter_trends_conversation(
+        human_messages, visualization_messages = filter_visualization_conversation(
             [
                 HumanMessage(content="Text"),
                 FailureMessage(content="Error"),

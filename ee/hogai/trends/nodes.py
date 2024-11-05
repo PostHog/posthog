@@ -26,11 +26,8 @@ from ee.hogai.trends.prompts import (
     trends_system_prompt,
 )
 from ee.hogai.trends.toolkit import GenerateTrendTool, TrendsTaxonomyAgentToolkit
-from ee.hogai.trends.utils import GenerateTrendOutputModel, filter_trends_conversation
-from ee.hogai.utils import (
-    AssistantNode,
-    AssistantState,
-)
+from ee.hogai.trends.utils import GenerateTrendOutputModel
+from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     FailureMessage,
@@ -147,7 +144,7 @@ class GenerateTrendsNode(AssistantNode):
             )
         ]
 
-        human_messages, visualization_messages = filter_trends_conversation(messages)
+        human_messages, visualization_messages = filter_visualization_conversation(messages)
         first_ai_message = True
 
         for human_message, ai_message in itertools.zip_longest(human_messages, visualization_messages):
