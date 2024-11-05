@@ -314,6 +314,7 @@ export function SecondaryMetricsTable({
                         loading={secondaryMetricResultsLoading}
                         columns={columns}
                         dataSource={tabularSecondaryMetricResults}
+                        emptyState={<div>Waiting for experiment to start&hellip;</div>}
                     />
                 ) : (
                     <div className="border rounded bg-bg-light pt-6 pb-8 text-muted mt-2">
