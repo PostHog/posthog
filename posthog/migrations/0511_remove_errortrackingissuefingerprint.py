@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0507_alter_externaldatasource_source_type"),
+        ("posthog", "0510_salesforce_missing_schemas"),
     ]
 
     operations = [

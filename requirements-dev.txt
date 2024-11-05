@@ -74,8 +74,11 @@ datamodel-code-generator==0.26.1
 django==4.2.15
     # via
     #   -c requirements.txt
+    #   django-linear-migrations
     #   django-stubs
     #   django-stubs-ext
+django-linear-migrations==2.16.0
+    # via -r requirements-dev.in
 django-stubs==5.0.4
     # via
     #   -r requirements-dev.in

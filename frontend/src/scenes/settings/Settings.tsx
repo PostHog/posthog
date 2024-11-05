@@ -8,6 +8,7 @@ import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAut
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
+import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { settingsLogic } from './settingsLogic'
@@ -36,6 +37,14 @@ export function Settings({
     const isCompact = !inStorybookTestRunner() && size === 'small'
 
     const showSections = isCompact ? isCompactNavigationOpen : true
+
+    // Currently environment and project settings do not require periodic re-authentication,
+    // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
+    // In the meantime, we don't want a needless re-authentication modal:
+    const AuthenticationAreaComponent =
+        selectedLevel !== 'environment' && selectedLevel !== 'project'
+            ? TimeSensitiveAuthenticationArea
+            : React.Fragment
 
     return (
         <div className={clsx('Settings flex', isCompact && 'Settings--compact')} ref={ref}>
@@ -85,7 +94,7 @@ export function Settings({
                 </>
             )}
 
-            <TimeSensitiveAuthenticationArea>
+            <AuthenticationAreaComponent>
                 <div className="flex-1 w-full space-y-2 min-w-0">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
@@ -101,7 +110,7 @@ export function Settings({
 
                     <SettingsRenderer {...props} />
                 </div>
-            </TimeSensitiveAuthenticationArea>
+            </AuthenticationAreaComponent>
         </div>
     )
 }

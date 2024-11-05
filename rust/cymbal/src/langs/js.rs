@@ -127,7 +127,7 @@ impl From<(&RawJSFrame, JsResolveErr)> for Frame {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(raw_frame.line),
             column: Some(raw_frame.column),
-            source: raw_frame.source_url.clone(),
+            source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
             in_app: raw_frame.in_app,
             resolved_name: None,
             lang: "javascript".to_string(),

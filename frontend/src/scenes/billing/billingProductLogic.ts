@@ -367,7 +367,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
         },
-        activateTrial: async () => {
+        activateTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
                 await api.create(`api/billing/trials/activate`, {
@@ -378,7 +378,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             } catch (e) {
                 lemonToast.error('There was an error activating your trial. Please try again or contact support.')
             } finally {
-                actions.loadBilling()
+                await breakpoint(400)
+                window.location.reload()
                 actions.setTrialLoading(false)
                 actions.setTrialModalOpen(false)
             }
@@ -393,6 +394,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
             } finally {
                 actions.loadBilling()
+                window.location.reload()
                 actions.setTrialLoading(false)
             }
         },
