@@ -12,6 +12,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
+from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool
 from ee.hogai.trends.parsers import (
     PydanticOutputParserException,
     ReActParserException,
@@ -37,11 +38,7 @@ from ee.hogai.trends.prompts import (
     trends_question_prompt,
     trends_system_prompt,
 )
-from ee.hogai.trends.toolkit import (
-    GenerateTrendTool,
-    TrendsAgentToolkit,
-    TrendsAgentToolModel,
-)
+from ee.hogai.trends.toolkit import GenerateTrendTool, TrendsTaxonomyAgentToolkit
 from ee.hogai.trends.utils import GenerateTrendOutputModel, filter_trends_conversation
 from ee.hogai.utils import (
     AssistantNode,
@@ -83,7 +80,7 @@ class CreateTrendsPlanNode(AssistantNode):
             groups=self._team_group_types,
         )
 
-        toolkit = TrendsAgentToolkit(self._team)
+        toolkit = TrendsTaxonomyAgentToolkit(self._team)
         merger = merge_message_runs()
 
         agent = prompt | merger | self._model | parse_react_agent_output
@@ -218,12 +215,12 @@ class CreateTrendsPlanNode(AssistantNode):
 
 class CreateTrendsPlanToolsNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        toolkit = TrendsAgentToolkit(self._team)
+        toolkit = TrendsTaxonomyAgentToolkit(self._team)
         intermediate_steps = state.get("intermediate_steps") or []
         action, _ = intermediate_steps[-1]
 
         try:
-            input = TrendsAgentToolModel.model_validate({"name": action.tool, "arguments": action.tool_input}).root
+            input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
             observation = (
                 ChatPromptTemplate.from_template(react_pydantic_validation_exception_prompt, template_format="mustache")
