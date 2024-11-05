@@ -53,9 +53,11 @@ impl Frame {
     pub fn include_in_fingerprint(&self, h: &mut Sha512) {
         if let Some(resolved) = &self.resolved_name {
             h.update(resolved.as_bytes());
-        } else {
-            h.update(self.mangled_name.as_bytes());
+            self.source.as_ref().map(|s| h.update(s.as_bytes()));
+            return;
         }
+
+        h.update(self.mangled_name.as_bytes());
 
         if let Some(source) = &self.source {
             h.update(source.as_bytes());
