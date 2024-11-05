@@ -42,7 +42,7 @@ class HogFunctionType(models.TextChoices):
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
-TYPES_WITH_COMPILED_FILTERS = HogFunctionType.DESTINATION
+TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION,)
 
 
 class HogFunction(UUIDModel):
