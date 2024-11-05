@@ -8,6 +8,12 @@ import { ToolbarProps } from '~/types'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import { LOCALSTORAGE_KEY } from './utils'
 
+const safeURL = (url: string): string => {
+    const new_url = new URL(url)
+    const pathname = new_url.pathname.endsWith('/') ? new_url.pathname.replace(/\/+$/, '') : new_url.pathname
+    return `${new_url.origin}${encodeURI(pathname)}`
+}
+
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
     props({} as ToolbarProps),
@@ -30,6 +36,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             { logout: () => null, tokenExpired: () => null, authenticate: () => null },
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
+        experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
     })),
@@ -38,12 +45,16 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
         apiURL: [
             (s) => [s.props],
-            (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
+            (props: ToolbarProps) => {
+                if (!props.apiURL) {
+                    return 'https://us.posthog.com'
+                }
+                return safeURL(props.apiURL)
+            },
         ],
         jsURL: [
             (s) => [s.props, s.apiURL],
-            (props: ToolbarProps, apiUrl) =>
-                `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
+            (props: ToolbarProps, apiUrl) => (props.jsURL ? safeURL(props.jsURL) : apiUrl),
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
@@ -75,6 +86,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 ...values.props,
                 temporaryToken: values.temporaryToken ?? undefined,
                 actionId: values.actionId ?? undefined,
+                experimentId: values.experimentId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
                 featureFlags: undefined,
