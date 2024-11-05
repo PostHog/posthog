@@ -78,7 +78,9 @@ impl Exception {
         if has_no_in_app {
             // TODO: we should try to be smarter about handling the case when
             // there are no in-app frames
-            frames.get(0).map(|f| f.include_in_fingerprint(h));
+            if let Some(f) = frames.first() {
+                f.include_in_fingerprint(h)
+            }
             return;
         }
 
