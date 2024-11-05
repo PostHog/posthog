@@ -85,7 +85,7 @@ mod test {
         let fingerprint = super::generate_fingerprint(&[exception]);
         assert_eq!(
             fingerprint,
-            "c31e87e59707d377bd211fe0b66af1bec9918ad7a750fee0cada2c68f95aa7e464c0230a92046096233285b303f825d2d398f659c903f3b14df7806b40b1d886"
+            "7f5c327cd3941f2da655d852eb4661b411440c080c7ff014feb920afde68beaffe663908d4ab5fb7b7f1e7ab7f1f7cd17949139e8f812b1c3ff0911fc5b68f37"
         );
     }
 
