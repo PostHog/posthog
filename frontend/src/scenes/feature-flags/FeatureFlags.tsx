@@ -302,10 +302,10 @@ export function OverViewTab({
                                             if (type === 'all') {
                                                 if (filters) {
                                                     const { type, ...restFilters } = filters
-                                                    setFeatureFlagsFilters(restFilters, true)
+                                                    setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                                 }
                                             } else {
-                                                setFeatureFlagsFilters({ type })
+                                                setFeatureFlagsFilters({ type, page: 1 })
                                             }
                                         }
                                     }}
@@ -324,15 +324,13 @@ export function OverViewTab({
                                     dropdownMatchSelectWidth={false}
                                     size="small"
                                     onChange={(status) => {
-                                        if (status) {
-                                            if (status === 'all') {
-                                                if (filters) {
-                                                    const { active, ...restFilters } = filters
-                                                    setFeatureFlagsFilters(restFilters, true)
-                                                }
-                                            } else {
-                                                setFeatureFlagsFilters({ active: status })
+                                        if (status === 'all') {
+                                            if (filters) {
+                                                const { active, ...restFilters } = filters
+                                                setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                             }
+                                        } else {
+                                            setFeatureFlagsFilters({ active: status, page: 1 })
                                         }
                                     }}
                                     options={[
@@ -352,10 +350,10 @@ export function OverViewTab({
                                         if (!user) {
                                             if (filters) {
                                                 const { created_by_id, ...restFilters } = filters
-                                                setFeatureFlagsFilters(restFilters, true)
+                                                setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                             }
                                         } else {
-                                            setFeatureFlagsFilters({ created_by_id: user.id })
+                                            setFeatureFlagsFilters({ created_by_id: user.id, page: 1 })
                                         }
                                     }}
                                 />
@@ -394,6 +392,7 @@ export function OverViewTab({
                                     order: newSorting
                                         ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
                                         : undefined,
+                                    page: 1,
                                 })
                             }
                         />
