@@ -141,7 +141,7 @@ class DataImportPipelineSync:
                 yield lst[i : i + n]
 
         # Monkey patch to fix large memory consumption until https://github.com/dlt-hub/dlt/pull/2031 gets merged in
-        FilesystemDestinationClientConfiguration.delta_jobs_per_write = None
+        FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
         FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
         FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
 
