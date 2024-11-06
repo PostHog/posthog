@@ -1,3 +1,4 @@
+import ast
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -598,7 +599,7 @@ def funnel_breakdown_test_factory(
                 self._get_actor_ids_at_step(filters, 2, "Other"),
                 [people["person1"].uuid],
             )
-            self.assertEqual(2, query_runner.to_query().limit.value)
+            self.assertEqual(2, cast(ast.Constant, query_runner.to_query().limit).value)
 
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_no_type(self):
