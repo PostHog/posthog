@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 
 
+# DEPRECATED: Use ErrorTrackingIssue instead
 class ErrorTrackingGroup(UUIDModel):
     class Status(models.TextChoices):
         ARCHIVED = "archived", "Archived"
@@ -60,6 +61,7 @@ class ErrorTrackingGroup(UUIDModel):
         self.save()
 
 
+# DEPRECATED: Use ErrorTrackingIssueFingerprintV2 instead
 class ErrorTrackingIssueFingerprint(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
     issue = models.ForeignKey(ErrorTrackingGroup, on_delete=models.CASCADE)
@@ -69,6 +71,36 @@ class ErrorTrackingIssueFingerprint(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique fingerprint for team")]
+
+
+class ErrorTrackingIssue(UUIDModel):
+    class Status(models.TextChoices):
+        ARCHIVED = "archived", "Archived"
+        ACTIVE = "active", "Active"
+        RESOLVED = "resolved", "Resolved"
+        PENDING_RELEASE = "pending_release", "Pending release"
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    fingerprint = models.TextField(null=False, blank=False)
+    status = models.CharField(max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False)
+    assignee = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
+
+class ErrorTrackingIssueFingerprintV2(UUIDModel):
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
+    issue = models.ForeignKey(ErrorTrackingGroup, on_delete=models.CASCADE)
+    fingerprint = models.TextField(null=False, blank=False)
+    # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
+    version = models.BigIntegerField(blank=True, default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
 
 
 class ErrorTrackingSymbolSet(UUIDModel):
