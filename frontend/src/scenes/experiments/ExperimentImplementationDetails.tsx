@@ -2,7 +2,7 @@ import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { IconGolang, IconJavascript, IconNodeJS, IconPHP, IconPython, IconRuby } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
-import { Experiment, MultivariateFlagVariant } from '~/types'
+import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
 
 import {
     GolangSnippet,
@@ -22,45 +22,52 @@ const UTM_TAGS = '?utm_medium=in-product&utm_campaign=experiment'
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
 
-const OPTIONS = [
+export const OPTIONS = [
     {
         value: 'JavaScript',
+        key: SDKKey.JS_WEB,
         documentationLink: `${DOC_BASE_URL}libraries/js${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconJavascript,
         Snippet: JSSnippet,
     },
     {
         value: 'ReactNative',
+        key: SDKKey.REACT_NATIVE,
         documentationLink: `${DOC_BASE_URL}libraries/react-native${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconJavascript,
         Snippet: RNSnippet,
     },
     {
         value: 'Node.js',
+        key: SDKKey.NODE_JS,
         documentationLink: `${DOC_BASE_URL}libraries/node${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconNodeJS,
         Snippet: NodeJSSnippet,
     },
     {
         value: 'PHP',
+        key: SDKKey.PHP,
         documentationLink: `${DOC_BASE_URL}libraries/php${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconPHP,
         Snippet: PHPSnippet,
     },
     {
         value: 'Ruby',
+        key: SDKKey.RUBY,
         documentationLink: `${DOC_BASE_URL}libraries/ruby${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconRuby,
         Snippet: RubySnippet,
     },
     {
         value: 'Golang',
+        key: SDKKey.GO,
         documentationLink: `${DOC_BASE_URL}libraries/go${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconGolang,
         Snippet: GolangSnippet,
     },
     {
         value: 'Python',
+        key: SDKKey.PYTHON,
         documentationLink: `${DOC_BASE_URL}libraries/python${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconPython,
         Snippet: PythonSnippet,

@@ -22,6 +22,7 @@ import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
 import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/DashboardTemplateSelectStep'
+import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
@@ -330,7 +331,7 @@ const ExperimentsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <SDKs
                 usersAction="loading experiments"
-                sdkInstructionMap={FeatureFlagsSDKInstructions}
+                sdkInstructionMap={ExperimentsSDKInstructions}
                 subtitle="Choose the framework where you want to run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
