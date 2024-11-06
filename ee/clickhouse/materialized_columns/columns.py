@@ -1,23 +1,20 @@
 import re
 from datetime import timedelta
-from typing import Literal, Union, cast
+from typing import Literal, cast
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
 
-ColumnName = str
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
-
-
-TablesWithMaterializedColumns = Union[TableWithProperties]
 
 TRIM_AND_EXTRACT_PROPERTY = trim_quotes_expr("JSONExtractRaw({table_column}, %(property)s)")
 
