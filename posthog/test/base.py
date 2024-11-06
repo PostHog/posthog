@@ -28,6 +28,7 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
+from posthog.clickhouse import materialized_columns
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.materialized_columns import get_materialized_columns
@@ -613,10 +614,9 @@ def also_test_with_materialized_columns(
         person_properties = []
     if event_properties is None:
         event_properties = []
-    try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
-    except:
-        # EE not available? Just run the main test
+
+    if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+        # Not using a real materialized column backend? Just run the main test
         return lambda fn: fn
 
     def decorator(fn):
@@ -627,10 +627,10 @@ def also_test_with_materialized_columns(
                 return
 
             for prop in event_properties:
-                materialize("events", prop)
+                materialized_columns.backend.materialize("events", prop)
             for prop in person_properties:
-                materialize("person", prop)
-                materialize("events", prop, table_column="person_properties")
+                materialized_columns.backend.materialize("person", prop)
+                materialized_columns.backend.materialize("events", prop, table_column="person_properties")
 
             try:
                 with self.capture_select_queries() as sqls:
