@@ -56,4 +56,4 @@ else:
     backend = DummyMaterializedColumnBackend()
 
 
-get_materialized_columns = cache_for(timedelta(minutes=15))(backend.get_materialized_columns)
+get_materialized_columns_cached = cache_for(timedelta(minutes=15))(backend.get_materialized_columns)

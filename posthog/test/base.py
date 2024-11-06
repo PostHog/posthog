@@ -31,7 +31,7 @@ from posthog import rate_limit, redis
 from posthog.clickhouse import materialized_columns
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
-from posthog.clickhouse.materialized_columns import get_materialized_columns
+from posthog.clickhouse.materialized_columns import get_materialized_columns_cached
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
@@ -577,7 +577,7 @@ def cleanup_materialized_columns():
 
         default_columns = []
         for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
-            column_name = get_materialized_columns("events")[(prop, "properties")]
+            column_name = get_materialized_columns_cached("events")[(prop, "properties")]
             default_columns.append(column_name)
 
         return default_columns
@@ -586,7 +586,7 @@ def cleanup_materialized_columns():
         drops = ",".join(
             [
                 f"DROP COLUMN {column_name}"
-                for column_name in get_materialized_columns(table).values()
+                for column_name in get_materialized_columns_cached(table).values()
                 if filter is None or filter(column_name)
             ]
         )

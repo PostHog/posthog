@@ -40,7 +40,7 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
 def materialize_session_and_window_id(database):
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
-        currently_materialized_columns = materialized_columns.get_materialized_columns("events", use_cache=False)
+        currently_materialized_columns = materialized_columns.get_materialized_columns_cached("events", use_cache=False)
         # If the column is not materialized, materialize it
         if (property_name, "properties") not in currently_materialized_columns:
             materialized_columns.backend.materialize("events", property_name, property_name)
