@@ -42,8 +42,8 @@ impl ErrorTrackingStackFrame {
     {
         sqlx::query!(
             r#"
-            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved, id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (raw_id, team_id) DO UPDATE SET
                 created_at = $3,
                 symbol_set_id = $4,
@@ -55,12 +55,13 @@ impl ErrorTrackingStackFrame {
             self.created_at,
             self.symbol_set_id,
             serde_json::to_value(&self.contents)?,
-            self.resolved
+            self.resolved,
+            Uuid::now_v7()
         ).execute(e).await?;
         Ok(())
     }
 
-    pub async fn load<'c, E>(raw_id: &str, team_id: i32, e: E) -> Result<Option<Self>, Error>
+    pub async fn load<'c, E>(e: E, team_id: i32, raw_id: &str) -> Result<Option<Self>, Error>
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
