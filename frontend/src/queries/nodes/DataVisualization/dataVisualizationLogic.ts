@@ -98,20 +98,20 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
     },
 })
 
-export interface AxisBreakoutSeries<T> {
+export interface AxisBreakdownSeries<T> {
     name: string
     data: T[]
     settings?: AxisSeriesSettings
 }
 
-export interface BreakoutSeriesData<T> {
+export interface BreakdownSeriesData<T> {
     xData: AxisSeries<string>
-    seriesData: AxisBreakoutSeries<T>[]
+    seriesData: AxisBreakdownSeries<T>[]
     isUnaggregated?: boolean
     error?: string
 }
 
-export const EmptyBreakoutSeries: BreakoutSeriesData<number> = {
+export const EmptyBreakdownSeries: BreakdownSeriesData<number> = {
     xData: {
         column: {
             name: 'None',
@@ -127,9 +127,9 @@ export const EmptyBreakoutSeries: BreakoutSeriesData<number> = {
     seriesData: [],
 }
 
-const createEmptyBreakoutSeriesWithError = (error: string): BreakoutSeriesData<number> => {
+const createEmptyBreakdownSeriesWithError = (error: string): BreakdownSeriesData<number> => {
     return {
-        ...EmptyBreakoutSeries,
+        ...EmptyBreakdownSeries,
         error,
     }
 }
@@ -302,8 +302,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             allColumns: values.columns,
         }),
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
-        addSeriesBreakout: (columnName: string | null) => ({ columnName, response: values.response }),
-        deleteSeriesBreakout: () => ({}),
+        addSeriesBreakdown: (columnName: string | null) => ({ columnName, response: values.response }),
+        deleteSeriesBreakdown: () => ({}),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
         updateChartSettings: (settings: ChartSettings) => ({ settings }),
@@ -477,20 +477,20 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             },
         ],
-        showSeriesBreakout: [
+        showSeriesBreakdown: [
             false as boolean,
             {
                 clearAxis: () => false,
-                addSeriesBreakout: () => true,
-                deleteSeriesBreakout: () => false,
+                addSeriesBreakdown: () => true,
+                deleteSeriesBreakdown: () => false,
             },
         ],
-        selectedSeriesBreakoutColumn: [
+        selectedSeriesBreakdownColumn: [
             null as string | null,
             {
                 clearAxis: () => null,
-                addSeriesBreakout: (_, { columnName }) => columnName,
-                deleteSeriesBreakout: () => null,
+                addSeriesBreakdown: (_, { columnName }) => columnName,
+                deleteSeriesBreakdown: () => null,
             },
         ],
         activeSideBarTab: [
@@ -719,16 +719,16 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
             },
         ],
-        breakoutColumnValues: [
-            (state) => [state.selectedSeriesBreakoutColumn, state.response, state.columns],
-            (breakoutColumn, response, columns): string[] => {
-                if (!response || breakoutColumn === null) {
+        breakdownColumnValues: [
+            (state) => [state.selectedSeriesBreakdownColumn, state.response, state.columns],
+            (breakdownColumn, response, columns): string[] => {
+                if (!response || breakdownColumn === null) {
                     return []
                 }
 
                 const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
-                const column = columns.find((n) => n.name === breakoutColumn)
+                const column = columns.find((n) => n.name === breakdownColumn)
                 if (!column) {
                     return []
                 }
@@ -737,60 +737,60 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return Array.from(new Set(data.map((n) => n[column.dataIndex])))
             },
         ],
-        seriesBreakoutData: [
+        seriesBreakdownData: [
             (state) => [
-                state.selectedSeriesBreakoutColumn,
-                state.breakoutColumnValues,
+                state.selectedSeriesBreakdownColumn,
+                state.breakdownColumnValues,
                 state.selectedYAxis,
                 state.selectedXAxis,
                 state.response,
                 state.columns,
             ],
             (
-                selectedBreakoutColumn,
-                breakoutColumnValues,
+                selectedBreakdownColumn,
+                breakdownColumnValues,
                 ySeries,
                 xSeries,
                 response,
                 columns
-            ): BreakoutSeriesData<number> => {
+            ): BreakdownSeriesData<number> => {
                 if (
                     !response ||
-                    !selectedBreakoutColumn ||
+                    !selectedBreakdownColumn ||
                     ySeries === null ||
                     ySeries.length === 0 ||
                     xSeries === null ||
                     columns === null ||
                     columns.length === 0
                 ) {
-                    return EmptyBreakoutSeries
+                    return EmptyBreakdownSeries
                 }
 
-                // shouldn't be possible to have more than 1 ySeries with a breakout
+                // shouldn't be possible to have more than 1 ySeries with a breakdown
                 if (ySeries.length > 1) {
-                    return EmptyBreakoutSeries
+                    return EmptyBreakdownSeries
                 }
 
                 const selectedYAxis = ySeries[0]
                 if (!selectedYAxis) {
-                    return EmptyBreakoutSeries
+                    return EmptyBreakdownSeries
                 }
                 const yColumn = columns.find((n) => n.name === selectedYAxis.name)
                 if (!yColumn) {
-                    return EmptyBreakoutSeries
+                    return EmptyBreakdownSeries
                 }
                 const xColumn = columns.find((n) => n.name === xSeries)
                 if (!xColumn) {
-                    return EmptyBreakoutSeries
+                    return EmptyBreakdownSeries
                 }
 
-                const breakoutColumn = columns.find((n) => n.name === selectedBreakoutColumn)
-                if (!breakoutColumn) {
-                    return EmptyBreakoutSeries
+                const breakdownColumn = columns.find((n) => n.name === selectedBreakdownColumn)
+                if (!breakdownColumn) {
+                    return EmptyBreakdownSeries
                 }
 
-                if (breakoutColumnValues.length > 50) {
-                    return createEmptyBreakoutSeriesWithError('Too many breakout values (max 50)')
+                if (breakdownColumnValues.length > 50) {
+                    return createEmptyBreakdownSeriesWithError('Too many breakdown values (max 50)')
                 }
 
                 const data: any[] = response?.['results'] ?? response?.['result'] ?? []
@@ -800,9 +800,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 let isUnaggregated = false
 
-                const seriesData: AxisBreakoutSeries<number>[] = breakoutColumnValues.map((value) => {
-                    // first filter data by breakout column value
-                    const filteredData = data.filter((n) => n[breakoutColumn.dataIndex] === value)
+                const seriesData: AxisBreakdownSeries<number>[] = breakdownColumnValues.map((value) => {
+                    // first filter data by breakdown column value
+                    const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
                     if (filteredData.length === 0) {
                         return {
                             name: value,

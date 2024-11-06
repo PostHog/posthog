@@ -32,7 +32,7 @@ import { ChartSettings, YAxisSettings } from '~/queries/schema'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import {
-    AxisBreakoutSeries,
+    AxisBreakdownSeries,
     AxisSeries,
     AxisSeriesSettings,
     dataVisualizationLogic,
@@ -100,7 +100,7 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, seriesBreakoutData, presetChartHeight, visualizationType, showEditingUI, chartSettings } =
+    const { xData, yData, seriesBreakdownData, presetChartHeight, visualizationType, showEditingUI, chartSettings } =
         useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
@@ -110,14 +110,14 @@ export const LineGraph = (): JSX.Element => {
     const { goalLines } = useValues(displayLogic)
 
     useEffect(() => {
-        // we expect either x and y data or series breakout data
-        let ySeriesData: AxisSeries<number>[] | AxisBreakoutSeries<number>[]
+        // we expect either x and y data or series breakdown data
+        let ySeriesData: AxisSeries<number>[] | AxisBreakdownSeries<number>[]
         let xSeriesData: AxisSeries<string>
         let hasRightYAxis = false
         let hasLeftYAxis = false
-        if (seriesBreakoutData.xData.data.length && seriesBreakoutData.seriesData.length) {
-            ySeriesData = seriesBreakoutData.seriesData
-            xSeriesData = seriesBreakoutData.xData
+        if (seriesBreakdownData.xData.data.length && seriesBreakdownData.seriesData.length) {
+            ySeriesData = seriesBreakdownData.seriesData
+            xSeriesData = seriesBreakdownData.xData
             hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
             hasLeftYAxis = !hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left')
         } else if (xData && yData) {
@@ -421,7 +421,7 @@ export const LineGraph = (): JSX.Element => {
             plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
-    }, [xData, yData, seriesBreakoutData, visualizationType, goalLines, chartSettings])
+    }, [xData, yData, seriesBreakdownData, visualizationType, goalLines, chartSettings])
 
     return (
         <div

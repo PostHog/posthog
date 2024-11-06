@@ -19,7 +19,7 @@ import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { AxisBreakoutSeries, AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisBreakdownSeries, AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColorPickerButton } from './ColorPickerButton'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
@@ -33,12 +33,12 @@ export const SeriesTab = (): JSX.Element => {
         showTableSettings,
         tabularColumns,
         selectedXAxis,
-        showSeriesBreakout,
+        showSeriesBreakdown,
     } = useValues(dataVisualizationLogic)
-    const { updateXSeries, addYSeries, addSeriesBreakout } = useActions(dataVisualizationLogic)
+    const { updateXSeries, addYSeries, addSeriesBreakdown } = useActions(dataVisualizationLogic)
 
     const hideAddYSeries = yData.length >= numericalColumns.length
-    const hideAddSeriesBreakout = !(!showSeriesBreakout && selectedXAxis && columns.length > yData.length)
+    const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
 
     if (showTableSettings) {
         return (
@@ -78,18 +78,18 @@ export const SeriesTab = (): JSX.Element => {
                     }
                 }}
             />
-            {!hideAddSeriesBreakout && (
+            {!hideAddSeriesBreakdown && (
                 <LemonButton
                     className="mt-1"
                     type="tertiary"
-                    onClick={() => addSeriesBreakout(null)}
+                    onClick={() => addSeriesBreakdown(null)}
                     icon={<IconPlusSmall />}
                     fullWidth
                 >
-                    Add series breakout
+                    Add series breakdown
                 </LemonButton>
             )}
-            {showSeriesBreakout && <SeriesBreakoutSelector />}
+            {showSeriesBreakdown && <SeriesBreakdownSelector />}
 
             <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
             {yData.map((series, index) => (
@@ -117,7 +117,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
         responseLoading,
         dataVisualizationProps,
         showTableSettings,
-        selectedSeriesBreakoutColumn,
+        selectedSeriesBreakdownColumn,
     } = useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
 
@@ -135,7 +135,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {!showTableSettings && !selectedSeriesBreakoutColumn && (
+                {!showTableSettings && !selectedSeriesBreakdownColumn && (
                     <SeriesGlyph
                         style={{
                             borderColor: seriesColor,
@@ -331,12 +331,12 @@ const Y_SERIES_SETTINGS_TABS = {
     },
 }
 
-export const SeriesBreakoutSelector = (): JSX.Element => {
-    const { columns, responseLoading, selectedXAxis, selectedSeriesBreakoutColumn, seriesBreakoutData } =
+export const SeriesBreakdownSelector = (): JSX.Element => {
+    const { columns, responseLoading, selectedXAxis, selectedSeriesBreakdownColumn, seriesBreakdownData } =
         useValues(dataVisualizationLogic)
-    const { addSeriesBreakout, deleteSeriesBreakout } = useActions(dataVisualizationLogic)
+    const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(dataVisualizationLogic)
 
-    const seriesBreakoutOptions = columns
+    const seriesBreakdownOptions = columns
         .map(({ name, type }) => ({
             value: name,
             label: (
@@ -355,13 +355,13 @@ export const SeriesBreakoutSelector = (): JSX.Element => {
             <div className="flex gap-1 my-1">
                 <LemonSelect
                     className="grow"
-                    value={selectedSeriesBreakoutColumn !== null ? selectedSeriesBreakoutColumn : 'None'}
-                    options={seriesBreakoutOptions}
+                    value={selectedSeriesBreakdownColumn !== null ? selectedSeriesBreakdownColumn : 'None'}
+                    options={seriesBreakdownOptions}
                     disabledReason={responseLoading ? 'Query loading...' : undefined}
                     onChange={(value) => {
                         const column = columns.find((n) => n.name === value)
                         if (column) {
-                            addSeriesBreakout(column.name)
+                            addSeriesBreakdown(column.name)
                         }
                     }}
                 />
@@ -369,17 +369,17 @@ export const SeriesBreakoutSelector = (): JSX.Element => {
                     key="delete"
                     icon={<IconTrash />}
                     status="danger"
-                    title="Delete series breakout"
+                    title="Delete series breakdown"
                     noPadding
-                    onClick={() => deleteSeriesBreakout()}
+                    onClick={() => deleteSeriesBreakdown()}
                 />
             </div>
             <div className="ml-4 mt-2">
-                {seriesBreakoutData.error ? (
-                    <div className="text-danger font-bold mt-1">{seriesBreakoutData.error}</div>
+                {seriesBreakdownData.error ? (
+                    <div className="text-danger font-bold mt-1">{seriesBreakdownData.error}</div>
                 ) : (
-                    seriesBreakoutData.seriesData.map((series, index) => (
-                        <BreakoutSeries series={series} index={index} key={`${series.name}-${index}`} />
+                    seriesBreakdownData.seriesData.map((series, index) => (
+                        <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
                     ))
                 )}
             </div>
@@ -387,7 +387,7 @@ export const SeriesBreakoutSelector = (): JSX.Element => {
     )
 }
 
-const BreakoutSeries = ({ series, index }: { series: AxisBreakoutSeries<number>; index: number }): JSX.Element => {
+const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number>; index: number }): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
