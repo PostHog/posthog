@@ -30,6 +30,7 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    ExperimentFunnelsQuery,
     ExperimentTrendsQuery,
     InsightVizNode,
     NodeKind,
@@ -37,6 +38,7 @@ import {
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
+    BreakdownAttributionType,
     ChartDisplayType,
     CohortType,
     CountPerActorMathType,
@@ -178,6 +180,46 @@ export const experimentLogic = kea<experimentLogicType>([
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
+        setTrendMetric: ({
+            metricIdx,
+            series,
+            filterTestAccounts,
+        }: {
+            metricIdx: number
+            series?: any[]
+            filterTestAccounts?: boolean
+        }) => ({ metricIdx, series, filterTestAccounts }),
+        setFunnelMetric: ({
+            metricIdx,
+            series,
+            filterTestAccounts,
+            breakdownAttributionType,
+            breakdownAttributionValue,
+            funnelWindowInterval,
+            funnelWindowIntervalUnit,
+            aggregation_group_type_index,
+            funnelAggregateByHogQL,
+        }: {
+            metricIdx: number
+            series?: any[]
+            filterTestAccounts?: boolean
+            breakdownAttributionType?: BreakdownAttributionType
+            breakdownAttributionValue?: number
+            funnelWindowInterval?: number
+            funnelWindowIntervalUnit?: string
+            aggregation_group_type_index?: number
+            funnelAggregateByHogQL?: string
+        }) => ({ 
+            metricIdx, 
+            series, 
+            filterTestAccounts, 
+            breakdownAttributionType, 
+            breakdownAttributionValue,
+            funnelWindowInterval,
+            funnelWindowIntervalUnit,
+            aggregation_group_type_index,
+            funnelAggregateByHogQL,
+        }),
     }),
     reducers({
         experiment: [
@@ -242,6 +284,70 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setTrendMetric: (state, { metricIdx, series, filterTestAccounts }) => {
+                    const metrics = [...(state?.metrics || [])]
+                    const metric = metrics[metricIdx]
+
+                    metrics[metricIdx] = {
+                        ...metric,
+                        query: {
+                            ...metric.query,
+                            count_query: {
+                                ...(metric.query as ExperimentTrendsQuery).count_query,
+                                ...(series && { series }),
+                                ...(filterTestAccounts !== undefined && { filterTestAccounts }),
+                            },
+                        } as ExperimentTrendsQuery,
+                    }
+
+                    return {
+                        ...state,
+                        metrics,
+                    }
+                },
+                setFunnelMetric: (
+                    state, 
+                    { 
+                        metricIdx, 
+                        series, 
+                        filterTestAccounts, 
+                        breakdownAttributionType, 
+                        breakdownAttributionValue, 
+                        funnelWindowInterval, 
+                        funnelWindowIntervalUnit, 
+                        aggregation_group_type_index, 
+                        funnelAggregateByHogQL 
+                    }
+                ) => {
+                    const metrics = [...(state?.metrics || [])]
+                    const metric = metrics[metricIdx]
+                    
+                    metrics[metricIdx] = {
+                        ...metric,
+                        query: {
+                            ...metric.query,
+                            funnels_query: {
+                                ...(metric.query as ExperimentFunnelsQuery).funnels_query,
+                                ...(series && { series }),
+                                ...(filterTestAccounts !== undefined && { filterTestAccounts }),
+                                ...(aggregation_group_type_index !== undefined && { aggregation_group_type_index }),
+                                funnelsFilter: {
+                                    ...(metric.query as ExperimentFunnelsQuery).funnels_query.funnelsFilter,
+                                    ...(breakdownAttributionType && { breakdownAttributionType }),
+                                    ...(breakdownAttributionValue !== undefined && { breakdownAttributionValue }),
+                                    ...(funnelWindowInterval !== undefined && { funnelWindowInterval }),
+                                    ...(funnelWindowIntervalUnit && { funnelWindowIntervalUnit }),
+                                    ...(funnelAggregateByHogQL && { funnelAggregateByHogQL }),
+                                },
+                            },
+                        } as ExperimentFunnelsQuery,
+                    }
+
+                    return {
+                        ...state,
+                        metrics,
                     }
                 },
             },
@@ -1115,7 +1221,6 @@ export const experimentLogic = kea<experimentLogicType>([
                                 2
                             )
                         ).toFixed(1)
-                    )
                 },
         ],
         expectedRunningTime: [

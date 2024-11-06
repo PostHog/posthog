@@ -40,7 +40,7 @@ export interface MetricSelectorProps {
 
 export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps): JSX.Element {
     const { experiment, experimentInsightType, isExperimentRunning, featureFlags } = useValues(experimentLogic)
-    const { setExperiment } = useActions(experimentLogic)
+    const { setExperiment, setTrendMetric, setFunnelMetric } = useActions(experimentLogic)
     const isTrends = experimentInsightType === InsightType.TRENDS
 
     return (
@@ -51,8 +51,10 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                     data-attr="metrics-selector"
                     value={experimentInsightType}
                     onChange={(newInsightType) => {
-                        // HANDLE FLAG
-
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            console.log('GET DEFAULT TREND/FUNNEL METRIC')
+                        }
                         setExperiment({
                             filters: {
                                 ...experiment.filters,
@@ -94,36 +96,14 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                             )
 
                             if (experimentInsightType === InsightType.FUNNELS) {
-                                setExperiment({
-                                    metrics: [
-                                        {
-                                            ...experiment.metrics[0],
-                                            query: {
-                                                ...experiment.metrics[0].query,
-                                                funnels_query: {
-                                                    ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
-                                                        .funnels_query,
-                                                    series: series,
-                                                },
-                                            } as ExperimentFunnelsQuery,
-                                        },
-                                    ],
+                                setFunnelMetric({
+                                    metricIdx: 0,
+                                    series,
                                 })
                             } else {
-                                setExperiment({
-                                    metrics: [
-                                        {
-                                            ...experiment.metrics[0],
-                                            query: {
-                                                ...experiment.metrics[0].query,
-                                                count_query: {
-                                                    ...(experiment.metrics[0].query as ExperimentTrendsQuery)
-                                                        .count_query,
-                                                    series: series,
-                                                },
-                                            } as ExperimentTrendsQuery,
-                                        },
-                                    ],
+                                setTrendMetric({
+                                    metricIdx: 0,
+                                    series,
                                 })
                             }
                         } else {
@@ -240,7 +220,7 @@ export function FunnelAggregationSelect(): JSX.Element {
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment } = useActions(experimentLogic)
+    const { setExperiment, setFunnelMetric } = useActions(experimentLogic)
 
     const UNIQUE_USERS = 'person_id'
     const baseValues = [UNIQUE_USERS]
@@ -323,25 +303,10 @@ export function FunnelAggregationSelect(): JSX.Element {
                 const { groupIndex, aggregationQuery } = hogQLToFilterValue(newValue)
                 // :FLAG: CLEAN UP AFTER MIGRATION
                 if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    setExperiment({
-                        metrics: [
-                            {
-                                ...experiment.metrics[0],
-                                query: {
-                                    ...experiment.metrics[0].query,
-                                    funnels_query: {
-                                        ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query,
-                                        aggregation_group_type_index: groupIndex,
-                                        funnelsFilter: {
-                                            ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query
-                                                .funnelsFilter,
-                                            funnelAggregateByHogQL: aggregationQuery,
-                                        },
-                                    },
-                                } as ExperimentFunnelsQuery,
-                            },
-                            ...experiment.metrics.slice(1),
-                        ],
+                    setFunnelMetric({
+                        metricIdx: 0,
+                        aggregation_group_type_index: groupIndex,
+                        funnelAggregateByHogQL: aggregationQuery,
                     })
                 } else {
                     setExperiment({
@@ -372,7 +337,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     const DEFAULT_FUNNEL_WINDOW_INTERVAL = 14
 
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment } = useActions(experimentLogic)
+    const { setExperiment, setFunnelMetric } = useActions(experimentLogic)
 
     const {
         funnelWindowInterval = DEFAULT_FUNNEL_WINDOW_INTERVAL,
@@ -420,25 +385,9 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     onChange={(funnelWindowInterval) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setExperiment({
-                                metrics: [
-                                    {
-                                        ...experiment.metrics[0],
-                                        query: {
-                                            ...experiment.metrics[0].query,
-                                            funnels_query: {
-                                                ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
-                                                    .funnels_query,
-                                                funnelsFilter: {
-                                                    ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
-                                                        .funnels_query.funnelsFilter,
-                                                    funnelWindowInterval: funnelWindowInterval,
-                                                },
-                                            },
-                                        } as ExperimentFunnelsQuery,
-                                    },
-                                    ...experiment.metrics.slice(1),
-                                ],
+                            setFunnelMetric({
+                                metricIdx: 0,
+                                funnelWindowInterval: funnelWindowInterval,
                             })
                         } else {
                             setExperiment({
@@ -463,25 +412,9 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     onChange={(funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | null) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setExperiment({
-                                metrics: [
-                                    {
-                                        ...experiment.metrics[0],
-                                        query: {
-                                            ...experiment.metrics[0].query,
-                                            funnels_query: {
-                                                ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
-                                                    .funnels_query,
-                                                funnelsFilter: {
-                                                    ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
-                                                        .funnels_query.funnelsFilter,
-                                                    funnelWindowIntervalUnit: funnelWindowIntervalUnit,
-                                                },
-                                            },
-                                        } as ExperimentFunnelsQuery,
-                                    },
-                                    ...experiment.metrics.slice(1),
-                                ],
+                            setFunnelMetric({
+                                metricIdx: 0,
+                                funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
                             })
                         } else {
                             setExperiment({
@@ -501,7 +434,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
 
 export function FunnelAttributionSelect(): JSX.Element {
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment } = useActions(experimentLogic)
+    const { setExperiment, setFunnelMetric } = useActions(experimentLogic)
     const funnelOrderType = undefined
 
     // :FLAG: CLEAN UP AFTER MIGRATION
@@ -607,28 +540,12 @@ export function FunnelAttributionSelect(): JSX.Element {
                     const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
                     // :FLAG: CLEAN UP AFTER MIGRATION
                     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        setExperiment({
-                            metrics: [
-                                {
-                                    ...experiment.metrics[0],
-                                    query: {
-                                        ...experiment.metrics[0].query,
-                                        funnels_query: {
-                                            ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query,
-                                            funnelsFilter: {
-                                                ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query
-                                                    .funnelsFilter,
-                                                breakdownAttributionType:
-                                                    breakdownAttributionType as BreakdownAttributionType,
-                                                breakdownAttributionValue: breakdownAttributionValue
-                                                    ? parseInt(breakdownAttributionValue)
-                                                    : undefined,
-                                            },
-                                        },
-                                    } as ExperimentFunnelsQuery,
-                                },
-                                ...experiment.metrics.slice(1),
-                            ],
+                        setFunnelMetric({
+                            metricIdx: 0,
+                            breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
+                            breakdownAttributionValue: breakdownAttributionValue
+                                ? parseInt(breakdownAttributionValue)
+                                : undefined,
                         })
                     } else {
                         setExperiment({
@@ -652,7 +569,7 @@ export function FunnelAttributionSelect(): JSX.Element {
 export function InsightTestAccountFilter(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, experimentInsightType, featureFlags } = useValues(experimentLogic)
-    const { setExperiment } = useActions(experimentLogic)
+    const { setExperiment, setTrendMetric, setFunnelMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     return (
         <TestAccountFilterSwitch
@@ -670,34 +587,14 @@ export function InsightTestAccountFilter(): JSX.Element | null {
                 // :FLAG: CLEAN UP AFTER MIGRATION
                 if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                     if (experimentInsightType === InsightType.FUNNELS) {
-                        setExperiment({
-                            metrics: [
-                                {
-                                    ...experiment.metrics[0],
-                                    query: {
-                                        ...experiment.metrics[0].query,
-                                        funnels_query: {
-                                            ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query,
-                                            filterTestAccounts: checked,
-                                        },
-                                    } as ExperimentFunnelsQuery,
-                                },
-                            ],
+                        setFunnelMetric({
+                            metricIdx: 0,
+                            filterTestAccounts: checked,
                         })
                     } else {
-                        setExperiment({
-                            metrics: [
-                                {
-                                    ...experiment.metrics[0],
-                                    query: {
-                                        ...experiment.metrics[0].query,
-                                        count_query: {
-                                            ...(experiment.metrics[0].query as ExperimentTrendsQuery).count_query,
-                                            filterTestAccounts: checked,
-                                        },
-                                    } as ExperimentTrendsQuery,
-                                },
-                            ],
+                        setTrendMetric({
+                            metricIdx: 0,
+                            filterTestAccounts: checked,
                         })
                     }
                 } else {
