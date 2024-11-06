@@ -608,7 +608,7 @@ export const experimentLogic = kea<experimentLogicType>([
             if (values.changingGoalMetric) {
                 actions.loadExperimentResults()
             }
-            if (values.changingSecondaryMetrics) {
+            if (values.changingSecondaryMetrics && values.experiment?.start_date) {
                 actions.loadSecondaryMetricResults()
             }
             if (values.experiment?.start_date) {
@@ -897,7 +897,7 @@ export const experimentLogic = kea<experimentLogicType>([
             null as CohortType | null,
             {
                 createExposureCohort: async () => {
-                    if (props.experimentId && props.experimentId !== 'new') {
+                    if (props.experimentId && props.experimentId !== 'new' && props.experimentId !== 'web') {
                         return (await api.experiments.createExposureCohort(props.experimentId)).cohort
                     }
                     return null

@@ -1,12 +1,13 @@
 import json
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from functools import cached_property
 from textwrap import dedent
-from typing import Any, Literal, Optional, TypedDict, Union
+from typing import Any, Literal, Optional, TypedDict, Union, cast
 
 from pydantic import BaseModel, Field, RootModel
 
-from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
+from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.hogql.database.schema.channel_type import POSSIBLE_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -210,7 +211,7 @@ class TrendsAgentToolkit:
                         ```
 
                         Args:
-                            final_response: List all events, actions, and properties that you want to use to answer the question.
+                            final_response: List all events and properties that you want to use to answer the question.
                     """,
                 },
             ]
@@ -238,22 +239,40 @@ class TrendsAgentToolkit:
             descriptions.append(description)
         return "\n".join(descriptions)
 
-    def _generate_properties_xml(self, children: list[tuple[str, str | None]]):
+    def _generate_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
         root = ET.Element("properties")
-        property_types = {property_type for _, property_type in children if property_type is not None}
-        property_type_to_tag = {property_type: ET.SubElement(root, property_type) for property_type in property_types}
+        property_type_to_tag = {}
 
-        for name, property_type in children:
+        for name, property_type, description in children:
             # Do not include properties that are ambiguous.
             if property_type is None:
                 continue
+            if property_type not in property_type_to_tag:
+                property_type_to_tag[property_type] = ET.SubElement(root, property_type)
 
             type_tag = property_type_to_tag[property_type]
-            ET.SubElement(type_tag, "name").text = name
-            # Add a line break between names. Doubtful that it does anything.
-            ET.SubElement(type_tag, "br")
+            prop = ET.SubElement(type_tag, "prop")
+            ET.SubElement(prop, "name").text = name
+            if description:
+                ET.SubElement(prop, "description").text = description
 
         return ET.tostring(root, encoding="unicode")
+
+    def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
+        enriched_props = []
+        mapping = {
+            "session": CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"],
+            "person": CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"],
+            "event": CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"],
+        }
+        for prop_name, prop_type in props:
+            description = None
+            if entity_definition := mapping.get(entity, {}).get(prop_name):
+                if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
+                    continue
+                description = entity_definition.get("description")
+            enriched_props.append((prop_name, prop_type, description))
+        return enriched_props
 
     def retrieve_entity_properties(self, entity: str) -> str:
         """
@@ -266,14 +285,17 @@ class TrendsAgentToolkit:
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
             )
-            props = list(qs)
+            props = self._enrich_props_with_descriptions("person", qs)
         elif entity == "session":
             # Session properties are not in the DB.
-            props = [
-                (prop_name, prop["type"])
-                for prop_name, prop in hardcoded_prop_defs["session_properties"].items()
-                if prop.get("type") is not None
-            ]
+            props = self._enrich_props_with_descriptions(
+                "session",
+                [
+                    (prop_name, prop["type"])
+                    for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
+                    if prop.get("type") is not None
+                ],
+            )
         else:
             group_type_index = next(
                 (group.group_type_index for group in self.groups if group.group_type == entity), None
@@ -283,7 +305,10 @@ class TrendsAgentToolkit:
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
             ).values_list("name", "property_type")
-            props = list(qs)
+            props = self._enrich_props_with_descriptions(entity, qs)
+
+        if not props:
+            return f"Properties do not exist in the taxonomy for the entity {entity}."
 
         return self._generate_properties_xml(props)
 
@@ -305,15 +330,17 @@ class TrendsAgentToolkit:
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
         property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
+        props = [
+            (item.property, property_to_type.get(item.property))
+            for item in response.results
+            # Exclude properties that exist in the taxonomy, but don't have a type.
+            if item.property in property_to_type
+        ]
 
-        return self._generate_properties_xml(
-            [
-                (item.property, property_to_type.get(item.property))
-                for item in response.results
-                # Exclude properties that exist in the taxonomy, but don't have a type.
-                if item.property in property_to_type
-            ]
-        )
+        if not props:
+            return f"Properties do not exist in the taxonomy for the event {event_name}."
+
+        return self._generate_properties_xml(self._enrich_props_with_descriptions("event", props))
 
     def _format_property_values(
         self, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
@@ -374,20 +401,23 @@ class TrendsAgentToolkit:
         """
         Sessions properties example property values are hardcoded.
         """
-        if property_name not in hardcoded_prop_defs["session_properties"]:
+        if property_name not in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]:
             return f"The property {property_name} does not exist in the taxonomy."
 
+        sample_values: list[str | int | float]
         if property_name == "$channel_type":
-            sample_values = POSSIBLE_CHANNEL_TYPES.copy()
+            sample_values = cast(list[str | int | float], POSSIBLE_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
         elif (
-            property_name in hardcoded_prop_defs["session_properties"]
-            and "examples" in hardcoded_prop_defs["session_properties"][property_name]
+            property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]
+            and "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]
         ):
-            sample_values = hardcoded_prop_defs["session_properties"][property_name]["examples"]
+            sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
-            is_str = hardcoded_prop_defs["session_properties"][property_name]["type"] == PropertyType.String
+            is_str = (
+                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
+            )
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
 
@@ -475,6 +505,7 @@ class GenerateTrendTool:
             "PersonPropertyFilter",
             "SessionPropertyFilter",
             "FeaturePropertyFilter",
+            "GroupPropertyFilter",
         )
 
         # Clean up the property filters

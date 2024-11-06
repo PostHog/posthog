@@ -67,6 +67,7 @@ const preIngestionEvent: PreIngestionEvent = {
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
+    projectId: 1,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
@@ -379,7 +380,6 @@ describe('EventPipelineRunner', () => {
                     'extractHeatmapDataStep',
                     'enrichExceptionEventStep',
                     'createEventStep',
-                    'produceExceptionSymbolificationEventStep',
                 ])
             })
         })

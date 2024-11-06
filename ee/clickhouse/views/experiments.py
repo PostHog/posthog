@@ -31,6 +31,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.filters.filter import Filter
+from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
 from posthog.utils import generate_cache_key, get_safe_cache
 
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 60  # 1 hour
@@ -191,6 +192,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "type",
             "metrics",
         ]
         read_only_fields = [
@@ -229,6 +231,40 @@ class ExperimentSerializer(serializers.ModelSerializer):
         saved_metrics = ExperimentSavedMetric.objects.filter(id__in=[saved_metric["id"] for saved_metric in value])
         if saved_metrics.count() != len(value):
             raise ValidationError("Saved metric does not exist")
+
+        return value
+
+    def validate_metrics(self, value):
+        # TODO: This isn't correct most probably, we wouldn't have experiment_id inside ExperimentTrendsQuery
+        # on creation. Not sure how this is supposed to work yet.
+        if not value:
+            return value
+
+        if not isinstance(value, list):
+            raise ValidationError("Metrics must be a list")
+
+        if len(value) > 10:
+            raise ValidationError("Experiments can have a maximum of 10 metrics")
+
+        for metric in value:
+            if not isinstance(metric, dict):
+                raise ValidationError("Metrics must be objects")
+            if not metric.get("query"):
+                raise ValidationError("Metric query is required")
+
+            if metric.get("type") not in ["primary", "secondary"]:
+                raise ValidationError("Metric type must be 'primary' or 'secondary'")
+
+            metric_query = metric["query"]
+
+            if metric_query.get("kind") not in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
+                raise ValidationError("Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'")
+
+            # pydantic models are used to validate the query
+            if metric_query["kind"] == "ExperimentTrendsQuery":
+                ExperimentTrendsQuery(**metric_query)
+            else:
+                ExperimentFunnelsQuery(**metric_query)
 
         return value
 
@@ -302,6 +338,19 @@ class ExperimentSerializer(serializers.ModelSerializer):
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
+
+        # if this is a web experiment, copy over the variant data to the experiment itself.
+        if validated_data.get("type", "") == "web":
+            web_variants = {}
+            ff_variants = variants or default_variants
+
+            for variant in ff_variants:
+                web_variants[variant.get("key")] = {
+                    "rollout_percentage": variant.get("rollout_percentage"),
+                }
+
+            experiment.variants = web_variants
+            experiment.save()
 
         if saved_metrics_data:
             for saved_metric_data in saved_metrics_data:
