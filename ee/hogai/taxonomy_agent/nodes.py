@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
-from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
+from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from ee.hogai.taxonomy_agent.parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -136,11 +136,12 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
         for event_name in events:
             event_tag = event_name
-            if event_name in hardcoded_prop_defs["events"]:
-                data = hardcoded_prop_defs["events"][event_name]
-                event_tag += f" - {data['label']}. {data['description']}"
-                if "examples" in data:
-                    event_tag += f" Examples: {data['examples']}."
+            if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
+                if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
+                    continue  # Skip irrelevant events
+                event_tag += f" - {event_core_definition['label']}. {event_core_definition['description']}"
+                if "examples" in event_core_definition:
+                    event_tag += f" Examples: {event_core_definition['examples']}."
             tags.append(remove_line_breaks(event_tag))
 
         root = ET.Element("list of available events for filtering")

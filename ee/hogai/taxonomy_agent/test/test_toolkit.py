@@ -79,7 +79,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "<properties><String><prop><name>test</name></prop></String></properties>",
         )
 
-        GroupTypeMapping.objects.create(team=self.team, group_type_index=0, group_type="group")
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
+        )
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
@@ -147,8 +149,12 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         toolkit = TestToolkit(self.team)
-        GroupTypeMapping.objects.create(team=self.team, group_type_index=0, group_type="proj")
-        GroupTypeMapping.objects.create(team=self.team, group_type_index=1, group_type="org")
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
+        )
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
@@ -180,8 +186,12 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
 
     def test_group_names(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type_index=0, group_type="proj")
-        GroupTypeMapping.objects.create(team=self.team, group_type_index=1, group_type="org")
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
+        )
         toolkit = TestToolkit(self.team)
         self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
 

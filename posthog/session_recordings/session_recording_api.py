@@ -4,9 +4,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-
-from prometheus_client import Histogram
-from typing import Any, cast, Optional
+from typing import Any, Optional, cast
 
 import posthoganalytics
 import requests
@@ -15,7 +13,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
@@ -328,7 +326,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
-        self._maybe_report_recording_list_filters_changed(request)
+        self._maybe_report_recording_list_filters_changed(request, team=self.team)
         return list_recordings_response(filter, request, self.get_serializer_context())
 
     @extend_schema(
@@ -525,7 +523,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
 
-    def _maybe_report_recording_list_filters_changed(self, request: request.Request):
+    def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
         If the applied filters were modified by the user, capture only the partial filters
         applied (not the full filters object, since that's harder to search through in event props).
@@ -540,14 +538,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             current_url = request.headers.get("Referer")
             session_id = request.headers.get("X-POSTHOG-SESSION-ID")
 
-            posthoganalytics.capture(
-                str(cast(User, request.user).distinct_id),
-                "recording list filters changed",
-                {
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    **partial_filters,
-                },
+            report_user_action(
+                user=cast(User, request.user),
+                event="recording list filters changed",
+                properties={"$current_url": current_url, "$session_id": session_id, **partial_filters},
+                team=team,
             )
 
     def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:

@@ -3,11 +3,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from functools import cached_property
 from textwrap import dedent
-from typing import Literal, Optional, TypedDict, Union
+from typing import Literal, Optional, TypedDict, Union, cast
 
 from pydantic import BaseModel, Field, RootModel
 
-from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
+from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.hogql.database.schema.channel_type import POSSIBLE_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -208,14 +208,16 @@ class TaxonomyAgentToolkit(ABC):
     def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
         enriched_props = []
         mapping = {
-            "session": hardcoded_prop_defs["session_properties"],
-            "person": hardcoded_prop_defs["person_properties"],
-            "event": hardcoded_prop_defs["event_properties"],
+            "session": CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"],
+            "person": CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"],
+            "event": CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"],
         }
         for prop_name, prop_type in props:
             description = None
-            if entity in mapping:
-                description = mapping[entity].get(prop_name, {}).get("description")
+            if entity_definition := mapping.get(entity, {}).get(prop_name):
+                if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
+                    continue
+                description = entity_definition.get("description")
             enriched_props.append((prop_name, prop_type, description))
         return enriched_props
 
@@ -237,7 +239,7 @@ class TaxonomyAgentToolkit(ABC):
                 "session",
                 [
                     (prop_name, prop["type"])
-                    for prop_name, prop in hardcoded_prop_defs["session_properties"].items()
+                    for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
                     if prop.get("type") is not None
                 ],
             )
@@ -346,20 +348,23 @@ class TaxonomyAgentToolkit(ABC):
         """
         Sessions properties example property values are hardcoded.
         """
-        if property_name not in hardcoded_prop_defs["session_properties"]:
+        if property_name not in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]:
             return f"The property {property_name} does not exist in the taxonomy."
 
+        sample_values: list[str | int | float]
         if property_name == "$channel_type":
-            sample_values = POSSIBLE_CHANNEL_TYPES.copy()
+            sample_values = cast(list[str | int | float], POSSIBLE_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
         elif (
-            property_name in hardcoded_prop_defs["session_properties"]
-            and "examples" in hardcoded_prop_defs["session_properties"][property_name]
+            property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]
+            and "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]
         ):
-            sample_values = hardcoded_prop_defs["session_properties"][property_name]["examples"]
+            sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
-            is_str = hardcoded_prop_defs["session_properties"][property_name]["type"] == PropertyType.String
+            is_str = (
+                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
+            )
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
 
