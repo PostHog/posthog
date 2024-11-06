@@ -28,10 +28,11 @@ class HogViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 in_repl=in_repl,
                 locals=[Local(name=local[0], depth=local[1], is_captured=local[2]) for local in locals],
             )
+            cleaned_locals = [[local.name, local.depth, local.is_captured] for local in compiled.locals]
             return Response(
                 HogCompileResponse(
                     bytecode=compiled.bytecode,
-                    locals=[[local.name, local.depth, local.is_captured] for local in compiled.locals],
+                    locals=cleaned_locals,
                 ).model_dump(),
                 status=status.HTTP_200_OK,
             )
