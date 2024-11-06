@@ -3091,6 +3091,45 @@
             ],
             "type": "string"
         },
+        "CustomChannelCondition": {
+            "additionalProperties": false,
+            "properties": {
+                "field": {
+                    "type": "string"
+                },
+                "op": {
+                    "$ref": "#/definitions/CustomChannelOperator"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["field", "value", "op"],
+            "type": "object"
+        },
+        "CustomChannelOperator": {
+            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "is_set", "is_not_set"],
+            "type": "string"
+        },
+        "CustomChannelRule": {
+            "additionalProperties": false,
+            "properties": {
+                "conditions": {
+                    "items": {
+                        "$ref": "#/definitions/CustomChannelCondition"
+                    },
+                    "type": "array"
+                },
+                "logicalOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["conditions", "logicalOperator", "value"],
+            "type": "object"
+        },
         "CustomEventConversionGoal": {
             "additionalProperties": false,
             "properties": {

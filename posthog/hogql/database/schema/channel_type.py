@@ -76,8 +76,22 @@ def create_channel_type_expr(
 
     # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
     # update either.
-    return parse_expr(
-        """
+
+    # customRule = CustomChannelRule(
+    #     conditions= [CustomChannelCondition()]
+    #     showLegend=filter.get("show_legend"),
+    #     showValuesOnSeries=filter.get("show_values_on_series"),
+    # )
+
+    customChannelTypeLogic = """
+if(
+    match({source}, 'google'),
+    'Google FooBar',
+    NULL
+)
+"""
+
+    defaultChannelTypeLogic = """
 multiIf(
     match({campaign}, 'cross-network'),
     'Cross Network',
@@ -140,7 +154,17 @@ multiIf(
             'Unknown'
         )
     )
-)""",
+)"""
+
+    channelTypeLogic = f"""
+coalesce(
+    {customChannelTypeLogic},
+    {defaultChannelTypeLogic}
+)
+"""
+
+    return parse_expr(
+        channelTypeLogic,
         start=None,
         placeholders={
             "campaign": wrap_with_lower(wrap_with_null_if_empty(campaign)),

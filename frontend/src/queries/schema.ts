@@ -2139,3 +2139,35 @@ export enum AssistantGenerationStatusType {
 export interface AssistantGenerationStatusEvent {
     type: AssistantGenerationStatusType
 }
+
+export enum CustomChannelOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IContains = 'icontains',
+    NotIContains = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+export type CustomChannelCondition = {
+    field: string
+    value: string
+    op: CustomChannelOperator
+}
+
+export type CustomChannelRule = {
+    conditions: CustomChannelCondition[]
+    logicalOperator: FilterLogicalOperator
+    value: string
+}
+
+// var foo: CustomChannelRule = {
+//     conditions: [
+//         { field: 'entry_utm_source', value: 'google', op: CustomChannelOperator.Exact },
+//         { field: 'entry_utm_source', value: 'youtube', op: CustomChannelOperator.Exact },
+//     ],
+//     logicalOperator: FilterLogicalOperator.And,
+//     value: 'Google Foo',
+// }

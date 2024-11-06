@@ -276,6 +276,17 @@ class CountPerActorMathType(StrEnum):
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
 
 
+class CustomChannelOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
 class CustomEventConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2412,6 +2423,24 @@ class CohortPropertyFilter(BaseModel):
     operator: Optional[PropertyOperator] = PropertyOperator.IN_
     type: Literal["cohort"] = "cohort"
     value: int
+
+
+class CustomChannelCondition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field: str
+    op: CustomChannelOperator
+    value: str
+
+
+class CustomChannelRule(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conditions: list[CustomChannelCondition]
+    logicalOperator: FilterLogicalOperator
+    value: str
 
 
 class Response(BaseModel):
