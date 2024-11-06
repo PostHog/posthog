@@ -75,7 +75,12 @@ export const projectLogic = kea<projectLogicType>([
                     return patchedProject
                 },
                 createProject: async ({ name }: { name: string }) => {
-                    return await api.create('api/projects/', { name })
+                    try {
+                        return await api.create('api/projects/', { name })
+                    } catch (error: any) {
+                        lemonToast.error('Failed to create project')
+                        return values.currentProject
+                    }
                 },
             },
         ],
@@ -83,7 +88,7 @@ export const projectLogic = kea<projectLogicType>([
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
@@ -102,7 +107,7 @@ export const projectLogic = kea<projectLogicType>([
             lemonToast.success('Project has been deleted')
         },
         createProjectSuccess: ({ currentProject }) => {
-            if (currentProject) {
+            if (currentProject && currentProject.id !== values.currentProject?.id) {
                 actions.switchTeam(currentProject.id)
             }
         },
