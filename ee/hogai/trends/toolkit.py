@@ -404,6 +404,7 @@ class TrendsAgentToolkit:
         if property_name not in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]:
             return f"The property {property_name} does not exist in the taxonomy."
 
+        sample_values: list[str | int | float]
         if property_name == "$channel_type":
             sample_values = POSSIBLE_CHANNEL_TYPES.copy()
             sample_count = len(sample_values)
