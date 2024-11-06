@@ -120,55 +120,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         ],
     }),
     selectors({
-        // searchedFeatureFlags: [
-        //     (selectors) => [
-        //         selectors.featureFlags,
-        //         selectors.searchTerm,
-        //         selectors.filters,
-        //         (_, props) => props.flagPrefix,
-        //     ],
-        //     (featureFlags, searchTerm, filters, flagPrefix) => {
-        //         let searchedFlags = featureFlags.results
-
-        //         if (flagPrefix) {
-        //             searchedFlags = searchedFlags.filter((flag) => flag.key.startsWith(flagPrefix))
-        //         }
-
-        //         if (!searchTerm && Object.keys(filters).length === 0) {
-        //             return searchedFlags
-        //         }
-
-        //         if (searchTerm) {
-        //             searchedFlags = new Fuse(searchedFlags, {
-        //                 keys: ['key', 'name'],
-        //                 threshold: 0.3,
-        //             })
-        //                 .search(searchTerm)
-        //                 .map((result) => result.item)
-        //         }
-
-        //         const { active, created_by, type } = filters
-        //         if (active) {
-        //             searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
-        //         }
-        //         if (created_by) {
-        //             searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === created_by)
-        //         }
-        //         if (type === 'boolean') {
-        //             searchedFlags = searchedFlags.filter(
-        //                 (flag) => flag.filters.multivariate?.variants?.length ?? 0 == 0
-        //             )
-        //         }
-        //         if (type === 'multivariant') {
-        //             searchedFlags = searchedFlags.filter((flag) => flag.filters.multivariate?.variants?.length ?? 0 > 0)
-        //         }
-        //         if (type === 'experiment') {
-        //             searchedFlags = searchedFlags.filter((flag) => flag.experiment_set?.length ?? 0 > 0)
-        //         }
-
-        //         return searchedFlags
-        //     },
-        // ],
         count: [(selectors) => [selectors.featureFlags], (featureFlags) => featureFlags.count],
         paramsFromFilters: [
             (s) => [s.filters],
@@ -178,6 +129,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
             }),
         ],
+        // Check to see if any non-default filters are being used
         usingFilters: [(s) => [s.filters], (filters) => !objectsEqual(filters, { limit: FLAGS_PER_PAGE, offset: 0 })],
         breadcrumbs: [
             () => [],
