@@ -1,5 +1,7 @@
+import pytest
 from typing import Optional
 
+from posthog.clickhouse import materialized_columns
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import PropertyDefinition, Cohort
 from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery, HogLanguage
@@ -202,13 +204,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_metadata_property_type_notice_debug(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
-        materialize("events", "number")
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
+
+        materialized_columns.backend.materialize("events", "number")
 
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
@@ -237,13 +236,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_metadata_property_type_notice_no_debug(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
-        materialize("events", "number")
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
+
+        materialized_columns.backend.materialize("events", "number")
 
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")

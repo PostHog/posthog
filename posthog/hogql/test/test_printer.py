@@ -6,6 +6,7 @@ from typing import Any, Literal, Optional, cast
 import pytest
 from django.test import override_settings
 
+from posthog.clickhouse import materialized_columns
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
@@ -30,13 +31,11 @@ from posthog.test.base import BaseTest, _create_event, cleanup_materialized_colu
 @contextmanager
 def materialized(table, property):
     """Materialize a property within the managed block, removing it on exit."""
-    try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
-    except ModuleNotFoundError as e:
-        pytest.xfail(str(e))
+    if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+        pytest.xfail()
 
     try:
-        materialize(table, property)
+        materialized_columns.backend.materialize(table, property)
         yield
     finally:
         cleanup_materialized_columns()
@@ -437,14 +436,10 @@ class TestPrinter(BaseTest):
         )
 
     def test_hogql_properties_materialized_json_access(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
 
-        materialize("events", "withmat")
+        materialized_columns.backend.materialize("events", "withmat")
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.withmat.json.yet", context),
@@ -453,31 +448,28 @@ class TestPrinter(BaseTest):
         self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
     def test_materialized_fields_and_properties(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
-        materialize("events", "$browser")
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
+
+        materialized_columns.backend.materialize("events", "$browser")
         self.assertEqual(
             self._expr("properties['$browser']"),
             "nullIf(nullIf(events.`mat_$browser`, ''), 'null')",
         )
 
-        materialize("events", "withoutdollar")
+        materialized_columns.backend.materialize("events", "withoutdollar")
         self.assertEqual(
             self._expr("properties['withoutdollar']"),
             "nullIf(nullIf(events.mat_withoutdollar, ''), 'null')",
         )
 
-        materialize("events", "$browser and string")
+        materialized_columns.backend.materialize("events", "$browser and string")
         self.assertEqual(
             self._expr("properties['$browser and string']"),
             "nullIf(nullIf(events.`mat_$browser_and_string`, ''), 'null')",
         )
 
-        materialize("events", "$browser%%%#@!@")
+        materialized_columns.backend.materialize("events", "$browser%%%#@!@")
         self.assertEqual(
             self._expr("properties['$browser%%%#@!@']"),
             "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
@@ -1566,16 +1558,13 @@ class TestPrinter(BaseTest):
         )
 
     def test_field_nullable_boolean(self):
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
+
         PropertyDefinition.objects.create(
             team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
         )
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
-        materialize("events", "is_boolean")
+        materialized_columns.backend.materialize("events", "is_boolean")
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         generated_sql_statements1 = self._select(
             "SELECT "
@@ -1852,13 +1841,10 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_hidden_aliases_properties(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
-        materialize("events", "$browser")
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
+
+        materialized_columns.backend.materialize("events", "$browser")
 
         query = parse_select("select * from (SELECT properties.$browser FROM events)")
         printed = print_ast(
@@ -1875,13 +1861,10 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_hidden_aliases_double_property(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
-        materialize("events", "$browser")
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
+
+        materialized_columns.backend.materialize("events", "$browser")
 
         query = parse_select("select * from (SELECT properties.$browser, properties.$browser FROM events)")
         printed = print_ast(

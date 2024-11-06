@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 from unittest import mock
@@ -7,6 +8,8 @@ from django.core.cache import cache
 from freezegun import freeze_time
 from pydantic import BaseModel
 
+from posthog.clickhouse import materialized_columns
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -249,15 +252,10 @@ class TestQueryRunner(BaseTest):
             mock_on_commit.assert_called_once()
 
     def test_modifier_passthrough(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-            from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
 
-            materialize("events", "$browser")
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
+        materialized_columns.backend.materialize("events", "$browser")
 
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),

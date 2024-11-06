@@ -1,5 +1,7 @@
+import pytest
 from typing import NamedTuple
 from unittest.mock import patch
+from posthog.clickhouse import materialized_columns
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
@@ -217,13 +219,10 @@ class TestModifiers(BaseTest):
         assert "LEFT JOIN" in response.clickhouse
 
     def test_modifiers_materialization_mode(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
-        materialize("events", "$browser")
+        if isinstance(materialized_columns.backend, materialized_columns.DummyMaterializedColumnBackend):
+            pytest.xfail()
+
+        materialized_columns.backend.materialize("events", "$browser")
 
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",

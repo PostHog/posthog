@@ -1,5 +1,5 @@
 import json
-from ee.clickhouse.materialized_columns.analyze import materialize
+from posthog.clickhouse.materialized_columns import materialize
 from datetime import datetime, timedelta
 from typing import Optional, Any
 from unittest import mock
