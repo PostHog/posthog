@@ -19,7 +19,7 @@ class TestBytecodeExecute:
         globals = {
             "properties": {"foo": "bar", "nullValue": None},
         }
-        return execute_bytecode(create_bytecode(parse_expr(expr)), globals).result
+        return execute_bytecode(create_bytecode(parse_expr(expr)).bytecode, globals).result
 
     def _run_program(
         self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None, globals: Optional[dict] = None
@@ -29,7 +29,7 @@ class TestBytecodeExecute:
                 "properties": {"foo": "bar", "nullValue": None},
             }
         program = parse_program(code)
-        bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None)
+        bytecode = create_bytecode(program, supported_functions=set(functions.keys()) if functions else None).bytecode
         response = execute_bytecode(bytecode, globals, functions)
         return response.result
 
@@ -313,7 +313,7 @@ class TestBytecodeExecute:
 
     def test_bytecode_variable_assignment(self):
         program = parse_program("let a := 1 + 2; return a;")
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == ["_H", 1, op.INTEGER, 2, op.INTEGER, 1, op.PLUS, op.GET_LOCAL, 0, op.RETURN, op.POP]
 
         assert self._run_program("let a := 1 + 2; return a;") == 3
@@ -330,7 +330,7 @@ class TestBytecodeExecute:
 
     def test_bytecode_if_else(self):
         program = parse_program("if (true) return 1; else return 2;")
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == [
             "_H",
             1,
@@ -383,7 +383,7 @@ class TestBytecodeExecute:
 
     def test_bytecode_while(self):
         program = parse_program("while (true) 1 + 1;")
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == [
             "_H",
             1,
@@ -401,7 +401,7 @@ class TestBytecodeExecute:
         ]
 
         program = parse_program("while (toString('a')) { 1 + 1; } return 3;")
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == [
             "_H",
             1,
@@ -498,7 +498,7 @@ class TestBytecodeExecute:
             return add(3, 4);
             """
         )
-        bytecode = create_bytecode(program)
+        bytecode = create_bytecode(program).bytecode
         assert bytecode == [
             "_H",
             VERSION,

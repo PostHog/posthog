@@ -2,7 +2,11 @@ import { actions, afterMount, connect, kea, listeners, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     calculateViewportRange,
@@ -34,7 +38,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     connect({
         values: [
-            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({
+                ...defaultAuthorizedUrlProperties,
+                type: AuthorizedUrlListType.TOOLBAR_URLS,
+            }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
         ],
     }),

@@ -124,7 +124,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.plugin-server == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.82
 
             - uses: actions/cache@v4
               with:
@@ -137,7 +137,7 @@ jobs:
             - name: Install sqlx-cli
               if: needs.changes.outputs.plugin-server == 'true'
               working-directory: rust
-              run: cargo install sqlx-cli@0.7.3 --no-default-features --features native-tls,postgres
+              run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.plugin-server == 'true'

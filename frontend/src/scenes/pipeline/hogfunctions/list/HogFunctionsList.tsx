@@ -88,7 +88,7 @@ export function HogFunctionList({
                         },
 
                         {
-                            title: 'Weekly volume',
+                            title: 'Last 7 days',
                             render: (_, hogFunction) => {
                                 return (
                                     <Link

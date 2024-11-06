@@ -206,7 +206,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_REPLAY: 'web-analytics-replay', // owner: @robbie-c
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     EXPERIMENT_MAKE_DECISION: 'experiment-make-decision', // owner: @jurajmajerik #team-feature-success
-    PURCHASE_CREDITS: 'purchase-credits', // owner: @zach
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     WEB_ANALYTICS_CONVERSION_GOALS: 'web-analytics-conversion-goals', // owner: @robbie-c
     WEB_ANALYTICS_LAST_CLICK: 'web-analytics-last-click', // owner: @robbie-c
@@ -227,6 +226,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_URL_BLOCKLIST: 'session-replay-url-blocklist', // owner: @richard-better #team-replay
     BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
     DEAD_CLICKS_AUTOCAPTURE: 'dead-clicks-autocapture', // owner: @pauldambra #team-replay
+    ONBOARDING_PRODUCT_MULTISELECT: 'onboarding-product-multiselect', // owner: @danielbachhuber #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

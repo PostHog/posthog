@@ -93,7 +93,7 @@ export function TransformationsTable({ inOverview = false }: { inOverview?: bool
                     appColumn() as LemonTableColumn<Transformation, any>,
                     nameColumn() as LemonTableColumn<Transformation, any>,
                     {
-                        title: 'Weekly volume',
+                        title: 'Last 7 days',
                         render: function RenderSuccessRate(_, transformation) {
                             return (
                                 <Link
