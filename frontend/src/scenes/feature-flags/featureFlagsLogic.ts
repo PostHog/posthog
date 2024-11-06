@@ -163,10 +163,19 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             actions.loadFeatureFlags()
         },
     })),
-    actionToUrl(({ values }) => ({
-        setActiveTab: () => {
-            const searchParams = {
-                ...router.values.searchParams,
+    actionToUrl(({ values }) => {
+        const changeUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  }
+              ]
+            | void => {
+            const searchParams: Record<string, string | number> = {
+                ...values.filters,
             }
 
             let replace = false // set a page in history
@@ -177,8 +186,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             searchParams['tab'] = values.activeTab
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
-        },
-    })),
+        }
+
+        return {
+            setFeatureFlagsFilters: changeUrl,
+            setActiveTab: changeUrl,
+        }
+    }),
     urlToAction(({ actions, values }) => ({
         [urls.featureFlags()]: async (_, searchParams) => {
             const tabInURL = searchParams['tab']
