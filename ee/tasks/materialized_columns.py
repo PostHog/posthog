@@ -2,7 +2,7 @@ from celery.utils.log import get_task_logger
 
 from ee.clickhouse.materialized_columns.columns import (
     TRIM_AND_EXTRACT_PROPERTY,
-    get_materialized_columns,
+    get_materialized_columns_cached,
 )
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -40,7 +40,7 @@ def mark_all_materialized() -> None:
 
 def get_materialized_columns_with_default_expression():
     for table in ["events", "person"]:
-        materialized_columns = get_materialized_columns(table, use_cache=False)
+        materialized_columns = get_materialized_columns_cached(table, use_cache=False)
         for (property_name, table_column), column_name in materialized_columns.items():
             if is_default_expression(table, column_name):
                 yield table, property_name, table_column, column_name

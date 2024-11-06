@@ -48,10 +48,9 @@ class DummyMaterializedColumnBackend(MaterializedColumnBackend):
         pass
 
 
+backend: MaterializedColumnBackend
 if EE_AVAILABLE:
-    from ee.clickhouse.materialized_columns.columns import EnterpriseMaterializedColumnBackend
-
-    backend: MaterializedColumnBackend = EnterpriseMaterializedColumnBackend()
+    from ee.clickhouse.materialized_columns.columns import backend
 else:
     backend = DummyMaterializedColumnBackend()
 

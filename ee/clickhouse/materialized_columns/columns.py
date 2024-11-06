@@ -30,27 +30,6 @@ SHORT_TABLE_COLUMN_NAME = {
 }
 
 
-@cache_for(timedelta(minutes=15))
-def get_materialized_columns(
-    table: TablesWithMaterializedColumns,
-) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
-    rows = sync_execute(
-        """
-        SELECT comment, name
-        FROM system.columns
-        WHERE database = %(database)s
-          AND table = %(table)s
-          AND comment LIKE '%%column_materializer::%%'
-          AND comment not LIKE '%%column_materializer::elements_chain::%%'
-    """,
-        {"database": CLICKHOUSE_DATABASE, "table": table},
-    )
-    if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
-        return {_extract_property(comment): column_name for comment, column_name in rows}
-    else:
-        return {}
-
-
 def materialize(
     table: TableWithProperties,
     property: PropertyName,
@@ -58,7 +37,7 @@ def materialize(
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
     create_minmax_index=not TEST,
 ) -> None:
-    if (property, table_column) in get_materialized_columns(table, use_cache=False):
+    if (property, table_column) in get_materialized_columns_cached(table, use_cache=False):
         if TEST:
             return
 
@@ -156,7 +135,7 @@ def backfill_materialized_columns(
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
-    materialized_columns = get_materialized_columns(table, use_cache=False)
+    materialized_columns = get_materialized_columns_cached(table, use_cache=False)
 
     # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
     # Note that for this to work all inserts should list columns explicitly
@@ -204,7 +183,7 @@ def _materialized_column_name(
         prefix += f"{SHORT_TABLE_COLUMN_NAME[table_column]}_"
     property_str = re.sub("[^0-9a-zA-Z$]", "_", property)
 
-    existing_materialized_columns = set(get_materialized_columns(table, use_cache=False).values())
+    existing_materialized_columns = set(get_materialized_columns_cached(table, use_cache=False).values())
     suffix = ""
 
     while f"{prefix}{property_str}{suffix}" in existing_materialized_columns:
@@ -229,7 +208,21 @@ class EnterpriseMaterializedColumnBackend(MaterializedColumnBackend):
         self,
         table: TablesWithMaterializedColumns,
     ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
-        return get_materialized_columns(table)
+        rows = sync_execute(
+            """
+            SELECT comment, name
+            FROM system.columns
+            WHERE database = %(database)s
+            AND table = %(table)s
+            AND comment LIKE '%%column_materializer::%%'
+            AND comment not LIKE '%%column_materializer::elements_chain::%%'
+        """,
+            {"database": CLICKHOUSE_DATABASE, "table": table},
+        )
+        if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
+            return {_extract_property(comment): column_name for comment, column_name in rows}
+        else:
+            return {}
 
     def materialize(
         self,
@@ -240,3 +233,8 @@ class EnterpriseMaterializedColumnBackend(MaterializedColumnBackend):
         create_minmax_index=False,
     ) -> None:
         return materialize(table, property, column_name, table_column, create_minmax_index)
+
+
+backend = EnterpriseMaterializedColumnBackend()
+
+get_materialized_columns_cached = cache_for(timedelta(minutes=15))(backend.get_materialized_columns)

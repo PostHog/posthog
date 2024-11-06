@@ -6,7 +6,7 @@ from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
-    get_materialized_columns,
+    get_materialized_columns_cached,
     materialize,
 )
 from posthog.client import sync_execute
@@ -38,10 +38,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     def test_get_columns_default(self):
         self.assertCountEqual(
-            [property_name for property_name, _ in get_materialized_columns("events")],
+            [property_name for property_name, _ in get_materialized_columns_cached("events")],
             EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
         )
-        self.assertCountEqual(get_materialized_columns("person"), [])
+        self.assertCountEqual(get_materialized_columns_cached("person"), [])
 
     def test_caching_and_materializing(self):
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -50,24 +50,33 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             materialize("person", "$zeta", create_minmax_index=True)
 
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
             self.assertCountEqual(
-                get_materialized_columns("person", use_cache=True).keys(),
+                get_materialized_columns_cached("person", use_cache=True).keys(),
                 [("$zeta", "properties")],
             )
 
             materialize("events", "abc", create_minmax_index=True)
 
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
         with freeze_time("2020-01-04T14:00:01Z"):
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
@@ -86,11 +95,11 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_YYYY",
                 ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_ZZZZ",
             },
-            get_materialized_columns("events"),
+            get_materialized_columns_cached("events"),
         )
 
         self.assertEqual(
-            get_materialized_columns("person"),
+            get_materialized_columns_cached("person"),
             {("SoMePrOp", "properties"): "pmat_SoMePrOp"},
         )
 

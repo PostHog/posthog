@@ -4,7 +4,7 @@ from .helpers import benchmark_clickhouse, no_materialized_columns, now
 from datetime import timedelta
 from ee.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
-    get_materialized_columns,
+    get_materialized_columns_cached,
     materialize,
 )
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
@@ -767,7 +767,7 @@ class QuerySuite:
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:
-            if (property, "properties") not in get_materialized_columns(table):
+            if (property, "properties") not in get_materialized_columns_cached(table):
                 materialize(table, property)
                 backfill_materialized_columns(
                     table,
