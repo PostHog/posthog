@@ -124,7 +124,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.plugin-server == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.82
 
             - uses: actions/cache@v4
               with:
