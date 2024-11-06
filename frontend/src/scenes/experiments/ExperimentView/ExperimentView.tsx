@@ -60,7 +60,7 @@ const ResultsTab = (): JSX.Element => {
 
 const VariantsTab = (): JSX.Element => {
     return (
-        <div>
+        <div className="space-y-8">
             <ReleaseConditionsTable />
             <DistributionTable />
         </div>
