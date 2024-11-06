@@ -394,6 +394,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
             } finally {
                 actions.loadBilling()
+                window.location.reload()
                 actions.setTrialLoading(false)
             }
         },

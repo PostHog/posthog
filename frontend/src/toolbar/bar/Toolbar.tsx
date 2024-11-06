@@ -174,6 +174,10 @@ export function Toolbar(): JSX.Element | null {
             setVisibleMenu('actions')
         }
 
+        if (userIntent === 'add-experiment' || userIntent === 'edit-experiment') {
+            setVisibleMenu('experiments')
+        }
+
         if (userIntent === 'heatmaps') {
             setVisibleMenu('heatmap')
         }

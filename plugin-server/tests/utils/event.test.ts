@@ -1,7 +1,7 @@
 import { KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp, RawClickHouseEvent } from '../../src/types'
+import { ClickHouseTimestamp, RawKafkaEvent } from '../../src/types'
 import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from '../../src/utils/event'
 
 describe('normalizeEvent()', () => {
@@ -48,7 +48,7 @@ describe('normalizeEvent()', () => {
 
 describe('parseRawClickHouseEvent()', () => {
     it('parses a random event', () => {
-        const clickhouseEvent: RawClickHouseEvent = {
+        const kafkaEvent: RawKafkaEvent = {
             event: '$pageview',
             properties: JSON.stringify({
                 $ip: '127.0.0.1',
@@ -57,6 +57,7 @@ describe('parseRawClickHouseEvent()', () => {
             elements_chain: '',
             timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
             team_id: 2,
+            project_id: 1,
             distinct_id: 'my_id',
             created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
             person_created_at: '2020-02-23 02:10:00.00' as ClickHouseTimestamp,
@@ -65,7 +66,7 @@ describe('parseRawClickHouseEvent()', () => {
             group1_properties: JSON.stringify({ a: 1, b: 2 }),
         }
 
-        expect(parseRawClickHouseEvent(clickhouseEvent)).toEqual({
+        expect(parseRawClickHouseEvent(kafkaEvent)).toEqual({
             event: '$pageview',
             properties: {
                 $ip: '127.0.0.1',
@@ -73,6 +74,7 @@ describe('parseRawClickHouseEvent()', () => {
             uuid: 'uuid1',
             timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC(),
             team_id: 2,
+            project_id: 1,
             distinct_id: 'my_id',
             created_at: DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC(),
             elements_chain: null,

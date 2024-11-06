@@ -704,6 +704,14 @@ export interface RawClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
+export interface RawKafkaEvent extends RawClickHouseEvent {
+    /**
+     * The project ID field is only included in the `clickhouse_events_json` topic, not present in ClickHouse.
+     * That's because we need it in `property-defs-rs` and not elsewhere.
+     */
+    project_id: number
+}
+
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
     timestamp: DateTime
@@ -732,6 +740,7 @@ export interface PreIngestionEvent {
     eventUuid: string
     event: string
     teamId: TeamId
+    projectId: TeamId
     distinctId: string
     properties: Properties
     timestamp: ISOTimestamp
