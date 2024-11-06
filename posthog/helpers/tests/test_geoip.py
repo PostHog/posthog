@@ -16,7 +16,7 @@ australia_ip_2 = "13.106.122.3"
 
 
 @pytest.mark.parametrize(
-    "test_input,expected_country,expected_city",
+    "test_input,expected_country",
     [
         (australia_ip, "Australia"),
         (uk_ip, "United Kingdom"),
