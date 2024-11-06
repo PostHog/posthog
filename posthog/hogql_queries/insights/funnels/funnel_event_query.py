@@ -1,5 +1,5 @@
 from typing import Union, Optional
-from posthog.clickhouse.materialized_columns.column import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
