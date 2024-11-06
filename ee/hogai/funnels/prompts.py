@@ -66,9 +66,10 @@ Supported operators for the Boolean type are:
 
 ## Exclusion Steps
 
-Users may want to use exclusion events to filter out conversions where a certain event occured between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel.
+Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel.
 
-For example, a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions where users left the page before finishing the onboarding, the exclusion step would be:
+For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step will be:
+
 ```
 exclusions:
 - $pageleave

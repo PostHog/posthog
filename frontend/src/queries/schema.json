@@ -1,160 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "AIEventsNode": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": "string"
-                },
-                "event": {
-                    "description": "The event or `null` for all events.",
-                    "type": ["string", "null"]
-                },
-                "fixedProperties": {
-                    "items": {
-                        "$ref": "#/definitions/AIPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "EventsNode",
-                    "type": "string"
-                },
-                "math": {
-                    "$ref": "#/definitions/MathType"
-                },
-                "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
-                    "type": "number"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "math_property_type": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "orderBy": {
-                    "description": "Columns to order by",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AIPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "type": "object"
-                }
-            },
-            "required": ["kind"],
-            "type": "object"
-        },
-        "AIPropertyFilter": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/PersonPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/SessionPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/GroupPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/FeaturePropertyFilter"
-                }
-            ]
-        },
-        "AITrendsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
-                },
-                "breakdownFilter": {
-                    "additionalProperties": false,
-                    "description": "Breakdown of the events and actions",
-                    "properties": {
-                        "breakdown_hide_other_aggregation": {
-                            "type": ["boolean", "null"]
-                        },
-                        "breakdown_histogram_bin_count": {
-                            "type": "integer"
-                        },
-                        "breakdown_limit": {
-                            "type": "integer"
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "maxLength": 3,
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
-                },
-                "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter",
-                    "description": "Compare to date range"
-                },
-                "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
-                    "description": "Date range for the query"
-                },
-                "filterTestAccounts": {
-                    "default": false,
-                    "description": "Exclude internal and test users by applying the respective filters",
-                    "type": "boolean"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType",
-                    "default": "day",
-                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
-                },
-                "kind": {
-                    "const": "TrendsQuery",
-                    "type": "string"
-                },
-                "properties": {
-                    "default": [],
-                    "description": "Property filters for all series",
-                    "items": {
-                        "$ref": "#/definitions/AIPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "samplingFactor": {
-                    "description": "Sampling rate",
-                    "type": ["number", "null"]
-                },
-                "series": {
-                    "description": "Events and actions to include",
-                    "items": {
-                        "$ref": "#/definitions/AIEventsNode"
-                    },
-                    "type": "array"
-                },
-                "trendsFilter": {
-                    "$ref": "#/definitions/TrendsFilter",
-                    "description": "Properties specific to the trends insight"
-                }
-            },
-            "required": ["kind", "series"],
-            "type": "object"
-        },
         "ActionConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -644,6 +490,226 @@
             "enum": ["status", "message"],
             "type": "string"
         },
+        "AssistantFunnelsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Use this field to define the aggregation by a specific group from the group mapping that the user has provided.",
+                    "type": "integer"
+                },
+                "breakdownFilter": {
+                    "additionalProperties": false,
+                    "description": "Breakdown the chart by a property",
+                    "properties": {
+                        "breakdown": {
+                            "description": "The entity property to break down by.",
+                            "type": "string"
+                        },
+                        "breakdown_group_type_index": {
+                            "anyOf": [
+                                {
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping."
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "default": 10,
+                            "description": "Number of bins to show in the histogram. Only applicable for the numeric properties.",
+                            "type": "integer"
+                        },
+                        "breakdown_limit": {
+                            "default": 25,
+                            "description": "How many distinct values to show.",
+                            "type": "integer"
+                        },
+                        "breakdown_type": {
+                            "default": "event",
+                            "description": "Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.",
+                            "enum": ["person", "event", "group", "session"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["breakdown_type", "breakdown"],
+                    "type": "object"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/InsightDateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "funnelsFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the funnels insight",
+                    "properties": {
+                        "binCount": {
+                            "description": "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.",
+                            "type": "integer"
+                        },
+                        "exclusions": {
+                            "default": [],
+                            "description": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3.",
+                            "items": {
+                                "additionalProperties": false,
+                                "description": "Exclustion steps for funnels. The \"from\" and \"to\" steps must not exceed the funnel's series length.",
+                                "properties": {
+                                    "event": {
+                                        "type": "string"
+                                    },
+                                    "funnelFromStep": {
+                                        "type": "integer"
+                                    },
+                                    "funnelToStep": {
+                                        "type": "integer"
+                                    },
+                                    "kind": {
+                                        "const": "EventsNode",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["event", "funnelFromStep", "funnelToStep", "kind"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "funnelAggregateByHogQL": {
+                            "const": "properties.$session_id",
+                            "description": "Use this field only if the user asks to aggregate the funnel by unique sessions.",
+                            "type": "string"
+                        },
+                        "funnelOrderType": {
+                            "$ref": "#/definitions/StepOrderValue",
+                            "default": "ordered",
+                            "description": "Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `any` - order doesn't matter. Steps can be completed in any sequence."
+                        },
+                        "funnelStepReference": {
+                            "$ref": "#/definitions/FunnelStepReference",
+                            "default": "total",
+                            "description": "Whether conversion shown in the graph should be across all steps or just relative to the previous step."
+                        },
+                        "funnelVizType": {
+                            "$ref": "#/definitions/FunnelVizType",
+                            "default": "steps",
+                            "description": "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a step-by-step funnel. `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows a trend of the whole sequence's conversion rate over time."
+                        },
+                        "funnelWindowInterval": {
+                            "default": 14,
+                            "description": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.",
+                            "type": "integer"
+                        },
+                        "funnelWindowIntervalUnit": {
+                            "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
+                            "default": "day",
+                            "description": "Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days."
+                        },
+                        "layout": {
+                            "$ref": "#/definitions/FunnelLayout",
+                            "default": "vertical",
+                            "description": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally."
+                        }
+                    },
+                    "type": "object"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "FunnelsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/SessionPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/FeaturePropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "description": "Events to include",
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "custom_name": {
+                                "description": "Optional custom name for the event if it is needed to be renamed.",
+                                "type": "string"
+                            },
+                            "event": {
+                                "description": "Name of the event.",
+                                "type": "string"
+                            },
+                            "kind": {
+                                "const": "EventsNode",
+                                "type": "string"
+                            },
+                            "math": {
+                                "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                                "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+                                "type": "string"
+                            },
+                            "properties": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/definitions/EventPropertyFilter"
+                                        },
+                                        {
+                                            "$ref": "#/definitions/PersonPropertyFilter"
+                                        },
+                                        {
+                                            "$ref": "#/definitions/SessionPropertyFilter"
+                                        },
+                                        {
+                                            "$ref": "#/definitions/GroupPropertyFilter"
+                                        },
+                                        {
+                                            "$ref": "#/definitions/FeaturePropertyFilter"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            "response": {
+                                "type": "object"
+                            }
+                        },
+                        "required": ["event", "kind"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
         "AssistantGenerationStatusEvent": {
             "additionalProperties": false,
             "properties": {
@@ -675,6 +741,160 @@
         "AssistantMessageType": {
             "enum": ["human", "ai", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
+        },
+        "AssistantTrendsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownFilter": {
+                    "additionalProperties": false,
+                    "description": "Breakdown of the events",
+                    "properties": {
+                        "breakdown_hide_other_aggregation": {
+                            "type": ["boolean", "null"]
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "type": "integer"
+                        },
+                        "breakdown_limit": {
+                            "type": "integer"
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "maxLength": 3,
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/InsightDateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "default": "day",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "TrendsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/SessionPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/FeaturePropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "description": "Events to include",
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "custom_name": {
+                                "type": "string"
+                            },
+                            "event": {
+                                "description": "The event or `null` for all events.",
+                                "type": ["string", "null"]
+                            },
+                            "kind": {
+                                "const": "EventsNode",
+                                "type": "string"
+                            },
+                            "math": {
+                                "$ref": "#/definitions/MathType"
+                            },
+                            "math_group_type_index": {
+                                "enum": [0, 1, 2, 3, 4],
+                                "type": "number"
+                            },
+                            "math_property": {
+                                "type": "string"
+                            },
+                            "math_property_type": {
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "orderBy": {
+                                "description": "Columns to order by",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "properties": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/definitions/EventPropertyFilter"
+                                        },
+                                        {
+                                            "$ref": "#/definitions/PersonPropertyFilter"
+                                        },
+                                        {
+                                            "$ref": "#/definitions/SessionPropertyFilter"
+                                        },
+                                        {
+                                            "$ref": "#/definitions/GroupPropertyFilter"
+                                        },
+                                        {
+                                            "$ref": "#/definitions/FeaturePropertyFilter"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            "response": {
+                                "type": "object"
+                            }
+                        },
+                        "required": ["kind"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "trendsFilter": {
+                    "$ref": "#/definitions/TrendsFilter",
+                    "description": "Properties specific to the trends insight"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
         },
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
@@ -12009,7 +12229,7 @@
             "additionalProperties": false,
             "properties": {
                 "answer": {
-                    "$ref": "#/definitions/AITrendsQuery"
+                    "$ref": "#/definitions/AssistantTrendsQuery"
                 },
                 "plan": {
                     "type": "string"

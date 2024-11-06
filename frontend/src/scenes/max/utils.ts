@@ -1,9 +1,13 @@
 import {
+    AssistantFunnelsQuery,
     AssistantMessageType,
+    AssistantTrendsQuery,
     FailureMessage,
+    FunnelsQuery,
     HumanMessage,
     RootAssistantMessage,
     RouterMessage,
+    TrendsQuery,
     VisualizationMessage,
 } from '~/queries/schema'
 
@@ -23,4 +27,19 @@ export function isFailureMessage(message: RootAssistantMessage | undefined | nul
 
 export function isRouterMessage(message: RootAssistantMessage | undefined | null): message is RouterMessage {
     return message?.type === AssistantMessageType.Router
+}
+
+// Both schemas below must infer correct types, so the assistant queries can be converted to a regular query.
+/**
+ * Type cast for the assistant's trends query.
+ */
+export function castAssistantTrendsQuery(query: AssistantTrendsQuery): TrendsQuery {
+    return query
+}
+
+/**
+ * Type cast for the assistant's funnels query.
+ */
+export function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
+    return query
 }
