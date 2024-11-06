@@ -84,17 +84,20 @@ class ErrorTrackingIssue(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     fingerprint = models.TextField(null=False, blank=False)
     status = models.CharField(max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False)
-    assignee = models.ForeignKey(
-        "User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+
+
+class ErrorTrackingIssueAssignment(UUIDModel):
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
+    user = models.ForeignKey("User", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["issue", "user"], name="unique_on_user_and_issue")]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDModel):
     team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
-    issue = models.ForeignKey(ErrorTrackingGroup, on_delete=models.CASCADE)
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
     fingerprint = models.TextField(null=False, blank=False)
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
     version = models.BigIntegerField(blank=True, default=0)
