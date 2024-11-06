@@ -72,7 +72,7 @@ const StepInfo = (): JSX.Element => {
                                     value: 'web',
                                     label: 'No-code web experiment',
                                     description:
-                                        'Define variants on your website effortlessly using the PostHog toolbar, no coding required.',
+                                        'Define variants on your website using the PostHog toolbar, no coding required.',
                                 },
                             ]}
                         />
