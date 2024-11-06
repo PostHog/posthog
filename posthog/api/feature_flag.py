@@ -436,6 +436,39 @@ class FeatureFlagViewSet(
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
 
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "active":
+                queryset = queryset.filter(active=filters[key] == "true")
+            elif key == "created_by_id":
+                queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
+            elif key == "search":
+                queryset = queryset.filter(
+                    Q(key__icontains=request.GET["search"])
+                    | Q(name__icontains=request.GET["search"])
+                )
+            elif key == "type":
+                type = request.GET["type"]
+                if type == "boolean":
+                    queryset = queryset.filter(
+                        Q(filters__multivariate__variants__isnull=True)
+                        | Q(filters__multivariate__variants=[])
+                    )
+                elif type == "multivariant":
+                    queryset = queryset.filter(
+                        Q(filters__multivariate__variants__isnull=False)
+                        & ~Q(filters__multivariate__variants=[])
+                    )
+                elif type == "experiment":
+                    queryset = queryset.filter(
+                       ~Q(experiment__isnull=True)
+                    )
+
+        return queryset
+
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = (
@@ -455,6 +488,15 @@ class FeatureFlagViewSet(
             queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
                 Q(id__in=survey_internal_targeting_flags)
             )
+
+            # add additional filters provided by the client
+            queryset = self._filter_request(self.request, queryset)
+
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
 
         return queryset.select_related("created_by").order_by("-created_at")
 

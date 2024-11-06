@@ -37,7 +37,8 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
+import { FeatureFlagsEmptyState } from './EmptyState'
+import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFlagsLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -57,10 +58,13 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, filters, shouldShowEmptyState } =
-        useValues(flagLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
+    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+
+    const page = filters.page || 1
+    const startCount = (page - 1) * FLAGS_PER_PAGE + 1
+    const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -238,7 +242,7 @@ export function OverViewTab({
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
-                                                callback: loadFeatureFlags,
+                                                callback: () => loadFeatureFlags(),
                                             })
                                         }}
                                         disabledReason={
@@ -283,8 +287,8 @@ export function OverViewTab({
                                 className="w-60"
                                 type="search"
                                 placeholder={searchPlaceholder || ''}
-                                onChange={setSearchTerm}
-                                value={searchTerm || ''}
+                                onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
+                                value={filters.search || ''}
                             />
                             <div className="flex items-center gap-2">
                                 <span>
@@ -343,36 +347,57 @@ export function OverViewTab({
                                 </span>
                                 <MemberSelect
                                     defaultLabel="Any user"
-                                    value={filters.created_by ?? null}
+                                    value={filters.created_by_id ?? null}
                                     onChange={(user) => {
                                         if (!user) {
                                             if (filters) {
-                                                const { created_by, ...restFilters } = filters
+                                                const { created_by_id, ...restFilters } = filters
                                                 setFeatureFlagsFilters(restFilters, true)
                                             }
                                         } else {
-                                            setFeatureFlagsFilters({ created_by: user.id })
+                                            setFeatureFlagsFilters({ created_by_id: user.id })
                                         }
                                     }}
                                 />
                             </div>
                         </div>
                     </div>
-                    <LemonTable
-                        dataSource={searchedFeatureFlags}
-                        columns={columns}
-                        rowKey="key"
-                        defaultSorting={{
-                            columnKey: 'created_at',
-                            order: -1,
-                        }}
-                        noSortingCancellation
-                        loading={featureFlagsLoading}
-                        pagination={{ pageSize: 100 }}
-                        nouns={nouns}
-                        data-attr="feature-flag-table"
-                        emptyState="No results for this filter, change filter or create a new flag."
-                    />
+                    <LemonDivider className="my-4" />
+                    <div className="mb-4">
+                        <span className="text-muted-alt ">
+                            {count
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
+                                      count === 1 ? '' : 's'
+                                  }`
+                                : null}
+                        </span>
+                    </div>
+                    {!featureFlagsLoading && featureFlags.count < 1 ? (
+                        <FeatureFlagsEmptyState />
+                    ) : (
+                        <LemonTable
+                            dataSource={featureFlags.results}
+                            columns={columns}
+                            rowKey="key"
+                            defaultSorting={{
+                                columnKey: 'created_at',
+                                order: -1,
+                            }}
+                            noSortingCancellation
+                            loading={featureFlagsLoading}
+                            pagination={pagination}
+                            nouns={nouns}
+                            data-attr="feature-flag-table"
+                            emptyState="No results for this filter, change filter or create a new flag."
+                            onSort={(newSorting) =>
+                                setFeatureFlagsFilters({
+                                    order: newSorting
+                                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                        : undefined,
+                                })
+                            }
+                        />
+                    )}
                 </>
             )}
         </>

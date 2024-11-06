@@ -1,8 +1,9 @@
-import Fuse from 'fuse.js'
+import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { objectsEqual, toParams } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -10,6 +11,8 @@ import { Breadcrumb, FeatureFlagType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
+
+export const FLAGS_PER_PAGE = 50
 
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
@@ -22,10 +25,22 @@ export enum FeatureFlagsTab {
     SCHEDULE = 'schedule',
 }
 
+export interface FeatureFlagsResult {
+    results: FeatureFlagType[]
+    count: number
+    next?: string | null
+    previous?: string | null
+    /* not in the API response */
+    filters?: FeatureFlagsFilters | null
+}
+
 export interface FeatureFlagsFilters {
     active: string
-    created_by: number
+    created_by_id: number
     type: string
+    search: string
+    order: string
+    page: number
 }
 
 export interface FlagLogicProps {
@@ -41,36 +56,42 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         closeEnrichAnalyticsNotice: true,
     }),
     loaders(({ values }) => ({
         featureFlags: {
-            __default: [] as FeatureFlagType[],
-            loadFeatureFlags: async () => {
-                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags/?limit=300`)
-                return response.results as FeatureFlagType[]
+            __default: { results: [], count: 0, filters: null, offset: 0 } as FeatureFlagsResult,
+            loadFeatureFlags: async (_, breakpoint) => {
+                await breakpoint(300)
+
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
+                )
+
+                return {
+                    ...response,
+                    offset: values.paramsFromFilters.offset,
+                }
             },
             updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
                 const response = await api.update(`api/projects/${values.currentTeamId}/feature_flags/${id}`, payload)
-                return [...values.featureFlags].map((flag) => (flag.id === response.id ? response : flag))
+                return [...values.featureFlags.results].map((flag) => (flag.id === response.id ? response : flag))
             },
         },
     })),
     reducers({
-        searchTerm: {
-            setSearchTerm: (_, { searchTerm }) => searchTerm,
-        },
         featureFlags: {
-            updateFlag: (state, { flag }) => {
-                if (state.find(({ id }) => id === flag.id)) {
-                    return state.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag))
-                }
-                return [flag, ...state]
-            },
-            deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
+            updateFlag: (state, { flag }) => ({
+                ...state,
+                results: state.results.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag)),
+            }),
+            deleteFlag: (state, { id }) => ({
+                ...state,
+                count: state.count - 1,
+                results: state.results.filter((flag) => flag.id !== id),
+            }),
         },
         activeTab: [
             FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
@@ -99,55 +120,65 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         ],
     }),
     selectors({
-        searchedFeatureFlags: [
-            (selectors) => [
-                selectors.featureFlags,
-                selectors.searchTerm,
-                selectors.filters,
-                (_, props) => props.flagPrefix,
-            ],
-            (featureFlags, searchTerm, filters, flagPrefix) => {
-                let searchedFlags = featureFlags
+        // searchedFeatureFlags: [
+        //     (selectors) => [
+        //         selectors.featureFlags,
+        //         selectors.searchTerm,
+        //         selectors.filters,
+        //         (_, props) => props.flagPrefix,
+        //     ],
+        //     (featureFlags, searchTerm, filters, flagPrefix) => {
+        //         let searchedFlags = featureFlags.results
 
-                if (flagPrefix) {
-                    searchedFlags = searchedFlags.filter((flag) => flag.key.startsWith(flagPrefix))
-                }
+        //         if (flagPrefix) {
+        //             searchedFlags = searchedFlags.filter((flag) => flag.key.startsWith(flagPrefix))
+        //         }
 
-                if (!searchTerm && Object.keys(filters).length === 0) {
-                    return searchedFlags
-                }
+        //         if (!searchTerm && Object.keys(filters).length === 0) {
+        //             return searchedFlags
+        //         }
 
-                if (searchTerm) {
-                    searchedFlags = new Fuse(searchedFlags, {
-                        keys: ['key', 'name'],
-                        threshold: 0.3,
-                    })
-                        .search(searchTerm)
-                        .map((result) => result.item)
-                }
+        //         if (searchTerm) {
+        //             searchedFlags = new Fuse(searchedFlags, {
+        //                 keys: ['key', 'name'],
+        //                 threshold: 0.3,
+        //             })
+        //                 .search(searchTerm)
+        //                 .map((result) => result.item)
+        //         }
 
-                const { active, created_by, type } = filters
-                if (active) {
-                    searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
-                }
-                if (created_by) {
-                    searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === created_by)
-                }
-                if (type === 'boolean') {
-                    searchedFlags = searchedFlags.filter(
-                        (flag) => flag.filters.multivariate?.variants?.length ?? 0 == 0
-                    )
-                }
-                if (type === 'multivariant') {
-                    searchedFlags = searchedFlags.filter((flag) => flag.filters.multivariate?.variants?.length ?? 0 > 0)
-                }
-                if (type === 'experiment') {
-                    searchedFlags = searchedFlags.filter((flag) => flag.experiment_set?.length ?? 0 > 0)
-                }
+        //         const { active, created_by, type } = filters
+        //         if (active) {
+        //             searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
+        //         }
+        //         if (created_by) {
+        //             searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === created_by)
+        //         }
+        //         if (type === 'boolean') {
+        //             searchedFlags = searchedFlags.filter(
+        //                 (flag) => flag.filters.multivariate?.variants?.length ?? 0 == 0
+        //             )
+        //         }
+        //         if (type === 'multivariant') {
+        //             searchedFlags = searchedFlags.filter((flag) => flag.filters.multivariate?.variants?.length ?? 0 > 0)
+        //         }
+        //         if (type === 'experiment') {
+        //             searchedFlags = searchedFlags.filter((flag) => flag.experiment_set?.length ?? 0 > 0)
+        //         }
 
-                return searchedFlags
-            },
+        //         return searchedFlags
+        //     },
+        // ],
+        count: [(selectors) => [selectors.featureFlags], (featureFlags) => featureFlags.count],
+        paramsFromFilters: [
+            (s) => [s.filters],
+            (filters: FeatureFlagsFilters) => ({
+                ...filters,
+                limit: FLAGS_PER_PAGE,
+                offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+            }),
         ],
+        usingFilters: [(s) => [s.filters], (filters) => !objectsEqual(filters, { limit: FLAGS_PER_PAGE, offset: 0 })],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -159,9 +190,20 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             ],
         ],
         shouldShowEmptyState: [
-            (s) => [s.featureFlagsLoading, s.featureFlags],
-            (featureFlagsLoading, featureFlags): boolean => {
-                return !featureFlagsLoading && featureFlags.length <= 0
+            (s) => [s.featureFlagsLoading, s.featureFlags, s.usingFilters],
+            (featureFlagsLoading, featureFlags, usingFilters): boolean => {
+                return !featureFlagsLoading && featureFlags.results.length <= 0 && !usingFilters
+            },
+        ],
+        pagination: [
+            (s) => [s.filters, s.count],
+            (filters, count): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: FLAGS_PER_PAGE,
+                    currentPage: filters.page || 1,
+                    entryCount: count,
+                }
             },
         ],
     }),
@@ -196,6 +238,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 }
             } else if (tabInURL !== values.activeTab) {
                 actions.setActiveTab(tabInURL)
+            }
+
+            const pageInURL = searchParams['page']
+            if (pageInURL) {
+                actions.setFeatureFlagsFilters({ page: parseInt(pageInURL) })
             }
         },
     })),
