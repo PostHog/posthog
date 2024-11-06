@@ -33,6 +33,7 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
+    ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
@@ -1351,7 +1352,7 @@ export class DB {
         for (const row of selectResult.rows) {
             // pg returns int8 as a string, since it can be larger than JS's max safe integer,
             // but this is not a problem for project_id, which is a long long way from that limit.
-            row.project_id = parseInt(row.project_id as unknown as string)
+            row.project_id = Number(row.project_id) as ProjectId
         }
         return selectResult.rows
     }

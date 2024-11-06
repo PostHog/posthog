@@ -160,7 +160,7 @@ async function addGroupPropertiesToPostIngestionEvent(
     let groupTypes: GroupTypeToColumnIndex | undefined = undefined
     if (await organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
         // If the organization has group analytics enabled then we enrich the event with group data
-        groupTypes = await groupTypeManager.fetchGroupTypes(event.teamId)
+        groupTypes = await groupTypeManager.fetchGroupTypes(event.projectId)
     }
 
     let groups: PostIngestionEvent['groups'] = undefined

@@ -17,12 +17,36 @@ class Migration(migrations.Migration):
                     model_name="grouptypemapping",
                     name="group_type_project_id_is_not_null",
                 ),
+                # We can't use AddConstraintNotValid for UNIQUE CONSTRAINTs such as below, but these two here are
+                # actually fine, because UNIQUE CONSTRAINTs are backed by indexes - and we've already created the right
+                # indexes CONCURRENTLY in the preceding grouptypemapping_project_backfill migration.
+                # We signal safety here with `-- existing-table-constraint-ignore`
+                migrations.RunSQL(
+                    sql='ALTER TABLE "posthog_grouptypemapping" ADD CONSTRAINT "unique group types for project" UNIQUE ("project_id", "group_type"); -- existing-table-constraint-ignore',
+                    reverse_sql='ALTER TABLE "posthog_grouptypemapping" DROP CONSTRAINT "unique group types for project";',
+                ),
+                migrations.RunSQL(
+                    sql='ALTER TABLE "posthog_grouptypemapping" ADD CONSTRAINT "unique event column indexes for project" UNIQUE ("project_id", "group_type_index"); -- existing-table-constraint-ignore',
+                    reverse_sql='ALTER TABLE "posthog_grouptypemapping" DROP CONSTRAINT "unique event column indexes for project";',
+                ),
             ],
             state_operations=[
                 migrations.AlterField(
                     model_name="grouptypemapping",
                     name="project",
                     field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.project"),
+                ),
+                migrations.AddConstraint(
+                    model_name="grouptypemapping",
+                    constraint=models.UniqueConstraint(
+                        fields=("project", "group_type"), name="unique group types for project"
+                    ),
+                ),
+                migrations.AddConstraint(
+                    model_name="grouptypemapping",
+                    constraint=models.UniqueConstraint(
+                        fields=("project", "group_type_index"), name="unique event column indexes for project"
+                    ),
                 ),
             ],
         ),
@@ -33,27 +57,5 @@ class Migration(migrations.Migration):
         migrations.RemoveConstraint(
             model_name="grouptypemapping",
             name="unique event column indexes for team",
-        ),
-        # We can't use AddConstraintNotValid for UNIQUE CONSTRAINTs such as below, but these two here are actually fine,
-        # because UNIQUE CONSTRAINTs are backed by indexes - and we've already created the right indexes CONCURRENTLY
-        # in the preceding grouptypemapping_project_backfill migration. Original operations:
-        # migrations.RunSQL(
-        #     model_name="grouptypemapping",
-        #     constraint=models.UniqueConstraint(fields=("project", "group_type"), name="unique group types for project"),
-        # ),
-        # migrations.AddConstraint(
-        #     model_name="grouptypemapping",
-        #     constraint=models.UniqueConstraint(
-        #         fields=("project", "group_type_index"), name="unique event column indexes for project"
-        #     ),
-        # ),
-        # Migrations with -- existing-table-constraint-ignore set, because we know they are not heavy on the DB:
-        migrations.RunSQL(
-            sql='ALTER TABLE "posthog_grouptypemapping" ADD CONSTRAINT "unique group types for project" UNIQUE ("project_id", "group_type"); -- existing-table-constraint-ignore',
-            reverse_sql='ALTER TABLE "posthog_grouptypemapping" DROP CONSTRAINT "unique group types for project";',
-        ),
-        migrations.RunSQL(
-            sql='ALTER TABLE "posthog_grouptypemapping" ADD CONSTRAINT "unique event column indexes for project" UNIQUE ("project_id", "group_type_index"); -- existing-table-constraint-ignore',
-            reverse_sql='ALTER TABLE "posthog_grouptypemapping" DROP CONSTRAINT "unique event column indexes for project";',
         ),
     ]

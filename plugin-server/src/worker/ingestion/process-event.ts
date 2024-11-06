@@ -12,8 +12,10 @@ import {
     Person,
     PersonMode,
     PreIngestionEvent,
+    ProjectId,
     RawKafkaEvent,
     Team,
+    TeamId,
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
@@ -286,8 +288,8 @@ export class EventsProcessor {
     }
 
     private async upsertGroup(
-        teamId: number,
-        projectId: number,
+        teamId: TeamId,
+        projectId: ProjectId,
         properties: Properties,
         timestamp: DateTime
     ): Promise<void> {

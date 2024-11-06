@@ -390,6 +390,11 @@ export enum JobName {
 export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
+/**
+ * An integer, just like team ID. In fact project ID = ID of its first team, the one was created along with the project.
+ * A branded type here so that we don't accidentally pass a team ID as a project ID, or vice versa.
+ */
+export type ProjectId = Team['id'] & { __brand: 'ProjectId' }
 
 export enum MetricMathOperations {
     Increment = 'increment',
@@ -620,7 +625,7 @@ export interface RawOrganization {
 /** Usable Team model. */
 export interface Team {
     id: number
-    project_id: number
+    project_id: ProjectId
     uuid: string
     organization_id: string
     name: string
@@ -672,7 +677,7 @@ export interface EventMessage extends BaseEventMessage {
 interface BaseEvent {
     uuid: string
     event: string
-    team_id: number
+    team_id: TeamId
     distinct_id: string
     /** Person UUID. */
     person_id?: string
@@ -709,7 +714,7 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
      * The project ID field is only included in the `clickhouse_events_json` topic, not present in ClickHouse.
      * That's because we need it in `property-defs-rs` and not elsewhere.
      */
-    project_id: number
+    project_id: ProjectId
 }
 
 /** Parsed event row from ClickHouse. */
@@ -740,7 +745,7 @@ export interface PreIngestionEvent {
     eventUuid: string
     event: string
     teamId: TeamId
-    projectId: TeamId
+    projectId: ProjectId
     distinctId: string
     properties: Properties
     timestamp: ISOTimestamp
