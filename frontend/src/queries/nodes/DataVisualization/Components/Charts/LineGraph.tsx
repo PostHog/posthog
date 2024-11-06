@@ -114,7 +114,7 @@ export const LineGraph = (): JSX.Element => {
         const data: ChartData = {
             labels: xData.data,
             datasets: yData.map(({ data, settings }, index) => {
-                const color = getSeriesColor(index)
+                const color = settings?.display?.color ?? getSeriesColor(index)
                 const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
 
                 const graphType = getGraphType(visualizationType, settings)

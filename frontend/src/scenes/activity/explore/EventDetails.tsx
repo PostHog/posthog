@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, KNOWN_PROMOTED_PROPERTY_PARENTS } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 import { useState } from 'react'
 
@@ -61,6 +61,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         tableProps={tableProps}
                         filterable
                         searchable
+                        parent={event.event as KNOWN_PROMOTED_PROPERTY_PARENTS}
                     />
                     {systemPropsCount > 0 && (
                         <LemonButton className="mb-2" onClick={() => setShowSystemProps(!showSystemProps)} size="small">

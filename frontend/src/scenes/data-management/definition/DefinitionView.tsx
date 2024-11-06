@@ -12,6 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getFilterLabel } from 'lib/taxonomy'
+import { useMemo } from 'react'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
@@ -36,6 +37,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
+
+    const memoizedQuery = useMemo(
+        () => ({
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                event: definition.name,
+            },
+            full: true,
+            showEventFilter: false,
+        }),
+        [definition.name]
+    )
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -203,6 +218,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
                     <LinkedHogFunctions
+                        type="destination"
                         filters={{
                             events: [
                                 {
@@ -215,18 +231,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>
                     <p>This is the list of recent events that match this definition.</p>
-                    <Query
-                        query={{
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.EventsQuery,
-                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                event: definition.name,
-                            },
-                            full: true,
-                            showEventFilter: false,
-                        }}
-                    />
+                    <Query query={memoizedQuery} />
                 </>
             )}
         </>

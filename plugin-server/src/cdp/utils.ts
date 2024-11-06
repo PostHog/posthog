@@ -1,6 +1,7 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
+import { Bytecodes } from '@posthog/hogvm'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
@@ -273,7 +274,8 @@ export const prepareLogEntriesForClickhouse = (
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobals,
-    hogFunction: HogFunctionType
+    hogFunction: HogFunctionType,
+    functionToExecute?: [string, any[]]
 ): HogFunctionInvocation {
     // Add the source of the trigger to the globals
     const modifiedGlobals: HogFunctionInvocationGlobals = {
@@ -292,6 +294,7 @@ export function createInvocation(
         queue: 'hog',
         priority: 1,
         timings: [],
+        functionToExecute,
     }
 }
 
@@ -314,20 +317,13 @@ function prepareQueueParams(
     let parameters: HogFunctionInvocation['queueParameters'] = _params
     let blob: CyclotronJobUpdate['blob'] = undefined
 
-    if (parameters && 'body' in parameters) {
-        // Fetch request
-        const { body, ...rest } = parameters
-        parameters = rest
-        blob = body ? Buffer.from(body) : undefined
-    } else if (parameters && 'response' in parameters && parameters.response) {
-        // Fetch response
-        const { body, ...rest } = parameters.response
-        parameters = {
-            ...parameters,
-            response: rest,
-        }
-        blob = body ? Buffer.from(body) : undefined
+    if (!parameters) {
+        return { parameters, blob }
     }
+
+    const { body, ...rest } = parameters
+    parameters = rest
+    blob = body ? Buffer.from(body) : undefined
 
     return {
         parameters,
@@ -352,14 +348,7 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
     if (job.blob && params) {
         // Deserialize the blob into the params
         try {
-            const body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
-            if ('response' in params && params.response) {
-                // Fetch response
-                params.response.body = body
-            } else if ('method' in params) {
-                // Fetch request
-                params.body = body
-            }
+            params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
         } catch (e) {
             status.error('Error parsing blob', e, job.blob)
             captureException(e)
@@ -376,5 +365,48 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         queueParameters: params,
         vmState: parsedState.vmState,
         timings: parsedState.timings,
+    }
+}
+
+/** Build bytecode that calls a function in another imported bytecode */
+export function buildExportedFunctionInvoker(
+    exportBytecode: any[],
+    exportGlobals: any,
+    functionName: string,
+    args: any[]
+): Bytecodes {
+    let argBytecodes: any[] = []
+    for (let i = 0; i < args.length; i++) {
+        argBytecodes = [
+            ...argBytecodes,
+            33, // integer
+            i + 1, // (index in args array)
+            32, // string
+            '__args',
+            1, // get global
+            2, // (chain length)
+        ]
+    }
+    const bytecode = [
+        '_H',
+        1,
+        ...argBytecodes,
+        32, // string
+        'x',
+        2, // call global
+        'import',
+        1, // (arg count)
+        32, // string
+        functionName,
+        45, // get property
+        54, // call local
+        args.length,
+        35, // pop
+    ]
+    return {
+        bytecodes: {
+            x: { bytecode: exportBytecode, globals: exportGlobals },
+            root: { bytecode, globals: { __args: args } },
+        },
     }
 }

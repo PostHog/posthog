@@ -162,6 +162,7 @@ class BillingManager:
                     "distinct_id",
                     "organization_membership__level",
                 )
+                .order_by("email")  # Deterministic order for tests
                 .annotate(role=F("organization_membership__level"))
                 .filter(role__gte=OrganizationMembership.Level.ADMIN)
                 .values(
@@ -376,6 +377,26 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def activate_trial(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/trials/activate",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def cancel_trial(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/trials/cancel",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
 
     def authorize(self, organization: Organization):
         res = requests.post(

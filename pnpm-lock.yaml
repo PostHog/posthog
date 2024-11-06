@@ -50,8 +50,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.54
-    version: 1.0.54(luxon@3.5.0)
+    specifier: ^1.0.56
+    version: 1.0.56(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.8.5
     version: 0.8.5(react-dom@18.2.0)(react@18.2.0)
@@ -193,6 +193,9 @@ dependencies:
   esbuild-sass-plugin:
     specifier: ^3.0.0
     version: 3.0.0(esbuild@0.19.8)
+  eventsource-parser:
+    specifier: ^3.0.0
+    version: 3.0.0
   expr-eval:
     specifier: ^2.0.2
     version: 2.0.2
@@ -281,8 +284,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.175.0
-    version: 1.175.0
+    specifier: 1.180.1
+    version: 1.180.1
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -5412,8 +5415,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.54(luxon@3.5.0):
-    resolution: {integrity: sha512-vHYdiFcIvJ3CxYd/8rSZoUk8ZkeHETGb1dbBhURLejxp9dMyWC1qJnmcIlkH/vsbed/4hVUtFMqtp4bnQSmi2g==}
+  /@posthog/hogvm@1.0.56(luxon@3.5.0):
+    resolution: {integrity: sha512-28d2E3j2f4QJBJk/a3YTwFLEUodJ16s2hGhGVX4XsZ0qekkkich9vGsSYM3A8D6aAg/aZxAf78PtlakGyHyx1Q==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -10639,8 +10642,8 @@ packages:
     requiresBuild: true
     dev: false
 
-  /core-js@3.38.1:
-    resolution: {integrity: sha512-OP35aUorbU3Zvlx7pjsFdu1rGNnD4pgw/CWoYzRY3t2EzoVT7shKHY1dlAy3f41cGIO7ZDPQimhGFTlEYkG/Hw==}
+  /core-js@3.39.0:
+    resolution: {integrity: sha512-raM0ew0/jJUqkJ0E6e8UDtl+y/7ktFivgWvqw8dNSQeNWoSDLvQ1H/RN3aPXB9tBd4/FhyR4RDPGhsNIMsAn7g==}
     requiresBuild: true
     dev: false
 
@@ -12520,6 +12523,11 @@ packages:
     resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
     engines: {node: '>=0.8.x'}
     dev: true
+
+  /eventsource-parser@3.0.0:
+    resolution: {integrity: sha512-T1C0XCUimhxVQzW4zFipdx0SficT651NnkR0ZSH3yQwh+mFMdLfgjABVi4YtMTtaL4s168593DaoaRLMqryavA==}
+    engines: {node: '>=18.0.0'}
+    dev: false
 
   /execa@4.1.0:
     resolution: {integrity: sha512-j5W0//W7f8UxAn8hXVnwG8tLwdiUy4FJLcSupCg6maBYZDpyBvTApK7KyuI4bKj8KOh1r2YH+6ucuYtJv1bTZA==}
@@ -17773,10 +17781,10 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.175.0:
-    resolution: {integrity: sha512-ZPdM7/azh90gqqlYSJ3RIBJVViER8JDR7LtHWatVt2UCsIRvV+FSRQd85n770TFLDQSKAekFVcwCC9t+syTJJA==}
+  /posthog-js@1.180.1:
+    resolution: {integrity: sha512-LV65maVrpqkAh0wu32YvU7FpCSEjg6o+sZFYCs1+6tnEa9VvXuz8J6ReLiyRpJABI4j1qX/PB2jaVY5tDbLalQ==}
     dependencies:
-      core-js: 3.38.1
+      core-js: 3.39.0
       fflate: 0.4.8
       preact: 10.24.3
       web-vitals: 4.2.4
@@ -18380,7 +18388,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.143.0
+      unlayer-types: 1.157.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20927,8 +20935,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.143.0:
-    resolution: {integrity: sha512-htP+Nszxkc+aEn0b3lFUIgs6ktO5wPrX6ZYLYjv2RR85rZnQktzVUVX9h+XwVBkBcCVaxWqBWymp74Ghuz3heQ==}
+  /unlayer-types@1.157.0:
+    resolution: {integrity: sha512-D9xnoeQREgUxEkaFG3q90CVicmysu8REVIkQA3alHaTG3JM+LPzdq20vjrd6V4iGuvvUD8L5EDQybSsSRS/k+g==}
     dev: false
 
   /unpipe@1.0.0:

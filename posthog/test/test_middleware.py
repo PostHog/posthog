@@ -1,14 +1,14 @@
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
+
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -142,7 +142,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 45
+        cls.base_app_num_queries = 47
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 

@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
@@ -94,6 +95,9 @@ class DataImportPipeline:
     def _create_pipeline(self):
         pipeline_name = self._get_pipeline_name()
         destination = self._get_destination()
+
+        dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
+        dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
 
         return dlt.pipeline(
             pipeline_name=pipeline_name, destination=destination, dataset_name=self.inputs.dataset_name, progress="log"
@@ -253,7 +257,10 @@ class DataImportPipeline:
 
     async def run(self) -> dict[str, int]:
         try:
-            return await asyncio.to_thread(self._run)
+            # Use a dedicated thread pool to not interfere with the heartbeater thread
+            with ThreadPoolExecutor(max_workers=5) as pipeline_executor:
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(pipeline_executor, self._run)
         except PipelineStepFailed as e:
             self.logger.exception(f"Data import failed for endpoint with exception {e}", exc_info=e)
             raise

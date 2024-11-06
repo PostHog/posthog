@@ -1,11 +1,12 @@
 from .webhook.template_webhook import template as webhook
 from .slack.template_slack import template as slack
-from .hubspot.template_hubspot import template as hubspot, TemplateHubspotMigrator
+from .hubspot.template_hubspot import template_event as hubspot_event, template as hubspot, TemplateHubspotMigrator
 from .braze.template_braze import template as braze
 from .customerio.template_customerio import template as customerio, TemplateCustomerioMigrator
 from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
+from .june.template_june import template as june
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .discord.template_discord import template as discord
@@ -13,6 +14,7 @@ from .salesforce.template_salesforce import template_create as salesforce_create
 from .mailjet.template_mailjet import (
     template_create_contact as mailjet_create_contact,
     template_update_contact_list as mailjet_update_contact_list,
+    template_send_email as mailset_send_email,
 )
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
@@ -36,8 +38,10 @@ from .google_cloud_storage.template_google_cloud_storage import (
     TemplateGoogleCloudStorageMigrator,
 )
 from .airtable.template_airtable import template as airtable
+from ._internal.template_broadcast import template_new_broadcast as _broadcast
 
 HOG_FUNCTION_TEMPLATES = [
+    _broadcast,
     slack,
     webhook,
     activecampaign,
@@ -55,7 +59,9 @@ HOG_FUNCTION_TEMPLATES = [
     google_cloud_storage,
     google_pubsub,
     hubspot,
+    hubspot_event,
     intercom,
+    june,
     klaviyo_event,
     klaviyo_user,
     knock,
@@ -64,6 +70,7 @@ HOG_FUNCTION_TEMPLATES = [
     mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
+    mailset_send_email,
     meta_ads,
     microsoft_teams,
     posthog,
