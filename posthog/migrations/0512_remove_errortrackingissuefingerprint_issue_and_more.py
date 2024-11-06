@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0510_salesforce_missing_schemas"),
+        ("posthog", "0511_grouptypemapping_project_backfill"),
     ]
 
     operations = [
