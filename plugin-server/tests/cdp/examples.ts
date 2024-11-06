@@ -708,8 +708,16 @@ export const HOG_MASK_EXAMPLES: Record<string, Pick<HogFunctionType, 'masking'>>
     person: {
         masking: {
             ttl: 30,
-            hash: '{person.uuid}',
-            bytecode: ['_h', 32, 'uuid', 32, 'person', 1, 2],
+            hash: '{person.id}',
+            bytecode: ['_h', 32, 'id', 32, 'person', 1, 2],
+            threshold: null,
+        },
+    },
+    personAndEvent: {
+        masking: {
+            ttl: 30,
+            hash: '{concat(person.id, event.event)}',
+            bytecode: ['_H', 1, 32, 'id', 32, 'person', 1, 2, 32, 'event', 32, 'event', 1, 2, 2, 'concat', 2],
             threshold: null,
         },
     },

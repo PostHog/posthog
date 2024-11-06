@@ -1,4 +1,5 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
@@ -20,11 +21,11 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
-    ReplayCostControl,
     ReplayGeneral,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
@@ -50,7 +51,7 @@ import { OrganizationLogo } from './organization/OrgLogo'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
-import { ProjectDisplayName } from './project/ProjectSettings'
+import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
@@ -72,6 +73,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <TeamDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: '!ENVIRONMENTS',
             },
             {
                 id: 'snippet',
@@ -102,6 +111,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AutocaptureSettings />,
             },
             {
+                id: 'autocapture-data-attributes',
+                title: 'Data attributes',
+                component: <DataAttributes />,
+            },
+            {
                 id: 'heatmaps',
                 title: 'Heatmaps',
                 component: <HeatmapsSettings />,
@@ -118,9 +132,10 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebVitalsAutocaptureSettings />,
             },
             {
-                id: 'autocapture-data-attributes',
-                title: 'Data attributes',
-                component: <DataAttributes />,
+                id: 'dead-clicks-autocapture',
+                title: 'Dead clicks autocapture',
+                component: <DeadClicksAutocaptureSettings />,
+                flag: 'DEAD_CLICKS_AUTOCAPTURE',
             },
         ],
     },
@@ -215,7 +230,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
-                component: <ReplayCostControl />,
+                component: <SessionRecordingIngestionSettings />,
             },
             {
                 id: 'replay-ai-config',
@@ -312,6 +327,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <ProjectDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: 'ARTIFICIAL_HOG',
             },
         ],
     },

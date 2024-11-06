@@ -1,4 +1,4 @@
-from posthog.hogql.ast import SelectQuery, SelectUnionQuery, Program
+from posthog.hogql.ast import SelectQuery, SelectSetQuery, Program
 from posthog.hogql.base import AST
 
 def parse_expr(expr: str, /, *, is_internal: bool = False) -> AST:
@@ -15,7 +15,7 @@ def parse_order_expr(expr: str, /, *, is_internal: bool = False) -> AST:
     """
     ...
 
-def parse_select(expr: str, /, *, is_internal: bool = False) -> SelectQuery | SelectUnionQuery:
+def parse_select(expr: str, /, *, is_internal: bool = False) -> SelectQuery | SelectSetQuery:
     """Parse the HogQL SELECT statement string into an AST.
 
     If the expr `is_internal`, spans and notices won't be included in the AST.

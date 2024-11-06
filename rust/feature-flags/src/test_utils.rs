@@ -246,9 +246,9 @@ pub async fn insert_new_team_in_pg(
     for (group_type, group_type_index) in group_types {
         let res = sqlx::query(
             r#"INSERT INTO posthog_grouptypemapping
-            (group_type, group_type_index, name_singular, name_plural, team_id)
+            (group_type, group_type_index, name_singular, name_plural, team_id, project_id)
             VALUES
-            ($1, $2, NULL, NULL, $3)"#,
+            ($1, $2, NULL, NULL, $3, $3)"#,
         )
         .bind(group_type)
         .bind(group_type_index)

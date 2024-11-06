@@ -17,7 +17,7 @@
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['$pageleave', '$pageview']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -82,17 +82,17 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['$pageleave', '$pageview']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['$pageleave', '$pageview']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -102,7 +102,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max(max_steps))
+     HAVING steps = max_steps)
   GROUP BY prop
   '''
 # ---
@@ -124,7 +124,7 @@
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['$pageleave', '$pageview']
     AND toTimeZone(timestamp, 'Europe/Amsterdam') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
     AND toTimeZone(timestamp, 'Europe/Amsterdam') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam')
@@ -189,17 +189,17 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['$pageleave', '$pageview']
                               AND toTimeZone(timestamp, 'Europe/Amsterdam') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
                               AND toTimeZone(timestamp, 'Europe/Amsterdam') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['$pageleave', '$pageview']
                       AND toTimeZone(timestamp, 'Europe/Amsterdam') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
                       AND toTimeZone(timestamp, 'Europe/Amsterdam') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam')
@@ -209,7 +209,114 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max(max_steps))
+     HAVING steps = max_steps)
+  GROUP BY prop
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
+  '''
+  /* user_id:0 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 99999
+    AND event IN ['$pageleave', '$pageview']
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT countIf(steps = 1) step_1,
+         countIf(steps = 2) step_2,
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time,
+         prop
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                                                       if(has([[''], ['test_1'], ['test'], ['control'], ['unknown_3'], ['unknown_2'], ['unknown_1'], ['test_2']], prop), prop, ['Other']) as prop
+              FROM
+                (SELECT *,
+                        if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
+                 FROM
+                   (SELECT e.timestamp as timestamp,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                           if(event = '$pageview', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageleave', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
+                    FROM events e
+                    LEFT OUTER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['$pageleave', '$pageview']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') )
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 99999
+                      AND event IN ['$pageleave', '$pageview']
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+                      AND (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps)
   GROUP BY prop
   '''
 # ---
@@ -231,7 +338,7 @@
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['$pageleave', '$pageview']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -296,17 +403,17 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['$pageleave', '$pageview']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['$pageleave', '$pageview']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -316,7 +423,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max(max_steps))
+     HAVING steps = max_steps)
   GROUP BY prop
   '''
 # ---
@@ -338,7 +445,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -382,7 +489,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['test', 'control']), (['test', 'control']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = '$pageview'
              AND (((isNull(replaceRegexpAll(JSONExtractRaw(e.properties, 'exclude'), '^"|"$', ''))
                     OR NOT JSONHas(e.properties, 'exclude')))
@@ -405,7 +512,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -460,10 +567,10 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-                 WHERE e.team_id = 2
+                 WHERE e.team_id = 99999
                    AND event = '$feature_flag_called'
                    AND (((isNull(replaceRegexpAll(JSONExtractRaw(e.properties, 'exclude'), '^"|"$', ''))
                           OR NOT JSONHas(e.properties, 'exclude')))
@@ -501,7 +608,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$pageview1'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -543,7 +650,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['control', 'test_1', 'test_2']), (['control', 'test_1', 'test_2']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = '$pageview1'
              AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -564,7 +671,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -603,7 +710,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
     AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
@@ -645,7 +752,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['test', 'control']), (['test', 'control']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = '$pageview'
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
@@ -666,7 +773,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
     AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
@@ -719,10 +826,10 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-                 WHERE e.team_id = 2
+                 WHERE e.team_id = 99999
                    AND event = '$feature_flag_called'
                    AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
                         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
@@ -758,7 +865,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -801,7 +908,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['test', 'control']), (['test', 'control']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = '$pageview'
              AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
                   AND (ifNull(ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'hogql'), ''), 'null'), '^"|"$', ''), 'true'), 0)))
@@ -823,7 +930,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
@@ -876,10 +983,10 @@
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-                 WHERE e.team_id = 2
+                 WHERE e.team_id = 99999
                    AND event = '$feature_flag_called'
                    AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
                         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
@@ -902,18 +1009,18 @@
   /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          1 AS version
   FROM
     (SELECT id
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND id IN
          (SELECT id
           FROM person
-          WHERE team_id = 2
+          WHERE team_id = 99999
             AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(properties, '$pageview'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
@@ -925,8 +1032,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 1
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
@@ -937,8 +1044,8 @@
   /* user_id:0 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          1 AS version
   FROM
@@ -954,17 +1061,17 @@
                                      FROM
                                        (SELECT distinct_id, argMax(person_id, version) as person_id
                                         FROM person_distinct_id2
-                                        WHERE team_id = 2
+                                        WHERE team_id = 99999
                                         GROUP BY distinct_id
                                         HAVING argMax(is_deleted, version) = 0)
                                      WHERE person_id IN
                                          (SELECT id
                                           FROM person
-                                          WHERE team_id = 2
+                                          WHERE team_id = 99999
                                             AND id IN
                                               (SELECT id
                                                FROM person
-                                               WHERE team_id = 2
+                                               WHERE team_id = 99999
                                                  AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(properties, '$pageview'), '^"|"$', '')))) )
                                           GROUP BY id
                                           HAVING max(is_deleted) = 0
@@ -980,10 +1087,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event IN ['insight viewed', 'insight viewed', '$autocapture']
           AND timestamp <= now()
           AND timestamp >= now() - INTERVAL 6 day
@@ -998,8 +1105,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 1
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'

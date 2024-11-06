@@ -38,6 +38,18 @@ pub struct Config {
 
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
+
+    #[envconfig(default = "symbol_sets")]
+    pub ss_bucket: String,
+
+    #[envconfig(default = "sets")]
+    pub ss_prefix: String,
+
+    #[envconfig(default = "100000")]
+    pub frame_cache_size: u64,
+
+    #[envconfig(default = "600")]
+    pub frame_cache_ttl_seconds: u64,
 }
 
 impl Config {

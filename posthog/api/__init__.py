@@ -28,7 +28,6 @@ from . import (
     dead_letter_queue,
     debug_ch_queries,
     early_access_feature,
-    error_tracking,
     event_definition,
     exports,
     feature_flag,
@@ -412,6 +411,7 @@ register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
+    from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
@@ -419,6 +419,9 @@ if EE_AVAILABLE:
     projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     projects_router.register(
         r"experiment_holdouts", ExperimentHoldoutViewSet, "project_experiment_holdouts", ["project_id"]
+    )
+    projects_router.register(
+        r"experiment_saved_metrics", ExperimentSavedMetricViewSet, "project_experiment_saved_metrics", ["project_id"]
     )
     register_grandfathered_environment_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
     projects_router.register(r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"])
@@ -496,12 +499,12 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
-    r"error_tracking",
-    error_tracking.ErrorTrackingGroupViewSet,
-    "project_error_tracking",
-    ["team_id"],
-)
+# projects_router.register(
+#     r"error_tracking",
+#     error_tracking.ErrorTrackingGroupViewSet,
+#     "project_error_tracking",
+#     ["team_id"],
+# )
 
 projects_router.register(
     r"comments",

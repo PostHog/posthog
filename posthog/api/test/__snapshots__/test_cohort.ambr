@@ -4,8 +4,8 @@
   /* user_id:0 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = NULL
   '''
 # ---
@@ -14,8 +14,8 @@
   /* user_id:0 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          1 AS version
   FROM
@@ -31,10 +31,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND event IN ['$pageview']
           AND timestamp <= now()
           AND timestamp >= now() - INTERVAL 1 day
@@ -46,7 +46,7 @@
           (SELECT id,
                   argMax(properties, version) as person_props
            FROM person
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY id
            HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
      WHERE 1 = 1
@@ -60,8 +60,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 1
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
@@ -71,7 +71,7 @@
   '''
   SELECT count()
   FROM cohortpeople
-  WHERE cohort_id = 2
+  WHERE cohort_id = 99999
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.11
@@ -80,8 +80,8 @@
   SELECT DISTINCT team_id,
                   cohort_id
   FROM cohortpeople
-  WHERE (team_id = 2
-         AND cohort_id = '167'
+  WHERE (team_id = 99999
+         AND cohort_id = '2'
          AND version < '2')
   '''
 # ---
@@ -90,8 +90,8 @@
   /* user_id:0 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = 1
   '''
 # ---
@@ -100,8 +100,8 @@
   /* user_id:0 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 1
   '''
 # ---
@@ -110,8 +110,8 @@
   /* user_id:0 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = 1
   '''
 # ---
@@ -120,18 +120,18 @@
   /* user_id:0 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
-         2 as cohort_id,
-         2 as team_id,
+         99999 as cohort_id,
+         99999 as team_id,
          1 AS sign,
          2 AS version
   FROM
     (SELECT id
      FROM person
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND id IN
          (SELECT id
           FROM person
-          WHERE team_id = 2
+          WHERE team_id = 99999
             AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
@@ -143,8 +143,8 @@
          -1,
          version
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 2
     AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
                           join_algorithm = 'auto'
@@ -155,8 +155,8 @@
   /* user_id:0 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version = 2
   '''
 # ---
@@ -165,8 +165,8 @@
   /* user_id:0 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
+  WHERE team_id = 99999
+    AND cohort_id = 99999
     AND version < 2
   '''
 # ---
@@ -176,8 +176,8 @@
   SELECT DISTINCT team_id,
                   cohort_id
   FROM cohortpeople
-  WHERE (team_id = 2
-         AND cohort_id = '167'
+  WHERE (team_id = 99999
+         AND cohort_id = '2'
          AND version < '2')
   '''
 # ---
@@ -186,8 +186,8 @@
   /* celery:posthog.tasks.tasks.clickhouse_clear_removed_data */
   DELETE
   FROM cohortpeople
-  WHERE (team_id = 2
-         AND cohort_id = '167'
+  WHERE (team_id = 99999
+         AND cohort_id = '2'
          AND version < '2')
   '''
 # ---

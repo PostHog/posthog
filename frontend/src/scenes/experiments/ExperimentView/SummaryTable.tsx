@@ -59,9 +59,7 @@ export function SummaryTable(): JSX.Element {
                     {experimentResults.insight?.[0] && 'action' in experimentResults.insight[0] && (
                         <EntityFilterInfo filter={experimentResults.insight[0].action} />
                     )}
-                    <span className="pl-1">
-                        {experimentMathAggregationForTrends(experimentResults?.filters) ? 'metric' : 'count'}
-                    </span>
+                    <span className="pl-1">{experimentMathAggregationForTrends() ? 'metric' : 'count'}</span>
                 </div>
             ),
             render: function Key(_, variant): JSX.Element {

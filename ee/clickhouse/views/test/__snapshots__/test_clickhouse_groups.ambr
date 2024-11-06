@@ -8,10 +8,10 @@
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
-     WHERE team_id = 2
+     WHERE team_id = 99999
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) pdi on e.distinct_id = pdi.distinct_id
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND timestamp > '2021-02-09T00:00:00.000000'
     AND timestamp < '2021-05-10T00:00:00.000000'
     AND $group_0 = '0::0'
@@ -25,10 +25,10 @@
   JOIN
     (SELECT group_key
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 1
      GROUP BY group_key) groups ON $group_1 = groups.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND timestamp > '2021-02-09T00:00:00.000000'
     AND timestamp < '2021-05-10T00:00:00.000000'
     AND group_key != ''
@@ -45,16 +45,16 @@
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
-     WHERE team_id = 2
+     WHERE team_id = 99999
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) pdi on e.distinct_id = pdi.distinct_id
   JOIN
     (SELECT group_key
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups ON $group_0 = groups.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND timestamp > '2021-02-09T00:00:00.000000'
     AND timestamp < '2021-05-10T00:00:00.000000'
     AND group_key != ''
@@ -71,16 +71,16 @@
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
-     WHERE team_id = 2
+     WHERE team_id = 99999
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) pdi on e.distinct_id = pdi.distinct_id
   JOIN
     (SELECT group_key
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 1
      GROUP BY group_key) groups ON $group_1 = groups.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND timestamp > '2021-02-09T00:00:00.000000'
     AND timestamp < '2021-05-10T00:00:00.000000'
     AND group_key != ''

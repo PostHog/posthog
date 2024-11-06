@@ -9,7 +9,7 @@
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
                e."$group_0" as target
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -28,7 +28,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -74,7 +74,7 @@
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
                e."$group_0" as target
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -93,7 +93,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -132,7 +132,7 @@
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
                e."$group_1" as target
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -151,7 +151,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -198,10 +198,10 @@
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND group_type_index = 0
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -224,10 +224,10 @@
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND group_type_index = 0
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -274,10 +274,10 @@
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND group_type_index = 0
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -300,10 +300,10 @@
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND group_type_index = 0
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -341,7 +341,7 @@
   
   SELECT DISTINCT person_id
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND distinct_id = 'person2'
   '''
 # ---
@@ -359,17 +359,17 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
         LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND group_type_index = 0
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-12 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-19 00:00:00', 'UTC')
@@ -392,17 +392,17 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
         LEFT JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
-           WHERE team_id = 2
+           WHERE team_id = 99999
              AND group_type_index = 0
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-12 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-19 00:00:00', 'UTC')
@@ -448,7 +448,7 @@
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
                e."$group_0" as target
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -467,7 +467,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')

@@ -285,7 +285,8 @@ services:
         environment:
             - TEMPORAL_ADDRESS=temporal:7233
             - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-        image: temporalio/ui:2.10.3
+            - TEMPORAL_CSRF_COOKIE_INSECURE=true
+        image: temporalio/ui:2.31.2
         ports:
             - 8081:8080
     temporal-django-worker:

@@ -23,13 +23,15 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                 .map((event: ActionFilterType, idx: number) => (
                     <div key={idx} className="mb-2">
                         <div className="flex mb-1">
-                            <div
-                                className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ backgroundColor: 'var(--bg-table)' }}
-                            >
-                                {experimentInsightType === InsightType.FUNNELS ? (event.order || 0) + 1 : idx + 1}
-                            </div>
+                            {experimentInsightType === InsightType.FUNNELS && (
+                                <div
+                                    className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ backgroundColor: 'var(--bg-table)' }}
+                                >
+                                    {(event.order || 0) + 1}
+                                </div>
+                            )}
                             <b>
                                 <InsightLabel
                                     action={event}
@@ -91,12 +93,14 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading } = useValues(
-        experimentLogic({ experimentId })
-    )
+    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading, experimentInsightType } =
+        useValues(experimentLogic({ experimentId }))
     const { closeExperimentGoalModal, updateExperimentGoal, setNewExperimentInsight } = useActions(
         experimentLogic({ experimentId })
     )
+
+    const experimentFiltersLength =
+        (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
 
     return (
         <LemonModal
@@ -111,7 +115,10 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                     </LemonButton>
                     <LemonButton
                         disabledReason={
-                            goalInsightDataLoading && 'The insight needs to be loaded before saving the goal'
+                            (goalInsightDataLoading && 'The insight needs to be loaded before saving the goal.') ||
+                            (experimentInsightType === InsightType.FUNNELS &&
+                                experimentFiltersLength < 2 &&
+                                'The experiment needs at least two funnel steps.')
                         }
                         form="edit-experiment-goal-form"
                         onClick={() => {
@@ -238,17 +245,16 @@ export function Goal(): JSX.Element {
                         Change goal
                     </LemonButton>
                 </div>
-                {experimentInsightType === InsightType.TRENDS &&
-                    !experimentMathAggregationForTrends(experiment.filters) && (
-                        <>
-                            <LemonDivider className="" vertical />
-                            <div className="">
-                                <div className="mt-auto ml-auto">
-                                    <ExposureMetric experimentId={experimentId} />
-                                </div>
+                {experimentInsightType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
+                    <>
+                        <LemonDivider className="" vertical />
+                        <div className="">
+                            <div className="mt-auto ml-auto">
+                                <ExposureMetric experimentId={experimentId} />
                             </div>
-                        </>
-                    )}
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     )
