@@ -74,7 +74,7 @@ def materialize(
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
     create_minmax_index=not TEST,
 ) -> None:
-    if (property, table_column) in get_materialized_columns_cached(table, use_cache=False):
+    if (property, table_column) in backend.get_materialized_columns(table):
         if TEST:
             return
 
@@ -172,7 +172,7 @@ def backfill_materialized_columns(
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
-    materialized_columns = get_materialized_columns_cached(table, use_cache=False)
+    materialized_columns = backend.get_materialized_columns(table)
 
     # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
     # Note that for this to work all inserts should list columns explicitly
@@ -220,7 +220,7 @@ def _materialized_column_name(
         prefix += f"{SHORT_TABLE_COLUMN_NAME[table_column]}_"
     property_str = re.sub("[^0-9a-zA-Z$]", "_", property)
 
-    existing_materialized_columns = set(get_materialized_columns_cached(table, use_cache=False).values())
+    existing_materialized_columns = set(backend.get_materialized_columns(table).values())
     suffix = ""
 
     while f"{prefix}{property_str}{suffix}" in existing_materialized_columns:
