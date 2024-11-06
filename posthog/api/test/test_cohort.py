@@ -1,5 +1,5 @@
 import json
-from posthog.clickhouse.materialized_columns import materialize
+from posthog.clickhouse import materialized_columns
 from datetime import datetime, timedelta
 from typing import Optional, Any
 from unittest import mock
@@ -148,7 +148,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
     @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
     def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
-        materialize("events", "team_id", table_column="person_properties")
+        materialized_columns.backend.materialize("events", "team_id", table_column="person_properties")
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         _create_person(

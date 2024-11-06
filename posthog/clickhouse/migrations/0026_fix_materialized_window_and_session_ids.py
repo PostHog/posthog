@@ -1,9 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.clickhouse.materialized_columns import (
-    get_materialized_columns,
-    materialize,
-)
+from posthog.clickhouse import materialized_columns
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -43,10 +40,10 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
 def materialize_session_and_window_id(database):
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
-        materialized_columns = get_materialized_columns("events", use_cache=False)
+        currently_materialized_columns = materialized_columns.get_materialized_columns("events", use_cache=False)
         # If the column is not materialized, materialize it
-        if (property_name, "properties") not in materialized_columns:
-            materialize("events", property_name, property_name)
+        if (property_name, "properties") not in currently_materialized_columns:
+            materialized_columns.backend.materialize("events", property_name, property_name)
 
         # Now, we need to clean up any potentail inconsistencies with existing column names
         # Possible states are:
@@ -69,7 +66,7 @@ def materialize_session_and_window_id(database):
         # materialized the column or renamed the column, and then ran the 0004_...  async migration
         # before this migration runs.
         possible_old_column_names = {"mat_" + property_name}
-        current_materialized_column_name = materialized_columns.get(property_name, None)
+        current_materialized_column_name = currently_materialized_columns.get(property_name, None)
         if current_materialized_column_name != property_name:
             possible_old_column_names.add(current_materialized_column_name)
 
