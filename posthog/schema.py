@@ -75,7 +75,7 @@ class BreakdownType(StrEnum):
     SESSION = "session"
 
 
-class BreakdownFilter(BaseModel):
+class AssistantFunnelBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -99,7 +99,7 @@ class BreakdownFilter(BaseModel):
     )
 
 
-class Exclusion(BaseModel):
+class AssistantFunnelExclusionEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -209,7 +209,7 @@ class IntervalItem(BaseModel):
     value: int = Field(..., description="An interval selected out of available intervals in source query")
 
 
-class Series2(BaseModel):
+class Series(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1743,7 +1743,7 @@ class AlertCondition(BaseModel):
     type: AlertConditionType
 
 
-class FunnelsFilter(BaseModel):
+class AssistantFunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1753,7 +1753,7 @@ class FunnelsFilter(BaseModel):
             "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram."
         ),
     )
-    exclusions: Optional[list[Exclusion]] = Field(
+    exclusions: Optional[list[AssistantFunnelExclusionEventsNode]] = Field(
         default=[],
         description=(
             "Users may want to use exclusion events to filter out conversions in which a particular event occurred"
@@ -1858,7 +1858,7 @@ class Breakdown(BaseModel):
     type: Optional[MultipleBreakdownType] = None
 
 
-class BreakdownFilter2(BaseModel):
+class BreakdownFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3230,7 +3230,7 @@ class QueryResponseAlternative3(BaseModel):
     compare: Optional[list[CompareItem]] = None
     day: Optional[list[DayItem]] = None
     interval: Optional[list[IntervalItem]] = None
-    series: Optional[list[Series2]] = None
+    series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
 
 
@@ -4170,87 +4170,7 @@ class AnyResponseType(
     ]
 
 
-class Series(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: Optional[str] = Field(
-        default=None, description="Optional custom name for the event if it is needed to be renamed."
-    )
-    event: str = Field(..., description="Name of the event.")
-    kind: Literal["EventsNode"] = "EventsNode"
-    math: Optional[Math] = Field(
-        default=None,
-        description=(
-            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
-            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
-            " specified filters for the first time."
-        ),
-    )
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = None
-    response: Optional[dict[str, Any]] = None
-
-
-class AssistantFunnelsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: Optional[int] = Field(
-        default=None,
-        description=(
-            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
-            " provided."
-        ),
-    )
-    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown the chart by a property")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    funnelsFilter: Optional[FunnelsFilter] = Field(
-        default=None, description="Properties specific to the funnels insight"
-    )
-    interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
-    )
-    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = Field(default=[], description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Series] = Field(..., description="Events to include")
-
-
-class BreakdownFilter1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_histogram_bin_count: Optional[int] = None
-    breakdown_limit: Optional[int] = None
-    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
-
-
-class Series1(BaseModel):
+class AssistantTrendsEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4286,11 +4206,21 @@ class Series1(BaseModel):
     response: Optional[dict[str, Any]] = None
 
 
+class BreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_histogram_bin_count: Optional[int] = None
+    breakdown_limit: Optional[int] = None
+    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
+
+
 class AssistantTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events")
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -4313,7 +4243,7 @@ class AssistantTrendsQuery(BaseModel):
         ]
     ] = Field(default=[], description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Series1] = Field(..., description="Events to include")
+    series: list[AssistantTrendsEventsNode] = Field(..., description="Events to include")
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
@@ -4376,7 +4306,7 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    series: Optional[list[Series2]] = None
+    series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
     timezone: str
 
@@ -4958,7 +4888,7 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     compare: Optional[list[CompareItem]] = None
     day: Optional[list[DayItem]] = None
     interval: Optional[list[IntervalItem]] = None
-    series: Optional[list[Series2]] = None
+    series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
 
 
@@ -5244,6 +5174,100 @@ class ActionsNode(BaseModel):
     response: Optional[dict[str, Any]] = None
 
 
+class AssistantFunnelsEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = Field(
+        default=None, description="Optional custom name for the event if it is needed to be renamed."
+    )
+    event: str = Field(..., description="Name of the event.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: Optional[Math] = Field(
+        default=None,
+        description=(
+            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
+            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
+            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
+            " specified filters for the first time."
+        ),
+    )
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = None
+    response: Optional[dict[str, Any]] = None
+
+
+class AssistantFunnelsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None,
+        description=(
+            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
+            " provided."
+        ),
+    )
+    breakdownFilter: Optional[AssistantFunnelBreakdownFilter] = Field(
+        default=None, description="Breakdown the chart by a property"
+    )
+    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    funnelsFilter: Optional[AssistantFunnelsFilter] = Field(
+        default=None, description="Properties specific to the funnels insight"
+    )
+    interval: Optional[IntervalType] = Field(
+        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+    )
+    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    series: list[AssistantFunnelsEventsNode] = Field(..., description="Events to include")
+
+
+class AssistantInsightsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
 class DataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5279,7 +5303,7 @@ class DatabaseSchemaViewTable(BaseModel):
     type: Literal["view"] = "view"
 
 
-class FunnelsFilter1(BaseModel):
+class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5301,9 +5325,9 @@ class FunnelsFilter1(BaseModel):
 
 
 class InsightFilter(
-    RootModel[Union[TrendsFilter, FunnelsFilter1, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
+    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
 ):
-    root: Union[TrendsFilter, FunnelsFilter1, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
+    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
 class PropertyGroupFilter(BaseModel):
@@ -5476,7 +5500,7 @@ class TrendsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter2] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events and actions")
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -5672,12 +5696,12 @@ class FunnelsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter2] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
-    funnelsFilter: Optional[FunnelsFilter1] = Field(
+    funnelsFilter: Optional[FunnelsFilter] = Field(
         default=None, description="Properties specific to the funnels insight"
     )
     interval: Optional[IntervalType] = Field(

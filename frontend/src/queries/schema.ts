@@ -904,14 +904,14 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
 }
 
-type AssistantPropertyFilter =
+export type AssistantPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | SessionPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
 
-interface AssistantInsightsQueryBase {
+export interface AssistantInsightsQueryBase {
     /** Date range for the query */
     dateRange?: InsightDateRange
     /**
@@ -930,7 +930,7 @@ interface AssistantInsightsQueryBase {
     samplingFactor?: number | null
 }
 
-interface AssistantTrendsEventsNode
+export interface AssistantTrendsEventsNode
     extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
     properties?: AssistantPropertyFilter[]
 }
@@ -956,7 +956,7 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     compareFilter?: CompareFilter
 }
 
-interface AssistantFunnelsEventsNode extends Node {
+export interface AssistantFunnelsEventsNode extends Node {
     kind: NodeKind.EventsNode
     /**
      * Name of the event.
@@ -978,12 +978,12 @@ interface AssistantFunnelsEventsNode extends Node {
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
  */
-interface AssistantFunnelExclusionEventsNode extends FunnelExclusionSteps {
+export interface AssistantFunnelExclusionEventsNode extends FunnelExclusionSteps {
     kind: NodeKind.EventsNode
     event: string
 }
 
-interface AssistantFunnelsFilter {
+export interface AssistantFunnelsFilter {
     /**
      * Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one.
      * `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B.
@@ -1038,7 +1038,7 @@ interface AssistantFunnelsFilter {
     funnelAggregateByHogQL?: 'properties.$session_id'
 }
 
-interface AssistantFunnelBreakdownFilter {
+export interface AssistantFunnelBreakdownFilter {
     /**
      * Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.
      * @default event
