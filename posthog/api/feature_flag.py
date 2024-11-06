@@ -446,28 +446,22 @@ class FeatureFlagViewSet(
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
                 queryset = queryset.filter(
-                    Q(key__icontains=request.GET["search"])
-                    | Q(name__icontains=request.GET["search"])
+                    Q(key__icontains=request.GET["search"]) | Q(name__icontains=request.GET["search"])
                 )
             elif key == "type":
                 type = request.GET["type"]
                 if type == "boolean":
                     queryset = queryset.filter(
-                        Q(filters__multivariate__variants__isnull=True)
-                        | Q(filters__multivariate__variants=[])
+                        Q(filters__multivariate__variants__isnull=True) | Q(filters__multivariate__variants=[])
                     )
                 elif type == "multivariant":
                     queryset = queryset.filter(
-                        Q(filters__multivariate__variants__isnull=False)
-                        & ~Q(filters__multivariate__variants=[])
+                        Q(filters__multivariate__variants__isnull=False) & ~Q(filters__multivariate__variants=[])
                     )
                 elif type == "experiment":
-                    queryset = queryset.filter(
-                       ~Q(experiment__isnull=True)
-                    )
+                    queryset = queryset.filter(~Q(experiment__isnull=True))
 
         return queryset
-
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
@@ -498,7 +492,7 @@ class FeatureFlagViewSet(
         else:
             queryset = queryset.order_by("-created_at")
 
-        return queryset.select_related("created_by").order_by("-created_at")
+        return queryset.select_related("created_by")
 
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
