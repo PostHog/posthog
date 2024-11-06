@@ -20,6 +20,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         showButton: true,
         hideButton: true,
         persistConfig: true,
+        fetchSiteURL: true,
+        setSiteURL: (siteURL: string) => ({ siteURL }),
     }),
 
     reducers(({ props }) => ({
@@ -33,19 +35,22 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
+        realSiteURL: [null as string | null, { setSiteURL: (_, { siteURL }) => siteURL }],
     })),
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
         apiURL: [
-            (s) => [s.props],
-            (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
+            (s) => [s.props, s.siteURL],
+            (props: ToolbarProps, siteURL) => {
+                const url = siteURL || props?.posthog?.config.api_host
+                if (!url) {
+                    throw new Error('No API URL provided')
+                }
+                return url.endsWith('/') ? url.replace(/\/+$/, '') : url
+            },
         ],
-        jsURL: [
-            (s) => [s.props, s.apiURL],
-            (props: ToolbarProps, apiUrl) =>
-                `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
-        ],
+        siteURL: [(s) => [s.realSiteURL, s.apiURL], (realSiteURL, apiURL) => realSiteURL ?? apiURL],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
@@ -55,7 +60,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
-            window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
+            window.location.href = `${values.siteURL}/authorize_and_redirect/?redirect=${encodedUrl}`
         },
         logout: () => {
             toolbarPosthogJS.capture('toolbar logout')
@@ -84,9 +89,22 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
         },
+
+        fetchSiteURL: async () => {
+            try {
+                const response = await toolbarFetch('/api/toolbar/info')
+                const { site_url } = await response.json()
+                if (site_url) {
+                    actions.setSiteURL(site_url)
+                }
+            } catch (e) {
+                console.error('Error fetching site URL', e)
+            }
+        },
     })),
 
-    afterMount(({ props, values }) => {
+    afterMount(({ actions, props, values }) => {
+        actions.fetchSiteURL()
         if (props.instrument) {
             const distinctId = props.distinctId
 

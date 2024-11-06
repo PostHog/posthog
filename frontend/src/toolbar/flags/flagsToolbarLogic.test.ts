@@ -36,7 +36,7 @@ describe('toolbar featureFlagsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        toolbarConfigLogic({ apiURL: 'http://localhost' }).mount()
+        toolbarConfigLogic().mount()
         logic = flagsToolbarLogic()
         logic.mount()
         logic.actions.getUserFlags()

@@ -54,8 +54,6 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
         actionId: undefined,
         userIntent: undefined,
         dataAttributes: ['data-attr'],
-        apiURL: '/',
-        jsURL: 'http://localhost:8234/',
         userEmail: 'foobar@posthog.com',
     }
     useToolbarStyles()
@@ -68,7 +66,6 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
                 },
                 toolbarParams: {
                     toolbarVersion: 'toolbar',
-                    jsURL: 'http://localhost:8234/',
                 },
                 isAuthenticated: props.unauthenticated ?? true,
                 supportedCompression: ['gzip', 'gzip-js', 'lz64'],

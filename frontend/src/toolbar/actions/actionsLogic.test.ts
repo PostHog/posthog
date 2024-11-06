@@ -24,7 +24,7 @@ describe('toolbar actionsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        toolbarConfigLogic({ apiURL: 'http://localhost' }).mount()
+        toolbarConfigLogic().mount()
         logic = actionsLogic()
         logic.mount()
     })
