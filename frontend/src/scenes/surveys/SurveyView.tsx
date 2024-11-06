@@ -6,7 +6,9 @@ import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -459,7 +461,10 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
         surveyAsInsightURL,
+        responseSummary,
+        responseSummaryLoading,
     } = useValues(surveyLogic)
+    const { summarize } = useActions(surveyLogic)
 
     return (
         <>
@@ -522,12 +527,31 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                         )
                     } else if (question.type === SurveyQuestionType.Open) {
                         return (
-                            <OpenTextViz
-                                key={`survey-q-${i}`}
-                                surveyOpenTextResults={surveyOpenTextResults}
-                                surveyOpenTextResultsReady={surveyOpenTextResultsReady}
-                                questionIndex={i}
-                            />
+                            <>
+                                <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
+                                    <LemonButton
+                                        data-attr="summarize-survey"
+                                        fullWidth
+                                        onClick={() => summarize({ questionIndex: i })}
+                                        disabledReason={
+                                            responseSummaryLoading
+                                                ? 'Thinking...'
+                                                : responseSummary
+                                                ? 'already summarized'
+                                                : undefined
+                                        }
+                                    >
+                                        Summarize
+                                    </LemonButton>
+                                    {responseSummary ? <p>{responseSummary.content}</p> : null}
+                                </FlaggedFeature>
+                                <OpenTextViz
+                                    key={`survey-q-${i}`}
+                                    surveyOpenTextResults={surveyOpenTextResults}
+                                    surveyOpenTextResultsReady={surveyOpenTextResultsReady}
+                                    questionIndex={i}
+                                />
+                            </>
                         )
                     }
                 })}
