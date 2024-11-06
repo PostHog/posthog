@@ -1,6 +1,7 @@
 from typing import cast, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.schema import BreakdownType, BreakdownAttributionType
@@ -144,7 +145,7 @@ class FunnelUDF(FunnelBase):
             SELECT
                 {step_results},
                 {conversion_time_arrays},
-                rowNumberInBlock() as row_number,
+                rowNumberInAllBlocks() as row_number,
                 {final_prop} as final_prop
             FROM
                 {{inner_select}}
@@ -179,6 +180,7 @@ class FunnelUDF(FunnelBase):
             FROM
                 {{s}}
             GROUP BY final_prop
+            LIMIT {self.get_breakdown_limit() + 1 if use_breakdown_limit else DEFAULT_RETURNED_ROWS}
         """,
             {"s": s},
         )

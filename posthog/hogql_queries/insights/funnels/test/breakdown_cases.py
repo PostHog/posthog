@@ -533,7 +533,8 @@ def funnel_breakdown_test_factory(
             people = journeys_for(events_by_person, self.team)
 
             query = cast(FunnelsQuery, filter_to_query(filters))
-            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            query_runner = FunnelsQueryRunner(query=query, team=self.team)
+            results = query_runner.calculate().results
             results = sort_breakdown_funnel_results(results)
 
             self._assert_funnel_breakdown_result_is_correct(
@@ -597,6 +598,7 @@ def funnel_breakdown_test_factory(
                 self._get_actor_ids_at_step(filters, 2, "Other"),
                 [people["person1"].uuid],
             )
+            self.assertEqual(2, query_runner.to_query().limit.value)
 
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_no_type(self):
