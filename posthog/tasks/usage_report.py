@@ -17,7 +17,7 @@ from psycopg import sql
 from retry import retry
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns
+from posthog.clickhouse.materialized_columns import get_materialized_columns
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
 from posthog.client import sync_execute
