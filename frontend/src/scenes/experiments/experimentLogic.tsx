@@ -16,7 +16,6 @@ import { ReactElement } from 'react'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -35,7 +34,6 @@ import {
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema'
-
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
@@ -62,7 +60,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
+import { EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
@@ -469,6 +467,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.updateExperiment({
                 filters: filtersToUpdate,
+                metrics: values.experiment.metrics,
                 parameters: {
                     ...values.experiment?.parameters,
                     recommended_running_time: recommendedRunningTime,
@@ -711,6 +710,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     | null
                 > => {
                     try {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
                         if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             const query = values.experiment.metrics[0].query
 

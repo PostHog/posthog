@@ -5,18 +5,24 @@ import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection, Link } 
 import { useActions, useValues } from 'kea'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { FUNNEL_STEP_COUNT_LIMIT } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { groupsModel } from '~/models/groupsModel'
+import { getHogQLValue, hogQLToFilterValue } from 'scenes/insights/filters/AggregationSelect'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { groupsModel } from '~/models/groupsModel'
+import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { FunnelsFilter, NodeKind } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, FunnelsFilter, NodeKind } from '~/queries/schema'
 import {
     BreakdownAttributionType,
     FilterType,
@@ -25,19 +31,15 @@ import {
     InsightType,
     StepOrderValue,
 } from '~/types'
+
 import { experimentLogic } from './experimentLogic'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { FUNNEL_STEP_COUNT_LIMIT } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
-import { teamLogic } from 'scenes/teamLogic'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
 
 export interface MetricSelectorProps {
     forceTrendExposureMetric?: boolean
 }
 
 export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps): JSX.Element {
-    const { experiment, experimentInsightType, isExperimentRunning } = useValues(experimentLogic)
+    const { experiment, experimentInsightType, isExperimentRunning, featureFlags } = useValues(experimentLogic)
     const { setExperiment } = useActions(experimentLogic)
     const isTrends = experimentInsightType === InsightType.TRENDS
 
@@ -72,37 +74,87 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
             <>
                 <ActionFilter
                     bordered
-                    filters={experiment.filters}
+                    filters={(() => {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            return queryNodeToFilter(
+                                (experiment.metrics[0].query as ExperimentTrendsQuery).count_query ||
+                                    (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query
+                            )
+                        }
+                        return experiment.filters
+                    })()}
                     setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                        // HANDLE FLAG
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            const series = actionsAndEventsToSeries(
+                                { actions, events, data_warehouse } as any,
+                                true,
+                                isTrends ? MathAvailability.All : MathAvailability.None
+                            )
 
-                        if (actions?.length) {
-                            setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    actions,
-                                    events: undefined,
-                                    data_warehouse: undefined,
-                                },
-                            })
-                        } else if (events?.length) {
-                            setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    events,
-                                    actions: undefined,
-                                    data_warehouse: undefined,
-                                },
-                            })
-                        } else if (data_warehouse?.length) {
-                            setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    data_warehouse,
-                                    actions: undefined,
-                                    events: undefined,
-                                },
-                            })
+                            if (experimentInsightType === InsightType.FUNNELS) {
+                                setExperiment({
+                                    metrics: [
+                                        {
+                                            ...experiment.metrics[0],
+                                            query: {
+                                                ...experiment.metrics[0].query,
+                                                funnels_query: {
+                                                    ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
+                                                        .funnels_query,
+                                                    series: series,
+                                                },
+                                            } as ExperimentFunnelsQuery,
+                                        },
+                                    ],
+                                })
+                            } else {
+                                setExperiment({
+                                    metrics: [
+                                        {
+                                            ...experiment.metrics[0],
+                                            query: {
+                                                ...experiment.metrics[0].query,
+                                                count_query: {
+                                                    ...(experiment.metrics[0].query as ExperimentTrendsQuery)
+                                                        .count_query,
+                                                    series: series,
+                                                },
+                                            } as ExperimentTrendsQuery,
+                                        },
+                                    ],
+                                })
+                            }
+                        } else {
+                            if (actions?.length) {
+                                setExperiment({
+                                    filters: {
+                                        ...experiment.filters,
+                                        actions,
+                                        events: undefined,
+                                        data_warehouse: undefined,
+                                    },
+                                })
+                            } else if (events?.length) {
+                                setExperiment({
+                                    filters: {
+                                        ...experiment.filters,
+                                        events,
+                                        actions: undefined,
+                                        data_warehouse: undefined,
+                                    },
+                                })
+                            } else if (data_warehouse?.length) {
+                                setExperiment({
+                                    filters: {
+                                        ...experiment.filters,
+                                        data_warehouse,
+                                        actions: undefined,
+                                        events: undefined,
+                                    },
+                                })
+                            }
                         }
                     }}
                     typeKey="experiment-metric"
@@ -135,26 +187,7 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                         <>
                             <div className="flex items-center w-full gap-2">
                                 <span>Aggregating by</span>
-                                <FunnelAggregationSelect
-                                    aggregation_group_type_index={
-                                        (experiment.filters as FunnelsFilterType).aggregation_group_type_index ??
-                                        undefined
-                                    }
-                                    onChange={(newValue) => {
-                                        // HANDLE FLAG
-
-                                        // the field to set is either aggregation_group_type_index or funnel_aggregate_by_hogql
-                                        // how do we determine this?
-
-                                        console.log(newValue)
-                                        setExperiment({
-                                            filters: {
-                                                ...experiment.filters,
-                                                aggregation_group_type_index: newValue,
-                                            },
-                                        })
-                                    }}
-                                />
+                                <FunnelAggregationSelect />
                             </div>
                             <FunnelConversionWindowFilter />
                             <FunnelAttributionSelect />
@@ -171,32 +204,42 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
             )}
 
             <div className="mt-4">
-                <Query
-                    query={{
-                        kind: NodeKind.InsightVizNode,
-                        source: filtersToQueryNode(experiment.filters),
-                        showTable: false,
-                        showLastComputation: true,
-                        showLastComputationRefresh: false,
-                    }}
-                    readOnly
-                />
+                {/* :FLAG: CLEAN UP AFTER MIGRATION */}
+                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] ? (
+                    <Query
+                        query={{
+                            kind: NodeKind.InsightVizNode,
+                            source:
+                                (experiment.metrics[0].query as ExperimentTrendsQuery).count_query ||
+                                (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query,
+                            showTable: false,
+                            showLastComputation: true,
+                            showLastComputationRefresh: false,
+                        }}
+                        readOnly
+                    />
+                ) : (
+                    <Query
+                        query={{
+                            kind: NodeKind.InsightVizNode,
+                            source: filtersToQueryNode(experiment.filters),
+                            showTable: false,
+                            showLastComputation: true,
+                            showLastComputationRefresh: false,
+                        }}
+                        readOnly
+                    />
+                )}
             </div>
         </>
     )
 }
 
-export function FunnelAggregationSelect({
-    aggregation_group_type_index,
-    onChange,
-}: {
-    aggregation_group_type_index: number | undefined
-    onChange: (value: number | undefined) => void
-}): JSX.Element {
+export function FunnelAggregationSelect(): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, featureFlags } = useValues(experimentLogic)
     const { setExperiment } = useActions(experimentLogic)
 
     const UNIQUE_USERS = 'person_id'
@@ -213,6 +256,7 @@ export function FunnelAggregationSelect({
         },
     ]
     if (needsUpgradeForGroups || canStartUsingGroups) {
+        // if (false) {
         optionSections[0].footer = <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
     } else {
         Array.from(groupTypes.values()).forEach((groupType) => {
@@ -224,7 +268,21 @@ export function FunnelAggregationSelect({
         })
     }
 
-    const value = getHogQLValue(aggregation_group_type_index)
+    // :FLAG: CLEAN UP AFTER MIGRATION
+    let value
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+        value = getHogQLValue(
+            (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query.aggregation_group_type_index ??
+                undefined,
+            (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query.funnelsFilter
+                ?.funnelAggregateByHogQL ?? undefined
+        )
+    } else {
+        value = getHogQLValue(
+            experiment.filters.aggregation_group_type_index,
+            (experiment.filters as FunnelsFilterType).funnel_aggregate_by_hogql
+        )
+    }
 
     baseValues.push(`properties.$session_id`)
     optionSections[0].options.push({
@@ -261,7 +319,40 @@ export function FunnelAggregationSelect({
         <LemonSelect
             className="flex-1"
             value={value}
-            onChange={onChange}
+            onChange={(newValue) => {
+                const { groupIndex, aggregationQuery } = hogQLToFilterValue(newValue)
+                // :FLAG: CLEAN UP AFTER MIGRATION
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    setExperiment({
+                        metrics: [
+                            {
+                                ...experiment.metrics[0],
+                                query: {
+                                    ...experiment.metrics[0].query,
+                                    funnels_query: {
+                                        ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query,
+                                        aggregation_group_type_index: groupIndex,
+                                        funnelsFilter: {
+                                            ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query
+                                                .funnelsFilter,
+                                            funnelAggregateByHogQL: aggregationQuery,
+                                        },
+                                    },
+                                } as ExperimentFunnelsQuery,
+                            },
+                            ...experiment.metrics.slice(1),
+                        ],
+                    })
+                } else {
+                    setExperiment({
+                        filters: {
+                            ...experiment.filters,
+                            aggregation_group_type_index: groupIndex,
+                            funnel_aggregate_by_hogql: aggregationQuery,
+                        },
+                    })
+                }
+            }}
             options={optionSections}
             dropdownMatchSelectWidth={false}
         />
@@ -280,7 +371,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
 
     const DEFAULT_FUNNEL_WINDOW_INTERVAL = 14
 
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, featureFlags } = useValues(experimentLogic)
     const { setExperiment } = useActions(experimentLogic)
 
     const {
@@ -318,28 +409,88 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     fullWidth={false}
                     min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    value={(experiment.filters as FunnelsFilterType).funnel_window_interval}
+                    value={(() => {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            return (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query?.funnelsFilter
+                                ?.funnelWindowInterval
+                        }
+                        return (experiment.filters as FunnelsFilterType).funnel_window_interval
+                    })()}
                     onChange={(funnelWindowInterval) => {
-                        setExperiment({
-                            filters: {
-                                ...experiment.filters,
-                                funnel_window_interval: Number(funnelWindowInterval),
-                            },
-                        })
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            setExperiment({
+                                metrics: [
+                                    {
+                                        ...experiment.metrics[0],
+                                        query: {
+                                            ...experiment.metrics[0].query,
+                                            funnels_query: {
+                                                ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
+                                                    .funnels_query,
+                                                funnelsFilter: {
+                                                    ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
+                                                        .funnels_query.funnelsFilter,
+                                                    funnelWindowInterval: funnelWindowInterval,
+                                                },
+                                            },
+                                        } as ExperimentFunnelsQuery,
+                                    },
+                                    ...experiment.metrics.slice(1),
+                                ],
+                            })
+                        } else {
+                            setExperiment({
+                                filters: {
+                                    ...experiment.filters,
+                                    funnel_window_interval: funnelWindowInterval,
+                                },
+                            })
+                        }
                     }}
                 />
                 <LemonSelect
                     dropdownMatchSelectWidth={false}
-                    value={(experiment.filters as FunnelsFilterType).funnel_window_interval_unit}
+                    value={(() => {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            return (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query?.funnelsFilter
+                                ?.funnelWindowIntervalUnit
+                        }
+                        return (experiment.filters as FunnelsFilterType).funnel_window_interval_unit
+                    })()}
                     onChange={(funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | null) => {
-                        // HANDLE FLAG
-
-                        setExperiment({
-                            filters: {
-                                ...experiment.filters,
-                                funnel_window_interval_unit: funnelWindowIntervalUnit || undefined,
-                            },
-                        })
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            setExperiment({
+                                metrics: [
+                                    {
+                                        ...experiment.metrics[0],
+                                        query: {
+                                            ...experiment.metrics[0].query,
+                                            funnels_query: {
+                                                ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
+                                                    .funnels_query,
+                                                funnelsFilter: {
+                                                    ...(experiment.metrics[0].query as ExperimentFunnelsQuery)
+                                                        .funnels_query.funnelsFilter,
+                                                    funnelWindowIntervalUnit: funnelWindowIntervalUnit,
+                                                },
+                                            },
+                                        } as ExperimentFunnelsQuery,
+                                    },
+                                    ...experiment.metrics.slice(1),
+                                ],
+                            })
+                        } else {
+                            setExperiment({
+                                filters: {
+                                    ...experiment.filters,
+                                    funnel_window_interval_unit: funnelWindowIntervalUnit || undefined,
+                                },
+                            })
+                        }
                     }}
                     options={options}
                 />
@@ -349,24 +500,23 @@ export function FunnelConversionWindowFilter(): JSX.Element {
 }
 
 export function FunnelAttributionSelect(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, featureFlags } = useValues(experimentLogic)
     const { setExperiment } = useActions(experimentLogic)
-
-    const breakdownAttributionType = (experiment.filters as FunnelsFilterType).breakdown_attribution_type
-    const breakdownAttributionValue = (experiment.filters as FunnelsFilterType).breakdown_attribution_value
     const funnelOrderType = undefined
-    const stepsLength = Math.max(
-        experiment.filters.actions?.length ?? 0,
-        experiment.filters.events?.length ?? 0,
-        experiment.filters.data_warehouse?.length ?? 0
-    )
 
-    const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
-        !breakdownAttributionType
-            ? BreakdownAttributionType.FirstTouch
-            : breakdownAttributionType === BreakdownAttributionType.Step
-            ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-            : breakdownAttributionType
+    // :FLAG: CLEAN UP AFTER MIGRATION
+    let stepsLength
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+        stepsLength =
+            (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query?.series?.length ||
+            (experiment.metrics[0].query as ExperimentTrendsQuery).count_query?.series?.length
+    } else {
+        stepsLength = Math.max(
+            experiment.filters.actions?.length ?? 0,
+            experiment.filters.events?.length ?? 0,
+            experiment.filters.data_warehouse?.length ?? 0
+        )
+    }
 
     return (
         <div className="flex items-center w-full gap-2">
@@ -407,7 +557,30 @@ export function FunnelAttributionSelect(): JSX.Element {
                 </Tooltip>
             </div>
             <LemonSelect
-                value={currentValue}
+                value={(() => {
+                    // :FLAG: CLEAN UP AFTER MIGRATION
+                    let breakdownAttributionType
+                    let breakdownAttributionValue
+                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                        breakdownAttributionType = (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query
+                            ?.funnelsFilter?.breakdownAttributionType
+                        breakdownAttributionValue = (experiment.metrics[0].query as ExperimentFunnelsQuery)
+                            .funnels_query?.funnelsFilter?.breakdownAttributionValue
+                    } else {
+                        breakdownAttributionType = (experiment.filters as FunnelsFilterType).breakdown_attribution_type
+                        breakdownAttributionValue = (experiment.filters as FunnelsFilterType)
+                            .breakdown_attribution_value
+                    }
+
+                    const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
+                        !breakdownAttributionType
+                            ? BreakdownAttributionType.FirstTouch
+                            : breakdownAttributionType === BreakdownAttributionType.Step
+                            ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+                            : breakdownAttributionType
+
+                    return currentValue
+                })()}
                 placeholder="Attribution"
                 options={[
                     { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
@@ -432,9 +605,32 @@ export function FunnelAttributionSelect(): JSX.Element {
                 ]}
                 onChange={(value) => {
                     const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
-                    if (value) {
-                        // HANDLE FLAG
-
+                    // :FLAG: CLEAN UP AFTER MIGRATION
+                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                        setExperiment({
+                            metrics: [
+                                {
+                                    ...experiment.metrics[0],
+                                    query: {
+                                        ...experiment.metrics[0].query,
+                                        funnels_query: {
+                                            ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query,
+                                            funnelsFilter: {
+                                                ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query
+                                                    .funnelsFilter,
+                                                breakdownAttributionType:
+                                                    breakdownAttributionType as BreakdownAttributionType,
+                                                breakdownAttributionValue: breakdownAttributionValue
+                                                    ? parseInt(breakdownAttributionValue)
+                                                    : undefined,
+                                            },
+                                        },
+                                    } as ExperimentFunnelsQuery,
+                                },
+                                ...experiment.metrics.slice(1),
+                            ],
+                        })
+                    } else {
                         setExperiment({
                             filters: {
                                 ...experiment.filters,
@@ -455,21 +651,63 @@ export function FunnelAttributionSelect(): JSX.Element {
 
 export function InsightTestAccountFilter(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, experimentInsightType, featureFlags } = useValues(experimentLogic)
     const { setExperiment } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     return (
         <TestAccountFilterSwitch
-            checked={hasFilters ? !!experiment.filters.filter_test_accounts : false}
+            checked={(() => {
+                // :FLAG: CLEAN UP AFTER MIGRATION
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    const val =
+                        (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query?.filterTestAccounts ||
+                        (experiment.metrics[0].query as ExperimentTrendsQuery).count_query?.filterTestAccounts
+                    return hasFilters ? !!val : false
+                }
+                return hasFilters ? !!experiment.filters.filter_test_accounts : false
+            })()}
             onChange={(checked: boolean) => {
-                // HANDLE FLAG
-
-                setExperiment({
-                    filters: {
-                        ...experiment.filters,
-                        filter_test_accounts: checked,
-                    },
-                })
+                // :FLAG: CLEAN UP AFTER MIGRATION
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    if (experimentInsightType === InsightType.FUNNELS) {
+                        setExperiment({
+                            metrics: [
+                                {
+                                    ...experiment.metrics[0],
+                                    query: {
+                                        ...experiment.metrics[0].query,
+                                        funnels_query: {
+                                            ...(experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query,
+                                            filterTestAccounts: checked,
+                                        },
+                                    } as ExperimentFunnelsQuery,
+                                },
+                            ],
+                        })
+                    } else {
+                        setExperiment({
+                            metrics: [
+                                {
+                                    ...experiment.metrics[0],
+                                    query: {
+                                        ...experiment.metrics[0].query,
+                                        count_query: {
+                                            ...(experiment.metrics[0].query as ExperimentTrendsQuery).count_query,
+                                            filterTestAccounts: checked,
+                                        },
+                                    } as ExperimentTrendsQuery,
+                                },
+                            ],
+                        })
+                    }
+                } else {
+                    setExperiment({
+                        filters: {
+                            ...experiment.filters,
+                            filter_test_accounts: checked,
+                        },
+                    })
+                }
             }}
             fullWidth
         />

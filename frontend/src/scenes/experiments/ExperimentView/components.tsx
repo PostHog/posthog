@@ -265,6 +265,8 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
 }
 
 export function ResultsHeader(): JSX.Element {
+    const { experimentResults } = useValues(experimentLogic)
+
     return (
         <div className="flex">
             <div className="w-1/2">
@@ -275,9 +277,7 @@ export function ResultsHeader(): JSX.Element {
             </div>
 
             <div className="w-1/2 flex flex-col justify-end">
-                <div className="ml-auto">
-                    <ExploreButton />
-                </div>
+                <div className="ml-auto">{experimentResults && <ExploreButton />}</div>
             </div>
         </div>
     )

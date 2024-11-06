@@ -400,6 +400,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "archived",
             "secondary_metrics",
             "holdout",
+            "metrics",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
