@@ -18,6 +18,7 @@ export const COLOR_TO_FILTER_MAP: Record<HedgehogColorOptions, string> = {
     dark: 'brightness(70%)',
     light: 'brightness(130%)',
     sepia: 'sepia(100%) saturate(300%) brightness(70%)',
+    gold: 'sepia(100%) saturate(300%) brightness(100%)',
     invert: 'invert(100%)',
     'invert-hue': 'invert(100%) hue-rotate(180deg)',
     greyscale: 'saturate(0%)',

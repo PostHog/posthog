@@ -292,6 +292,7 @@ export type HedgehogColorOptions =
     | 'dark'
     | 'light'
     | 'sepia'
+    | 'gold'
     | 'invert'
     | 'invert-hue'
     | 'greyscale'
