@@ -93,7 +93,7 @@ class Action(models.Model):
         from posthog.hogql.bytecode import create_bytecode
 
         try:
-            new_bytecode = create_bytecode(action_to_expr(self))
+            new_bytecode = create_bytecode(action_to_expr(self)).bytecode
             if new_bytecode != self.bytecode or self.bytecode_error is not None:
                 self.bytecode = new_bytecode
                 self.bytecode_error = None

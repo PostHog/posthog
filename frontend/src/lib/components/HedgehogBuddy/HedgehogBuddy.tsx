@@ -113,12 +113,23 @@ export class HedgehogActor {
 
         this.x = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
         this.y = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
+        this.preloadAnimationSprites()
         this.setAnimation('fall')
     }
 
     animations(): { [key: string]: SpriteInfo } {
         const animations = skins[this.hedgehogConfig.skin || 'default']
         return animations
+    }
+
+    preloadAnimationSprites(): void {
+        for (const animation of Object.values(this.animations())) {
+            const preload = document.createElement('link')
+            preload.rel = 'preload'
+            preload.as = 'image'
+            preload.href = spriteUrl(this.hedgehogConfig.skin || 'default', animation.img)
+            document.head.appendChild(preload)
+        }
     }
 
     private accessories(): AccessoryInfo[] {

@@ -622,6 +622,7 @@ export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
+export type ExperimentIdType = number | 'new' | 'web'
 /* sync with posthog-js */
 export interface ToolbarParams {
     apiURL?: string
@@ -629,6 +630,7 @@ export interface ToolbarParams {
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
     actionId?: number
+    experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
     source?: ToolbarSource
     toolbarVersion?: ToolbarVersion
@@ -3266,8 +3268,9 @@ export interface ExperimentMetric {
 }
 
 export interface Experiment {
-    id: number | 'new'
+    id: ExperimentIdType
     name: string
+    type?: string
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType

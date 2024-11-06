@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
 
 use crate::{
     error::Error, langs::js::RawJSFrame, metric_consts::PER_FRAME_TIME, symbol_store::Catalog,
 };
+
+pub mod records;
+pub mod resolver;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
@@ -28,14 +32,24 @@ impl RawFrame {
         res
     }
 
-    pub fn symbol_set_group_key(&self) -> String {
+    pub fn needs_symbols(&self) -> bool {
+        // For now, we only support JS, so this is always true
+        true
+    }
+
+    pub fn symbol_set_ref(&self) -> String {
         let RawFrame::JavaScript(raw) = self;
         raw.source_url().map(String::from).unwrap_or_default()
+    }
+
+    pub fn frame_id(&self) -> String {
+        let RawFrame::JavaScript(raw) = self;
+        raw.frame_id()
     }
 }
 
 // We emit a single, unified representation of a frame, which is what we pass on to users.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Frame {
     pub mangled_name: String,            // Mangled name of the function
     pub line: Option<u32>,               // Line the function is define on, if known
@@ -46,4 +60,32 @@ pub struct Frame {
     pub lang: String,                    // The language of the frame. Always known (I guess?)
     pub resolved: bool,                  // Did we manage to resolve the frame?
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
+}
+
+impl Frame {
+    pub fn include_in_fingerprint(&self, h: &mut Sha512) {
+        if let Some(resolved) = &self.resolved_name {
+            h.update(resolved.as_bytes());
+            if let Some(s) = self.source.as_ref() {
+                h.update(s.as_bytes())
+            }
+            return;
+        }
+
+        h.update(self.mangled_name.as_bytes());
+
+        if let Some(source) = &self.source {
+            h.update(source.as_bytes());
+        }
+
+        if let Some(line) = self.line {
+            h.update(line.to_string().as_bytes());
+        }
+
+        if let Some(column) = self.column {
+            h.update(column.to_string().as_bytes());
+        }
+
+        h.update(self.lang.as_bytes());
+    }
 }

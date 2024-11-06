@@ -6353,9 +6353,13 @@
                 "bytecode": {
                     "items": {},
                     "type": "array"
+                },
+                "locals": {
+                    "items": {},
+                    "type": "array"
                 }
             },
-            "required": ["bytecode"],
+            "required": ["bytecode", "locals"],
             "type": "object"
         },
         "HogLanguage": {

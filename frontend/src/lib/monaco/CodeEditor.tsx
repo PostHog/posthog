@@ -26,6 +26,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     queryKey?: string
     autocompleteContext?: string
     onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
+    /** Pressed up in an empty code editor, likely to edit the previous message in a list */
+    onPressUpNoValue?: () => void
     autoFocus?: boolean
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
@@ -56,30 +58,44 @@ function initEditor(
     if (editorProps?.language === 'hogJson') {
         initHogJsonLanguage(monaco)
     }
-    if (options.tabFocusMode) {
+    if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
-            if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
-                const selection = editor.getSelection()
+            if (options.tabFocusMode) {
+                if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
+                    const selection = editor.getSelection()
+                    if (
+                        selection &&
+                        (selection.startColumn !== selection.endColumn ||
+                            selection.startLineNumber !== selection.endLineNumber)
+                    ) {
+                        return
+                    }
+                    evt.preventDefault()
+                    evt.stopPropagation()
+
+                    const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
+                    if (!element) {
+                        return
+                    }
+                    const nextElement = evt.shiftKey
+                        ? findPreviousFocusableElement(element)
+                        : findNextFocusableElement(element)
+
+                    if (nextElement && 'focus' in nextElement) {
+                        nextElement.focus()
+                    }
+                }
+            }
+            if (editorProps.onPressUpNoValue) {
                 if (
-                    selection &&
-                    (selection.startColumn !== selection.endColumn ||
-                        selection.startLineNumber !== selection.endLineNumber)
+                    evt.keyCode === monaco.KeyCode.UpArrow &&
+                    !evt.metaKey &&
+                    !evt.ctrlKey &&
+                    editor.getValue() === ''
                 ) {
-                    return
-                }
-                evt.preventDefault()
-                evt.stopPropagation()
-
-                const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
-                if (!element) {
-                    return
-                }
-                const nextElement = evt.shiftKey
-                    ? findPreviousFocusableElement(element)
-                    : findNextFocusableElement(element)
-
-                if (nextElement && 'focus' in nextElement) {
-                    nextElement.focus()
+                    evt.preventDefault()
+                    evt.stopPropagation()
+                    editorProps.onPressUpNoValue()
                 }
             }
         })
