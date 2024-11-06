@@ -2610,7 +2610,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
         const data = await getJSONOrNull(response)
 
-        if (response.status >= 400 && typeof data.error === 'string') {
+        if (response.status >= 400 && data && typeof data.error === 'string') {
             throw new ApiError(data.error, response.status, data)
         }
 
