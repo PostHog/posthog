@@ -3275,7 +3275,7 @@ export interface Experiment {
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
-    filters: FilterType
+    filters: TrendsFilterType | FunnelsFilterType
     metrics: ExperimentMetric[]
     parameters: {
         minimum_detectable_effect?: number

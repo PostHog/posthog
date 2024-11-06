@@ -9,7 +9,6 @@ import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/
 
 import { ActionFilter as ActionFilterType, AnyPropertyFilter, Experiment, FilterType, InsightType } from '~/types'
 
-import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { MetricSelector } from '../MetricSelector'
 
@@ -96,9 +95,7 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
     const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading } = useValues(
         experimentLogic({ experimentId })
     )
-    const { closeExperimentGoalModal, updateExperimentGoal, setNewExperimentInsight } = useActions(
-        experimentLogic({ experimentId })
-    )
+    const { closeExperimentGoalModal, updateExperimentGoal } = useActions(experimentLogic({ experimentId }))
 
     return (
         <LemonModal
@@ -136,11 +133,7 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                 className="space-y-4"
             >
                 <Field name="filters">
-                    <MetricSelector
-                        dashboardItemId={EXPERIMENT_INSIGHT_ID}
-                        setPreviewInsight={setNewExperimentInsight}
-                        showDateRangeBanner
-                    />
+                    <MetricSelector />
                 </Field>
             </Form>
         </LemonModal>
@@ -151,9 +144,7 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
     const { experiment, isExperimentExposureModalOpen, experimentLoading } = useValues(
         experimentLogic({ experimentId })
     )
-    const { closeExperimentExposureModal, updateExperimentExposure, setExperimentExposureInsight } = useActions(
-        experimentLogic({ experimentId })
-    )
+    const { closeExperimentExposureModal, updateExperimentExposure } = useActions(experimentLogic({ experimentId }))
 
     return (
         <LemonModal
@@ -194,11 +185,7 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
                 className="space-y-4"
             >
                 <Field name="filters">
-                    <MetricSelector
-                        dashboardItemId={EXPERIMENT_EXPOSURE_INSIGHT_ID}
-                        setPreviewInsight={setExperimentExposureInsight}
-                        forceTrendExposureMetric
-                    />
+                    <MetricSelector forceTrendExposureMetric />
                 </Field>
             </Form>
         </LemonModal>

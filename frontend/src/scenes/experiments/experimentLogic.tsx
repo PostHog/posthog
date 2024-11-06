@@ -32,21 +32,22 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentTrendsQuery,
-    FunnelsQuery,
     InsightVizNode,
     NodeKind,
-    TrendsQuery,
 } from '~/queries/schema'
-import { isFunnelsQuery } from '~/queries/utils'
+
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
+    ChartDisplayType,
     CohortType,
     CountPerActorMathType,
+    EntityTypes,
     Experiment,
     ExperimentResults,
     FeatureFlagType,
     FilterType,
+    FunnelConversionWindowTimeUnit,
     FunnelExperimentVariant,
     FunnelStep,
     FunnelVizType,
@@ -58,6 +59,7 @@ import {
     SignificanceCode,
     TrendExperimentVariant,
     TrendResult,
+    TrendsFilterType,
 } from '~/types'
 
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
@@ -70,7 +72,7 @@ const NEW_EXPERIMENT: Experiment = {
     id: 'new',
     name: '',
     feature_flag_key: '',
-    filters: {},
+    filters: getDefaultFilters(InsightType.FUNNELS, undefined),
     metrics: [],
     parameters: {
         feature_flag_variants: [
@@ -144,21 +146,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
             ],
-            insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
-            ['setQuery'],
-            insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
-            ['updateQuerySource'],
-            insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
-            ['setQuery as setExposureQuery'],
-            insightVizDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
-            ['updateQuerySource as updateExposureQuerySource'],
         ],
     })),
     actions({
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
-        setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -349,15 +342,6 @@ export const experimentLogic = kea<experimentLogicType>([
         createExperiment: async ({ draft }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
-            // Minimum Detectable Effect is calculated based on a loaded insight
-            // Terminate if the insight did not manage to load in time
-            if (!minimumDetectableEffect) {
-                eventUsageLogic.actions.reportExperimentInsightLoadFailed()
-                return lemonToast.error(
-                    'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
-                )
-            }
-
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
             try {
@@ -422,60 +406,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        setNewExperimentInsight: async ({ filters }) => {
-            let newInsightFilters
-            const aggregationGroupTypeIndex = values.experiment.parameters?.aggregation_group_type_index
-            if (filters?.insight === InsightType.TRENDS) {
-                const groupAggregation =
-                    aggregationGroupTypeIndex !== undefined
-                        ? { math: 'unique_group', math_group_type_index: aggregationGroupTypeIndex }
-                        : {}
-                const eventAddition =
-                    filters?.actions || filters?.events
-                        ? {}
-                        : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.TRENDS,
-                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    ...eventAddition,
-                    ...filters,
-                })
-            } else {
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.FUNNELS,
-                    funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    layout: FunnelLayout.horizontal,
-                    aggregation_group_type_index: aggregationGroupTypeIndex,
-                    ...filters,
-                })
-            }
-
-            // This allows switching between insight types. It's necessary as `updateQuerySource` merges
-            // the new query with any existing query and that causes validation problems when there are
-            // unsupported properties in the now merged query.
-            const newQuery = filtersToQueryNode(newInsightFilters)
-            if (newInsightFilters?.insight === InsightType.FUNNELS) {
-                ;(newQuery as TrendsQuery).trendsFilter = undefined
-            } else {
-                ;(newQuery as FunnelsQuery).funnelsFilter = undefined
-            }
-
-            // TRICKY: We always know what the group type index should be for funnel queries, so we don't care
-            // what the previous value was. Hence, instead of a partial update with `updateQuerySource`, we always
-            // explicitly set it to what it should be
-            if (isFunnelsQuery(newQuery)) {
-                newQuery.aggregation_group_type_index = aggregationGroupTypeIndex
-            }
-
-            actions.updateQuerySource(newQuery)
-        },
-        // sync form value `filters` with query
-        setQuery: ({ query }) => {
-            actions.setExperiment({ filters: queryNodeToFilter((query as InsightVizNode).source) })
-        },
         setExperimentExposureInsight: async ({ filters }) => {
             const newInsightFilters = cleanFilters({
                 insight: InsightType.TRENDS,
@@ -497,8 +427,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
-
-            actions.setNewExperimentInsight(experiment?.filters)
 
             if (experiment?.start_date) {
                 actions.loadExperimentResults()
@@ -535,12 +463,6 @@ export const experimentLogic = kea<experimentLogicType>([
             })
 
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
-            if (!minimumDetectableEffect) {
-                eventUsageLogic.actions.reportExperimentInsightLoadFailed()
-                return lemonToast.error(
-                    'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
-                )
-            }
 
             const filtersToUpdate = { ...filters }
             delete filtersToUpdate.properties
@@ -685,9 +607,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.setFlagImplementationWarning(false)
                 }
             }
-        },
-        openExperimentGoalModal: async () => {
-            actions.setNewExperimentInsight(values.experiment?.filters)
         },
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
@@ -1556,7 +1475,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.resetExperiment()
-                    actions.setNewExperimentInsight()
                 }
 
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
@@ -1574,4 +1492,52 @@ function percentageDistribution(variantCount: number): number[] {
     const percentages = new Array(variantCount).fill(percentageRounded)
     percentages[variantCount - 1] = percentageRounded - delta
     return percentages
+}
+
+export function getDefaultFilters(insightType: InsightType, aggregationGroupTypeIndex: number | undefined): FilterType {
+    let newInsightFilters
+    if (insightType === InsightType.TRENDS) {
+        const groupAggregation =
+            aggregationGroupTypeIndex !== undefined
+                ? { math: 'unique_group', math_group_type_index: aggregationGroupTypeIndex }
+                : {}
+
+        newInsightFilters = cleanFilters({
+            insight: InsightType.TRENDS,
+            events: [{ ...getDefaultEvent(), ...groupAggregation }],
+            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+            display: ChartDisplayType.ActionsLineGraph,
+            entity: EntityTypes.EVENTS,
+            filter_test_accounts: true,
+        } as TrendsFilterType)
+    } else {
+        newInsightFilters = cleanFilters({
+            insight: InsightType.FUNNELS,
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: 0,
+                },
+                {
+                    id: '$pageview',
+                    name: 'Pageview',
+                    type: 'events',
+                    order: 1,
+                },
+            ],
+            funnel_viz_type: FunnelVizType.Steps,
+            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+            layout: FunnelLayout.horizontal,
+            aggregation_group_type_index: aggregationGroupTypeIndex,
+            funnel_window_interval: 14,
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+            filter_test_accounts: true,
+        })
+    }
+
+    return newInsightFilters
 }

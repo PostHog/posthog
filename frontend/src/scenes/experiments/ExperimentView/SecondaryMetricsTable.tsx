@@ -99,11 +99,7 @@ export function SecondaryMetricsModal({
                         <LemonInput data-attr="secondary-metric-name" />
                     </LemonField>
                     <LemonField name="filters" label="Query">
-                        <MetricSelector
-                            dashboardItemId={SECONDARY_METRIC_INSIGHT_ID}
-                            setPreviewInsight={setPreviewInsight}
-                            showDateRangeBanner={isExperimentRunning}
-                        />
+                        <MetricSelector />
                     </LemonField>
                 </Form>
             )}

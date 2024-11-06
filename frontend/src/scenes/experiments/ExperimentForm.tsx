@@ -17,11 +17,19 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightType } from '~/types'
+import { FilterType, InsightType } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from './constants'
-import { experimentLogic } from './experimentLogic'
-import { ExperimentInsightCreator } from './MetricSelector'
+import { experimentLogic, getDefaultFilters } from './experimentLogic'
+import {
+    FunnelAggregationSelect,
+    FunnelAttributionSelect,
+    FunnelConversionWindowFilter,
+    InsightTestAccountFilter,
+} from './MetricSelector'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 const StepInfo = (): JSX.Element => {
     const { experiment, featureFlags } = useValues(experimentLogic)
@@ -158,7 +166,8 @@ const StepInfo = (): JSX.Element => {
 
 const StepGoal = (): JSX.Element => {
     const { experiment, experimentInsightType, groupTypes, aggregationLabel } = useValues(experimentLogic)
-    const { setExperiment, setNewExperimentInsight, createExperiment } = useActions(experimentLogic)
+    const { setExperiment, createExperiment } = useActions(experimentLogic)
+    const isTrends = experimentInsightType === InsightType.TRENDS
 
     // insightLogic
     const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
@@ -188,12 +197,12 @@ const StepGoal = (): JSX.Element => {
                                 const groupTypeIndex = rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
 
                                 setExperiment({
+                                    filters: getDefaultFilters(experimentInsightType, groupTypeIndex),
                                     parameters: {
                                         ...experiment.parameters,
                                         aggregation_group_type_index: groupTypeIndex ?? undefined,
                                     },
                                 })
-                                setNewExperimentInsight()
                             }}
                             options={[
                                 { value: -1, label: 'Persons' },
@@ -215,12 +224,15 @@ const StepGoal = (): JSX.Element => {
                         <LemonRadio
                             className="space-y-2 -mt-2"
                             value={experimentInsightType}
-                            onChange={(val) => {
-                                val &&
-                                    setNewExperimentInsight({
-                                        insight: val,
-                                        properties: experiment?.filters?.properties,
-                                    })
+                            onChange={(newInsightType) => {
+                                // HANDLE FLAG
+
+                                setExperiment({
+                                    filters: getDefaultFilters(
+                                        newInsightType,
+                                        experiment.parameters.aggregation_group_type_index
+                                    ),
+                                })
                             }}
                             options={[
                                 {
@@ -261,7 +273,81 @@ const StepGoal = (): JSX.Element => {
                         data-attr="experiment-goal-input"
                         className="p-4 border rounded mt-4 w-full lg:w-3/4 bg-bg-light"
                     >
-                        <ExperimentInsightCreator insightProps={insightProps} />
+                        <>
+                            <ActionFilter
+                                bordered
+                                filters={experiment.filters}
+                                setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+                                    // HANDLE FLAG
+
+                                    if (actions?.length) {
+                                        setExperiment({
+                                            filters: {
+                                                ...experiment.filters,
+                                                actions,
+                                                events: undefined,
+                                                data_warehouse: undefined,
+                                            },
+                                        })
+                                    } else if (events?.length) {
+                                        setExperiment({
+                                            filters: {
+                                                ...experiment.filters,
+                                                events,
+                                                actions: undefined,
+                                                data_warehouse: undefined,
+                                            },
+                                        })
+                                    } else if (data_warehouse?.length) {
+                                        setExperiment({
+                                            filters: {
+                                                ...experiment.filters,
+                                                data_warehouse,
+                                                actions: undefined,
+                                                events: undefined,
+                                            },
+                                        })
+                                    }
+                                }}
+                                typeKey="experiment-metric"
+                                mathAvailability={isTrends ? undefined : MathAvailability.None}
+                                buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}
+                                showSeriesIndicator={true}
+                                entitiesLimit={isTrends ? 1 : undefined}
+                                seriesIndicatorType={isTrends ? undefined : 'numeric'}
+                                sortable={isTrends ? undefined : true}
+                                showNestedArrow={isTrends ? undefined : true}
+                                showNumericalPropsOnly={isTrends}
+                                actionsTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.Events,
+                                    TaxonomicFilterGroupType.Actions,
+                                    TaxonomicFilterGroupType.DataWarehouse,
+                                ]}
+                                propertiesTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                    TaxonomicFilterGroupType.HogQLExpression,
+                                    TaxonomicFilterGroupType.DataWarehouseProperties,
+                                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                ]}
+                            />
+                            <div className="mt-4 space-y-4">
+                                {experimentInsightType === InsightType.FUNNELS && (
+                                    <>
+                                        <div className="flex items-center w-full gap-2">
+                                            <span>Aggregating by</span>
+                                            <FunnelAggregationSelect />
+                                        </div>
+                                        <FunnelConversionWindowFilter />
+                                        <FunnelAttributionSelect />
+                                    </>
+                                )}
+                                <InsightTestAccountFilter />
+                            </div>
+                        </>
                     </div>
                 </div>
                 <div className="pb-4">
@@ -323,7 +409,7 @@ export function ExperimentForm(): JSX.Element {
     const CurrentStepComponent = (currentFormStep && stepComponents[currentFormStep]) || <StepInfo />
 
     useEffect(() => {
-        setCurrentFormStep(0)
+        setCurrentFormStep(1)
     }, [])
 
     return (
