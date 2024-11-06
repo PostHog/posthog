@@ -162,9 +162,9 @@ export function Products(): JSX.Element {
                                     key={productKey}
                                     productKey={productKey}
                                     onClick={() => {
-                                        toggleSelectedProduct(productKey)
+                                        toggleSelectedProduct(productKey as ProductKey)
                                     }}
-                                    selected={selectedProducts.includes(productKey)}
+                                    selected={selectedProducts.includes(productKey as ProductKey)}
                                 />
                             ))}
                         </div>
