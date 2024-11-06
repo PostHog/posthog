@@ -2151,6 +2151,12 @@ export enum CustomChannelOperator {
     IsNotSet = 'is_not_set',
 }
 
+// field is limited to campaign: ast.Expr,
+// medium: ast.Expr,
+// source: ast.Expr,
+// referring_domain: ast.Expr,
+// gclid: ast.Expr,
+// gad_source: ast.Expr,
 export type CustomChannelCondition = {
     field: string
     value: string

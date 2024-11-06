@@ -1,6 +1,12 @@
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.parser import parse_expr
+from posthog.schema import (
+    CustomChannelCondition,
+    CustomChannelOperator,
+    CustomChannelRule,
+    FilterLogicalOperator,
+)
 
 
 # Create a virtual field that categories the type of channel that a user was acquired through. Use GA4's definitions as
@@ -77,21 +83,40 @@ def create_channel_type_expr(
     # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
     # update either.
 
-    # customRule = CustomChannelRule(
-    #     conditions= [CustomChannelCondition()]
-    #     showLegend=filter.get("show_legend"),
-    #     showValuesOnSeries=filter.get("show_values_on_series"),
-    # )
+    # todo we want to have multiple customRules
+    customRule = CustomChannelRule(
+        conditions=[CustomChannelCondition(field="source", op=CustomChannelOperator.EXACT, value="google")],
+        logicalOperator=FilterLogicalOperator.AND_,
+        value="Google Foobar",
+    )
 
-    customChannelTypeLogic = """
-if(
-    match({source}, 'google'),
-    'Google FooBar',
-    NULL
-)
-"""
+    # for each custom rule:
+    # construct the operation a la _expr_to_compare_op
 
-    defaultChannelTypeLogic = """
+    # todo iterate over conditions and create the compare operations dynamically
+    foo = ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=source,
+        right=ast.Constant(value="google"),
+    )
+
+    bar = ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Constant(value="google"),
+        right=ast.Constant(value="google"),
+    )
+
+    customChannelTypeLogic = ast.Call(
+        name="multiif",
+        args=[
+            ast.And(exprs=[foo, bar]),
+            ast.Constant(value=customRule.value),
+            ast.Constant(value=None),
+        ],
+    )
+
+    return parse_expr(
+        """coalesce({customChannelTypeLogic},
 multiIf(
     match({campaign}, 'cross-network'),
     'Cross Network',
@@ -154,17 +179,7 @@ multiIf(
             'Unknown'
         )
     )
-)"""
-
-    channelTypeLogic = f"""
-coalesce(
-    {customChannelTypeLogic},
-    {defaultChannelTypeLogic}
-)
-"""
-
-    return parse_expr(
-        channelTypeLogic,
+))""",
         start=None,
         placeholders={
             "campaign": wrap_with_lower(wrap_with_null_if_empty(campaign)),
@@ -173,6 +188,7 @@ coalesce(
             "referring_domain": referring_domain,
             "gclid": wrap_with_null_if_empty(gclid),
             "gad_source": wrap_with_null_if_empty(gad_source),
+            "customChannelTypeLogic": customChannelTypeLogic,
         },
     )
 
