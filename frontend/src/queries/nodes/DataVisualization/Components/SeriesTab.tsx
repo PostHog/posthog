@@ -65,7 +65,7 @@ export const SeriesTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col w-full">
-            <LemonLabel>X-axis</LemonLabel>
+            <LemonLabel className="mb-1">X-axis</LemonLabel>
             <LemonSelect
                 className="w-full"
                 value={xData !== null ? xData.column.name : 'None'}
@@ -91,7 +91,7 @@ export const SeriesTab = (): JSX.Element => {
             )}
             {showSeriesBreakout && <SeriesBreakoutSelector />}
 
-            <LemonLabel className="mt-4">Y-axis</LemonLabel>
+            <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
@@ -111,8 +111,14 @@ export const SeriesTab = (): JSX.Element => {
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number }): JSX.Element => {
-    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
-        useValues(dataVisualizationLogic)
+    const {
+        columns,
+        numericalColumns,
+        responseLoading,
+        dataVisualizationProps,
+        showTableSettings,
+        selectedSeriesBreakoutColumn,
+    } = useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
 
     const seriesLogicProps: YSeriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
@@ -129,7 +135,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {!showTableSettings && (
+                {!showTableSettings && !selectedSeriesBreakoutColumn && (
                     <SeriesGlyph
                         style={{
                             borderColor: seriesColor,
@@ -328,7 +334,7 @@ const Y_SERIES_SETTINGS_TABS = {
 export const SeriesBreakoutSelector = (): JSX.Element => {
     const { columns, responseLoading, selectedXAxis, selectedSeriesBreakoutColumn, seriesBreakoutData } =
         useValues(dataVisualizationLogic)
-    const { addSeriesBreakout } = useActions(dataVisualizationLogic)
+    const { addSeriesBreakout, deleteSeriesBreakout } = useActions(dataVisualizationLogic)
 
     const seriesBreakoutOptions = columns
         .map(({ name, type }) => ({
@@ -346,21 +352,37 @@ export const SeriesBreakoutSelector = (): JSX.Element => {
 
     return (
         <>
-            <LemonSelect
-                className="w-full mt-1"
-                value={selectedSeriesBreakoutColumn !== null ? selectedSeriesBreakoutColumn : 'None'}
-                options={seriesBreakoutOptions}
-                disabledReason={responseLoading ? 'Query loading...' : undefined}
-                onChange={(value) => {
-                    const column = columns.find((n) => n.name === value)
-                    if (column) {
-                        addSeriesBreakout(column.name)
-                    }
-                }}
-            />
-            {seriesBreakoutData.seriesData.map((series, index) => (
-                <BreakoutSeries series={series} index={index} key={`${name}-${index}`} />
-            ))}
+            <div className="flex gap-1 my-1">
+                <LemonSelect
+                    className="grow"
+                    value={selectedSeriesBreakoutColumn !== null ? selectedSeriesBreakoutColumn : 'None'}
+                    options={seriesBreakoutOptions}
+                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    onChange={(value) => {
+                        const column = columns.find((n) => n.name === value)
+                        if (column) {
+                            addSeriesBreakout(column.name)
+                        }
+                    }}
+                />
+                <LemonButton
+                    key="delete"
+                    icon={<IconTrash />}
+                    status="danger"
+                    title="Delete series breakout"
+                    noPadding
+                    onClick={() => deleteSeriesBreakout()}
+                />
+            </div>
+            <div className="ml-4 mt-2">
+                {seriesBreakoutData.error ? (
+                    <div className="text-danger font-bold mt-1">{seriesBreakoutData.error}</div>
+                ) : (
+                    seriesBreakoutData.seriesData.map((series, index) => (
+                        <BreakoutSeries series={series} index={index} key={`${series.name}-${index}`} />
+                    ))
+                )}
+            </div>
         </>
     )
 }
@@ -370,7 +392,7 @@ const BreakoutSeries = ({ series, index }: { series: AxisBreakoutSeries<number>;
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
-        <div className="flex gap-1 mb-1">
+        <div className="flex gap-1 mb-2">
             <div className="flex gap-2">
                 <SeriesGlyph
                     style={{

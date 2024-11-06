@@ -107,7 +107,7 @@ export const LineGraph = (): JSX.Element => {
         // we expect either x and y data or series breakout data
         let ySeriesData
         let xSeriesData
-        if (seriesBreakoutData) {
+        if (seriesBreakoutData.xData.data.length && seriesBreakoutData.seriesData.length) {
             ySeriesData = seriesBreakoutData.seriesData
             xSeriesData = seriesBreakoutData.xData
         } else if (xData && yData) {

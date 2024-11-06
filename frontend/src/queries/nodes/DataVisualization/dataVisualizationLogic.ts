@@ -61,34 +61,6 @@ export interface AxisSeries<T> {
     settings?: AxisSeriesSettings
 }
 
-export interface AxisBreakoutSeries<T> {
-    name: string
-    data: T[]
-    settings?: AxisSeriesSettings
-}
-
-export interface BreakoutSeriesData<T> {
-    xData: AxisSeries<string>
-    seriesData: AxisBreakoutSeries<T>[]
-    isUnaggregated?: boolean
-}
-
-export const EmptyBreakoutSeries: BreakoutSeriesData<number> = {
-    xData: {
-        column: {
-            name: 'None',
-            type: {
-                name: 'INTEGER',
-                isNumerical: false,
-            },
-            label: 'None',
-            dataIndex: -1,
-        },
-        data: [],
-    },
-    seriesData: [],
-}
-
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
@@ -125,6 +97,42 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
         suffix: '',
     },
 })
+
+export interface AxisBreakoutSeries<T> {
+    name: string
+    data: T[]
+    settings?: AxisSeriesSettings
+}
+
+export interface BreakoutSeriesData<T> {
+    xData: AxisSeries<string>
+    seriesData: AxisBreakoutSeries<T>[]
+    isUnaggregated?: boolean
+    error?: string
+}
+
+export const EmptyBreakoutSeries: BreakoutSeriesData<number> = {
+    xData: {
+        column: {
+            name: 'None',
+            type: {
+                name: 'INTEGER',
+                isNumerical: false,
+            },
+            label: 'None',
+            dataIndex: -1,
+        },
+        data: [],
+    },
+    seriesData: [],
+}
+
+const createEmptyBreakoutSeriesWithError = (error: string): BreakoutSeriesData<number> => {
+    return {
+        ...EmptyBreakoutSeries,
+        error,
+    }
+}
 
 export const formatDataWithSettings = (
     data: number | string | null | object,
@@ -760,7 +768,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 // shouldn't be possible to have more than 1 ySeries with a breakout
                 if (ySeries.length > 1) {
-                    console.error('More than 1 ySeries with a breakout column')
                     return EmptyBreakoutSeries
                 }
 
@@ -780,6 +787,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 const breakoutColumn = columns.find((n) => n.name === selectedBreakoutColumn)
                 if (!breakoutColumn) {
                     return EmptyBreakoutSeries
+                }
+
+                if (breakoutColumnValues.length > 50) {
+                    return createEmptyBreakoutSeriesWithError('Too many breakout values (max 50)')
                 }
 
                 const data: any[] = response?.['results'] ?? response?.['result'] ?? []
