@@ -14,7 +14,7 @@ import {
     ResultsHeader,
 } from './components'
 import { DataCollection } from './DataCollection'
-import { DistributionTable } from './DistributionTable'
+import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
 import { Info } from './Info'
 import { Overview } from './Overview'
@@ -123,6 +123,7 @@ export function ExperimentView(): JSX.Element {
                         )}
                         <ExperimentGoalModal experimentId={experimentId} />
                         <ExperimentExposureModal experimentId={experimentId} />
+                        <DistributionModal experimentId={experimentId} />
                     </>
                 )}
             </div>
