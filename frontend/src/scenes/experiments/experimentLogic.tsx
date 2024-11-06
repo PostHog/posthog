@@ -184,8 +184,6 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentCollectionGoalModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
-        setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
-        moveToNextFormStep: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
     }),
     reducers({
@@ -338,16 +336,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 updateExperiment: () => false,
             },
         ],
-        currentFormStep: [
-            0,
-            {
-                setCurrentFormStep: (_, { stepIndex }) => stepIndex,
-            },
-        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+
+            actions.touchExperimentField('name')
+            actions.touchExperimentField('feature_flag_key')
+            values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
+                actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
+            )
+
+            if (hasFormErrors(values.experimentErrors)) {
+                return
+            }
 
             // Minimum Detectable Effect is calculated based on a loaded insight
             // Terminate if the insight did not manage to load in time
@@ -691,20 +693,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
-        },
-        moveToNextFormStep: async () => {
-            const { currentFormStep } = values
-            if (currentFormStep === 0) {
-                actions.touchExperimentField('name')
-                actions.touchExperimentField('feature_flag_key')
-                values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
-                    actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
-                )
-            }
-
-            if (!hasFormErrors(values.experimentErrors)) {
-                actions.setCurrentFormStep(currentFormStep + 1)
-            }
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
             if (exposureCohort && exposureCohort.id !== 'new') {
