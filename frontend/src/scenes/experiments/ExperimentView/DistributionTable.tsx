@@ -65,8 +65,17 @@ export function DistributionTable(): JSX.Element {
             title: 'Screenshot',
             render: function Key(_, item): JSX.Element {
                 return (
-                    <div className="my-2">
-                        <VariantScreenshot variantKey={item.key} rolloutPercentage={item.rollout_percentage} />
+                    <div className="my-2 grid grid-cols-2 content-center">
+                        <VariantScreenshot
+                            variantKey={item.key}
+                            rolloutPercentage={item.rollout_percentage}
+                            mediaTypeKey="desktop"
+                        />
+                        <VariantScreenshot
+                            variantKey={item.key}
+                            rolloutPercentage={item.rollout_percentage}
+                            mediaTypeKey="mobile"
+                        />
                     </div>
                 )
             },

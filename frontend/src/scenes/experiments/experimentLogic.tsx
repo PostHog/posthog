@@ -186,7 +186,9 @@ export const experimentLogic = kea<experimentLogicType>([
         closeShipVariantModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
-        updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
+        updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, Record<string, string>>) => ({
+            variantPreviewMediaIds,
+        }),
     }),
     reducers({
         experiment: [

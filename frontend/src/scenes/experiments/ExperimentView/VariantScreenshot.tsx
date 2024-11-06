@@ -10,14 +10,18 @@ import { VariantTag } from './components'
 export function VariantScreenshot({
     variantKey,
     rolloutPercentage,
+    mediaTypeKey,
 }: {
     variantKey: string
     rolloutPercentage: number
+    mediaTypeKey: string
 }): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { updateExperimentVariantImages, reportExperimentVariantScreenshotUploaded } = useActions(experimentLogic)
 
-    const [mediaId, setMediaId] = useState(experiment.parameters?.variant_screenshot_media_ids?.[variantKey] || null)
+    const [mediaId, setMediaId] = useState(
+        experiment.parameters?.variant_screenshot_media_ids?.[variantKey]?.[mediaTypeKey] || null
+    )
     const [isLoadingImage, setIsLoadingImage] = useState(true)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -27,8 +31,12 @@ export function VariantScreenshot({
             if (id) {
                 const updatedVariantImages = {
                     ...experiment.parameters?.variant_screenshot_media_ids,
-                    [variantKey]: id,
+                    [variantKey]: {
+                        ...experiment.parameters?.variant_screenshot_media_ids?.[variantKey],
+                        [mediaTypeKey]: id,
+                    },
                 }
+
                 updateExperimentVariantImages(updatedVariantImages)
                 reportExperimentVariantScreenshotUploaded(experiment.id)
             }
@@ -50,7 +58,7 @@ export function VariantScreenshot({
                     callToAction={
                         <>
                             <IconUpload className="text-2xl" />
-                            <span>Upload a preview of this variant's UI</span>
+                            <span>Upload a preview of this variant's {mediaTypeKey} UI</span>
                         </>
                     }
                 />
@@ -76,7 +84,7 @@ export function VariantScreenshot({
                                         const updatedVariantImages = {
                                             ...experiment.parameters?.variant_screenshot_media_ids,
                                         }
-                                        delete updatedVariantImages[variantKey]
+                                        delete updatedVariantImages[variantKey][mediaTypeKey]
                                         updateExperimentVariantImages(updatedVariantImages)
                                     }}
                                     size="small"
