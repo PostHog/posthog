@@ -18,6 +18,7 @@ mypy-extensions==1.0.0
 datamodel-code-generator==0.26.1
 djangorestframework-stubs~=3.14.5
 django-stubs==5.0.4
+django-linear-migrations==2.16.*
 Faker==17.5.0
 fakeredis[lua]==2.23.3
 freezegun==1.2.2

@@ -42,10 +42,9 @@ impl RawJSFrame {
     where
         C: SymbolCatalog<Url, SourceMap>,
     {
-        let store = catalog.get();
         let url = self.source_url()?;
 
-        let sourcemap = store.fetch(team_id, url).await?;
+        let sourcemap = catalog.lookup(team_id, url).await?;
         let Some(token) = sourcemap.lookup_token(self.line, self.column) else {
             return Err(
                 JsResolveErr::TokenNotFound(self.fn_name.clone(), self.line, self.column).into(),
@@ -127,7 +126,7 @@ impl From<(&RawJSFrame, JsResolveErr)> for Frame {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(raw_frame.line),
             column: Some(raw_frame.column),
-            source: raw_frame.source_url.clone(),
+            source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
             in_app: raw_frame.in_app,
             resolved_name: None,
             lang: "javascript".to_string(),
