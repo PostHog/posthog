@@ -16,13 +16,7 @@ class ErrorTrackingIssue(UUIDModel):
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    fingerprint = models.TextField(null=False, blank=False)
     status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team_on_issue")
-        ]
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):
