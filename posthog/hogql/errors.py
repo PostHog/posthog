@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 
 class BaseHogQLError(Exception, ABC):
+    message: str
     start: Optional[int]
     end: Optional[int]
 
