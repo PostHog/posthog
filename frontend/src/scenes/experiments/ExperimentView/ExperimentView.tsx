@@ -18,7 +18,7 @@ import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
 import { Info } from './Info'
 import { Overview } from './Overview'
-import { ReleaseConditionsTable } from './ReleaseConditionsTable'
+import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
@@ -124,6 +124,7 @@ export function ExperimentView(): JSX.Element {
                         <ExperimentGoalModal experimentId={experimentId} />
                         <ExperimentExposureModal experimentId={experimentId} />
                         <DistributionModal experimentId={experimentId} />
+                        <ReleaseConditionsModal experimentId={experimentId} />
                     </>
                 )}
             </div>

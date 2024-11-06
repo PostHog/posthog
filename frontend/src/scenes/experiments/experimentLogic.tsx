@@ -186,6 +186,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeShipVariantModal: true,
         openDistributionModal: true,
         closeDistributionModal: true,
+        openReleaseConditionsModal: true,
+        closeReleaseConditionsModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
@@ -338,6 +340,13 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openDistributionModal: () => true,
                 closeDistributionModal: () => false,
+            },
+        ],
+        isReleaseConditionsModalOpen: [
+            false,
+            {
+                openReleaseConditionsModal: () => true,
+                closeReleaseConditionsModal: () => false,
             },
         ],
         experimentValuesChangedLocally: [
