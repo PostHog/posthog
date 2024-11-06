@@ -76,6 +76,85 @@
                 }
             ]
         },
+        "AITrendsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "integer"
+                },
+                "breakdownFilter": {
+                    "additionalProperties": false,
+                    "description": "Breakdown of the events and actions",
+                    "properties": {
+                        "breakdown_hide_other_aggregation": {
+                            "type": ["boolean", "null"]
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "type": "integer"
+                        },
+                        "breakdown_limit": {
+                            "type": "integer"
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "maxLength": 3,
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/InsightDateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "default": "day",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "TrendsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "$ref": "#/definitions/AIEventsNode"
+                    },
+                    "type": "array"
+                },
+                "trendsFilter": {
+                    "$ref": "#/definitions/TrendsFilter",
+                    "description": "Properties specific to the trends insight"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
         "ActionConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -5414,85 +5493,6 @@
                 }
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
-            "type": "object"
-        },
-        "ExperimentalAITrendsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
-                },
-                "breakdownFilter": {
-                    "additionalProperties": false,
-                    "description": "Breakdown of the events and actions",
-                    "properties": {
-                        "breakdown_hide_other_aggregation": {
-                            "type": ["boolean", "null"]
-                        },
-                        "breakdown_histogram_bin_count": {
-                            "type": "integer"
-                        },
-                        "breakdown_limit": {
-                            "type": "integer"
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "maxLength": 3,
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
-                },
-                "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter",
-                    "description": "Compare to date range"
-                },
-                "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
-                    "description": "Date range for the query"
-                },
-                "filterTestAccounts": {
-                    "default": false,
-                    "description": "Exclude internal and test users by applying the respective filters",
-                    "type": "boolean"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType",
-                    "default": "day",
-                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
-                },
-                "kind": {
-                    "const": "TrendsQuery",
-                    "type": "string"
-                },
-                "properties": {
-                    "default": [],
-                    "description": "Property filters for all series",
-                    "items": {
-                        "$ref": "#/definitions/AIPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "samplingFactor": {
-                    "description": "Sampling rate",
-                    "type": ["number", "null"]
-                },
-                "series": {
-                    "description": "Events and actions to include",
-                    "items": {
-                        "$ref": "#/definitions/AIEventsNode"
-                    },
-                    "type": "array"
-                },
-                "trendsFilter": {
-                    "$ref": "#/definitions/TrendsFilter",
-                    "description": "Properties specific to the trends insight"
-                }
-            },
-            "required": ["kind", "series"],
             "type": "object"
         },
         "FailureMessage": {
@@ -12009,7 +12009,7 @@
             "additionalProperties": false,
             "properties": {
                 "answer": {
-                    "$ref": "#/definitions/ExperimentalAITrendsQuery"
+                    "$ref": "#/definitions/AITrendsQuery"
                 },
                 "plan": {
                     "type": "string"

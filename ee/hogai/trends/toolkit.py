@@ -4,7 +4,7 @@ from typing import Any
 
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from posthog.schema import (
-    ExperimentalAITrendsQuery,
+    AITrendsQuery,
 )
 
 
@@ -77,7 +77,7 @@ class GenerateTrendTool:
             return item
 
     def _flatten_schema(self):
-        schema = ExperimentalAITrendsQuery.model_json_schema()
+        schema = AITrendsQuery.model_json_schema()
 
         # Patch `numeric` types
         schema["$defs"]["MathGroupTypeIndex"]["type"] = "number"

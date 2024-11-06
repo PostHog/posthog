@@ -11,7 +11,7 @@ from ee.hogai.trends.nodes import (
 )
 from ee.hogai.trends.utils import GenerateTrendOutputModel
 from posthog.schema import (
-    ExperimentalAITrendsQuery,
+    AITrendsQuery,
     FailureMessage,
     HumanMessage,
     VisualizationMessage,
@@ -22,7 +22,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 @override_settings(IN_UNIT_TESTING=True)
 class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
-        self.schema = ExperimentalAITrendsQuery(series=[])
+        self.schema = AITrendsQuery(series=[])
 
     def test_node_runs(self):
         node = TrendsGeneratorNode(self.team)

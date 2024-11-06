@@ -1743,7 +1743,7 @@ class Breakdown(BaseModel):
     type: Optional[MultipleBreakdownType] = None
 
 
-class BreakdownFilter(BaseModel):
+class BreakdownFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2753,16 +2753,6 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
-
-
-class BreakdownFilter1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_histogram_bin_count: Optional[int] = None
-    breakdown_limit: Optional[int] = None
-    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
 
 
 class FeaturePropertyFilter(BaseModel):
@@ -4028,6 +4018,16 @@ class WebTopClicksQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
+class BreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_histogram_bin_count: Optional[int] = None
+    breakdown_limit: Optional[int] = None
+    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
+
+
 class ActorsPropertyTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4963,6 +4963,38 @@ class AIEventsNode(BaseModel):
     response: Optional[dict[str, Any]] = None
 
 
+class AITrendsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
+    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    interval: Optional[IntervalType] = Field(
+        default=IntervalType.DAY,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+    )
+    kind: Literal["TrendsQuery"] = "TrendsQuery"
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    series: list[AIEventsNode] = Field(..., description="Events and actions to include")
+    trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+
+
 class ActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5062,38 +5094,6 @@ class DatabaseSchemaViewTable(BaseModel):
     name: str
     query: HogQLQuery
     type: Literal["view"] = "view"
-
-
-class ExperimentalAITrendsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events and actions")
-    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    interval: Optional[IntervalType] = Field(
-        default=IntervalType.DAY,
-        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
-    )
-    kind: Literal["TrendsQuery"] = "TrendsQuery"
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = Field(default=[], description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[AIEventsNode] = Field(..., description="Events and actions to include")
-    trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
 class FunnelsFilter(BaseModel):
@@ -5287,7 +5287,7 @@ class TrendsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events and actions")
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -5335,7 +5335,7 @@ class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[ExperimentalAITrendsQuery] = None
+    answer: Optional[AITrendsQuery] = None
     plan: Optional[str] = None
     reasoning_steps: Optional[list[str]] = None
     type: Literal["ai/viz"] = "ai/viz"
@@ -5493,7 +5493,7 @@ class FunnelsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"

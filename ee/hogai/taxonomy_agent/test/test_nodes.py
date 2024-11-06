@@ -13,8 +13,8 @@ from ee.hogai.taxonomy_agent.nodes import (
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from ee.hogai.utils import AssistantState
 from posthog.schema import (
+    AITrendsQuery,
     AssistantMessage,
-    ExperimentalAITrendsQuery,
     FailureMessage,
     HumanMessage,
     VisualizationMessage,
@@ -31,7 +31,7 @@ class TestToolkit(TaxonomyAgentToolkit):
 class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.schema = ExperimentalAITrendsQuery(series=[])
+        self.schema = AITrendsQuery(series=[])
 
     def _get_node(self):
         class Node(TaxonomyAgentPlannerNode):

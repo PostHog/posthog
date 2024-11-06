@@ -917,7 +917,7 @@ export interface AIEventsNode
     fixedProperties?: AIPropertyFilter[]
 }
 
-export interface ExperimentalAITrendsQuery {
+export interface AITrendsQuery {
     kind: NodeKind.TrendsQuery
     /**
      * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
@@ -2117,7 +2117,7 @@ export interface VisualizationMessage {
     type: AssistantMessageType.Visualization
     plan?: string
     reasoning_steps?: string[] | null
-    answer?: ExperimentalAITrendsQuery
+    answer?: AITrendsQuery
 }
 
 export interface FailureMessage {

@@ -1,7 +1,7 @@
 from langchain_core.messages import HumanMessage as LangchainHumanMessage
 
 from ee.hogai.utils import filter_visualization_conversation, merge_human_messages
-from posthog.schema import ExperimentalAITrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
+from posthog.schema import AITrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
 from posthog.test.base import BaseTest
 
 
@@ -24,7 +24,7 @@ class TestTrendsUtils(BaseTest):
                 HumanMessage(content="Text"),
                 FailureMessage(content="Error"),
                 HumanMessage(content="Text"),
-                VisualizationMessage(answer=ExperimentalAITrendsQuery(series=[]), plan="plan"),
+                VisualizationMessage(answer=AITrendsQuery(series=[]), plan="plan"),
                 HumanMessage(content="Text2"),
                 VisualizationMessage(answer=None, plan="plan"),
             ]
@@ -34,6 +34,4 @@ class TestTrendsUtils(BaseTest):
         self.assertEqual(
             human_messages, [LangchainHumanMessage(content="Text"), LangchainHumanMessage(content="Text2")]
         )
-        self.assertEqual(
-            visualization_messages, [VisualizationMessage(answer=ExperimentalAITrendsQuery(series=[]), plan="plan")]
-        )
+        self.assertEqual(visualization_messages, [VisualizationMessage(answer=AITrendsQuery(series=[]), plan="plan")])
