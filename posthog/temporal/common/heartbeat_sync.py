@@ -22,7 +22,7 @@ class HeartbeaterSync:
                 activity.heartbeat(*details)
                 self.log_debug("Heartbeat")
             except Exception as e:
-                self.log_debug(f"Heartbeat failed", exc_info=e)
+                self.log_debug(f"Heartbeat failed {e}", exc_info=e)
             stop_event.wait(interval)
 
     def __enter__(self):
