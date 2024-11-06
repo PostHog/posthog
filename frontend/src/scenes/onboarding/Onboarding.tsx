@@ -316,9 +316,22 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs
-                usersAction="loading flags & experiments"
+                usersAction="loading flags"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
-                subtitle="Choose the framework where you want to use feature flags and/or run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.INSTALL}
+            />
+        </OnboardingWrapper>
+    )
+}
+
+const ExperimentsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <SDKs
+                usersAction="loading experiments"
+                sdkInstructionMap={FeatureFlagsSDKInstructions}
+                subtitle="Choose the framework where you want to run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
@@ -351,6 +364,7 @@ export const onboardingViews = {
     [ProductKey.WEB_ANALYTICS]: WebAnalyticsOnboarding,
     [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
     [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+    [ProductKey.EXPERIMENTS]: ExperimentsOnboarding,
     [ProductKey.SURVEYS]: SurveysOnboarding,
     [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
 }

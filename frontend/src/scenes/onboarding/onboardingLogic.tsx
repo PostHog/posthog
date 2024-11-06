@@ -70,12 +70,20 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Replay,
     },
     [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags & Experiments',
+        name: 'Feature Flags',
         breadcrumbsName: 'Feature Flags',
         icon: 'IconToggle',
         iconColor: 'seagreen',
         url: urls.featureFlags(),
         scene: Scene.FeatureFlags,
+    },
+    [ProductKey.EXPERIMENTS]: {
+        name: 'Experiments',
+        breadcrumbsName: 'Experiments',
+        icon: 'IconTestTube',
+        iconColor: 'salmon',
+        url: urls.experiments(),
+        scene: Scene.Experiments,
     },
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
