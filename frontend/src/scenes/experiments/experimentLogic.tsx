@@ -187,6 +187,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
+        setTabKey: (tabKey: string) => ({ tabKey }),
     }),
     reducers({
         experiment: [
@@ -342,6 +343,12 @@ export const experimentLogic = kea<experimentLogicType>([
             0,
             {
                 setCurrentFormStep: (_, { stepIndex }) => stepIndex,
+            },
+        ],
+        tabKey: [
+            'results',
+            {
+                setTabKey: (_, { tabKey }) => tabKey,
             },
         ],
     }),

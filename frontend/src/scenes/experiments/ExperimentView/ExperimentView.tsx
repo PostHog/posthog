@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -23,10 +23,12 @@ import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export function ExperimentView(): JSX.Element {
-    const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
+    const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey } =
         useValues(experimentLogic)
 
-    const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
+    const { updateExperimentSecondaryMetrics, setTabKey } = useActions(experimentLogic)
+
+    const hasResultsInsight = experimentResults && experimentResults.insight
 
     return (
         <>
@@ -39,25 +41,14 @@ export function ExperimentView(): JSX.Element {
                         <Info />
                         {experimentResultsLoading ? (
                             <ExperimentLoadingAnimation />
-                        ) : experimentResults && experimentResults.insight ? (
-                            <>
-                                <div>
-                                    <Overview />
-                                    <LemonDivider className="mt-4" />
-                                </div>
-                                <div className="xl:flex">
-                                    <div className="w-1/2 pr-2">
-                                        <Goal />
-                                    </div>
-
-                                    <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
-                                        <DataCollection />
-                                    </div>
-                                </div>
-                                <Results />
-                            </>
                         ) : (
                             <>
+                                {hasResultsInsight ? (
+                                    <div>
+                                        <Overview />
+                                        <LemonDivider className="mt-4" />
+                                    </div>
+                                ) : null}
                                 <div className="xl:flex">
                                     <div className="w-1/2 pr-2">
                                         <Goal />
@@ -67,30 +58,66 @@ export function ExperimentView(): JSX.Element {
                                         <DataCollection />
                                     </div>
                                 </div>
-                                {experiment.type === 'web' ? (
-                                    <WebExperimentImplementationDetails experiment={experiment} />
-                                ) : (
-                                    <ExperimentImplementationDetails experiment={experiment} />
-                                )}
+                                <LemonTabs
+                                    activeKey={tabKey}
+                                    onChange={(key) => setTabKey(key)}
+                                    tabs={[
+                                        {
+                                            key: 'results',
+                                            label: 'Results',
+                                            content: (
+                                                <div className="space-y-8">
+                                                    {hasResultsInsight ? (
+                                                        <Results />
+                                                    ) : (
+                                                        <>
+                                                            {experiment.type === 'web' ? (
+                                                                <WebExperimentImplementationDetails
+                                                                    experiment={experiment}
+                                                                />
+                                                            ) : (
+                                                                <ExperimentImplementationDetails
+                                                                    experiment={experiment}
+                                                                />
+                                                            )}
 
-                                {experiment.start_date && (
-                                    <div>
-                                        <ResultsHeader />
-                                        <NoResultsEmptyState />
-                                    </div>
-                                )}
+                                                            {experiment.start_date && (
+                                                                <div>
+                                                                    <ResultsHeader />
+                                                                    <NoResultsEmptyState />
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                    <SecondaryMetricsTable
+                                                        experimentId={experiment.id}
+                                                        onMetricsChange={(metrics) =>
+                                                            updateExperimentSecondaryMetrics(metrics)
+                                                        }
+                                                        initialMetrics={experiment.secondary_metrics}
+                                                        defaultAggregationType={
+                                                            experiment.parameters?.aggregation_group_type_index
+                                                        }
+                                                    />
+                                                </div>
+                                            ),
+                                        },
+                                        {
+                                            key: 'variants',
+                                            label: 'Variants',
+                                            content: (
+                                                <div className="space-y-8">
+                                                    <ReleaseConditionsTable />
+                                                    <DistributionTable />
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
+                                />
                             </>
                         )}
                         <ExperimentGoalModal experimentId={experimentId} />
                         <ExperimentExposureModal experimentId={experimentId} />
-                        <SecondaryMetricsTable
-                            experimentId={experiment.id}
-                            onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
-                            initialMetrics={experiment.secondary_metrics}
-                            defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
-                        />
-                        <DistributionTable />
-                        <ReleaseConditionsTable />
                     </>
                 )}
             </div>
