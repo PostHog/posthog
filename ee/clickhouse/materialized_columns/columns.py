@@ -30,6 +30,43 @@ SHORT_TABLE_COLUMN_NAME = {
 }
 
 
+class EnterpriseMaterializedColumnBackend(MaterializedColumnBackend):
+    def get_materialized_columns(
+        self,
+        table: TablesWithMaterializedColumns,
+    ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+        rows = sync_execute(
+            """
+            SELECT comment, name
+            FROM system.columns
+            WHERE database = %(database)s
+            AND table = %(table)s
+            AND comment LIKE '%%column_materializer::%%'
+            AND comment not LIKE '%%column_materializer::elements_chain::%%'
+        """,
+            {"database": CLICKHOUSE_DATABASE, "table": table},
+        )
+        if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
+            return {_extract_property(comment): column_name for comment, column_name in rows}
+        else:
+            return {}
+
+    def materialize(
+        self,
+        table: TableWithProperties,
+        property: PropertyName,
+        column_name=None,
+        table_column: TableColumn = "properties",
+        create_minmax_index=False,
+    ) -> None:
+        return materialize(table, property, column_name, table_column, create_minmax_index)
+
+
+backend = EnterpriseMaterializedColumnBackend()
+
+get_materialized_columns_cached = cache_for(timedelta(minutes=15))(backend.get_materialized_columns)
+
+
 def materialize(
     table: TableWithProperties,
     property: PropertyName,
@@ -201,40 +238,3 @@ def _extract_property(comment: str) -> tuple[PropertyName, TableColumn]:
         return split_column[1], DEFAULT_TABLE_COLUMN
 
     return split_column[2], cast(TableColumn, split_column[1])
-
-
-class EnterpriseMaterializedColumnBackend(MaterializedColumnBackend):
-    def get_materialized_columns(
-        self,
-        table: TablesWithMaterializedColumns,
-    ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
-        rows = sync_execute(
-            """
-            SELECT comment, name
-            FROM system.columns
-            WHERE database = %(database)s
-            AND table = %(table)s
-            AND comment LIKE '%%column_materializer::%%'
-            AND comment not LIKE '%%column_materializer::elements_chain::%%'
-        """,
-            {"database": CLICKHOUSE_DATABASE, "table": table},
-        )
-        if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
-            return {_extract_property(comment): column_name for comment, column_name in rows}
-        else:
-            return {}
-
-    def materialize(
-        self,
-        table: TableWithProperties,
-        property: PropertyName,
-        column_name=None,
-        table_column: TableColumn = "properties",
-        create_minmax_index=False,
-    ) -> None:
-        return materialize(table, property, column_name, table_column, create_minmax_index)
-
-
-backend = EnterpriseMaterializedColumnBackend()
-
-get_materialized_columns_cached = cache_for(timedelta(minutes=15))(backend.get_materialized_columns)
