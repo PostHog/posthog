@@ -1740,8 +1740,8 @@ const api = {
         },
     },
     hog: {
-        async create(hog: string): Promise<HogCompileResponse> {
-            return await new ApiRequest().hog().create({ data: { hog } })
+        async create(hog: string, locals?: any[], inRepl?: boolean): Promise<HogCompileResponse> {
+            return await new ApiRequest().hog().create({ data: { hog, locals, in_repl: inRepl || false } })
         },
     },
     hogFunctions: {
@@ -2609,6 +2609,11 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         }
 
         const data = await getJSONOrNull(response)
+
+        if (response.status >= 400 && data && typeof data.error === 'string') {
+            throw new ApiError(data.error, response.status, data)
+        }
+
         throw new ApiError('Non-OK response', response.status, data)
     }
 
