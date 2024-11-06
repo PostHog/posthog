@@ -383,7 +383,7 @@ describe('EventPipelineRunner', () => {
                 ])
             })
 
-            it('runs the expected steps for heatmap_data', async () => {
+            it('runs the produceExceptionSymbolificationEventStep for team 2', async () => {
                 // deep copy the exception event
                 const team2ExceptionEvent = JSON.parse(JSON.stringify(exceptionEvent))
                 team2ExceptionEvent.team_id = 2
