@@ -110,13 +110,21 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        for i in range(101):
+        for i in range(501):
             with freeze_time(now + timedelta(minutes=i)):
                 _create_event(
                     event=f"event{i}",
                     distinct_id="person1",
                     team=self.team,
                 )
+
+        flush_persons_and_events()
+
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
+        response = runner.run()
+
+        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
+        self.assertEqual(len(response.results), 500)
 
     def test_events_not_useful_for_llm_ignored(self):
         _create_person(
@@ -156,6 +164,8 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"$browser": "Chrome", "$country": "US"},
             team=self.team,
         )
+
+        flush_persons_and_events()
 
         runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
         response = runner.run()

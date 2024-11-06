@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from functools import cached_property
 from textwrap import dedent
-from typing import Any, Literal, Optional, TypedDict, Union
+from typing import Any, Literal, Optional, TypedDict, Union, cast
 
 from pydantic import BaseModel, Field, RootModel
 
@@ -406,7 +406,7 @@ class TrendsAgentToolkit:
 
         sample_values: list[str | int | float]
         if property_name == "$channel_type":
-            sample_values = POSSIBLE_CHANNEL_TYPES.copy()
+            sample_values = cast(list[str | int | float], POSSIBLE_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
         elif (
