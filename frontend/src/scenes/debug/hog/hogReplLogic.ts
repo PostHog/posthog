@@ -1,7 +1,9 @@
 import { newHogCallable, newHogClosure, printHogStringOutput, VMState } from '@posthog/hogvm'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { execHogAsync } from 'lib/hog'
+import { urls } from 'scenes/urls'
 
 import type { hogReplLogicType } from './hogReplLogicType'
 
@@ -169,6 +171,33 @@ export const hogReplLogic = kea<hogReplLogicType>([
         runCurrentCode: () => {
             actions.runCode(values.currentCode)
             actions.setCurrentCode('')
+        },
+    })),
+    actionToUrl(({ values }) => {
+        const fn = (): [string, undefined, Record<string, any>, { replace: true }] | undefined => {
+            if (values.replChunks.length > 0) {
+                const code = [...values.replChunks.map((chunk) => chunk.code), values.currentCode]
+                    .filter((a) => !!a)
+                    .join('\n')
+                return [urls.debugHog(), undefined, { code }, { replace: true }]
+            }
+        }
+
+        return {
+            setReplChunks: fn,
+            runCode: fn,
+            setResult: fn,
+            setBytecode: fn,
+            print: fn,
+            setVMState: fn,
+            setCurrentCode: fn,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        [urls.debugHog()]: (_, __, { code }) => {
+            if (code && !values.currentCode && values.replChunks.length === 0) {
+                actions.setCurrentCode(code)
+            }
         },
     })),
 ])
