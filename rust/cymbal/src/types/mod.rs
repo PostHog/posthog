@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use frames::{Frame, RawFrame};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{digest::Update, Sha512};
 
-pub mod frames;
+use crate::frames::{Frame, RawFrame};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -97,7 +96,7 @@ mod test {
     use common_types::ClickHouseEvent;
     use serde_json::Error;
 
-    use crate::types::{frames::RawFrame, Stacktrace};
+    use crate::{frames::RawFrame, types::Stacktrace};
 
     use super::ErrProps;
 

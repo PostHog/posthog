@@ -21,7 +21,7 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
@@ -622,7 +622,18 @@ export function SavedInsights(): JSX.Element {
                     { key: SavedInsightsTabs.Yours, label: 'Your insights' },
                     { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
                     { key: SavedInsightsTabs.History, label: 'History' },
-                    ...(showAlerts ? [{ key: SavedInsightsTabs.Alerts, label: 'Alerts' }] : []),
+                    ...(showAlerts
+                        ? [
+                              {
+                                  key: SavedInsightsTabs.Alerts,
+                                  label: (
+                                      <div className="flex items-center gap-2">
+                                          Alerts <LemonTag type="highlight">ALPHA</LemonTag>
+                                      </div>
+                                  ),
+                              },
+                          ]
+                        : []),
                 ]}
             />
 

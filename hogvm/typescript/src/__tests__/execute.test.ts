@@ -115,9 +115,6 @@ describe('hogvm execute', () => {
         ).toThrow('Unsupported function call: invalidFunc')
         expect(() => execSync(['_h', op.INTEGER], options)).toThrow('Unexpected end of bytecode')
         expect(() => execSync(['_h', op.CALL_GLOBAL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
-        expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrow(
-            'Invalid bytecode. More than one value left on stack'
-        )
 
         expect(() => execSync(['_H', 1, op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
             'Unexpected node while running bytecode in chunk "root": InvalidOp'
@@ -128,9 +125,6 @@ describe('hogvm execute', () => {
         expect(() => execSync(['_H', 1, op.INTEGER], options)).toThrow('Unexpected end of bytecode')
         expect(() => execSync(['_H', 1, op.CALL_GLOBAL, 'match', 1], options)).toThrow(
             'Not enough arguments on the stack'
-        )
-        expect(() => execSync(['_H', 1, op.TRUE, op.TRUE, op.NOT], options)).toThrow(
-            'Invalid bytecode. More than one value left on stack'
         )
     })
 
@@ -339,9 +333,18 @@ describe('hogvm execute', () => {
                 return Promise.resolve('zero')
             },
         }
-        expect(await execAsync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('one')
-        expect(await execAsync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('two')
-        expect(await execAsync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('zero')
+        expect(
+            (await execAsync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1, op.RETURN], { asyncFunctions }))
+                .result
+        ).toBe('one')
+        expect(
+            (await execAsync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1, op.RETURN], { asyncFunctions }))
+                .result
+        ).toBe('two')
+        expect(
+            (await execAsync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1, op.RETURN], { asyncFunctions }))
+                .result
+        ).toBe('zero')
     })
 
     test('bytecode variable assignment', async () => {
@@ -529,14 +532,16 @@ describe('hogvm execute', () => {
             38,
         ]
         expect(
-            await execAsync(bytecode, {
-                asyncFunctions: {
-                    httpGet: async (url: string) => {
-                        await delay(1)
-                        return 'hello ' + url
+            (
+                await execAsync(bytecode, {
+                    asyncFunctions: {
+                        httpGet: async (url: string) => {
+                            await delay(1)
+                            return 'hello ' + url
+                        },
                     },
-                },
-            })
+                })
+            ).result
         ).toBe(2)
     })
 
@@ -603,12 +608,38 @@ describe('hogvm execute', () => {
             result: '0.002',
             state: {
                 asyncSteps: 0,
-                bytecodes: {},
+                bytecodes: { root: { bytecode } },
                 callStack: [],
                 declaredFunctions: {},
                 maxMemUsed: 13,
                 ops: 2,
                 stack: [],
+                upvalues: [],
+                throwStack: [],
+                syncDuration: expect.any(Number),
+            },
+        })
+    })
+    test('no stack pop with repl:true', () => {
+        const bytecode = [
+            '_h',
+            33,
+            0.002, // seconds to sleep
+            2,
+            'toString',
+            1,
+        ]
+        expect(exec(bytecode, { repl: true })).toEqual({
+            finished: true,
+            result: undefined,
+            state: {
+                asyncSteps: 0,
+                bytecodes: { root: { bytecode } },
+                callStack: [],
+                declaredFunctions: {},
+                maxMemUsed: 13,
+                ops: 2,
+                stack: ['0.002'],
                 upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
@@ -2499,7 +2530,7 @@ describe('hogvm execute', () => {
             result: 'truefalse',
             finished: true,
             state: {
-                bytecodes: {},
+                bytecodes: expect.any(Object),
                 stack: [],
                 upvalues: [],
                 callStack: [],

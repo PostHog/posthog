@@ -227,6 +227,7 @@ export const FEATURE_FLAGS = {
     BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
     DEAD_CLICKS_AUTOCAPTURE: 'dead-clicks-autocapture', // owner: @pauldambra #team-replay
     ONBOARDING_PRODUCT_MULTISELECT: 'onboarding-product-multiselect', // owner: @danielbachhuber #team-experiments
+    EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
