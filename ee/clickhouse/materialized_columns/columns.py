@@ -240,12 +240,3 @@ class EnterpriseMaterializedColumnBackend(MaterializedColumnBackend):
         create_minmax_index=False,
     ) -> None:
         return materialize(table, property, column_name, table_column, create_minmax_index)
-
-    def backfill_materialized_columns(
-        self,
-        table: TableWithProperties,
-        properties: list[tuple[PropertyName, TableColumn]],
-        backfill_period: timedelta,
-        test_settings=None,
-    ) -> None:
-        return backfill_materialized_columns(table, properties, backfill_period, test_settings)

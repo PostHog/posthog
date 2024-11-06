@@ -29,16 +29,6 @@ class MaterializedColumnBackend(ABC):
     ) -> None:
         raise NotImplementedError
 
-    @abstractmethod
-    def backfill_materialized_columns(
-        self,
-        table: TableWithProperties,
-        properties: list[tuple[PropertyName, TableColumn]],
-        backfill_period: timedelta,
-        test_settings=None,
-    ) -> None:
-        raise NotImplementedError
-
 
 class DummyMaterializedColumnBackend(MaterializedColumnBackend):
     def get_materialized_columns(
@@ -57,15 +47,6 @@ class DummyMaterializedColumnBackend(MaterializedColumnBackend):
     ) -> None:
         pass
 
-    def backfill_materialized_columns(
-        self,
-        table: TableWithProperties,
-        properties: list[tuple[PropertyName, TableColumn]],
-        backfill_period: timedelta,
-        test_settings=None,
-    ) -> None:
-        pass
-
 
 if EE_AVAILABLE:
     from ee.clickhouse.materialized_columns.columns import EnterpriseMaterializedColumnBackend
@@ -77,4 +58,3 @@ else:
 
 get_materialized_columns = cache_for(timedelta(minutes=15))(backend.get_materialized_columns)
 materialize = backend.materialize
-backfill_materialized_columns = backend.backfill_materialized_columns
