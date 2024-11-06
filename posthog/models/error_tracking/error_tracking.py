@@ -22,7 +22,7 @@ class ErrorTrackingGroup(UUIDModel):
         blank=False,
         default=list,
     )
-    status = models.CharField(max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
     assignee = models.ForeignKey(
         "User",
         on_delete=models.SET_NULL,
