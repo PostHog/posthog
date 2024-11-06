@@ -129,7 +129,7 @@ async fn main() -> Result<(), Error> {
             let mut groups = HashMap::new();
             for (i, frame) in frames.into_iter().enumerate() {
                 let group = groups
-                    .entry(frame.symbol_set_group_key())
+                    .entry(frame.symbol_set_ref())
                     .or_insert_with(Vec::new);
                 group.push((i, frame.clone()));
             }
@@ -137,7 +137,11 @@ async fn main() -> Result<(), Error> {
             for (_, frames) in groups.into_iter() {
                 context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
                 for (i, frame) in frames {
-                    results.push((i, frame.resolve(team_id, &context.catalog).await?));
+                    let resolved_frame = context
+                        .resolver
+                        .resolve(&frame, team_id, &context.pool, &context.catalog)
+                        .await?;
+                    results.push((i, resolved_frame));
                 }
             }
 
