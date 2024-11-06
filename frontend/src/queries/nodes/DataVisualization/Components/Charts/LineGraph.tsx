@@ -31,7 +31,13 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartSettings, YAxisSettings } from '~/queries/schema'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import { AxisSeriesSettings, dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
+import {
+    AxisBreakoutSeries,
+    AxisSeries,
+    AxisSeriesSettings,
+    dataVisualizationLogic,
+    formatDataWithSettings,
+} from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
 
 Chart.register(annotationPlugin)
@@ -105,20 +111,23 @@ export const LineGraph = (): JSX.Element => {
 
     useEffect(() => {
         // we expect either x and y data or series breakout data
-        let ySeriesData
-        let xSeriesData
+        let ySeriesData: AxisSeries<number>[] | AxisBreakoutSeries<number>[]
+        let xSeriesData: AxisSeries<string>
+        let hasRightYAxis = false
+        let hasLeftYAxis = false
         if (seriesBreakoutData.xData.data.length && seriesBreakoutData.seriesData.length) {
             ySeriesData = seriesBreakoutData.seriesData
             xSeriesData = seriesBreakoutData.xData
+            hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
+            hasLeftYAxis = !hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left')
         } else if (xData && yData) {
             ySeriesData = yData
             xSeriesData = xData
+            hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
+            hasLeftYAxis = !hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left')
         } else {
             return
         }
-
-        const hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
-        const hasLeftYAxis = !hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left')
 
         const data: ChartData = {
             labels: xSeriesData.data,
