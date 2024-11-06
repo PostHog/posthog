@@ -18,7 +18,7 @@ from .mailjet.template_mailjet import (
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
 from .avo.template_avo import template as avo, TemplateAvoMigrator
-from .loops.template_loops import template as loops, TemplateLoopsMigrator
+from .loops.template_loops import template as loops, template_send_event as loops_send_event, TemplateLoopsMigrator
 from .rudderstack.template_rudderstack import template as rudderstack, TemplateRudderstackMigrator
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
@@ -62,6 +62,7 @@ HOG_FUNCTION_TEMPLATES = [
     klaviyo_user,
     knock,
     loops,
+    loops_send_event,
     mailchimp,
     mailgun,
     mailjet_create_contact,
