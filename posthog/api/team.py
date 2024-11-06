@@ -78,18 +78,19 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
                 allowed_project_count = next(
                     (
                         feature.get("limit")
-                        for feature in organization.available_product_features
+                        for feature in organization.available_product_features or []
                         if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
                     ),
                     None,
                 )
 
                 # If allowed_project_count is None then the user has unlimited projects
-                if has_organization_projects_feature and allowed_project_count is None:
-                    return True
-                # Confirm that the user has the necessary permissions for the feature
-                if current_non_demo_project_count >= allowed_project_count:
-                    return False
+                if has_organization_projects_feature:
+                    if allowed_project_count is None:
+                        return True
+                    # Only check limit if we have a specific count
+                    if current_non_demo_project_count >= allowed_project_count:
+                        return False
             else:
                 # if we ARE requesting to make a demo project
                 # but the org already has a demo project
