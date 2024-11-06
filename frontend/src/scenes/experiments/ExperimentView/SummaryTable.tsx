@@ -59,9 +59,7 @@ export function SummaryTable(): JSX.Element {
                     {experimentResults.insight?.[0] && 'action' in experimentResults.insight[0] && (
                         <EntityFilterInfo filter={experimentResults.insight[0].action} />
                     )}
-                    <span className="pl-1">
-                        {experimentMathAggregationForTrends(experimentResults?.filters) ? 'metric' : 'count'}
-                    </span>
+                    <span className="pl-1">{experimentMathAggregationForTrends() ? 'metric' : 'count'}</span>
                 </div>
             ),
             render: function Key(_, variant): JSX.Element {
@@ -289,7 +287,7 @@ export function SummaryTable(): JSX.Element {
             return (
                 <>
                     {percentage ? (
-                        <span className="inline-flex items-center w-30 space-x-4">
+                        <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
                                 {percentage.toFixed(2)}%

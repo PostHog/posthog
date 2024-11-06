@@ -1,4 +1,4 @@
-fn arrayMap(func, arr) {
+fun arrayMap(func, arr) {
   let result := []
   for (let i in arr) {
     result := arrayPushBack(result, func(i))

@@ -221,6 +221,14 @@ class InviteSignupSerializer(serializers.Serializer):
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
+        if invite.target_email and OrganizationDomain.objects.get_sso_enforcement_for_email_address(
+            invite.target_email
+        ):
+            raise serializers.ValidationError(
+                "Sign up with a password is disabled because SSO login is enforced for this domain. Please log in with your SSO credentials.",
+                code="sso_enforced",
+            )
+
         with transaction.atomic():
             if not user:
                 is_new_user = True

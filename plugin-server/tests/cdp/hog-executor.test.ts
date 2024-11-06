@@ -20,7 +20,10 @@ jest.mock('../../src/utils/status', () => ({
     },
 }))
 
-const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { status?: number; body?: string }): void => {
+const setupFetchResponse = (
+    invocation: HogFunctionInvocation,
+    options?: Partial<HogFunctionInvocation['queueParameters']>
+): void => {
     invocation.queue = 'hog'
     invocation.queueParameters = {
         timings: [
@@ -30,9 +33,11 @@ const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { statu
             },
         ],
         response: {
-            status: options?.status ?? 200,
-            body: options?.body ?? 'success',
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
         },
+        body: 'success',
+        ...options,
     }
 }
 
@@ -45,6 +50,7 @@ describe('Hog Executor', () => {
         reloadAllHogFunctions: jest.fn(),
         getTeamHogDestinations: jest.fn(),
         getTeamHogFunction: jest.fn(),
+        getTeamHogEmailProvider: jest.fn(),
     }
 
     beforeEach(async () => {
@@ -106,7 +112,7 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
                 },
             ])
         })
@@ -162,7 +168,7 @@ describe('Hog Executor', () => {
                     id: 'uuid',
                     name: 'test',
                     url: 'http://localhost:8000/persons/1',
-                    properties: { email: 'test@posthog.com' },
+                    properties: { email: 'test@posthog.com', first_name: 'Pumpkin' },
                 },
                 event_url: 'http://localhost:8000/events/1-test',
             })
@@ -187,10 +193,10 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":\\"success\\"}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -206,12 +212,109 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
+        })
+
+        it('handles fetch errors', () => {
+            const result = executor.execute(createInvocation(hogFunction))
+            const logs = result.logs.splice(0, 100)
+            setupFetchResponse(result.invocation, {
+                body: JSON.stringify({ foo: 'bar' }),
+                response: null,
+                trace: [
+                    {
+                        kind: 'failurestatus',
+                        message: '404 Not Found',
+                        headers: {},
+                        status: 404,
+                        timestamp: DateTime.utc(),
+                    },
+                ],
+            })
+
+            const secondResult = executor.execute(result.invocation)
+            logs.push(...secondResult.logs)
+
+            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                Array [
+                  "Executing function",
+                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes",
+                  "Fetch failed after 1 attempts",
+                  "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
+                  "Resuming function",
+                  "Fetch response:, {\\"status\\":404,\\"body\\":{\\"foo\\":\\"bar\\"}}",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                ]
+            `)
+        })
+    })
+
+    describe('email provider functions', () => {
+        let hogFunction: HogFunctionType
+        let providerFunction: HogFunctionType
+        beforeEach(() => {
+            providerFunction = createHogFunction({
+                name: 'Test hog function',
+                ...HOG_EXAMPLES.export_send_email,
+                ...HOG_INPUTS_EXAMPLES.none,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            hogFunction = createHogFunction({
+                name: 'Test hog function',
+                ...HOG_EXAMPLES.import_send_email,
+                ...HOG_INPUTS_EXAMPLES.email,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([hogFunction, providerFunction])
+            mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
+            mockFunctionManager.getTeamHogEmailProvider.mockReturnValue(providerFunction)
+        })
+
+        it('can execute an invocation', () => {
+            const invocation = createInvocation(hogFunction)
+            const result = executor.execute(invocation)
+            expect(result).toEqual({
+                capturedPostHogEvents: [],
+                invocation: {
+                    id: expect.any(String),
+                    teamId: 1,
+                    priority: 0,
+                    globals: invocation.globals,
+                    hogFunction: invocation.hogFunction,
+                    queue: 'hog',
+                    timings: [
+                        {
+                            kind: 'hog',
+                            duration_ms: 0,
+                        },
+                    ],
+                    vmState: expect.any(Object),
+                },
+                finished: true,
+                logs: [
+                    {
+                        level: 'debug',
+                        message: 'Executing function',
+                        timestamp: expect.any(Object),
+                    },
+                    {
+                        level: 'info',
+                        message:
+                            '{"to":"test@posthog.com","body":"Hello Pumpkin !\\n\\nThis is a broadcast","from":"info@posthog.com","html":"<html></html>","subject":"Hello test@posthog.com"}',
+                        timestamp: expect.any(Object),
+                    },
+                    {
+                        level: 'debug',
+                        message: expect.stringContaining('Function completed in'),
+                        timestamp: expect.any(Object),
+                    },
+                ],
+            })
         })
     })
 

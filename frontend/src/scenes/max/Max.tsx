@@ -40,12 +40,10 @@ export function MaxInstance(): JSX.Element {
     return (
         <>
             {!thread.length ? (
-                <div className="relative flex flex-col gap-4 px-4 items-center grow justify-center">
+                <div className="relative flex flex-col gap-3 px-4 items-center grow justify-center">
                     <Intro />
-                    <div className="flex flex-col gap-3 items-center w-[min(40rem,100%)]">
-                        <QuestionInput />
-                        <QuestionSuggestions />
-                    </div>
+                    <QuestionInput />
+                    <QuestionSuggestions />
                 </div>
             ) : (
                 <>

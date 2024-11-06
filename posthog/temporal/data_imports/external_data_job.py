@@ -2,15 +2,18 @@ import dataclasses
 import datetime as dt
 import json
 
+import posthoganalytics
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.data_imports.util import is_posthog_team
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
 )
+from posthog.temporal.data_imports.workflow_activities.import_data_sync import import_data_activity_sync
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
@@ -21,6 +24,7 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs, import_data_activity
+from posthog.utils import get_machine_id
 from posthog.warehouse.data_load.service import (
     a_delete_external_data_schedule,
     a_external_data_workflow_exists,
@@ -37,16 +41,27 @@ from posthog.warehouse.models import (
     ExternalDataJob,
     get_active_schemas_for_source_id,
     ExternalDataSource,
+    get_external_data_source,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.warehouse.models.external_data_schema import aupdate_should_sync
 
 
-Non_Retryable_Schema_Errors = [
-    "NoSuchTableError",
-    "401 Client Error: Unauthorized for url: https://api.stripe.com",
-    "403 Client Error: Forbidden for url: https://api.stripe.com",
-]
+Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
+    ExternalDataSource.Type.STRIPE: [
+        "401 Client Error: Unauthorized for url: https://api.stripe.com",
+        "403 Client Error: Forbidden for url: https://api.stripe.com",
+    ],
+    ExternalDataSource.Type.POSTGRES: [
+        "NoSuchTableError",
+        "is not permitted to log in",
+        "Tenant or user not found connection to server",
+        "FATAL: Tenant or user not found",
+        "error received from server in SCRAM exchange: Wrong password",
+        "could not translate host name",
+    ],
+    ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
+}
 
 
 @dataclasses.dataclass
@@ -54,6 +69,7 @@ class UpdateExternalDataJobStatusInputs:
     team_id: int
     job_id: str | None
     schema_id: str
+    source_id: str
     status: str
     internal_error: str | None
     latest_error: str | None
@@ -78,10 +94,26 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             f"External data job failed for external data schema {inputs.schema_id} with error: {inputs.internal_error}"
         )
 
-        has_non_retryable_error = any(error in inputs.internal_error for error in Non_Retryable_Schema_Errors)
-        if has_non_retryable_error:
-            logger.info("Schema has a non-retryable error - turning off syncing")
-            await aupdate_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
+        source: ExternalDataSource = await get_external_data_source(inputs.source_id)
+        non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSource.Type(source.source_type))
+
+        if non_retryable_errors is not None:
+            has_non_retryable_error = any(error in inputs.internal_error for error in non_retryable_errors)
+            if has_non_retryable_error:
+                logger.info("Schema has a non-retryable error - turning off syncing")
+                posthoganalytics.capture(
+                    get_machine_id(),
+                    "schema non-retryable error",
+                    {
+                        "schemaId": inputs.schema_id,
+                        "sourceId": inputs.source_id,
+                        "sourceType": source.source_type,
+                        "jobId": inputs.job_id,
+                        "teamId": inputs.team_id,
+                        "error": inputs.internal_error,
+                    },
+                )
+                await aupdate_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
     await aupdate_external_job_status(
         job_id=job_id,
@@ -166,6 +198,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             internal_error=None,
             team_id=inputs.team_id,
             schema_id=str(inputs.external_data_schema_id),
+            source_id=str(inputs.external_data_source_id),
         )
 
         try:
@@ -176,7 +209,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
             )
 
-            job_id, incremental = await workflow.execute_activity(
+            job_id, incremental, source_type = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -229,12 +262,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 else {"start_to_close_timeout": dt.timedelta(hours=12), "retry_policy": RetryPolicy(maximum_attempts=3)}
             )
 
-            await workflow.execute_activity(
-                import_data_activity,
-                job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=5),
-                **timeout_params,
-            )  # type: ignore
+            if is_posthog_team(inputs.team_id) and (
+                source_type == ExternalDataSource.Type.POSTGRES or source_type == ExternalDataSource.Type.BIGQUERY
+            ):
+                # Sync activity for testing
+                await workflow.execute_activity(
+                    import_data_activity_sync,
+                    job_inputs,
+                    heartbeat_timeout=dt.timedelta(minutes=5),
+                    **timeout_params,
+                )  # type: ignore
+            else:
+                # Async activity for everyone else
+                await workflow.execute_activity(
+                    import_data_activity,
+                    job_inputs,
+                    heartbeat_timeout=dt.timedelta(minutes=5),
+                    **timeout_params,
+                )  # type: ignore
 
             # Create source templates
             await workflow.execute_activity(

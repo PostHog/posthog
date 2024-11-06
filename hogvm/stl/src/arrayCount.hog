@@ -1,4 +1,4 @@
-fn arrayCount(func, arr) {
+fun arrayCount(func, arr) {
   let count := 0
   for (let i in arr) {
     if (func(i)) {

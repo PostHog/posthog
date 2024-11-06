@@ -3,24 +3,29 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 # See https://dev.mailjet.com/email/reference/contacts/contact-list/
 
-common_inputs_schemas = [
-    {
-        "key": "api_key",
-        "type": "string",
-        "label": "Mailjet API Key",
-        "secret": True,
-        "required": True,
-    },
-    {
-        "key": "email",
-        "type": "string",
-        "label": "Email of the user",
-        "description": "Where to find the email for the user to be checked with Mailjet",
-        "default": "{person.properties.email}",
-        "secret": False,
-        "required": True,
-    },
-]
+input_api_key = {
+    "key": "api_key",
+    "type": "string",
+    "label": "Mailjet API Key",
+    "secret": True,
+    "required": True,
+}
+input_secret_key = {
+    "key": "secret_key",
+    "type": "string",
+    "label": "Mailjet Secret Key",
+    "secret": True,
+    "required": True,
+}
+input_email = {
+    "key": "email",
+    "type": "string",
+    "label": "Email of the user",
+    "description": "Where to find the email for the user to be checked with Mailjet",
+    "default": "{person.properties.email}",
+    "secret": False,
+    "required": True,
+}
 
 common_filters = {
     "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
@@ -45,7 +50,7 @@ if (empty(inputs.email)) {
 fetch(f'https://api.mailjet.com/v3/REST/contact/', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
+        'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
         'Content-Type': 'application/json'
     },
     'body': {
@@ -56,7 +61,9 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 })
 """.strip(),
     inputs_schema=[
-        *common_inputs_schemas,
+        input_api_key,
+        input_secret_key,
+        input_email,
         {
             "key": "name",
             "type": "string",
@@ -96,7 +103,7 @@ if (empty(inputs.email)) {
 fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlists', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
+        'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
         'Content-Type': 'application/json'
     },
     'body': {
@@ -110,7 +117,9 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
 })
 """.strip(),
     inputs_schema=[
-        *common_inputs_schemas,
+        input_api_key,
+        input_secret_key,
+        input_email,
         {
             "key": "contact_list_id",
             "type": "string",
@@ -144,6 +153,60 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
                     "value": "unsub",
                 },
             ],
+        },
+    ],
+    filters=common_filters,
+)
+
+
+template_send_email: HogFunctionTemplate = HogFunctionTemplate(
+    status="beta",
+    type="email",
+    id="template-mailjet-send-email",
+    name="Mailjet",
+    description="Send an email with Mailjet",
+    icon_url="/static/services/mailjet.png",
+    category=["Email Provider"],
+    hog="""
+fun sendEmail(email) {
+    fetch(f'https://api.mailjet.com/v3.1/send', {
+        'method': 'POST',
+        'headers': {
+            'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
+            'Content-Type': 'application/json'
+        },
+        'body': {
+            'Messages': [
+                {
+                    'From': {
+                        'Email': email.from,
+                        'Name': ''
+                    },
+                    'To': [
+                        {
+                            'Email': email.to,
+                            'Name': ''
+                        }
+                    ],
+                    'Subject': email.subject,
+                    'HTMLPart': email.html
+                }
+            ]
+        }
+    })
+}
+// TODO: support the "export" keyword in front of functions
+return {'sendEmail': sendEmail}
+""".strip(),
+    inputs_schema=[
+        input_api_key,
+        input_secret_key,
+        {
+            "key": "from_email",
+            "type": "string",
+            "label": "Email to send from",
+            "secret": False,
+            "required": True,
         },
     ],
     filters=common_filters,
