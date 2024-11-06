@@ -302,7 +302,6 @@ export class EventsProcessor {
             await upsertGroup(
                 this.db,
                 teamId,
-                projectId,
                 groupTypeIndex,
                 groupKey.toString(),
                 groupPropertiesToSet || {},

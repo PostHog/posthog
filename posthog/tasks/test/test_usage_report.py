@@ -270,18 +270,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # Some groups
-            GroupTypeMapping.objects.create(
-                team=self.org_1_team_1,
-                project_id=self.org_1_team_1.project_id,
-                group_type="organization",
-                group_type_index=0,
-            )
-            GroupTypeMapping.objects.create(
-                team=self.org_1_team_1,
-                project_id=self.org_1_team_1.project_id,
-                group_type="company",
-                group_type_index=1,
-            )
+            GroupTypeMapping.objects.create(team=self.org_1_team_1, group_type="organization", group_type_index=0)
+            GroupTypeMapping.objects.create(team=self.org_1_team_1, group_type="company", group_type_index=1)
             create_group(
                 team_id=self.org_1_team_1.pk,
                 group_type_index=0,

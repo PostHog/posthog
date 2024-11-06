@@ -21,9 +21,7 @@ class TestPropertyTypes(BaseTest):
 
     def setUp(self):
         super().setUp()
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         create_group(
             team_id=self.team.pk,
             group_type_index=0,

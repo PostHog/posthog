@@ -3871,9 +3871,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
         )
 
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=0)
         create_group(
             team_id=self.team.pk,
             group_type_index=0,
@@ -3881,9 +3879,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "project one"},
         )
 
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=1)
         create_group(
             team_id=self.team.pk,
             group_type_index=1,

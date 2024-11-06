@@ -1407,9 +1407,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
 
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1768,12 +1766,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.feature_flag.report_user_action")
     def test_local_evaluation(self, mock_capture):
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2894,12 +2888,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
         Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["1", "2"],
@@ -4092,12 +4082,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
     def test_cant_create_flag_with_group_data_that_fails_to_query(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="xyz", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="xyz", group_type_index=1)
 
         for i in range(5):
             create_group(
@@ -4946,9 +4932,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
         for i in range(10):
             create_group(
@@ -4983,9 +4967,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
 
     def test_user_blast_radius_with_groups_zero_selected(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
         for i in range(5):
             create_group(
@@ -5020,12 +5002,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
 
     def test_user_blast_radius_with_groups_all_selected(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
         for i in range(5):
             create_group(
@@ -5053,12 +5031,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups_multiple_queries(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
         for i in range(10):
             create_group(
@@ -5100,12 +5074,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
 
     def test_user_blast_radius_with_groups_incorrect_group_type(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
         for i in range(10):
             create_group(
@@ -5186,9 +5156,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
 
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
         create_group(
             team_id=self.team.pk,
@@ -5702,9 +5670,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
 
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
         create_group(
             team_id=self.team.pk,

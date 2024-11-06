@@ -23,9 +23,7 @@ class TestClickhouseLifecycle(TestLifecycleBase):
         self.team.test_account_filters = [{"key": "key", "type": "group", "value": "value", "group_type_index": 0}]
         self.team.save()
 
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         create_group(
             self.team.pk,
             group_type_index=0,

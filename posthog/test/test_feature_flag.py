@@ -4557,9 +4557,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "aggregation_group_type_index": 0,
             },
         )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
         matcher = FeatureFlagMatcher([flag, flag2], "example_id_1", ["organization"])  # type: ignore
 
@@ -4872,12 +4870,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def create_groups(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=1)
 
         # Add other irrelevant groups
         for i in range(5):
@@ -5125,12 +5119,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             distinct_ids=["307"],
             properties={"number": 30, "string_number": "30", "version": "1.24"},
         )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
-        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=1)
 
         Group.objects.create(
             team=self.team,
