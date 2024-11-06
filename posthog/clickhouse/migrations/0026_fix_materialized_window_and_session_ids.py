@@ -40,7 +40,7 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
 def materialize_session_and_window_id(database):
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
-        currently_materialized_columns = materialized_columns.get_materialized_columns_cached("events", use_cache=False)
+        currently_materialized_columns = materialized_columns.backend.get_materialized_columns("events")
         # If the column is not materialized, materialize it
         if (property_name, "properties") not in currently_materialized_columns:
             materialized_columns.backend.materialize("events", property_name, property_name)
@@ -66,8 +66,8 @@ def materialize_session_and_window_id(database):
         # materialized the column or renamed the column, and then ran the 0004_...  async migration
         # before this migration runs.
         possible_old_column_names = {"mat_" + property_name}
-        current_materialized_column_name = currently_materialized_columns.get(property_name, None)
-        if current_materialized_column_name != property_name:
+        current_materialized_column_name = currently_materialized_columns.get((property_name, "properties"), None)
+        if current_materialized_column_name is not None and current_materialized_column_name != property_name:
             possible_old_column_names.add(current_materialized_column_name)
 
         for possible_old_column_name in possible_old_column_names:
