@@ -163,7 +163,7 @@ class CreateTrendsPlanNode(AssistantNode):
 
         for event_name in events:
             event_tag = event_name
-            if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"][event_name]:
+            if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
                 if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
                     continue  # Skip irrelevant events
                 event_tag += f" - {event_core_definition['label']}. {event_core_definition['description']}"
