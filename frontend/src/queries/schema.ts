@@ -935,6 +935,11 @@ export interface AssistantTrendsEventsNode
     properties?: AssistantPropertyFilter[]
 }
 
+export type AssistantTrendsBreakdownFilter = Pick<
+    BreakdownFilter,
+    'breakdowns' | 'breakdown_limit' | 'breakdown_histogram_bin_count' | 'breakdown_hide_other_aggregation'
+>
+
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.TrendsQuery
     /**
@@ -948,13 +953,12 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events */
-    breakdownFilter?: Pick<
-        BreakdownFilter,
-        'breakdowns' | 'breakdown_limit' | 'breakdown_histogram_bin_count' | 'breakdown_hide_other_aggregation'
-    >
+    breakdownFilter?: AssistantTrendsBreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
 }
+
+export type AssistantTrendsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
 
 export interface AssistantFunnelsEventsNode extends Node {
     kind: NodeKind.EventsNode
@@ -971,14 +975,14 @@ export interface AssistantFunnelsEventsNode extends Node {
      * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
      * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
      */
-    math?: FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
+    math?: AssistantTrendsMath
     properties?: AssistantPropertyFilter[]
 }
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
  */
-export interface AssistantFunnelExclusionEventsNode extends FunnelExclusionSteps {
+export interface AssistantFunnelsExclusionEventsNode extends FunnelExclusionSteps {
     kind: NodeKind.EventsNode
     event: string
 }
@@ -1006,7 +1010,7 @@ export interface AssistantFunnelsFilter {
      * For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3.
      * @default []
      */
-    exclusions?: AssistantFunnelExclusionEventsNode[]
+    exclusions?: AssistantFunnelsExclusionEventsNode[]
     /**
      * Controls how the funnel chart is displayed: vertically (preferred) or horizontally.
      * @default vertical
@@ -1038,12 +1042,14 @@ export interface AssistantFunnelsFilter {
     funnelAggregateByHogQL?: 'properties.$session_id'
 }
 
-export interface AssistantFunnelBreakdownFilter {
+export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
+
+export interface AssistantFunnelsBreakdownFilter {
     /**
      * Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.
      * @default event
      */
-    breakdown_type: Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
+    breakdown_type: AssistantFunnelsBreakdownType
     /**
      * The entity property to break down by.
      */
@@ -1081,7 +1087,7 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
     /**
      * Breakdown the chart by a property
      */
-    breakdownFilter?: AssistantFunnelBreakdownFilter
+    breakdownFilter?: AssistantFunnelsBreakdownFilter
     /**
      * Use this field to define the aggregation by a specific group from the group mapping that the user has provided.
      */

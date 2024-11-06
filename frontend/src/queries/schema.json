@@ -490,7 +490,7 @@
             "enum": ["status", "message"],
             "type": "string"
         },
-        "AssistantFunnelBreakdownFilter": {
+        "AssistantFunnelsBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
                 "breakdown": {
@@ -519,16 +519,51 @@
                     "type": "integer"
                 },
                 "breakdown_type": {
+                    "$ref": "#/definitions/AssistantFunnelsBreakdownType",
                     "default": "event",
-                    "description": "Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.",
-                    "enum": ["person", "event", "group", "session"],
-                    "type": "string"
+                    "description": "Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping."
                 }
             },
             "required": ["breakdown_type", "breakdown"],
             "type": "object"
         },
-        "AssistantFunnelExclusionEventsNode": {
+        "AssistantFunnelsBreakdownType": {
+            "enum": ["person", "event", "group", "session"],
+            "type": "string"
+        },
+        "AssistantFunnelsEventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "description": "Optional custom name for the event if it is needed to be renamed.",
+                    "type": "string"
+                },
+                "event": {
+                    "description": "Name of the event.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/AssistantTrendsMath",
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                }
+            },
+            "required": ["event", "kind"],
+            "type": "object"
+        },
+        "AssistantFunnelsExclusionEventsNode": {
             "additionalProperties": false,
             "description": "Exclustion steps for funnels. The \"from\" and \"to\" steps must not exceed the funnel's series length.",
             "properties": {
@@ -549,39 +584,6 @@
             "required": ["event", "funnelFromStep", "funnelToStep", "kind"],
             "type": "object"
         },
-        "AssistantFunnelsEventsNode": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "description": "Optional custom name for the event if it is needed to be renamed.",
-                    "type": "string"
-                },
-                "event": {
-                    "description": "Name of the event.",
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "EventsNode",
-                    "type": "string"
-                },
-                "math": {
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
-                    "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
-                    "type": "string"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "type": "object"
-                }
-            },
-            "required": ["event", "kind"],
-            "type": "object"
-        },
         "AssistantFunnelsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -593,7 +595,7 @@
                     "default": [],
                     "description": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3.",
                     "items": {
-                        "$ref": "#/definitions/AssistantFunnelExclusionEventsNode"
+                        "$ref": "#/definitions/AssistantFunnelsExclusionEventsNode"
                     },
                     "type": "array"
                 },
@@ -643,7 +645,7 @@
                     "type": "integer"
                 },
                 "breakdownFilter": {
-                    "$ref": "#/definitions/AssistantFunnelBreakdownFilter",
+                    "$ref": "#/definitions/AssistantFunnelsBreakdownFilter",
                     "description": "Breakdown the chart by a property"
                 },
                 "dateRange": {
@@ -768,6 +770,28 @@
                 }
             ]
         },
+        "AssistantTrendsBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown_hide_other_aggregation": {
+                    "type": ["boolean", "null"]
+                },
+                "breakdown_histogram_bin_count": {
+                    "type": "integer"
+                },
+                "breakdown_limit": {
+                    "type": "integer"
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/Breakdown"
+                    },
+                    "maxLength": 3,
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "AssistantTrendsEventsNode": {
             "additionalProperties": false,
             "properties": {
@@ -818,31 +842,16 @@
             "required": ["kind"],
             "type": "object"
         },
+        "AssistantTrendsMath": {
+            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+            "type": "string"
+        },
         "AssistantTrendsQuery": {
             "additionalProperties": false,
             "properties": {
                 "breakdownFilter": {
-                    "additionalProperties": false,
-                    "description": "Breakdown of the events",
-                    "properties": {
-                        "breakdown_hide_other_aggregation": {
-                            "type": ["boolean", "null"]
-                        },
-                        "breakdown_histogram_bin_count": {
-                            "type": "integer"
-                        },
-                        "breakdown_limit": {
-                            "type": "integer"
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "maxLength": 3,
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/AssistantTrendsBreakdownFilter",
+                    "description": "Breakdown of the events"
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",

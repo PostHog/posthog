@@ -68,38 +68,14 @@ class AssistantEventType(StrEnum):
     MESSAGE = "message"
 
 
-class BreakdownType(StrEnum):
+class AssistantFunnelsBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     GROUP = "group"
     SESSION = "session"
 
 
-class AssistantFunnelBreakdownFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: str = Field(..., description="The entity property to break down by.")
-    breakdown_group_type_index: Optional[int] = Field(
-        default=None,
-        description=(
-            "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping."
-        ),
-    )
-    breakdown_histogram_bin_count: Optional[int] = Field(
-        default=10, description="Number of bins to show in the histogram. Only applicable for the numeric properties."
-    )
-    breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
-    breakdown_type: Optional[BreakdownType] = Field(
-        default=BreakdownType.EVENT,
-        description=(
-            "Type of the entity to break down by. If `group` is used, you must also provide"
-            " `breakdown_group_type_index` from the group mapping."
-        ),
-    )
-
-
-class AssistantFunnelExclusionEventsNode(BaseModel):
+class AssistantFunnelsExclusionEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -107,11 +83,6 @@ class AssistantFunnelExclusionEventsNode(BaseModel):
     funnelFromStep: int
     funnelToStep: int
     kind: Literal["EventsNode"] = "EventsNode"
-
-
-class Math(StrEnum):
-    FIRST_TIME_FOR_USER = "first_time_for_user"
-    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
 class AssistantGenerationStatusType(StrEnum):
@@ -133,6 +104,11 @@ class AssistantMessageType(StrEnum):
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
+
+
+class AssistantTrendsMath(StrEnum):
+    FIRST_TIME_FOR_USER = "first_time_for_user"
+    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -182,7 +158,7 @@ class BreakdownAttributionType(StrEnum):
     STEP = "step"
 
 
-class BreakdownTypeModel(StrEnum):
+class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
@@ -1743,6 +1719,30 @@ class AlertCondition(BaseModel):
     type: AlertConditionType
 
 
+class AssistantFunnelsBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: str = Field(..., description="The entity property to break down by.")
+    breakdown_group_type_index: Optional[int] = Field(
+        default=None,
+        description=(
+            "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping."
+        ),
+    )
+    breakdown_histogram_bin_count: Optional[int] = Field(
+        default=10, description="Number of bins to show in the histogram. Only applicable for the numeric properties."
+    )
+    breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
+    breakdown_type: Optional[AssistantFunnelsBreakdownType] = Field(
+        default=AssistantFunnelsBreakdownType.EVENT,
+        description=(
+            "Type of the entity to break down by. If `group` is used, you must also provide"
+            " `breakdown_group_type_index` from the group mapping."
+        ),
+    )
+
+
 class AssistantFunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1753,7 +1753,7 @@ class AssistantFunnelsFilter(BaseModel):
             "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram."
         ),
     )
-    exclusions: Optional[list[AssistantFunnelExclusionEventsNode]] = Field(
+    exclusions: Optional[list[AssistantFunnelsExclusionEventsNode]] = Field(
         default=[],
         description=(
             "Users may want to use exclusion events to filter out conversions in which a particular event occurred"
@@ -1858,7 +1858,7 @@ class Breakdown(BaseModel):
     type: Optional[MultipleBreakdownType] = None
 
 
-class BreakdownFilter1(BaseModel):
+class BreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1868,7 +1868,7 @@ class BreakdownFilter1(BaseModel):
     breakdown_histogram_bin_count: Optional[int] = None
     breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownTypeModel] = BreakdownTypeModel.EVENT
+    breakdown_type: Optional[BreakdownType] = BreakdownType.EVENT
     breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
 
 
@@ -4170,6 +4170,16 @@ class AnyResponseType(
     ]
 
 
+class AssistantTrendsBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_histogram_bin_count: Optional[int] = None
+    breakdown_limit: Optional[int] = None
+    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
+
+
 class AssistantTrendsEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4206,21 +4216,13 @@ class AssistantTrendsEventsNode(BaseModel):
     response: Optional[dict[str, Any]] = None
 
 
-class BreakdownFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_histogram_bin_count: Optional[int] = None
-    breakdown_limit: Optional[int] = None
-    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
-
-
 class AssistantTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events")
+    breakdownFilter: Optional[AssistantTrendsBreakdownFilter] = Field(
+        default=None, description="Breakdown of the events"
+    )
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -5183,7 +5185,7 @@ class AssistantFunnelsEventsNode(BaseModel):
     )
     event: str = Field(..., description="Name of the event.")
     kind: Literal["EventsNode"] = "EventsNode"
-    math: Optional[Math] = Field(
+    math: Optional[AssistantTrendsMath] = Field(
         default=None,
         description=(
             "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
@@ -5217,7 +5219,7 @@ class AssistantFunnelsQuery(BaseModel):
             " provided."
         ),
     )
-    breakdownFilter: Optional[AssistantFunnelBreakdownFilter] = Field(
+    breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
         default=None, description="Breakdown the chart by a property"
     )
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
@@ -5500,7 +5502,7 @@ class TrendsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -5696,7 +5698,7 @@ class FunnelsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
