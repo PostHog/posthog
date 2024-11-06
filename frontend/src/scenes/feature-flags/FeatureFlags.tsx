@@ -242,7 +242,7 @@ export function OverViewTab({
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
-                                                callback: () => loadFeatureFlags(),
+                                                callback: loadFeatureFlags,
                                             })
                                         }}
                                         disabledReason={

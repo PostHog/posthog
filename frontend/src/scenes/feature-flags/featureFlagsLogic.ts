@@ -12,7 +12,7 @@ import { Breadcrumb, FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
-export const FLAGS_PER_PAGE = 50
+export const FLAGS_PER_PAGE = 100
 
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
@@ -63,9 +63,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     loaders(({ values }) => ({
         featureFlags: {
             __default: { results: [], count: 0, filters: null, offset: 0 } as FeatureFlagsResult,
-            loadFeatureFlags: async (_, breakpoint) => {
-                await breakpoint(300)
-
+            loadFeatureFlags: async () => {
                 const response = await api.get(
                     `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
                 )
@@ -160,7 +158,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setFeatureFlagsFilters: () => {
+        setFeatureFlagsFilters: async (_, breakpoint) => {
+            await breakpoint(300)
             actions.loadFeatureFlags()
         },
     })),
