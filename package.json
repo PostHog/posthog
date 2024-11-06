@@ -13,7 +13,8 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=18 <19"
+        "node": ">=18 <19",
+        "pnpm": ">=8 <9"
     },
     "packageManager": "pnpm@8.10.5",
     "scripts": {
