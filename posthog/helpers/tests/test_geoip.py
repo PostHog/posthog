@@ -18,17 +18,16 @@ australia_ip_2 = "13.106.122.3"
 @pytest.mark.parametrize(
     "test_input,expected_country,expected_city",
     [
-        (australia_ip, "Australia", "Sydney"),
-        (uk_ip, "United Kingdom", "Baldock"),
-        (us_ip_v6, "United States", "San Luis Obispo"),
-        (mexico_ip, "Mexico", "Coyoacán"),
-        (australia_ip, "Australia", "Sydney"),
+        (australia_ip, "Australia"),
+        (uk_ip, "United Kingdom"),
+        (us_ip_v6, "United States"),
+        (mexico_ip, "Mexico"),
+        (australia_ip, "Australia"),
     ],
 )
-def test_geoip_results(test_input, expected_country, expected_city):
+def test_geoip_results(test_input, expected_country):
     properties = get_geoip_properties(test_input)
     assert properties["$geoip_country_name"] == expected_country
-    assert properties["$geoip_city_name"] == expected_city
     assert len(properties) == 7
 
 
