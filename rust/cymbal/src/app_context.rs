@@ -12,6 +12,7 @@ use tracing::info;
 use crate::{
     config::Config,
     error::Error,
+    frames::resolver::Resolver,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         saving::Saving,
@@ -27,6 +28,7 @@ pub struct AppContext {
     pub kafka_producer: FutureProducer<KafkaContext>,
     pub pool: PgPool,
     pub catalog: Catalog,
+    pub resolver: Resolver,
 }
 
 impl AppContext {
@@ -73,6 +75,7 @@ impl AppContext {
         );
 
         let catalog = Catalog::new(caching_smp);
+        let resolver = Resolver::new(config);
 
         Ok(Self {
             health_registry,
@@ -81,6 +84,7 @@ impl AppContext {
             kafka_producer,
             pool,
             catalog,
+            resolver,
         })
     }
 }
