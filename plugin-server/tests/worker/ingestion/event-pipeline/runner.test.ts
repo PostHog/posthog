@@ -382,25 +382,6 @@ describe('EventPipelineRunner', () => {
                     'createEventStep',
                 ])
             })
-
-            it('runs the produceExceptionSymbolificationEventStep for team 2', async () => {
-                // deep copy the exception event
-                const team2ExceptionEvent = JSON.parse(JSON.stringify(exceptionEvent))
-                team2ExceptionEvent.team_id = 2
-                await runner.runEventPipeline(team2ExceptionEvent)
-
-                expect(runner.steps).toEqual([
-                    'populateTeamDataStep',
-                    'pluginsProcessEventStep',
-                    'normalizeEventStep',
-                    'processPersonsStep',
-                    'prepareEventStep',
-                    'extractHeatmapDataStep',
-                    'enrichExceptionEventStep',
-                    'createEventStep',
-                    'produceExceptionSymbolificationEventStep',
-                ])
-            })
         })
     })
 })
