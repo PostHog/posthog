@@ -22,11 +22,56 @@ import { ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { Results } from './Results'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
+const ResultsTab = (): JSX.Element => {
+    const { experiment, experimentResults } = useValues(experimentLogic)
+    const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
+
+    const hasResultsInsight = experimentResults && experimentResults.insight
+
+    return (
+        <div className="space-y-8">
+            {hasResultsInsight ? (
+                <Results />
+            ) : (
+                <>
+                    {experiment.type === 'web' ? (
+                        <WebExperimentImplementationDetails experiment={experiment} />
+                    ) : (
+                        <ExperimentImplementationDetails experiment={experiment} />
+                    )}
+
+                    {experiment.start_date && (
+                        <div>
+                            <ResultsHeader />
+                            <NoResultsEmptyState />
+                        </div>
+                    )}
+                </>
+            )}
+            <SecondaryMetricsTable
+                experimentId={experiment.id}
+                onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
+                initialMetrics={experiment.secondary_metrics}
+                defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
+            />
+        </div>
+    )
+}
+
+const VariantsTab = (): JSX.Element => {
+    return (
+        <div>
+            <ReleaseConditionsTable />
+            <DistributionTable />
+        </div>
+    )
+}
+
 export function ExperimentView(): JSX.Element {
-    const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey } =
+    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey } =
         useValues(experimentLogic)
 
-    const { updateExperimentSecondaryMetrics, setTabKey } = useActions(experimentLogic)
+    const { setTabKey } = useActions(experimentLogic)
 
     const hasResultsInsight = experimentResults && experimentResults.insight
 
@@ -65,52 +110,12 @@ export function ExperimentView(): JSX.Element {
                                         {
                                             key: 'results',
                                             label: 'Results',
-                                            content: (
-                                                <div className="space-y-8">
-                                                    {hasResultsInsight ? (
-                                                        <Results />
-                                                    ) : (
-                                                        <>
-                                                            {experiment.type === 'web' ? (
-                                                                <WebExperimentImplementationDetails
-                                                                    experiment={experiment}
-                                                                />
-                                                            ) : (
-                                                                <ExperimentImplementationDetails
-                                                                    experiment={experiment}
-                                                                />
-                                                            )}
-
-                                                            {experiment.start_date && (
-                                                                <div>
-                                                                    <ResultsHeader />
-                                                                    <NoResultsEmptyState />
-                                                                </div>
-                                                            )}
-                                                        </>
-                                                    )}
-                                                    <SecondaryMetricsTable
-                                                        experimentId={experiment.id}
-                                                        onMetricsChange={(metrics) =>
-                                                            updateExperimentSecondaryMetrics(metrics)
-                                                        }
-                                                        initialMetrics={experiment.secondary_metrics}
-                                                        defaultAggregationType={
-                                                            experiment.parameters?.aggregation_group_type_index
-                                                        }
-                                                    />
-                                                </div>
-                                            ),
+                                            content: <ResultsTab />,
                                         },
                                         {
                                             key: 'variants',
                                             label: 'Variants',
-                                            content: (
-                                                <div className="space-y-8">
-                                                    <ReleaseConditionsTable />
-                                                    <DistributionTable />
-                                                </div>
-                                            ),
+                                            content: <VariantsTab />,
                                         },
                                     ]}
                                 />
