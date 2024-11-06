@@ -30,6 +30,7 @@ from rest_framework.test import APITestCase as DRFTestCase
 from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
+from posthog.clickhouse.materialized_columns import get_materialized_columns
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
@@ -565,31 +566,20 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
     return response
 
 
-def default_materialised_columns():
-    try:
-        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
-        from ee.clickhouse.materialized_columns.test.test_columns import (
-            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
-        )
-
-    except:
-        # EE not available? Skip
-        return []
-
-    default_columns = []
-    for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
-        column_name = get_materialized_columns("events")[(prop, "properties")]
-        default_columns.append(column_name)
-
-    return default_columns
-
-
 def cleanup_materialized_columns():
-    try:
-        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
-    except:
-        # EE not available? Skip
-        return
+    def default_materialised_columns():
+        try:
+            from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+        except:
+            # EE not available? Skip
+            return []
+
+        default_columns = []
+        for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
+            column_name = get_materialized_columns("events")[(prop, "properties")]
+            default_columns.append(column_name)
+
+        return default_columns
 
     def optionally_drop(table, filter=None):
         drops = ",".join(
