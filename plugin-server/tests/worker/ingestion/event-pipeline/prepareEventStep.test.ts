@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, Team } from '../../../../src/types'
+import { Hub, Person, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
@@ -40,7 +40,7 @@ const person: Person = {
 
 const teamTwo: Team = {
     id: 2,
-    project_id: 1,
+    project_id: 1 as ProjectId,
     uuid: 'af95d312-1a0a-4208-b80f-562ddafc9bcd',
     organization_id: '66f3f7bf-44e2-45dd-9901-5dbd93744e3a',
     name: 'testTeam',
