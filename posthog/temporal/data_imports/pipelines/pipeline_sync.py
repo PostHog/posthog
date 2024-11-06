@@ -105,13 +105,6 @@ class DataImportPipelineSync:
         pipeline_name = self._get_pipeline_name()
         destination = self._get_destination()
 
-        dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
-        dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
-        dlt.config["data_writer.file_max_items"] = 500_000
-        dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
-        dlt.config["loader_parallelism_strategy"] = "table-sequential"
-        dlt.config["delta_jobs_per_write"] = 1
-
         def create_table_chain_completed_followup_jobs(
             self: FilesystemClient,
             table_chain: Sequence[PreparedTableSchema],
@@ -151,6 +144,13 @@ class DataImportPipelineSync:
         FilesystemDestinationClientConfiguration.delta_jobs_per_write = None
         FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
         FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
+
+        dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
+        dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
+        dlt.config["data_writer.file_max_items"] = 500_000
+        dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
+        dlt.config["loader_parallelism_strategy"] = "table-sequential"
+        dlt.config["delta_jobs_per_write"] = 1
 
         return dlt.pipeline(
             pipeline_name=pipeline_name, destination=destination, dataset_name=self.inputs.dataset_name, progress="log"
