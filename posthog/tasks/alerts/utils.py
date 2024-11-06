@@ -59,8 +59,8 @@ def alert_calculation_interval_to_relativedelta(alert_calculation_interval: Aler
 def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
     subject = f"PostHog alert {alert.name} is firing"
     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}?alert_id={alert.id}"
-    alert_url = f"{insight_url}/alerts/{alert.id}"
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    alert_url = f"{insight_url}?alert_id={alert.id}"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
@@ -86,14 +86,14 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
     subject = f"PostHog alert {alert.name} check failed to evaluate"
     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}?alert_id={alert.id}"
-    alert_url = f"{insight_url}/alerts/{alert.id}"
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    alert_url = f"{insight_url}?alert_id={alert.id}"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
-        template_name="alert_check_firing",
+        template_name="alert_check_failed_to_evaluate",
         template_context={
-            "match_descriptions": error,
+            "alert_error": error,
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
             "alert_url": alert_url,
