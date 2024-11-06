@@ -13,7 +13,7 @@ export const FeatureFlagsEmptyState = (): JSX.Element => (
         <p>Refine your keyword search, or try using other filters such as type, status or created by.</p>
 
         <div className="flex justify-center">
-            <Link to={urls.featureFlagNew()}>
+            <Link to={urls.featureFlag('new')}>
                 <LemonButton type="primary" data-attr="add-insight-button-empty-state" icon={<IconPlusSmall />}>
                     New feature flag
                 </LemonButton>
