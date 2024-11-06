@@ -7,7 +7,7 @@ from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
+from posthog.clickhouse.materialized_columns import ColumnName, MaterializedColumnBackend, TablesWithMaterializedColumns
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -222,3 +222,30 @@ def _extract_property(comment: str) -> tuple[PropertyName, TableColumn]:
         return split_column[1], DEFAULT_TABLE_COLUMN
 
     return split_column[2], cast(TableColumn, split_column[1])
+
+
+class EnterpriseMaterializedColumnBackend(MaterializedColumnBackend):
+    def get_materialized_columns(
+        self,
+        table: TablesWithMaterializedColumns,
+    ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+        return get_materialized_columns(table)
+
+    def materialize(
+        self,
+        table: TableWithProperties,
+        property: PropertyName,
+        column_name=None,
+        table_column: TableColumn = "properties",
+        create_minmax_index=False,
+    ) -> None:
+        return materialize(table, property, column_name, table_column, create_minmax_index)
+
+    def backfill_materialized_columns(
+        self,
+        table: TableWithProperties,
+        properties: list[tuple[PropertyName, TableColumn]],
+        backfill_period: timedelta,
+        test_settings=None,
+    ) -> None:
+        return backfill_materialized_columns(table, properties, backfill_period, test_settings)
