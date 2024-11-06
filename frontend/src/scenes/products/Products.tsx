@@ -1,5 +1,5 @@
 import * as Icons from '@posthog/icons'
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -65,7 +65,7 @@ export function SelectableProductCard({
                         }}
                         data-attr={`return-to-${productKey}`}
                     >
-                        <Icons.IconCheckCircle className="absolute top-0 right-0" color="green" />
+                        <IconCheckCircle className="absolute top-0 right-0" color="green" />
                     </div>
                 </Tooltip>
             )}
@@ -126,7 +126,7 @@ export function ProductCard({
                         }}
                         data-attr={`return-to-${productKey}`}
                     >
-                        <Icons.IconCheckCircle className="absolute top-0 right-0" color="green" />
+                        <IconCheckCircle className="absolute top-0 right-0" color="green" />
                     </div>
                 </Tooltip>
             )}
