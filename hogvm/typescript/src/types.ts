@@ -59,6 +59,8 @@ export interface ExecOptions {
     }
     /** Collecte telemetry data */
     telemetry?: boolean
+    /** Repl mode: does not pop the last value */
+    repl?: boolean
 }
 
 export type Telemetry = [
