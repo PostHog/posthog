@@ -5,7 +5,7 @@ from typing import Optional
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
-SKIPPED_MIGRATIONS = ["posthog/migrations/0511_remove_errortrackingissuefingerprint_issue_and_more.py"]
+SKIPPED_MIGRATIONS = ["posthog/migrations/0512_remove_errortrackingissuefingerprint_issue_and_more.py"]
 
 
 def _get_new_tables(sql: str):
