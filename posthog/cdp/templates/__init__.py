@@ -1,6 +1,6 @@
 from .webhook.template_webhook import template as webhook
 from .slack.template_slack import template as slack
-from .hubspot.template_hubspot import template as hubspot, TemplateHubspotMigrator
+from .hubspot.template_hubspot import template_event as hubspot_event, template as hubspot, TemplateHubspotMigrator
 from .braze.template_braze import template as braze
 from .customerio.template_customerio import template as customerio, TemplateCustomerioMigrator
 from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
@@ -59,6 +59,7 @@ HOG_FUNCTION_TEMPLATES = [
     google_cloud_storage,
     google_pubsub,
     hubspot,
+    hubspot_event,
     intercom,
     june,
     klaviyo_event,

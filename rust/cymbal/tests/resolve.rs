@@ -3,12 +3,13 @@ use std::sync::Arc;
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
+    frames::RawFrame,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         sourcemap::SourcemapProvider,
         Catalog,
     },
-    types::{frames::RawFrame, ErrProps, Stacktrace},
+    types::{ErrProps, Stacktrace},
 };
 use httpmock::MockServer;
 use tokio::sync::Mutex;
