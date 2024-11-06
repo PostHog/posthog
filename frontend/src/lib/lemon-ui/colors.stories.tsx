@@ -96,7 +96,6 @@ const threeThousand = [
     'brand-key',
 
     // PostHog 3000
-    'text-3000-light',
     'text-secondary-3000-light',
     'muted-3000-light',
     'trace-3000-light',
@@ -131,7 +130,6 @@ const threeThousand = [
 
     'shadow-elevation-3000-light',
     'shadow-elevation-3000-dark',
-    'text-3000-dark',
     'text-secondary-3000-dark',
     'muted-3000-dark',
     'trace-3000-dark',
