@@ -195,6 +195,10 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     )
 
 
+def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
+    raise NotImplementedError
+
+
 def add_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName):
     # Note: This will be populated on backfill
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
