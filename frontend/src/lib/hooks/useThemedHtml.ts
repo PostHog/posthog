@@ -10,16 +10,34 @@ export function useThemedHtml(overflowHidden = true): void {
     const { isDarkModeOn } = useValues(themeLogic)
     const { sceneConfig } = useValues(sceneLogic)
 
-    const [customThemeConfig] = useLocalStorage('CUSTOM_THEME_CONFIG', '')
+    const [customCss] = useLocalStorage('CUSTOM_THEME_CONFIG', '')
+    const CUSTOM_THEME_STYLES_ID = 'ph-custom-theme-styles'
 
     useEffect(() => {
-        document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
-        document.body.setAttribute('style', customThemeConfig)
+        if (!customCss) {
+            document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
+            return
+        }
+
+        document.body.removeAttribute('theme')
+
+        const oldStyle = document.getElementById(CUSTOM_THEME_STYLES_ID)
+        if (oldStyle) {
+            document.head.removeChild(oldStyle)
+        }
+
+        const newStyle = document.createElement('style')
+        newStyle.id = CUSTOM_THEME_STYLES_ID
+        newStyle.appendChild(document.createTextNode(customCss))
+        document.head.appendChild(newStyle)
+    }, [isDarkModeOn, customCss])
+
+    useEffect(() => {
         // overflow-hidden since each area handles scrolling individually (e.g. navbar, scene, side panel)
         if (overflowHidden) {
             document.body.classList.add('overflow-hidden')
         }
-    }, [isDarkModeOn, overflowHidden, customThemeConfig])
+    }, [overflowHidden])
 
     useEffect(() => {
         // Add a theme-color meta tag to the head to change the address bar color on browsers that support it
