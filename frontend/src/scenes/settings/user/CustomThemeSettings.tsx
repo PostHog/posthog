@@ -1,46 +1,27 @@
 import { LemonButton, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useLocalStorage } from '@uidotdev/usehooks'
 import { useActions, useValues } from 'kea'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { ColorPickerButton } from '~/queries/nodes/DataVisualization/Components/ColorPickerButton'
-
-type CustomThemeConfig = {
-    'bg-3000': string
-    'bg-light': string
-    'primary-alt-highlight': string
-    'primary-alt': string
-    'text-3000': string
-    'muted-3000': string
-    radius: string
-}
-
-const DEFAULT_CUSTOM_THEME_CONFIG = {
-    'bg-3000': 'var(--bg-3000)',
-    'bg-light': 'var(--bg-light)',
-    'primary-alt-highlight': 'var(--primary-alt-highlight)',
-    'primary-alt': 'var(--primary-alt)',
-    'text-3000': 'var(--text-3000)',
-    'muted-3000': 'var(--muted-3000)',
-    radius: 'var(--radius)',
-}
+const DEFAULT_CUSTOM_THEME_CONFIG = `--bg-3000: var(--bg-3000);
+--bg-light: var(--bg-light);
+--primary-alt-highlight: var(--primary-alt-highlight);
+--primary-alt: var(--primary-alt);
+--text-3000: var(--text-3000);
+--muted-3000: var(--muted-3000);
+--radius: var(--radius);`
 
 export function CustomThemeSettings(): JSX.Element {
     const { user } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
 
-    const [customThemeConfig, setCustomThemeConfig] = useLocalStorage<CustomThemeConfig | null>(
-        'CUSTOM_THEME_CONFIG',
-        null
+    const [customThemeConfig, setCustomThemeConfig] = useLocalStorage('CUSTOM_THEME_CONFIG', '')
+
+    const [localCustomThemeConfig, setLocalCustomThemeConfig] = useState(
+        customThemeConfig ? customThemeConfig : DEFAULT_CUSTOM_THEME_CONFIG
     )
-
-    const [localCustomThemeConfig, setLocalCustomThemeConfig] = useState<CustomThemeConfig>(DEFAULT_CUSTOM_THEME_CONFIG)
-
-    const onChange = (changes: Partial<CustomThemeConfig>): void => {
-        setLocalCustomThemeConfig({ ...DEFAULT_CUSTOM_THEME_CONFIG, ...customThemeConfig, ...changes })
-    }
 
     return (
         <>
@@ -66,24 +47,19 @@ export function CustomThemeSettings(): JSX.Element {
                     fullWidth
                 />
                 <div className="flex space-x-2">
-                    <LemonLabel>Background color</LemonLabel>
-                    <ColorPickerButton
-                        color={localCustomThemeConfig['bg-3000']}
-                        onColorSelect={(value) => onChange({ 'bg-3000': value })}
-                    >
-                        Default
-                    </ColorPickerButton>
-                    <ColorPickerButton color={localCustomThemeConfig['bg-3000']}>Hover</ColorPickerButton>
-                </div>
-                <div className="flex space-x-2">
-                    <LemonLabel>Radius</LemonLabel>
-                    <LemonSlider
-                        min={0}
-                        max={1}
-                        step={0.125}
-                        value={Number(localCustomThemeConfig['radius'])}
-                        onChange={(value) => onChange({ radius: String(value) })}
-                        className="flex-1"
+                    <CodeEditor
+                        className="border"
+                        language="css"
+                        value={localCustomThemeConfig}
+                        onChange={(v) => {
+                            setLocalCustomThemeConfig(v ?? '')
+                        }}
+                        height={600}
+                        options={{
+                            minimap: {
+                                enabled: false,
+                            },
+                        }}
                     />
                 </div>
                 <div className="flex space-x-1">
