@@ -44,9 +44,7 @@ export function DestinationOptionsTable(): JSX.Element {
                         title: 'Name',
                         sticky: true,
                         key: 'name',
-                        sorter(a, b) {
-                            return a.name.localeCompare(b.name)
-                        },
+                        sorter: (a, b) => a.name.localeCompare(b.name),
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
