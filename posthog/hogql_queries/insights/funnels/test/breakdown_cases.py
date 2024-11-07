@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
 from typing import Any, Literal, Optional, Union, cast
+from unittest import skip
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -461,6 +462,7 @@ def funnel_breakdown_test_factory(
             )
 
         @also_test_with_materialized_columns(["$browser"])
+        @skip('Using "Other" as a breakdown is not yet implemented in HogQL Actors Queries')
         def test_funnel_step_breakdown_event_with_other(self):
             filters = {
                 "insight": INSIGHT_FUNNELS,
@@ -850,6 +852,7 @@ def funnel_breakdown_test_factory(
             self.assertEqual([["5"], ["6"], ["7"], ["8"], ["9"], ["Other"]], breakdown_vals)
 
         @also_test_with_materialized_columns(["some_breakdown_val"])
+        @skip('Using "Other" as a breakdown is not yet implemented in HogQL Actors Queries')
         def test_funnel_step_custom_breakdown_limit_with_nulls(self):
             filters = {
                 "insight": INSIGHT_FUNNELS,

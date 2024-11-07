@@ -213,8 +213,8 @@ class FunnelUDF(FunnelBase):
             raise ValueError("Missing both funnelStep and funnelCustomSteps")
 
         if funnelStepBreakdown is not None:
-            if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
-                funnelStepBreakdown = str(funnelStepBreakdown)
+            if isinstance(funnelStepBreakdown, int | float) and breakdownType != "cohort":
+                funnelStepBreakdown = str(int(funnelStepBreakdown))
 
             conditions.append(
                 parse_expr(
