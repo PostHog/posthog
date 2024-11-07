@@ -62,7 +62,7 @@ from posthog.test.test_journeys import journeys_for
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 
 
-class PsuedoFunnelActors:
+class PseudoFunnelActors:
     def __init__(self, person_filter: Any, team: Team):
         self.filters = person_filter._data
         self.team = team
@@ -95,7 +95,7 @@ class TestFunnelBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        PsuedoFunnelActors,
+        PseudoFunnelActors,
         _create_action,
         _create_person,
     ),
@@ -109,7 +109,7 @@ class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        PsuedoFunnelActors,
+        PseudoFunnelActors,
     ),
 ):
     pass
@@ -118,7 +118,7 @@ class TestFunnelGroupBreakdown(
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PsuedoFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
 ):
     maxDiff = None
     pass
