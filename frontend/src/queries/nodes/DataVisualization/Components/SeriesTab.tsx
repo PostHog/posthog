@@ -128,13 +128,14 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
 
     const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
+    const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
     const columnsInOptions = showTableSettings ? columns : numericalColumns
     const options = columnsInOptions.map(({ name, type }) => ({
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {!showTableSettings && !selectedSeriesBreakdownColumn && (
+                {showSeriesColor && (
                     <SeriesGlyph
                         style={{
                             borderColor: seriesColor,
@@ -244,33 +245,43 @@ const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSerie
 }
 
 const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { showTableSettings } = useValues(dataVisualizationLogic)
+    const { showTableSettings, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+
+    const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
+    const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
-            <div className="flex gap-3">
-                {!showTableSettings && (
-                    <LemonField name="color" label="Color">
-                        {({ value, onChange }) => (
-                            <ColorPickerButton
-                                color={value}
-                                onColorSelect={onChange}
-                                colorChoices={getSeriesColorPalette()}
-                            />
-                        )}
-                    </LemonField>
-                )}
-                <LemonField name="label" label="Label">
-                    <LemonInput />
-                </LemonField>
-            </div>
+            {(showColorPicker || showLabelInput) && (
+                <div className="flex gap-3">
+                    {showColorPicker && (
+                        <LemonField name="color" label="Color">
+                            {({ value, onChange }) => (
+                                <ColorPickerButton
+                                    color={value}
+                                    onColorSelect={onChange}
+                                    colorChoices={getSeriesColorPalette()}
+                                />
+                            )}
+                        </LemonField>
+                    )}
+                    {showLabelInput && (
+                        <LemonField name="label" label="Label">
+                            <LemonInput />
+                        </LemonField>
+                    )}
+                </div>
+            )}
             {!showTableSettings && (
                 <>
-                    <LemonField name="trendLine" label="Trend line">
-                        {({ value, onChange }) => (
-                            <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />
-                        )}
-                    </LemonField>
+                    {!selectedSeriesBreakdownColumn && (
+                        <LemonField name="trendLine" label="Trend line">
+                            {({ value, onChange }) => (
+                                <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />
+                            )}
+                        </LemonField>
+                    )}
                     <LemonField name="yAxisPosition" label="Y-axis position">
                         {({ value, onChange }) => (
                             <LemonSegmentedButton

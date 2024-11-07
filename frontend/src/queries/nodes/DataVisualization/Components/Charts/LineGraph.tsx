@@ -45,7 +45,7 @@ Chart.register(ChartjsPluginStacked100)
 Chart.register(chartTrendline)
 
 const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): GraphType => {
-    if (!settings || !settings.display || settings.display?.displayType === 'auto') {
+    if (!settings || !settings.display || !settings.display.displayType || settings.display?.displayType === 'auto') {
         return chartType === ChartDisplayType.ActionsBar || chartType === ChartDisplayType.ActionsStackedBar
             ? GraphType.Bar
             : GraphType.Line

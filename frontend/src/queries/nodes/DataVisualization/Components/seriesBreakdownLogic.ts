@@ -205,6 +205,16 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     return {
                         name: value || '[No value]',
                         data: dataset,
+                        // we copy supported settings over from the selected
+                        // y-axis since we don't support setting these on the
+                        // breakdown series at the moment
+                        settings: {
+                            formatting: selectedYAxis.settings.formatting,
+                            display: {
+                                yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
+                                displayType: selectedYAxis.settings?.display?.displayType,
+                            },
+                        },
                     }
                 })
 
