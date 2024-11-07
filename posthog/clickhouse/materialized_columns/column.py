@@ -20,12 +20,3 @@ def materialize(
     create_minmax_index=False,
 ) -> None:
     pass
-
-
-def backfill_materialized_columns(
-    table: TableWithProperties,
-    properties: list[tuple[PropertyName, TableColumn]],
-    backfill_period: timedelta,
-    test_settings=None,
-) -> None:
-    pass

@@ -5,6 +5,6 @@ ColumnName = str
 TablesWithMaterializedColumns = TableWithProperties
 
 if EE_AVAILABLE:
-    from ee.clickhouse.materialized_columns.columns import *
+    from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 else:
-    from .column import *
+    from .column import get_materialized_columns, materialize
