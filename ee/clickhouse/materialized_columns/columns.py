@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Literal
@@ -63,6 +64,23 @@ class MaterializedColumnDetails:
             case _:
                 raise ValueError(f"unexpected comment format: {comment!r}")
 
+    @classmethod
+    def get_all(cls, table: TablesWithMaterializedColumns) -> Iterator[tuple[ColumnName, MaterializedColumnDetails]]:
+        rows = sync_execute(
+            """
+            SELECT name, comment
+            FROM system.columns
+            WHERE database = %(database)s
+            AND table = %(table)s
+            AND comment LIKE '%%column_materializer::%%'
+            AND comment not LIKE '%%column_materializer::elements_chain::%%'
+        """,
+            {"database": CLICKHOUSE_DATABASE, "table": table},
+        )
+
+        for name, comment in rows:
+            yield (name, MaterializedColumnDetails.from_column_comment(comment))
+
 
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
@@ -71,24 +89,11 @@ def get_materialized_columns(
     if not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
         return {}
 
-    rows = sync_execute(
-        """
-        SELECT comment, name
-        FROM system.columns
-        WHERE database = %(database)s
-          AND table = %(table)s
-          AND comment LIKE '%%column_materializer::%%'
-          AND comment not LIKE '%%column_materializer::elements_chain::%%'
-    """,
-        {"database": CLICKHOUSE_DATABASE, "table": table},
-    )
-
-    materialized_columns = {}
-    for comment, column_name in rows:
-        details = MaterializedColumnDetails.from_column_comment(comment)
-        if not (exclude_disabled_columns and details.is_disabled):
-            materialized_columns[(details.property_name, details.table_column)] = column_name
-    return materialized_columns
+    return {
+        (details.property_name, details.table_column): column_name
+        for column_name, details in MaterializedColumnDetails.get_all(table)
+        if not (exclude_disabled_columns and details.is_disabled)
+    }
 
 
 def materialize(
