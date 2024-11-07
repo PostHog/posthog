@@ -19,8 +19,6 @@
   <a href="https://www.youtube.com/watch?v=2jQco8hEvTI">
     <img src="https://img.youtube.com/vi/2jQco8hEvTI/0.jpg" alt="PostHog Demonstration">
   </a>
-  <br
-  <em><a href="https://www.youtube.com/watch?v=2jQco8hEvTI">See PostHog in action</a></em>
 </p>
 
 ## PostHog is an all-in-one, open source platform for building better products
@@ -35,13 +33,9 @@
 - Send out fully customizable surveys to specific cohorts of users
 - Connect to external services and manage data flows with PostHog CDP
 
-PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and comes with a generous monthly free tier:
-- 1 million events
-- 5k session replays
-- 1 million feature flag requests
-- 250 survey responses
+PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and comes with a <a href="https://posthog.com/pricing">generous monthly free tier</a>.
 
-We're constantly adding new features, with <a href="https://posthog.com/docs/web-analytics">web analytics</a> and <a href="https://posthog.com/docs/data-warehouse">data warehouse</a> now in beta!
+We're constantly adding new features, and recently launched <a href="https://posthog.com/docs/web-analytics">web analytics</a> and a <a href="https://posthog.com/docs/data-warehouse">data warehouse</a>!
 
 ## Table of Contents
 
@@ -92,25 +86,15 @@ PostHog brings all the tools and data you need to build better products.
 - **Ready-made libraries:** We’ve built libraries for [JavaScript](https://posthog.com/docs/libraries/js), [Python](https://posthog.com/docs/libraries/python), [Ruby](https://posthog.com/docs/libraries/ruby), [Node](https://posthog.com/docs/libraries/node), [Go](https://posthog.com/docs/libraries/go), [Android](https://posthog.com/docs/libraries/android), [iOS](https://posthog.com/docs/libraries/ios), [PHP](https://posthog.com/docs/libraries/php), [Flutter](https://posthog.com/docs/libraries/flutter), [React Native](https://posthog.com/docs/libraries/react-native), [Elixir](https://posthog.com/docs/libraries/elixir), [Nim](https://github.com/Yardanico/posthog-nim), and an [API](https://posthog.com/docs/api) for anything else
 - **Plays nicely with data warehouses:** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built apps - such as [BigQuery](https://posthog.com/apps/bigquery-export), [Redshift](https://posthog.com/apps/redshift-export), [Snowflake](https://posthog.com/apps/snowflake-export), and [S3](https://posthog.com/apps/s3-expo)
 
-[Read a full list of PostHog features](https://posthog.com/product).
+[Check out the full list of PostHog features.](https://posthog.com/product)
 
 ## Contributing
 
-We <3 contributions big and small. In priority order (although everything is appreciated) with the most helpful first:
+We <3 contributions big and small:
 
 - Vote on features or get early access to beta functionality in our [roadmap](https://posthog.com/roadmap)
 - Open a PR (see our instructions on [developing PostHog locally](https://posthog.com/handbook/engineering/developing-locally))
 - Submit a [feature request](https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement%2C+feature&template=feature_request.md) or [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md)
-
-## Philosophy
-
-Our mission is to increase the number of successful products in the world. To do that, we build product and data tools that help you understand user behavior without losing control of your data.
-
-In our view, third-party analytics tools do not work in a world of cookie deprecation, GDPR, HIPAA, CCPA, and many other four-letter acronyms. PostHog is the alternative to sending all of your customers' personal information and usage data to third parties.
-
-PostHog gives you every tool you need to understand user behavior, develop and test improvements, and release changes to make your product more successful.
-
-PostHog operates in public as much as possible. We detail how we work and our learning on building and running a fast-growing, product-focused startup in our [handbook](https://posthog.com/handbook/getting-started/start-here).
 
 ## Open-source vs. paid
 
