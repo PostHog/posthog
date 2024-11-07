@@ -40,19 +40,26 @@ class MaterializedColumnDetails:
 
     COMMENT_PREFIX = "column_materializer"
     COMMENT_SEPARATOR = "::"
+    COMMENT_DISABLED_MARKER = "disabled"
 
     def as_column_comment(self) -> str:
-        return self.COMMENT_SEPARATOR.join([self.COMMENT_PREFIX, self.table_column, self.property_name])
+        bits = [self.COMMENT_PREFIX, self.table_column, self.property_name]
+        if self.is_disabled:
+            bits.append(self.COMMENT_DISABLED_MARKER)
+        return self.COMMENT_SEPARATOR.join(bits)
 
     @classmethod
     def from_column_comment(cls, comment: str) -> MaterializedColumnDetails:
-        # Old style comments have the format "column_materializer::property", dealing with the default table column.
-        # Otherwise, it's "column_materializer::table_column::property"
-        match comment.split(cls.COMMENT_SEPARATOR, 2):
+        match comment.split(cls.COMMENT_SEPARATOR, 3):
+            # Old style comments have the format "column_materializer::property", dealing with the default table column.
             case [cls.COMMENT_PREFIX, property_name]:
-                return MaterializedColumnDetails(DEFAULT_TABLE_COLUMN, property_name, False)
+                return MaterializedColumnDetails(DEFAULT_TABLE_COLUMN, property_name, is_disabled=False)
+            # Otherwise, it's "column_materializer::table_column::property" for columns that are active.
             case [cls.COMMENT_PREFIX, table_column, property_name]:
-                return MaterializedColumnDetails(table_column, property_name, False)
+                return MaterializedColumnDetails(table_column, property_name, is_disabled=False)
+            # Columns that are marked as disabled have an extra trailer indicating their status.
+            case [cls.COMMENT_PREFIX, table_column, property_name, cls.COMMENT_DISABLED_MARKER]:
+                return MaterializedColumnDetails(table_column, property_name, is_disabled=True)
             case _:
                 raise ValueError(f"unexpected comment format: {comment!r}")
 

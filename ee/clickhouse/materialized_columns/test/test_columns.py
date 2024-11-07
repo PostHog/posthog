@@ -1,10 +1,12 @@
 from datetime import timedelta
 from time import sleep
+from unittest import TestCase
 from unittest.mock import patch
 
 from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns.columns import (
+    MaterializedColumnDetails,
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
@@ -21,6 +23,37 @@ EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_
     "$session_id",
     "$window_id",
 ]
+
+
+class TestMaterializedColumnDetails(TestCase):
+    def test_column_comment_formats(self):
+        old_format_comment = "column_materializer::foo"
+        old_format_details = MaterializedColumnDetails.from_column_comment(old_format_comment)
+        assert old_format_details == MaterializedColumnDetails(
+            "properties",  # the default
+            "foo",
+            is_disabled=False,
+        )
+        # old comment format is implicitly upgraded to the newer format when serializing
+        assert old_format_details.as_column_comment() == "column_materializer::properties::foo"
+
+        new_format_comment = "column_materializer::person_properties::bar"
+        new_format_details = MaterializedColumnDetails.from_column_comment(new_format_comment)
+        assert new_format_details == MaterializedColumnDetails(
+            "person_properties",
+            "bar",
+            is_disabled=False,
+        )
+        assert new_format_details.as_column_comment() == new_format_comment
+
+        new_format_disabled_comment = "column_materializer::person_properties::bar::disabled"
+        new_format_disabled_details = MaterializedColumnDetails.from_column_comment(new_format_disabled_comment)
+        assert new_format_disabled_details == MaterializedColumnDetails(
+            "person_properties",
+            "bar",
+            is_disabled=True,
+        )
+        assert new_format_disabled_details.as_column_comment() == new_format_disabled_comment
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
