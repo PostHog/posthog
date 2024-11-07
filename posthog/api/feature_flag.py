@@ -502,34 +502,33 @@ class FeatureFlagViewSet(
             OpenApiParameter(
                 "active",
                 OpenApiTypes.STR,
-                in_=OpenApiParameter.QUERY,
+                location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true", "false"],
             ),
             OpenApiParameter(
                 "created_by_id",
                 OpenApiTypes.STR,
-                in_=OpenApiParameter.QUERY,
+                location=OpenApiParameter.QUERY,
                 required=False,
                 description="The User ID which initially created the feature flag.",
             ),
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                in_=OpenApiParameter.QUERY,
+                location=OpenApiParameter.QUERY,
                 required=False,
                 description="Search by feature flag key or name. Case insensitive.",
             ),
             OpenApiParameter(
                 "type",
                 OpenApiTypes.STR,
-                in_=OpenApiParameter.QUERY,
+                location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["boolean", "multivariant", "experiment"],
             ),
         ]
     )
-    @action(methods=["GET"], detail=True)
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
