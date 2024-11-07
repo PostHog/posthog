@@ -4,7 +4,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Literal, cast
+from typing import Literal, NamedTuple, cast
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
@@ -31,6 +31,28 @@ SHORT_TABLE_COLUMN_NAME = {
     "group3_properties": "gp3",
     "group4_properties": "gp4",
 }
+
+
+class MaterializedColumn(NamedTuple):
+    column_name: ColumnName
+    details: MaterializedColumnDetails
+
+    @staticmethod
+    def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
+        rows = sync_execute(
+            """
+            SELECT name, comment
+            FROM system.columns
+            WHERE database = %(database)s
+            AND table = %(table)s
+            AND comment LIKE '%%column_materializer::%%'
+            AND comment not LIKE '%%column_materializer::elements_chain::%%'
+        """,
+            {"database": CLICKHOUSE_DATABASE, "table": table},
+        )
+
+        for name, comment in rows:
+            yield (name, MaterializedColumnDetails.from_column_comment(comment))
 
 
 @dataclass(frozen=True)
@@ -64,23 +86,6 @@ class MaterializedColumnDetails:
             case _:
                 raise ValueError(f"unexpected comment format: {comment!r}")
 
-    @classmethod
-    def get_all(cls, table: TablesWithMaterializedColumns) -> Iterator[tuple[ColumnName, MaterializedColumnDetails]]:
-        rows = sync_execute(
-            """
-            SELECT name, comment
-            FROM system.columns
-            WHERE database = %(database)s
-            AND table = %(table)s
-            AND comment LIKE '%%column_materializer::%%'
-            AND comment not LIKE '%%column_materializer::elements_chain::%%'
-        """,
-            {"database": CLICKHOUSE_DATABASE, "table": table},
-        )
-
-        for name, comment in rows:
-            yield (name, MaterializedColumnDetails.from_column_comment(comment))
-
 
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
@@ -90,9 +95,9 @@ def get_materialized_columns(
         return {}
 
     return {
-        (details.property_name, details.table_column): column_name
-        for column_name, details in MaterializedColumnDetails.get_all(table)
-        if not (exclude_disabled_columns and details.is_disabled)
+        (column.details.property_name, column.details.table_column): column.name
+        for column in MaterializedColumn.get_all(table)
+        if not (exclude_disabled_columns and column.details.is_disabled)
     }
 
 
