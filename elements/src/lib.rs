@@ -1,3 +1,4 @@
+//! Python extension to deserialize chains of HTML elements as serialized by PostHog
 use std::collections;
 
 use once_cell::sync::Lazy;
@@ -21,6 +22,9 @@ static PARSE_ATTRIBUTES_REGEX: Lazy<Regex> = Lazy::new(|| {
         .expect("hard-coded regular expression should be valid")
 });
 
+/// Represents an HTML element.
+///
+/// Meant to replicate a PostHog `Element` model internally.
 struct Element {
     order: usize,
     text: Option<String>,
@@ -89,6 +93,7 @@ impl Element {
 }
 
 impl IntoPy<PyObject> for Element {
+    /// Convert a Rust `Element` into a Python dictionary.
     fn into_py(self, py: Python<'_>) -> PyObject {
         let dict = &[("order", self.order)].into_py_dict_bound(py);
 
@@ -128,6 +133,11 @@ impl IntoPy<PyObject> for Element {
     }
 }
 
+/// Deserialize a chain of HTML elements into a Python dictionary
+///
+/// This function mimics the `chain_to_elements` Python function provided
+/// by the `posthog.models.element.elements` module. The only difference is
+/// that this function returns a dictionary instead of a Django model.
 #[pyfunction]
 pub fn chain_to_elements_dict(chain: &str) -> PyResult<PyObject> {
     let elements: Vec<Element> = SPLIT_CHAIN_REGEX
