@@ -174,12 +174,26 @@ export const hogReplLogic = kea<hogReplLogicType>([
         },
     })),
     actionToUrl(({ values }) => {
-        const fn = (): [string, undefined, Record<string, any>, { replace: true }] | undefined => {
+        const fn = (): [string, undefined, Record<string, any> | undefined, { replace: true }] | undefined => {
             if (values.replChunks.length > 0) {
-                const code = [...values.replChunks.map((chunk) => chunk.code), values.currentCode]
-                    .filter((a) => !!a)
-                    .join('\n')
-                return [urls.debugHog(), undefined, { code }, { replace: true }]
+                // Chrome has a 2MB limit for the HASH params, set ours at 1MB
+                const replChunksLength = JSON.stringify(values.replChunks).length
+                if (replChunksLength > 1024 * 1024) {
+                    // Try with just the code
+                    const newCode = values.replChunks.map((chunk) => chunk.code).join('\n')
+                    if (newCode.length > 1024 * 1024) {
+                        // Still not enough, abort
+                        return [urls.debugHog(), undefined, undefined, { replace: true }]
+                    }
+                    return [urls.debugHog(), undefined, { code: newCode }, { replace: true }]
+                }
+
+                return [
+                    urls.debugHog(),
+                    undefined,
+                    { repl: values.replChunks, code: values.currentCode },
+                    { replace: true },
+                ]
             }
         }
 
@@ -194,8 +208,9 @@ export const hogReplLogic = kea<hogReplLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.debugHog()]: (_, __, { code }) => {
-            if (code && !values.currentCode && values.replChunks.length === 0) {
+        [urls.debugHog()]: (_, __, { repl, code }) => {
+            if ((repl || code) && !values.currentCode && values.replChunks.length === 0) {
+                actions.setReplChunks(repl)
                 actions.setCurrentCode(code)
             }
         },
