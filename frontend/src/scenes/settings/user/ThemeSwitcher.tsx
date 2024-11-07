@@ -1,7 +1,6 @@
 import { IconDay, IconLaptop, IconNight, IconPalette } from '@posthog/icons'
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 export function ThemeSwitcher({
@@ -33,12 +32,7 @@ export function ThemeSwitcher({
                     </>
                 )
             }}
-            onChange={(value) => {
-                updateUser({ theme_mode: value })
-                if (value === 'custom') {
-                    urls.settings('user-customization', 'custom-theme')
-                }
-            }}
+            onChange={(value) => updateUser({ theme_mode: value })}
             dropdownPlacement="right-start"
             dropdownMatchSelectWidth={false}
             {...props}

@@ -1,30 +1,41 @@
 import { captureException } from '@sentry/react'
-import { useLocalStorage } from '@uidotdev/usehooks'
 import { useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic, THEMES } from '~/layout/navigation-3000/themeLogic'
 
 export function useThemedHtml(overflowHidden = true): void {
-    const { isDarkModeOn } = useValues(themeLogic)
+    const { isDarkModeOn, customThemeId } = useValues(themeLogic)
     const { sceneConfig } = useValues(sceneLogic)
 
-    const [customCss] = useLocalStorage('CUSTOM_THEME_CONFIG', '')
     const CUSTOM_THEME_STYLES_ID = 'ph-custom-theme-styles'
 
+    const customCss = useMemo(() => {
+        if (!customThemeId) {
+            return
+        }
+
+        const customTheme = THEMES.find((t) => t.id === customThemeId)
+        if (!customTheme) {
+            return
+        }
+
+        return customTheme.styles
+    }, [customThemeId])
+
     useEffect(() => {
+        const oldStyle = document.getElementById(CUSTOM_THEME_STYLES_ID)
+        if (oldStyle) {
+            document.head.removeChild(oldStyle)
+        }
+
         if (!customCss) {
             document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
             return
         }
 
         document.body.removeAttribute('theme')
-
-        const oldStyle = document.getElementById(CUSTOM_THEME_STYLES_ID)
-        if (oldStyle) {
-            document.head.removeChild(oldStyle)
-        }
 
         const newStyle = document.createElement('style')
         newStyle.id = CUSTOM_THEME_STYLES_ID

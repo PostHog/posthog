@@ -11,19 +11,19 @@ export const THEMES = [
     {
         id: 'hacker',
         title: 'Hacker',
-        styles: '',
+        styles: 'body{--bg-3000: green}',
         primaryColors: [],
     },
     {
         id: 'retro',
         title: 'Retro',
-        styles: '',
+        styles: 'body{--bg-3000: blue}',
         primaryColors: [],
     },
     {
         id: 'fisher-price',
         title: 'Fisher Price',
-        styles: '',
+        styles: 'body{--bg-3000: red}',
         primaryColors: ['red', 'green', 'blue'],
     },
     {
