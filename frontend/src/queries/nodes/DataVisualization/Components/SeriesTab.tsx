@@ -19,8 +19,9 @@ import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { AxisBreakdownSeries, AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColorPickerButton } from './ColorPickerButton'
+import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
@@ -33,9 +34,10 @@ export const SeriesTab = (): JSX.Element => {
         showTableSettings,
         tabularColumns,
         selectedXAxis,
-        showSeriesBreakdown,
     } = useValues(dataVisualizationLogic)
-    const { updateXSeries, addYSeries, addSeriesBreakdown } = useActions(dataVisualizationLogic)
+    const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
+    const { showSeriesBreakdown } = useValues(seriesBreakdownLogic)
+    const { addSeriesBreakdown } = useActions(seriesBreakdownLogic)
 
     const hideAddYSeries = yData.length >= numericalColumns.length
     const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
@@ -111,15 +113,10 @@ export const SeriesTab = (): JSX.Element => {
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number }): JSX.Element => {
-    const {
-        columns,
-        numericalColumns,
-        responseLoading,
-        dataVisualizationProps,
-        showTableSettings,
-        selectedSeriesBreakdownColumn,
-    } = useValues(dataVisualizationLogic)
+    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
+        useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
+    const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic)
 
     const seriesLogicProps: YSeriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
     const seriesLogic = ySeriesLogic(seriesLogicProps)
@@ -332,9 +329,9 @@ const Y_SERIES_SETTINGS_TABS = {
 }
 
 export const SeriesBreakdownSelector = (): JSX.Element => {
-    const { columns, responseLoading, selectedXAxis, selectedSeriesBreakdownColumn, seriesBreakdownData } =
-        useValues(dataVisualizationLogic)
-    const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(dataVisualizationLogic)
+    const { columns, responseLoading, selectedXAxis } = useValues(dataVisualizationLogic)
+    const { selectedSeriesBreakdownColumn, seriesBreakdownData } = useValues(seriesBreakdownLogic)
+    const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(seriesBreakdownLogic)
 
     const seriesBreakdownOptions = columns
         .map(({ name, type }) => ({

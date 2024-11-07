@@ -32,13 +32,13 @@ import { ChartSettings, YAxisSettings } from '~/queries/schema'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import {
-    AxisBreakdownSeries,
     AxisSeries,
     AxisSeriesSettings,
     dataVisualizationLogic,
     formatDataWithSettings,
 } from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
+import { AxisBreakdownSeries, seriesBreakdownLogic } from '../seriesBreakdownLogic'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -100,13 +100,16 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, seriesBreakdownData, presetChartHeight, visualizationType, showEditingUI, chartSettings } =
+
+    // LineGraph displays a graph using either x and y data or series breakdown data
+    const { xData, yData, presetChartHeight, visualizationType, showEditingUI, chartSettings } =
         useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
 
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic)
     const { goalLines } = useValues(displayLogic)
 
     useEffect(() => {
