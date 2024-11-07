@@ -1,0 +1,363 @@
+# serializer version: 1
+# name: TestFunnelTrends.test_timezones_trends
+  '''
+  
+  SELECT entrance_period_start,
+         reached_from_step_count,
+         reached_to_step_count,
+         if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate
+  FROM
+    (SELECT entrance_period_start,
+            countIf(steps_completed >= 1) AS reached_from_step_count,
+            countIf(steps_completed >= 3) AS reached_to_step_count
+     FROM
+       (SELECT aggregation_target,
+               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
+               max(steps) AS steps_completed
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
+                                                                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                              if(event = 'step one', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = 'step two', 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = 'step three', 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       LEFT OUTER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 99999
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 99999
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 99999
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 )
+        GROUP BY aggregation_target,
+                 entrance_period_start)
+     GROUP BY entrance_period_start) data
+  RIGHT OUTER JOIN
+    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC')) + toIntervalDay(number) AS entrance_period_start
+     FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC')), toStartOfDay(toDateTime('2021-05-07 00:00:00', 'UTC'))) + 1) AS period_offsets) fill USING (entrance_period_start)
+  ORDER BY entrance_period_start ASC
+  '''
+# ---
+# name: TestFunnelTrends.test_timezones_trends.1
+  '''
+  
+  SELECT entrance_period_start,
+         reached_from_step_count,
+         reached_to_step_count,
+         if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate
+  FROM
+    (SELECT entrance_period_start,
+            countIf(steps_completed >= 1) AS reached_from_step_count,
+            countIf(steps_completed >= 3) AS reached_to_step_count
+     FROM
+       (SELECT aggregation_target,
+               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) AS entrance_period_start,
+               max(steps) AS steps_completed
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
+                                                                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                              if(event = 'step one', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = 'step two', 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = 'step three', 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       LEFT OUTER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 99999
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 99999
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
+                                 AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific') )
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 99999
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
+                         AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific')
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 )
+        GROUP BY aggregation_target,
+                 entrance_period_start)
+     GROUP BY entrance_period_start) data
+  RIGHT OUTER JOIN
+    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific')) + toIntervalDay(number) AS entrance_period_start
+     FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific')), toStartOfDay(toDateTime('2021-05-07 00:00:00', 'US/Pacific'))) + 1) AS period_offsets) fill USING (entrance_period_start)
+  ORDER BY entrance_period_start ASC
+  '''
+# ---
+# name: TestFunnelTrends.test_week_interval
+  '''
+  
+  SELECT entrance_period_start,
+         reached_from_step_count,
+         reached_to_step_count,
+         if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate
+  FROM
+    (SELECT entrance_period_start,
+            countIf(steps_completed >= 1) AS reached_from_step_count,
+            countIf(steps_completed >= 3) AS reached_to_step_count
+     FROM
+       (SELECT aggregation_target,
+               toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) AS entrance_period_start,
+               max(steps) AS steps_completed
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
+                                                                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                              if(event = 'step one', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = 'step two', 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = 'step three', 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       LEFT OUTER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 99999
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 99999
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 99999
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 )
+        GROUP BY aggregation_target,
+                 entrance_period_start)
+     GROUP BY entrance_period_start) data
+  RIGHT OUTER JOIN
+    (SELECT toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC'), 0) + toIntervalWeek(number) AS entrance_period_start
+     FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC'), 0), toStartOfWeek(toDateTime('2021-05-07 00:00:00', 'UTC'), 0)) + 1) AS period_offsets) fill USING (entrance_period_start)
+  ORDER BY entrance_period_start ASC
+  '''
+# ---
+# name: TestFunnelTrends.test_week_interval.1
+  '''
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) AS entrance_period_start,
+            max(steps) AS steps_completed
+     FROM
+       (SELECT *,
+               if(latest_0 <= latest_1
+                  AND latest_1 <= latest_0 + INTERVAL 7 DAY
+                  AND latest_1 <= latest_2
+                  AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
+                                                                   AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
+               if(isNotNull(latest_1)
+                  AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+               if(isNotNull(latest_2)
+                  AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+        FROM
+          (SELECT aggregation_target, timestamp, step_0,
+                                                 latest_0,
+                                                 step_1,
+                                                 latest_1,
+                                                 step_2,
+                                                 min(latest_2) over (PARTITION by aggregation_target
+                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    if(latest_2 < latest_1, NULL, latest_2) as latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                          step_2,
+                                                                          min(latest_2) over (PARTITION by aggregation_target
+                                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                 FROM
+                   (SELECT e.timestamp as timestamp,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                           if(event = 'step one', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'step two', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'step three', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2
+                    FROM events e
+                    LEFT OUTER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 99999
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 99999
+                              AND event IN ['step one', 'step three', 'step two']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 99999
+                      AND event IN ['step one', 'step three', 'step two']
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                      AND (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) ))))
+        WHERE step_0 = 1 )
+     WHERE toDateTime(entrance_period_start) = '2021-04-25 00:00:00'
+     GROUP BY aggregation_target,
+              entrance_period_start)
+  WHERE steps_completed >= 3
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
