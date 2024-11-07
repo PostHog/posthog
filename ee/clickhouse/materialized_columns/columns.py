@@ -196,7 +196,30 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
 
 
 def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
-    raise NotImplementedError
+    drop_minmax_index(table, column_name)
+
+    # XXX: copy/pasted from `materialize`
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+
+    sync_execute(
+        f"""
+        ALTER TABLE {table}
+        {execute_on_cluster}
+        DROP COLUMN IF EXISTS {column_name}
+    """,
+        settings={"alter_sync": 2 if TEST else 1},
+    )
+
+    if table == "events":
+        sync_execute(
+            f"""
+            ALTER TABLE sharded_{table}
+            {execute_on_cluster}
+            DROP COLUMN IF EXISTS {column_name}
+        """,
+            {"property": property},
+            settings={"alter_sync": 2 if TEST else 1},
+        )
 
 
 def add_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName):
@@ -221,6 +244,24 @@ def add_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnNa
             raise
 
     return index_name
+
+
+def drop_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName) -> None:
+    # XXX: copy/pasted from `materialize`
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+
+    # XXX: copy/pasted from `add_minmax_index`
+    updated_table = "sharded_events" if table == "events" else table
+    index_name = f"minmax_{column_name}"
+
+    sync_execute(
+        f"""
+        ALTER TABLE {updated_table}
+        {execute_on_cluster}
+        DROP INDEX IF EXISTS {index_name}
+        """,
+        settings={"alter_sync": 2 if TEST else 1},
+    )
 
 
 def backfill_materialized_columns(
