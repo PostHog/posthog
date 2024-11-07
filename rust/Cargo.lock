@@ -3047,7 +3047,6 @@ version = "0.12.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cf62eb4dd975d2dde76432fb1075c49e3ee2331cf36f1f8fd4b66550d32b6f"
 dependencies = [
-<<<<<<< HEAD
  "async-lock 3.4.0",
  "async-trait",
  "crossbeam-channel",
@@ -3055,11 +3054,6 @@ dependencies = [
  "crossbeam-utils",
  "event-listener 5.3.1",
  "futures-util",
-=======
- "crossbeam-channel",
- "crossbeam-epoch",
- "crossbeam-utils",
->>>>>>> master
  "once_cell",
  "parking_lot",
  "quanta 0.12.2",

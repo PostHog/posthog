@@ -925,6 +925,75 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "third-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, different variant assigned
 
+
+    # @patch(
+    #     "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
+    #     return_value=True,
+    # )
+    def test_feature_flags_v3_with_groups(self, mock_is_connected):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="groups-flag",
+            name="Groups flag",
+            created_by=self.user,
+            filters={
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "$group_key",
+                                    "type": "group",
+                                    "value": "13",
+                                    "operator": "exact",
+                                    "group_type_index": 0
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ],
+                },
+                "name": "This is a group-based flag",
+                "key": "groups-flag",
+            },
+        )
+
+        GroupTypeMapping.objects.db_manager().create(
+            team=self.team, project_id=self.team.project_id, group_type="tenant", group_type_index=0
+        )
+
+        Group.objects.db_manager().create(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="13",
+            group_properties={"tenant_name": "Tacit", "tenant_type": "Organization"},
+            version=2,
+        )
+
+        with self.assertNumQueries(9), self.assertNumQueries(0, using="default"):
+            # E   1. SET LOCAL statement_timeout = 300
+            # E   2. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- a.k.a get group type mappings
+
+            # E   3. SET LOCAL statement_timeout = 600
+            # E   4. SELECT (UPPER(("posthog_group"."group_properties" ->> 'email')::text) AS "flag_182_condition_0" FROM "posthog_group" -- a.k.a get group0 conditions
+            # E   5. SELECT (true) AS "flag_181_condition_0" FROM "posthog_group" WHERE ("posthog_group"."team_id" = 91 -- a.k.a get group1 conditions
+            response = self._post_decide(
+                distinct_id="example_id",
+                groups={"tenant": "13"},
+                api_version=3,
+            )
+            print(response.json())
+            # self.assertFalse(
+            #     response.json()["featureFlags"]["groups-flag"],
+            # )
+            self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+
     def test_feature_flags_v2_with_property_overrides(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -4552,6 +4621,68 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertEqual(
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
+
+    @patch(
+        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
+        return_value=True,
+    )
+    def test_feature_flags_v3_with_groups(self, mock_is_connected):
+        org, team, user = self.setup_user_and_team_in_db("replica")
+        self.organization, self.team, self.user = org, team, user
+
+        flags = [
+            {
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "$group_key",
+                                    "type": "group",
+                                    "value": "13",
+                                    "operator": "exact",
+                                    "group_type_index": 0
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ],
+                },
+                "name": "This is a group-based flag",
+                "key": "groups-flag",
+            },
+        ]
+        self.setup_flags_in_db("replica", team, user, flags, persons)
+
+        GroupTypeMapping.objects.db_manager("replica").create(
+            team=self.team, project_id=self.team.project_id, group_type="tenant", group_type_index=0
+        )
+
+        Group.objects.db_manager("replica").create(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="13",
+            group_properties={"tenant_name": "Tacit", "tenant_type": "Organization"},
+            version=2,
+        )
+
+        with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
+            # E   1. SET LOCAL statement_timeout = 300
+            # E   2. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- a.k.a get group type mappings
+
+            # E   3. SET LOCAL statement_timeout = 600
+            # E   4. SELECT (UPPER(("posthog_group"."group_properties" ->> 'email')::text) AS "flag_182_condition_0" FROM "posthog_group" -- a.k.a get group0 conditions
+            # E   5. SELECT (true) AS "flag_181_condition_0" FROM "posthog_group" WHERE ("posthog_group"."team_id" = 91 -- a.k.a get group1 conditions
+            response = self._post_decide(
+                distinct_id="example_id",
+                groups={"tenant": "13"},
+            )
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {"groups-flag": False},
+            )
+            self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
     @patch(
         "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
