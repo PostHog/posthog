@@ -72,6 +72,7 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
+    DebugHog = 'DebugHog',
     VerifyEmail = 'VerifyEmail',
     Notebooks = 'Notebooks',
     Notebook = 'Notebook',

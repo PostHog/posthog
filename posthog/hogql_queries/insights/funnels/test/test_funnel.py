@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import cast
+from typing import cast, Any
 from unittest.mock import Mock, patch
 
 from django.test import override_settings
@@ -25,12 +25,11 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Element
+from posthog.models import Action, Element, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import (
     ActionsNode,
     ActorsQuery,
@@ -60,6 +59,27 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+
+
+class PseudoFunnelActors:
+    def __init__(self, person_filter: Any, team: Team):
+        self.filters = person_filter._data
+        self.team = team
+
+    def get_actors(self):
+        actors = get_actors(
+            self.filters,
+            self.team,
+            funnel_step=self.filters.get("funnel_step"),
+            funnel_step_breakdown=self.filters.get("funnel_step_breakdown"),
+        )
+
+        return (
+            None,
+            [{"id": x[0]} for x in actors],
+            None,
+        )
 
 
 def _create_action(**kwargs):
@@ -75,7 +95,7 @@ class TestFunnelBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
+        PseudoFunnelActors,
         _create_action,
         _create_person,
     ),
@@ -89,7 +109,7 @@ class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
+        PseudoFunnelActors,
     ),
 ):
     pass
@@ -98,7 +118,7 @@ class TestFunnelGroupBreakdown(
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
 ):
     maxDiff = None
     pass
@@ -3699,8 +3719,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
         def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
-            GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-            GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            )
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+            )
 
             create_group(
                 team_id=self.team.pk,

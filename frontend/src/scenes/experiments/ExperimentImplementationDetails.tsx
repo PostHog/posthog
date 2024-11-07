@@ -1,15 +1,27 @@
 import { LemonSelect, Link } from '@posthog/lemon-ui'
-import { IconGolang, IconJavascript, IconNodeJS, IconPHP, IconPython, IconRuby } from 'lib/lemon-ui/icons'
+import {
+    IconAndroidOS,
+    IconAppleIOS,
+    IconGolang,
+    IconJavascript,
+    IconNodeJS,
+    IconPHP,
+    IconPython,
+    IconRuby,
+} from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import {
+    AndroidSnippet,
     GolangSnippet,
+    IOSSnippet,
     JSSnippet,
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
+    ReactSnippet,
     RNSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
@@ -22,48 +34,81 @@ const UTM_TAGS = '?utm_medium=in-product&utm_campaign=experiment'
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
 
+export enum LibraryType {
+    Client = 'Client',
+    Server = 'Server',
+}
+
 const OPTIONS = [
     {
         value: 'JavaScript',
         documentationLink: `${DOC_BASE_URL}libraries/js${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconJavascript,
         Snippet: JSSnippet,
+        type: LibraryType.Client,
     },
     {
-        value: 'ReactNative',
-        documentationLink: `${DOC_BASE_URL}libraries/react-native${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconJavascript,
-        Snippet: RNSnippet,
+        value: 'Android',
+        documentationLink: `${DOC_BASE_URL}libraries/android${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconAndroidOS,
+        Snippet: AndroidSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'Go',
+        documentationLink: `${DOC_BASE_URL}libraries/go${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconGolang,
+        Snippet: GolangSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'iOS',
+        documentationLink: `${DOC_BASE_URL}libraries/ios${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconAppleIOS,
+        Snippet: IOSSnippet,
+        type: LibraryType.Client,
     },
     {
         value: 'Node.js',
         documentationLink: `${DOC_BASE_URL}libraries/node${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconNodeJS,
         Snippet: NodeJSSnippet,
+        type: LibraryType.Server,
     },
     {
         value: 'PHP',
         documentationLink: `${DOC_BASE_URL}libraries/php${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconPHP,
         Snippet: PHPSnippet,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}libraries/ruby${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconRuby,
-        Snippet: RubySnippet,
-    },
-    {
-        value: 'Golang',
-        documentationLink: `${DOC_BASE_URL}libraries/go${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconGolang,
-        Snippet: GolangSnippet,
+        type: LibraryType.Server,
     },
     {
         value: 'Python',
         documentationLink: `${DOC_BASE_URL}libraries/python${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconPython,
         Snippet: PythonSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'React',
+        documentationLink: `${DOC_BASE_URL}libraries/react${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconJavascript,
+        Snippet: ReactSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'React Native',
+        documentationLink: `${DOC_BASE_URL}libraries/react-native${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconJavascript,
+        Snippet: RNSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'Ruby',
+        documentationLink: `${DOC_BASE_URL}libraries/ruby${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconRuby,
+        Snippet: RubySnippet,
+        type: LibraryType.Server,
     },
 ]
 
@@ -80,16 +125,34 @@ export function CodeLanguageSelect({
             className="min-w-[7.5rem]"
             onSelect={selectOption}
             value={selectedOptionValue}
-            options={OPTIONS.map(({ value, Icon }) => ({
-                value,
-                label: value,
-                labelInMenu: (
-                    <div className="flex items-center space-x-2">
-                        <Icon />
-                        <span>{value}</span>
-                    </div>
-                ),
-            }))}
+            options={[
+                {
+                    title: 'Client libraries',
+                    options: OPTIONS.filter((option) => option.type == LibraryType.Client).map(({ Icon, value }) => ({
+                        value,
+                        label: value,
+                        labelInMenu: (
+                            <div className="flex items-center space-x-2">
+                                <Icon />
+                                <span>{value}</span>
+                            </div>
+                        ),
+                    })),
+                },
+                {
+                    title: 'Server libraries',
+                    options: OPTIONS.filter((option) => option.type == LibraryType.Server).map(({ Icon, value }) => ({
+                        value,
+                        label: value,
+                        labelInMenu: (
+                            <div className="flex items-center space-x-2">
+                                <Icon />
+                                <span>{value}</span>
+                            </div>
+                        ),
+                    })),
+                },
+            ]}
         />
     )
 }

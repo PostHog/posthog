@@ -4,7 +4,6 @@ from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 from posthog.settings import TEST
-from posthog.warehouse.s3 import get_s3_client
 from uuid import UUID
 from posthog.warehouse.util import database_sync_to_async
 
@@ -34,22 +33,11 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         else:
             raise ValueError("Job does not have a schema")
 
-    def deprecated_folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
-
     def url_pattern_by_schema(self, schema: str) -> str:
         if TEST:
             return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
 
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
-
-    def delete_deprecated_data_in_bucket(self) -> None:
-        s3 = get_s3_client()
-
-        if s3.exists(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}"):
-            s3.delete(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}", recursive=True)
-
-        return
 
 
 @database_sync_to_async

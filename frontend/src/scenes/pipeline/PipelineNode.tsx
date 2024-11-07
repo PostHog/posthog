@@ -2,7 +2,9 @@ import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
 import { SourceConfiguration } from 'scenes/data-warehouse/settings/source/SourceConfiguration'
@@ -53,6 +55,7 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
     const { currentTab, node } = useValues(pipelineNodeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
@@ -62,7 +65,9 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
             ? {
                   [PipelineNodeTab.Schemas]: <Schemas id={node.id} />,
                   [PipelineNodeTab.Syncs]: <Syncs id={node.id} />,
-                  [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} />,
+                  ...(featureFlags[FEATURE_FLAGS.EDIT_DWH_SOURCE_CONFIG]
+                      ? { [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} /> }
+                      : {}),
               }
             : {
                   [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
