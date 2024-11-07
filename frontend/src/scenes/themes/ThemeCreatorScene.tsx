@@ -5,7 +5,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { themeLogic, THEMES } from '~/layout/navigation-3000/themeLogic'
 
@@ -34,7 +33,7 @@ export function ThemeCreatorScene(): JSX.Element {
             setCustomThemeId(themeId)
         }
         setCustomTheme(themeId, { ...THEMES[themeId], styles: localCustomThemeStyles })
-        router.actions.push(urls.themeLibrary())
+        // router.actions.push(urls.themeLibrary())
     }
 
     return (
