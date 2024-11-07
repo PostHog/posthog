@@ -53,26 +53,39 @@ const StepInfo = (): JSX.Element => {
                 {webExperimentsAvailable && (
                     <div className="mt-10">
                         <h3 className="mb-1">Experiment type</h3>
-                        <div className="text-xs text-muted">
+                        <div className="text-xs text-muted font-medium tracking-normal">
                             Select your experiment setup, this cannot be changed once saved.
                         </div>
                         <LemonDivider />
                         <LemonRadio
                             value={experiment.type}
+                            className="space-y-2 -mt-2"
                             onChange={(type) => {
                                 setExperimentType(type)
                             }}
                             options={[
                                 {
                                     value: 'product',
-                                    label: 'Product experiment',
-                                    description: 'Use custom code to manage how variants modify your product.',
+                                    label: (
+                                        <div className="translate-y-2">
+                                            <div>Product experiment</div>
+                                            <div className="text-xs text-muted">
+                                                Use custom code to manage how variants modify your product.
+                                            </div>
+                                        </div>
+                                    ),
                                 },
                                 {
                                     value: 'web',
-                                    label: 'No-code web experiment',
-                                    description:
-                                        'Define variants on your website using the PostHog toolbar, no coding required.',
+                                    label: (
+                                        <div className="translate-y-2">
+                                            <div>No-code web experiment</div>
+                                            <div className="text-xs text-muted">
+                                                Define variants on your website using the PostHog toolbar, no coding
+                                                required.
+                                            </div>
+                                        </div>
+                                    ),
                                 },
                             ]}
                         />

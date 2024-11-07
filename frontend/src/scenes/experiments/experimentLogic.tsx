@@ -69,6 +69,7 @@ import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from '.
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
     name: '',
+    type: 'product',
     feature_flag_key: '',
     filters: {},
     metrics: [],
