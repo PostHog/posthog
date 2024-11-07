@@ -422,7 +422,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if distinct_ids := request.data.get("distinct_ids"):
             if len(distinct_ids) > 100:
                 raise ValidationError("You can only pass 100 distinct_ids in one call")
-            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids)
+            persons = Person.objects.filter(persondistinctid__distinct_id__in=distinct_ids, team_id=self.team_id)
         elif ids := request.data.get("ids"):
             if len(ids) > 100:
                 raise ValidationError("You can only pass 100 ids in one call")
@@ -438,7 +438,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 team_id=self.team_id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated_session(request),
-                item_id=person.id,
+                item_id=person.pk,
                 scope="Person",
                 activity="deleted",
                 detail=Detail(name=str(person.uuid)),
