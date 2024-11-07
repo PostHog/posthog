@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 import threading
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -15,13 +16,13 @@ R = TypeVar("R")
 CacheKey = tuple[tuple[Any, ...], frozenset[tuple[Any, Any]]]
 
 
+@dataclass(slots=True)
 class CachedFunction(Generic[R]):
-    def __init__(self, fn: Callable[..., R], cache_time: timedelta, background_refresh: bool = False) -> None:
-        self._cache_time = cache_time
-        self._background_refresh = background_refresh
-        self._fn = fn
-        self._cache: dict[CacheKey, tuple[datetime, R]] = {}
-        self._refreshing: dict[CacheKey, datetime | None] = {}
+    _fn: Callable[..., R]
+    _cache_time: timedelta
+    _background_refresh: bool = False
+    _cache: dict[CacheKey, tuple[datetime, R]] = field(default_factory=dict, init=False)
+    _refreshing: dict[CacheKey, datetime | None] = field(default_factory=dict, init=False)
 
     def __call__(self, *args, use_cache: bool = not TEST, **kwargs) -> R:
         if not use_cache:
