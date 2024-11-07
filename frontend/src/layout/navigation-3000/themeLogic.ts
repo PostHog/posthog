@@ -7,30 +7,45 @@ import { userLogic } from 'scenes/userLogic'
 import type { themeLogicType } from './themeLogicType'
 import { Theme, themes } from './themes'
 
-export const THEMES = [
+export const THEMES: {
+    id: string
+    title: string
+    baseTheme: 'light' | 'dark'
+    styles: string
+    primaryColors: string[]
+    disabled: boolean
+}[] = [
     {
-        id: 'hacker',
-        title: 'Hacker',
+        id: 'tron',
+        title: 'TRON',
+        baseTheme: 'dark',
         styles: '',
-        primaryColors: [],
+        primaryColors: ['black', '#00FF01', 'black'],
+        disabled: false,
     },
     {
         id: 'retro',
-        title: 'Retro',
+        title: 'Windows 95',
+        baseTheme: 'light',
         styles: '',
-        primaryColors: [],
+        primaryColors: ['#008282', '#C3C3C3', '#02007F'],
+        disabled: true,
     },
     {
         id: 'fisher-price',
         title: 'Fisher Price',
+        baseTheme: 'light',
         styles: '',
         primaryColors: ['red', 'green', 'blue'],
+        disabled: true,
     },
     {
         id: 'usa',
         title: 'USA',
+        baseTheme: 'light',
         styles: '',
-        primaryColors: [],
+        primaryColors: ['#0A3161', '#FFFFFF', '#B31942'],
+        disabled: true,
     },
 ]
 

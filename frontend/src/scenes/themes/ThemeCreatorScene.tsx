@@ -1,9 +1,11 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -19,7 +21,8 @@ const DEFAULT_CUSTOM_THEME_CONFIG = `--bg-3000: var(--bg-3000);
 --muted-3000: var(--muted-3000);
 --radius: var(--radius);`
 
-export function ThemeCreatorScene({ themeId }: { themeId: string }): JSX.Element {
+export function ThemeCreatorScene(): JSX.Element {
+    const [themeId, setThemeId] = useState<string>(router.values.searchParams.themeId)
     const { setCustomThemeId } = useActions(themeLogic)
     const [localCustomThemeConfig, setLocalCustomThemeConfig] = useState<string>(DEFAULT_CUSTOM_THEME_CONFIG)
 
@@ -27,21 +30,29 @@ export function ThemeCreatorScene({ themeId }: { themeId: string }): JSX.Element
         if (chooseTheme) {
             setCustomThemeId(themeId)
         }
+        router.actions.push(urls.themeLibrary())
     }
 
     return (
-        <div className="flex space-x-2">
+        <div className="flex flex-col space-y-2">
             <PageHeader
                 buttons={
                     <>
                         <LemonButton type="secondary" onClick={() => onSave(false)}>
-                            Save
+                            Save and close
                         </LemonButton>
                         <LemonButton type="primary" onClick={() => onSave(true)}>
-                            Set and save
+                            Save and set
                         </LemonButton>
                     </>
                 }
+            />
+            <LemonInput
+                placeholder="Name"
+                value={themeId}
+                disabled={!!router.values.searchParams.themeId}
+                onChange={setThemeId}
+                fullWidth
             />
             <CodeEditor
                 className="border"
