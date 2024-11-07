@@ -193,6 +193,11 @@ export function AuthorizedUrlList({
                                                 }
                                                 center
                                                 data-attr="toolbar-open"
+                                                disabledReason={
+                                                    keyedURL.url.includes('*')
+                                                        ? 'Wildcard domains cannot be launched'
+                                                        : undefined
+                                                }
                                             >
                                                 Launch
                                             </LemonButton>
