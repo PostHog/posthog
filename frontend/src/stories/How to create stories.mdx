@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/addon-docs';
+import { Meta } from '@storybook/blocks';
 
 <Meta title=" How to create stories?" />
 
@@ -6,9 +6,9 @@ import { Meta } from '@storybook/addon-docs';
 
 There are three types of stories:
 
-- Markdown stories
-- Scene stories
-- Component stories
+* Markdown stories
+* Scene stories
+* Component stories
 
 Choose the type most suited for your case.
 
@@ -33,9 +33,9 @@ Write your content here...
 
 There are a few differences between component and scene stories:
 
-- Pass a `component` to the default export, for Storybook to create a table with the component's props.
-- Remove the custom `parameters` object that is in use in scene stories (that defaults the scene to open in "canvas" mode).
-- Add any changes to arguments in [`argTypes`](https://storybook.js.org/docs/react/api/argtypes)
+* Pass a `component` to the default export, for Storybook to create a table with the component's props.
+* Remove the custom `parameters` object that is in use in scene stories (that defaults the scene to open in "canvas" mode).
+* Add any changes to arguments in [`argTypes`](https://storybook.js.org/docs/react/api/argtypes)
 
 ```tsx
 // frontend/src/lib/lemon-ui/LemonSwitch/LemonSwitch.stories.tsx
