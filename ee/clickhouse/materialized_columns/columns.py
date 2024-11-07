@@ -116,6 +116,10 @@ def get_materialized_columns(
     }
 
 
+def get_on_cluster_clause_for_table(table: TableWithProperties) -> str:
+    return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+
+
 def materialize(
     table: TableWithProperties,
     property: PropertyName,
@@ -133,14 +137,12 @@ def materialize(
         raise ValueError(f"Invalid table_column={table_column} for materialisation")
 
     column_name = column_name or _materialized_column_name(table, property, table_column)
-    # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+    on_cluster = get_on_cluster_clause_for_table(table)
 
     if table == "events":
         sync_execute(
             f"""
-            ALTER TABLE sharded_{table}
-            {execute_on_cluster}
+            ALTER TABLE sharded_{table} {on_cluster}
             ADD COLUMN IF NOT EXISTS
             {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
         """,
@@ -149,8 +151,7 @@ def materialize(
         )
         sync_execute(
             f"""
-            ALTER TABLE {table}
-            {execute_on_cluster}
+            ALTER TABLE {table} {on_cluster}
             ADD COLUMN IF NOT EXISTS
             {column_name} VARCHAR
         """,
@@ -159,8 +160,7 @@ def materialize(
     else:
         sync_execute(
             f"""
-            ALTER TABLE {table}
-            {execute_on_cluster}
+            ALTER TABLE {table} {on_cluster}
             ADD COLUMN IF NOT EXISTS
             {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
         """,
@@ -169,7 +169,7 @@ def materialize(
         )
 
     sync_execute(
-        f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
+        f"ALTER TABLE {table} {on_cluster} COMMENT COLUMN {column_name} %(comment)s",
         {"comment": MaterializedColumnDetails(table_column, property, is_disabled=False).as_column_comment()},
         settings={"alter_sync": 2 if TEST else 1},
     )
@@ -186,10 +186,9 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
         is_disabled=is_disabled,
     )
 
-    # XXX: copy/pasted from `materialize`
-    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+    on_cluster = get_on_cluster_clause_for_table(table)
     sync_execute(
-        f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
+        f"ALTER TABLE {table} {on_cluster} COMMENT COLUMN {column_name} %(comment)s",
         {"comment": details.as_column_comment()},
         settings={"alter_sync": 2 if TEST else 1},
     )
@@ -198,13 +197,10 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
 def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
     drop_minmax_index(table, column_name)
 
-    # XXX: copy/pasted from `materialize`
-    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
-
+    on_cluster = get_on_cluster_clause_for_table(table)
     sync_execute(
         f"""
-        ALTER TABLE {table}
-        {execute_on_cluster}
+        ALTER TABLE {table} {on_cluster}
         DROP COLUMN IF EXISTS {column_name}
     """,
         settings={"alter_sync": 2 if TEST else 1},
@@ -213,8 +209,7 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
     if table == "events":
         sync_execute(
             f"""
-            ALTER TABLE sharded_{table}
-            {execute_on_cluster}
+            ALTER TABLE sharded_{table} {on_cluster}
             DROP COLUMN IF EXISTS {column_name}
         """,
             {"property": property},
@@ -224,16 +219,14 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
 
 def add_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName):
     # Note: This will be populated on backfill
-    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
-
+    on_cluster = get_on_cluster_clause_for_table(table)
     updated_table = "sharded_events" if table == "events" else table
     index_name = f"minmax_{column_name}"
 
     try:
         sync_execute(
             f"""
-            ALTER TABLE {updated_table}
-            {execute_on_cluster}
+            ALTER TABLE {updated_table} {on_cluster}
             ADD INDEX {index_name} {column_name}
             TYPE minmax GRANULARITY 1
             """,
@@ -247,8 +240,7 @@ def add_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnNa
 
 
 def drop_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName) -> None:
-    # XXX: copy/pasted from `materialize`
-    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+    on_cluster = get_on_cluster_clause_for_table(table)
 
     # XXX: copy/pasted from `add_minmax_index`
     updated_table = "sharded_events" if table == "events" else table
@@ -256,8 +248,7 @@ def drop_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnN
 
     sync_execute(
         f"""
-        ALTER TABLE {updated_table}
-        {execute_on_cluster}
+        ALTER TABLE {updated_table} {on_cluster}
         DROP INDEX IF EXISTS {index_name}
         """,
         settings={"alter_sync": 2 if TEST else 1},
@@ -280,8 +271,7 @@ def backfill_materialized_columns(
         return
 
     updated_table = "sharded_events" if table == "events" else table
-    # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+    on_cluster = get_on_cluster_clause_for_table(table)
 
     materialized_columns = get_materialized_columns(table)
 
@@ -291,8 +281,7 @@ def backfill_materialized_columns(
     for property, table_column in properties:
         sync_execute(
             f"""
-            ALTER TABLE {updated_table}
-            {execute_on_cluster}
+            ALTER TABLE {updated_table} {on_cluster}
             MODIFY COLUMN
             {materialized_columns[(property, table_column)]} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
             """,
@@ -308,8 +297,7 @@ def backfill_materialized_columns(
 
     sync_execute(
         f"""
-        ALTER TABLE {updated_table}
-        {execute_on_cluster}
+        ALTER TABLE {updated_table} {on_cluster}
         UPDATE {assignments}
         WHERE {"timestamp > %(cutoff)s" if table == "events" else "1 = 1"}
         """,
