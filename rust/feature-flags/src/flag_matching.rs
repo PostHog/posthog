@@ -1393,19 +1393,33 @@ async fn fetch_and_locally_cache_all_properties(
 
     let query = r#"
         SELECT 
-            p.id AS person_id,
-            p.properties AS person_properties,
-            json_object_agg(g.group_type_index, g.group_properties) AS group_properties
-        FROM posthog_person p
-        INNER JOIN posthog_persondistinctid pd
-            ON p.id = pd.person_id
-        LEFT JOIN posthog_group g
-            ON p.team_id = g.team_id
-            AND g.group_type_index = ANY($3)
-        WHERE pd.distinct_id = $1
-            AND pd.team_id = $2
-            AND p.team_id = $2
-        GROUP BY p.id, p.properties
+            person.person_id,
+            person.person_properties,
+            group_properties.group_properties
+        FROM (
+            SELECT 
+                "posthog_person"."id" AS person_id,
+                "posthog_person"."properties" AS person_properties
+            FROM "posthog_person"
+            INNER JOIN "posthog_persondistinctid" 
+                ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
+            WHERE 
+                "posthog_persondistinctid"."distinct_id" = $1
+                AND "posthog_persondistinctid"."team_id" = $2
+                AND "posthog_person"."team_id" = $2
+            LIMIT 1
+        ) AS person,
+        (
+            SELECT 
+                json_object_agg(
+                    "posthog_group"."group_type_index", 
+                    "posthog_group"."group_properties"
+                ) AS group_properties
+            FROM "posthog_group"
+            WHERE 
+                "posthog_group"."team_id" = $2
+                AND "posthog_group"."group_type_index" = ANY($3)
+        ) AS group_properties
     "#;
 
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
