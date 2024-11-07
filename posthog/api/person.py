@@ -420,12 +420,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 100 IDs per call.
         """
         if distinct_ids := request.data.get("distinct_ids"):
-            if len(distinct_ids) > 100:
-                raise ValidationError("You can only pass 100 distinct_ids in one call")
+            if len(distinct_ids) > 1000:
+                raise ValidationError("You can only pass 1000 distinct_ids in one call")
             persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids)
         elif ids := request.data.get("ids"):
-            if len(ids) > 100:
-                raise ValidationError("You can only pass 100 ids in one call")
+            if len(ids) > 1000:
+                raise ValidationError("You can only pass 1000 ids in one call")
             persons = self.get_queryset().filter(uuid__in=ids)
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
@@ -438,7 +438,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 team_id=self.team_id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated_session(request),
-                item_id=person.id,
+                item_id=person.pk,
                 scope="Person",
                 activity="deleted",
                 detail=Detail(name=str(person.uuid)),

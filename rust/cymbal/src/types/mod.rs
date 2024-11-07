@@ -48,17 +48,6 @@ pub struct Exception {
 pub struct ErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "$exception_type")]
-    pub exception_type: Option<String>, // legacy, overridden by exception_list
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "$exception_message")]
-    pub exception_message: Option<String>, // legacy, overridden by exception_list
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "$exception_stack_trace_raw")]
-    pub exception_stack_trace_raw: Option<String>, // Not all exceptions have a stack trace
-    #[serde(rename = "$exception_level")]
-    pub exception_level: Option<String>, // We generally don't touch this, but we break it out explicitly for users. Not all exceptions have a level
     #[serde(flatten)] // A catch-all for all the properties we don't "care" about
     pub other: HashMap<String, Value>,
 }
@@ -148,11 +137,6 @@ mod test {
         assert!(frame.in_app);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 15003);
-
-        assert_eq!(props.exception_type, None);
-        assert_eq!(props.exception_message, None);
-        assert_eq!(props.exception_stack_trace_raw, None);
-        assert_eq!(props.exception_level, Some("error".to_string()));
     }
 
     #[test]
