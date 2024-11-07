@@ -1,14 +1,73 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { printHogStringOutput } from '@posthog/hogvm'
+import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import React, { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+
 import { hogReplLogic, ReplChunk as ReplChunkType } from './hogReplLogic'
+
+export interface ReplResultsTableProps {
+    response: {
+        results: any[][]
+        columns: string[]
+    }
+}
+
+export function ReplResultsTable({ response }: ReplResultsTableProps): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'table' | 'json'>('table')
+    return (
+        <div>
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab as any}
+                tabs={[
+                    {
+                        key: 'table',
+                        label: 'Table',
+                        content: (
+                            <LemonTable
+                                columns={response.columns.map((col, index) => ({ dataIndex: index, title: col }))}
+                                dataSource={response.results}
+                            />
+                        ),
+                    },
+                    {
+                        key: 'json',
+                        label: 'JSON',
+                        content: <JSONViewer name={false} src={response} />,
+                    },
+                    {
+                        key: 'raw',
+                        label: 'Raw',
+                        content: <div>{printHogStringOutput(response)}</div>,
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
+function printRichHogOutput(arg: any): JSX.Element | string {
+    if (typeof arg === 'object' && arg !== null) {
+        if ('__hx_tag' in arg) {
+            return renderHogQLX(arg)
+        }
+        if ('results' in arg && 'columns' in arg && Array.isArray(arg.results) && Array.isArray(arg.columns)) {
+            return <ReplResultsTable response={arg} />
+        }
+    }
+    return printHogStringOutput(arg)
+}
 
 interface ReplChunkProps {
     chunk: ReplChunkType
     editFromHere: () => void
 }
+
 export function ReplChunk({
     chunk: { code, result, print, error, status },
     editFromHere,
@@ -40,7 +99,7 @@ export function ReplChunk({
                     </svg>
                 </div>
             )}
-            {print ? (
+            {print && Array.isArray(print) ? (
                 <div className="flex items-start mt-2">
                     <span
                         // eslint-disable-next-line react/forbid-dom-props
@@ -48,10 +107,21 @@ export function ReplChunk({
                     >
                         #
                     </span>
-                    <div className="flex-1 whitespace-pre-wrap ml-2">{print}</div>
+                    <div className="flex-1 whitespace-pre-wrap ml-2">
+                        {print.map((line, index) => (
+                            <div key={index}>
+                                {line.map((arg, argIndex) => (
+                                    <React.Fragment key={argIndex}>
+                                        {printRichHogOutput(arg)}
+                                        {argIndex < line.length - 1 ? ' ' : ''}
+                                    </React.Fragment>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             ) : null}
-            {status === 'success' && (
+            {status === 'success' && result !== undefined && (
                 <div className="flex items-start mt-2">
                     <span
                         // eslint-disable-next-line react/forbid-dom-props
@@ -59,7 +129,7 @@ export function ReplChunk({
                     >
                         {'<'}
                     </span>
-                    <div className="flex-1 whitespace-pre-wrap ml-2">{String(result)}</div>
+                    <div className="flex-1 whitespace-pre-wrap ml-2">{printRichHogOutput(result)}</div>
                 </div>
             )}
             {status === 'error' && (
