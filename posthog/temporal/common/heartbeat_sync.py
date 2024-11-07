@@ -11,6 +11,8 @@ class HeartbeaterSync:
         self.details: tuple[Any, ...] = details
         self.factor = factor
         self.logger = logger
+        self.stop_event: Optional[threading.Event] = None
+        self.heartbeat_thread: Optional[threading.Thread] = None
 
     def log_debug(self, message: str, exc_info: Optional[Any] = None) -> None:
         if self.logger:
@@ -22,7 +24,7 @@ class HeartbeaterSync:
                 activity.heartbeat(*details)
                 self.log_debug("Heartbeat")
             except Exception as e:
-                self.log_debug(f"Heartbeat failed", exc_info=e)
+                self.log_debug(f"Heartbeat failed {e}", exc_info=e)
             stop_event.wait(interval)
 
     def __enter__(self):

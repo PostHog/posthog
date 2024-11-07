@@ -1,4 +1,6 @@
-from typing import Literal
+from dataclasses import dataclass
+from typing import Any, Literal, Optional
+from collections.abc import Iterator, Sequence
 import uuid
 
 import dlt
@@ -13,12 +15,26 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.common.schema.typing import TSchemaTables
 from dlt.load.exceptions import LoadClientJobRetry
 from dlt.sources import DltSource
+from dlt.destinations.impl.filesystem.filesystem import FilesystemClient
+from dlt.destinations.impl.filesystem.configuration import FilesystemDestinationClientConfiguration
+from dlt.common.destination.reference import (
+    FollowupJobRequest,
+)
+from dlt.common.destination.typing import (
+    PreparedTableSchema,
+)
+from dlt.destinations.job_impl import (
+    ReferenceFollowupJobRequest,
+)
+from dlt.common.storages import FileStorage
+from dlt.common.storages.load_package import (
+    LoadJobInfo,
+)
 from deltalake.exceptions import DeltaError
 from collections import Counter
 from clickhouse_driver.errors import ServerException
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.temporal.data_imports.pipelines.pipeline import PipelineInputs
 from posthog.warehouse.data_load.validate_schema import dlt_to_hogql_type
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -26,6 +42,16 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+
+
+@dataclass
+class PipelineInputs:
+    source_id: uuid.UUID
+    run_id: str
+    schema_id: uuid.UUID
+    dataset_name: str
+    job_type: ExternalDataSource.Type
+    team_id: int
 
 
 class DataImportPipelineSync:
@@ -88,6 +114,53 @@ class DataImportPipelineSync:
     def _create_pipeline(self):
         pipeline_name = self._get_pipeline_name()
         destination = self._get_destination()
+
+        def create_table_chain_completed_followup_jobs(
+            self: FilesystemClient,
+            table_chain: Sequence[PreparedTableSchema],
+            completed_table_chain_jobs: Optional[Sequence[LoadJobInfo]] = None,
+        ) -> list[FollowupJobRequest]:
+            assert completed_table_chain_jobs is not None
+            jobs = super(FilesystemClient, self).create_table_chain_completed_followup_jobs(
+                table_chain, completed_table_chain_jobs
+            )
+            if table_chain[0].get("table_format") == "delta":
+                for table in table_chain:
+                    table_job_paths = [
+                        job.file_path
+                        for job in completed_table_chain_jobs
+                        if job.job_file_info.table_name == table["name"]
+                    ]
+                    if len(table_job_paths) == 0:
+                        # file_name = ParsedLoadJobFileName(table["name"], "empty", 0, "reference").file_name()
+                        # TODO: if we implement removal od orphaned rows, we may need to propagate such job without files
+                        # to the delta load job
+                        pass
+                    else:
+                        files_per_job = self.config.delta_jobs_per_write or len(table_job_paths)
+                        for i in range(0, len(table_job_paths), files_per_job):
+                            jobs_chunk = table_job_paths[i : i + files_per_job]
+                            file_name = FileStorage.get_file_name_from_file_path(jobs_chunk[0])
+                            jobs.append(ReferenceFollowupJobRequest(file_name, jobs_chunk))
+
+            return jobs
+
+        def _iter_chunks(self, lst: list[Any], n: int) -> Iterator[list[Any]]:
+            """Yield successive n-sized chunks from lst."""
+            for i in range(0, len(lst), n):
+                yield lst[i : i + n]
+
+        # Monkey patch to fix large memory consumption until https://github.com/dlt-hub/dlt/pull/2031 gets merged in
+        # This only works on incremental syncs right now though
+        if self._incremental:
+            FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
+            FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
+            FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
+
+            dlt.config["data_writer.file_max_items"] = 500_000
+            dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
+            dlt.config["loader_parallelism_strategy"] = "table-sequential"
+            dlt.config["delta_jobs_per_write"] = 1
 
         dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
         dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True

@@ -181,6 +181,11 @@ export const surveyLogic = kea<surveyLogicType>([
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
     loaders(({ props, actions, values }) => ({
+        responseSummary: {
+            summarize: async ({ questionIndex }: { questionIndex?: number }) => {
+                return api.surveys.summarize_responses(props.id, questionIndex)
+            },
+        },
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {

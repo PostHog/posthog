@@ -4,8 +4,7 @@ import uuid
 
 import pytest
 import structlog
-from asgiref.sync import sync_to_async
-from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
+from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync, PipelineInputs
 from posthog.temporal.data_imports.pipelines.stripe import stripe_source
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -14,8 +13,8 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 class TestDataImportPipeline(APIBaseTest):
-    async def _create_pipeline(self, schema_name: str, incremental: bool):
-        source = await sync_to_async(ExternalDataSource.objects.create)(
+    def _create_pipeline(self, schema_name: str, incremental: bool):
+        source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
@@ -23,13 +22,13 @@ class TestDataImportPipeline(APIBaseTest):
             status="running",
             source_type="Stripe",
         )
-        schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        schema = ExternalDataSchema.objects.create(
             name=schema_name,
             team_id=self.team.pk,
             source_id=source.pk,
             source=source,
         )
-        job = await sync_to_async(ExternalDataJob.objects.create)(
+        job = ExternalDataJob.objects.create(
             team_id=self.team.pk,
             pipeline_id=source.pk,
             pipeline=source,
@@ -40,7 +39,7 @@ class TestDataImportPipeline(APIBaseTest):
             workflow_id=str(uuid.uuid4()),
         )
 
-        pipeline = DataImportPipeline(
+        pipeline = DataImportPipelineSync(
             inputs=PipelineInputs(
                 source_id=source.pk,
                 run_id=str(job.pk),
@@ -65,45 +64,43 @@ class TestDataImportPipeline(APIBaseTest):
         return pipeline
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.asyncio
-    async def test_pipeline_non_incremental(self):
+    def test_pipeline_non_incremental(self):
         def mock_create_pipeline(local_self: Any):
             mock = MagicMock()
             mock.last_trace.last_normalize_info.row_counts = {"customer": 1}
             return mock
 
         with (
-            patch.object(DataImportPipeline, "_create_pipeline", mock_create_pipeline),
+            patch.object(DataImportPipelineSync, "_create_pipeline", mock_create_pipeline),
             patch(
-                "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
+                "posthog.temporal.data_imports.pipelines.pipeline_sync.validate_schema_and_update_table_sync"
             ) as mock_validate_schema_and_update_table,
-            patch("posthog.temporal.data_imports.pipelines.pipeline.get_delta_tables"),
-            patch("posthog.temporal.data_imports.pipelines.pipeline.update_last_synced_at"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline_sync.get_delta_tables"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline_sync.update_last_synced_at_sync"),
         ):
-            pipeline = await self._create_pipeline("Customer", False)
-            res = await pipeline.run()
+            pipeline = self._create_pipeline("Customer", False)
+            res = pipeline.run()
 
             assert res.get("customer") == 1
             assert mock_validate_schema_and_update_table.call_count == 1
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.asyncio
-    async def test_pipeline_incremental(self):
+    def test_pipeline_incremental(self):
         def mock_create_pipeline(local_self: Any):
             mock = MagicMock()
             type(mock.last_trace.last_normalize_info).row_counts = PropertyMock(side_effect=[{"customer": 1}, {}])
             return mock
 
         with (
-            patch.object(DataImportPipeline, "_create_pipeline", mock_create_pipeline),
+            patch.object(DataImportPipelineSync, "_create_pipeline", mock_create_pipeline),
             patch(
-                "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
+                "posthog.temporal.data_imports.pipelines.pipeline_sync.validate_schema_and_update_table_sync"
             ) as mock_validate_schema_and_update_table,
-            patch("posthog.temporal.data_imports.pipelines.pipeline.get_delta_tables"),
-            patch("posthog.temporal.data_imports.pipelines.pipeline.update_last_synced_at"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline_sync.get_delta_tables"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline_sync.update_last_synced_at_sync"),
         ):
-            pipeline = await self._create_pipeline("Customer", True)
-            res = await pipeline.run()
+            pipeline = self._create_pipeline("Customer", True)
+            res = pipeline.run()
 
             assert res.get("customer") == 1
             assert mock_validate_schema_and_update_table.call_count == 2
