@@ -55,14 +55,14 @@ class MaterializedColumn(NamedTuple):
             yield (name, MaterializedColumnDetails.from_column_comment(comment))
 
     @staticmethod
-    def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn | None:
+    def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn:
         # TODO: It would be more efficient to push the filter here down into the `get_all` query, but that would require
         # more a sophisticated method of constructing queries than we have right now, and this data set should be small
         # enough that this doesn't really matter (at least as of writing.)
         columns = [column for column in MaterializedColumn.get_all(table) if column.name == column_name]
         match columns:
             case []:
-                return None
+                raise ValueError("column does not exist")
             case [column]:
                 return column
             case _:
@@ -181,11 +181,10 @@ def materialize(
 
 
 def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name: str, is_disabled: bool) -> None:
-    column = MaterializedColumn.get(table, column_name)
-    if column is None:
-        raise ValueError("invalid column")
-
-    details = replace(column.details, is_disabled=is_disabled)
+    details = replace(
+        MaterializedColumn.get(table, column_name).details,
+        is_disabled=is_disabled,
+    )
 
     # XXX: copy/pasted from `materialize`
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
