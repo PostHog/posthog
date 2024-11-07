@@ -1,8 +1,15 @@
 import './SurveyView.scss'
 
 import { TZLabel } from '@posthog/apps-common'
-import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
+import {
+    IconGraph,
+    IconSparkles,
+    IconThumbsDown,
+    IconThumbsDownFilled,
+    IconThumbsUp,
+    IconThumbsUpFilled,
+} from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -12,9 +19,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 
@@ -529,21 +538,37 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                         return (
                             <>
                                 <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-                                    <LemonButton
-                                        data-attr="summarize-survey"
-                                        fullWidth
-                                        onClick={() => summarize({ questionIndex: i })}
-                                        disabledReason={
-                                            responseSummaryLoading
-                                                ? 'Thinking...'
-                                                : responseSummary
-                                                ? 'already summarized'
-                                                : undefined
-                                        }
-                                    >
-                                        Summarize
-                                    </LemonButton>
-                                    {responseSummary ? <p>{responseSummary.content}</p> : null}
+                                    {responseSummary ? (
+                                        <>
+                                            <h1>Responses summary</h1>
+                                            <LemonMarkdown>{responseSummary.content}</LemonMarkdown>
+                                            <LemonDivider dashed={true} />
+                                            <ResponseSummaryFeedback surveyId={survey.id} />
+                                        </>
+                                    ) : (
+                                        <LemonButton
+                                            type="secondary"
+                                            data-attr="summarize-survey"
+                                            onClick={() => summarize({ questionIndex: i })}
+                                            disabledReason={
+                                                responseSummaryLoading
+                                                    ? 'Let me think...'
+                                                    : responseSummary
+                                                    ? 'already summarized'
+                                                    : undefined
+                                            }
+                                            icon={<IconSparkles />}
+                                        >
+                                            {responseSummaryLoading ? (
+                                                <>
+                                                    Let me think...
+                                                    <Spinner />
+                                                </>
+                                            ) : (
+                                                <>Summarize responses</>
+                                            )}
+                                        </LemonButton>
+                                    )}
                                 </FlaggedFeature>
                                 <OpenTextViz
                                     key={`survey-q-${i}`}
@@ -647,5 +672,44 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                 }}
             />
         </>
+    )
+}
+
+function ResponseSummaryFeedback({ surveyId }: { surveyId: string }): JSX.Element {
+    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
+
+    function submitRating(newRating: 'good' | 'bad'): void {
+        if (rating) {
+            return // Already rated
+        }
+        setRating(newRating)
+        posthog.capture('chat rating', {
+            survey_id: surveyId,
+            answer_rating: rating,
+        })
+    }
+
+    return (
+        <div className="flex items-center">
+            {rating === null ? <>Summaries are generated by AI. What did you think?</> : null}
+            {rating !== 'bad' && (
+                <LemonButton
+                    icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                    type="tertiary"
+                    size="small"
+                    tooltip="Good summary"
+                    onClick={() => submitRating('good')}
+                />
+            )}
+            {rating !== 'good' && (
+                <LemonButton
+                    icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                    type="tertiary"
+                    size="small"
+                    tooltip="Bad summary"
+                    onClick={() => submitRating('bad')}
+                />
+            )}
+        </div>
     )
 }

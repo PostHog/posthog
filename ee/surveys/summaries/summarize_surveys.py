@@ -121,7 +121,7 @@ use bullet points to identify the themes, and highlights of quotes to bring them
 we're trying to identify what to work on
             use as concise and simple language as is possible.
             generate no text other than the summary.
-            the aim is to let people see themes in the responses received""",
+            the aim is to let people see themes in the responses received. return the text in github flavoured markdown format""",
                 },
             ],
             user=f"{instance_region}/{user.pk}",
