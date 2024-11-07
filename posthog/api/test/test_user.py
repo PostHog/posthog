@@ -864,7 +864,7 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
-        self.assertIn("%apiUrl%22%3A%20%22http%3A%2F%2Ftestserver", locationHeader)
+        self.assertIn("22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22", locationHeader)
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
@@ -883,7 +883,7 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
-        self.assertIn("%apiUrl%22%3A%20%22http%3A%2F%2Ftestserver", locationHeader)
+        self.assertIn("22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22", locationHeader)
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
