@@ -50,3 +50,7 @@ class FunnelsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                 """,
             },
         ]
+
+
+class GenerateFunnelTool:
+    pass
