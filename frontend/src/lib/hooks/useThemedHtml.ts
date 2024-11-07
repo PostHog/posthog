@@ -1,6 +1,7 @@
 import { captureException } from '@sentry/react'
+import { useLocalStorage } from '@uidotdev/usehooks'
 import { useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -9,14 +10,22 @@ export function useThemedHtml(overflowHidden = true): void {
     const { isDarkModeOn } = useValues(themeLogic)
     const { sceneConfig } = useValues(sceneLogic)
 
+    const [customThemeConfig] = useLocalStorage<object | null>('CUSTOM_THEME_CONFIG')
+
+    const customStyleString = useMemo(() => {
+        return customThemeConfig
+            ? Object.entries(customThemeConfig).reduce((acc, [key, value]) => `${acc}--${key}:${value};`, '')
+            : ''
+    }, [customThemeConfig])
+
     useEffect(() => {
         document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
-
+        document.body.setAttribute('style', customStyleString)
         // overflow-hidden since each area handles scrolling individually (e.g. navbar, scene, side panel)
         if (overflowHidden) {
             document.body.classList.add('overflow-hidden')
         }
-    }, [isDarkModeOn, overflowHidden])
+    }, [isDarkModeOn, overflowHidden, customStyleString])
 
     useEffect(() => {
         // Add a theme-color meta tag to the head to change the address bar color on browsers that support it
