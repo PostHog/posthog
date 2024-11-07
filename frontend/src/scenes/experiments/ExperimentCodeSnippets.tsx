@@ -20,6 +20,21 @@ interface SnippetProps {
     variant: string
 }
 
+export function AndroidSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Kotlin} wrap>
+                {`if (PostHog.getFeatureFlag("${flagKey}") == "${variant}") {
+    // do something
+} else {
+    // It's a good idea to let control variant always be the default behaviour,
+    // so if something goes wrong with flag evaluation, you don't break your app.
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
 export function NodeJSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>

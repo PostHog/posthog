@@ -1,10 +1,19 @@
 import { LemonSelect, Link } from '@posthog/lemon-ui'
-import { IconGolang, IconJavascript, IconNodeJS, IconPHP, IconPython, IconRuby } from 'lib/lemon-ui/icons'
+import {
+    IconAndroidOS,
+    IconGolang,
+    IconJavascript,
+    IconNodeJS,
+    IconPHP,
+    IconPython,
+    IconRuby,
+} from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import {
+    AndroidSnippet,
     GolangSnippet,
     JSSnippet,
     NodeJSSnippet,
@@ -33,6 +42,13 @@ const OPTIONS = [
         documentationLink: `${DOC_BASE_URL}libraries/js${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconJavascript,
         Snippet: JSSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'Android',
+        documentationLink: `${DOC_BASE_URL}libraries/android${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconAndroidOS,
+        Snippet: AndroidSnippet,
         type: LibraryType.Client,
     },
     {
