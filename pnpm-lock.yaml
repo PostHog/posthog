@@ -434,6 +434,9 @@ devDependencies:
   '@storybook/addon-actions':
     specifier: ^8.4.2
     version: 8.4.2(storybook@8.4.2)
+  '@storybook/addon-docs':
+    specifier: ^8.4.2
+    version: 8.4.2(@types/react@17.0.52)(storybook@8.4.2)
   '@storybook/addon-essentials':
     specifier: ^8.4.2
     version: 8.4.2(@types/react@17.0.52)(storybook@8.4.2)
@@ -575,6 +578,9 @@ devDependencies:
   '@typescript-eslint/parser':
     specifier: ^7.1.1
     version: 7.1.1(eslint@8.57.0)(typescript@4.9.5)
+  '@vitejs/plugin-react-swc':
+    specifier: ^3.7.1
+    version: 3.7.1(vite@5.4.10)
   axe-core:
     specifier: ^4.4.3
     version: 4.5.1
@@ -752,6 +758,12 @@ devDependencies:
   typescript:
     specifier: ~4.9.5
     version: 4.9.5
+  vite:
+    specifier: ^5.4.10
+    version: 5.4.10(@types/node@18.11.9)(less@3.13.1)(sass@1.56.0)
+  vite-tsconfig-paths:
+    specifier: ^5.1.0
+    version: 5.1.0(typescript@4.9.5)(vite@5.4.10)
   webpack:
     specifier: ^5.88.2
     version: 5.88.2(@swc/core@1.9.1)(esbuild@0.19.8)(webpack-cli@5.1.4)
@@ -6530,6 +6542,17 @@ packages:
     resolution: {integrity: sha512-zuVdFrMJiuCDQUMCzQaD6KL28MjnqqN8XnAqiEq9PNm/hCPTSGfrXCOfwj1ow4LFb/tNymJPwsNbVePc1xFqrQ==}
     dev: true
 
+  /@vitejs/plugin-react-swc@3.7.1(vite@5.4.10):
+    resolution: {integrity: sha512-vgWOY0i1EROUK0Ctg1hwhtC3SdcDjZcdit4Ups4aPkDcB1jYhmo+RMYWY87cmXMhvtD5uf8lV89j2w16vkdSVg==}
+    peerDependencies:
+      vite: ^4 || ^5
+    dependencies:
+      '@swc/core': 1.9.1
+      vite: 5.4.10(@types/node@18.11.9)(less@3.13.1)(sass@1.56.0)
+    transitivePeerDependencies:
+      - '@swc/helpers'
+    dev: true
+
   /@webassemblyjs/ast@1.11.6:
     resolution: {integrity: sha512-IN1xI7PwOvLPgjcf180gC1bqn3q/QaOCwYUahIOhbYUu8KA/3tw2RT/T0Gidi1l7Hhj5D/INhJxiICObqpMu4Q==}
     dependencies:
@@ -10622,6 +10645,10 @@ packages:
 
   /globjoin@0.1.4:
     resolution: {integrity: sha512-xYfnw62CKG8nLkZBfWbhWwDw02CHty86jfPcc2cr3ZfeuK9ysoVPPEUxf21bAD/rWAgk52SuBrLJlefNy8mvFg==}
+    dev: true
+
+  /globrex@0.1.2:
+    resolution: {integrity: sha512-uHJgbwAMwNFf5mLst7IWLNg14x1CkeqglJb/K3doi4dw6q2IvAAmM/Y81kevy83wP+Sst+nutFTYOGg3d1lsxg==}
     dev: true
 
   /glur@1.1.2:
@@ -17328,6 +17355,19 @@ packages:
     resolution: {integrity: sha512-pefrkcd4lmIVR0LA49Imjf9DYLK8vtWhqBPA3Ya1ir8xCW0O2yjL9dsCVvI7pCodLC5q7smNpEtDR2yVulQxOg==}
     dev: false
 
+  /tsconfck@3.1.4(typescript@4.9.5):
+    resolution: {integrity: sha512-kdqWFGVJqe+KGYvlSO9NIaWn9jT1Ny4oKVzAJsKii5eoE9snzTJzL4+MMVOMn+fikWGFmKEylcXL710V/kIPJQ==}
+    engines: {node: ^18 || >=20}
+    hasBin: true
+    peerDependencies:
+      typescript: ^5.0.0
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+    dependencies:
+      typescript: 4.9.5
+    dev: true
+
   /tsconfig-paths@3.14.2:
     resolution: {integrity: sha512-o/9iXgCYc5L/JxCHPe3Hvh8Q/2xm5Z+p18PESBU6Ff33695QnCHBEjcytY2q19ua7Mbl/DavtBOLq+oG0RCL+g==}
     dependencies:
@@ -17801,6 +17841,23 @@ packages:
       unist-util-stringify-position: 2.0.3
       vfile-message: 2.0.4
     dev: false
+
+  /vite-tsconfig-paths@5.1.0(typescript@4.9.5)(vite@5.4.10):
+    resolution: {integrity: sha512-Y1PLGHCJfAq1Zf4YIGEsmuU/NCX1epoZx9zwSr32Gjn3aalwQHRKr5aUmbo6r0JHeHkqmWpmDg7WOynhYXw1og==}
+    peerDependencies:
+      vite: '*'
+    peerDependenciesMeta:
+      vite:
+        optional: true
+    dependencies:
+      debug: 4.3.4(supports-color@8.1.1)
+      globrex: 0.1.2
+      tsconfck: 3.1.4(typescript@4.9.5)
+      vite: 5.4.10(@types/node@18.11.9)(less@3.13.1)(sass@1.56.0)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+    dev: true
 
   /vite@5.4.10(@types/node@18.11.9)(less@3.13.1)(sass@1.56.0):
     resolution: {integrity: sha512-1hvaPshuPUtxeQ0hsVH3Mud0ZanOLwVTneA1EgbAM5LhaZEqyPWGRQ7BtaMvUrTDeEaC8pxtj6a6jku3x4z6SQ==}
