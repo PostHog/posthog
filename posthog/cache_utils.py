@@ -1,7 +1,7 @@
 import threading
-from datetime import datetime, timedelta
-from typing import Generic, TypeVar, Any
 from collections.abc import Callable
+from datetime import datetime, timedelta
+from typing import Any, Generic, TypeVar
 
 import orjson
 from rest_framework.utils.encoders import JSONEncoder
