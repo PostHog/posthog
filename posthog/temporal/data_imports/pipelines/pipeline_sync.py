@@ -154,14 +154,15 @@ class DataImportPipelineSync:
                 yield lst[i : i + n]
 
         # Monkey patch to fix large memory consumption until https://github.com/dlt-hub/dlt/pull/2031 gets merged in
-        FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
-        FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
-        FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
+        if self._incremental or is_posthog_team(self.inputs.team_id):
+            FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
+            FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
+            FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
 
-        dlt.config["data_writer.file_max_items"] = 500_000
-        dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
-        dlt.config["loader_parallelism_strategy"] = "table-sequential"
-        dlt.config["delta_jobs_per_write"] = 1
+            dlt.config["data_writer.file_max_items"] = 500_000
+            dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
+            dlt.config["loader_parallelism_strategy"] = "table-sequential"
+            dlt.config["delta_jobs_per_write"] = 1
 
         dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
         dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
