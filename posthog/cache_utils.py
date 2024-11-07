@@ -1,7 +1,6 @@
 import threading
-from datetime import timedelta
-from functools import wraps
-from typing import TypeVar, Any
+from datetime import datetime, timedelta
+from typing import Generic, TypeVar, Any
 from collections.abc import Callable
 
 import orjson
@@ -13,42 +12,50 @@ from posthog.settings import TEST
 
 R = TypeVar("R")
 
+CacheKey = Any
+
+
+class CachedFunction(Generic[R]):
+    def __init__(self, fn: Callable[..., R], cache_time: timedelta, background_refresh: bool = False) -> None:
+        self._cache_time = cache_time
+        self._background_refresh = background_refresh
+        self._fn = fn
+        self._cache: dict[CacheKey, tuple[datetime, R]] = {}
+        self._refreshing: dict[CacheKey, datetime | None] = {}
+
+    def __call__(self, *args, use_cache: bool = not TEST, **kwargs) -> R:
+        if not use_cache:
+            return self._fn(*args, **kwargs)
+
+        current_time = now()
+        key: CacheKey = (args, frozenset(sorted(kwargs.items())))
+
+        def refresh():
+            try:
+                value = self._fn(*args, **kwargs)
+                self._cache[key] = (now(), value)
+                self._refreshing[key] = None
+            except Exception:
+                self._refreshing[key] = None
+                raise
+
+        if key not in self._cache:
+            refresh()
+        elif current_time - self._cache[key][0] > self._cache_time:
+            if self._background_refresh:
+                if not self._refreshing.get(key):
+                    self._refreshing[key] = current_time
+                    t = threading.Thread(target=refresh)
+                    t.start()
+            else:
+                refresh()
+
+        return self._cache[key][1]
+
 
 def cache_for(cache_time: timedelta, background_refresh=False) -> Callable[[Callable[..., R]], Callable[..., R]]:
-    def wrapper(fn: Callable[..., R]) -> Callable[..., R]:
-        @wraps(fn)
-        def memoized_fn(*args, use_cache=not TEST, **kwargs) -> R:
-            if not use_cache:
-                return fn(*args, **kwargs)
-
-            current_time = now()
-            key = (args, frozenset(sorted(kwargs.items())))
-
-            def refresh():
-                try:
-                    value = fn(*args, **kwargs)
-                    memoized_fn._cache[key] = (now(), value)
-                    memoized_fn._refreshing[key] = None
-                except Exception:
-                    memoized_fn._refreshing[key] = None
-                    raise
-
-            if key not in memoized_fn._cache:
-                refresh()
-            elif current_time - memoized_fn._cache[key][0] > cache_time:
-                if background_refresh:
-                    if not memoized_fn._refreshing.get(key):
-                        memoized_fn._refreshing[key] = current_time
-                        t = threading.Thread(target=refresh)
-                        t.start()
-                else:
-                    refresh()
-
-            return memoized_fn._cache[key][1]
-
-        memoized_fn._cache = {}
-        memoized_fn._refreshing = {}
-        return memoized_fn
+    def wrapper(fn: Callable[..., R]) -> CachedFunction[R]:
+        return CachedFunction(fn, cache_time, background_refresh)
 
     return wrapper
 
