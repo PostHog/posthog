@@ -44,9 +44,9 @@ class MaterializedColumn(NamedTuple):
             SELECT name, comment
             FROM system.columns
             WHERE database = %(database)s
-            AND table = %(table)s
-            AND comment LIKE '%%column_materializer::%%'
-            AND comment not LIKE '%%column_materializer::elements_chain::%%'
+                AND table = %(table)s
+                AND comment LIKE '%%column_materializer::%%'
+                AND comment not LIKE '%%column_materializer::elements_chain::%%'
         """,
             {"database": CLICKHOUSE_DATABASE, "table": table},
         )
@@ -56,6 +56,9 @@ class MaterializedColumn(NamedTuple):
 
     @staticmethod
     def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn | None:
+        # TODO: It would be more efficient to push the filter here down into the `get_all` query, but that would require
+        # more a sophisticated method of constructing queries than we have right now, and this data set should be small
+        # enough that this doesn't really matter (at least as of writing.)
         columns = [column for column in MaterializedColumn.get_all(table) if column.name == column_name]
         match columns:
             case []:
