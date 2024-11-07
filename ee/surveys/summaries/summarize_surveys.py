@@ -66,7 +66,7 @@ def summarize_survey_responses(
         paginator = HogQLHasMorePaginator(limit=100, offset=0)
         q = parse_select(
             """
-            SELECT distinct_id, properties, person.properties
+            SELECT distinct_id, properties
             FROM events
             WHERE event == 'survey sent'
                 AND properties.$survey_id = {survey_id}
