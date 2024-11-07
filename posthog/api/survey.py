@@ -685,9 +685,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
 
+        try:
+            question_index = int(request.query_params.get("question_index", None))
+        except (ValueError, TypeError):
+            question_index = None
+
         summary = summarize_survey_responses(
             survey_id=survey_id,
-            question_index=request.query_params.get("question_index", None),
+            question_index=question_index,
             survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             survey_end=end_date,
             team=self.team,

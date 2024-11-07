@@ -3,7 +3,7 @@ import json
 import openai
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -86,7 +86,11 @@ def summarize_survey_responses(
         )
 
     with timer("run_query"):
-        query_response = paginator.execute_hogql_query(team=team, query_type="survey_response_list_query", query=q)
+        query_response = paginator.execute_hogql_query(
+            team=team,
+            query_type="survey_response_list_query",
+            query=cast(ast.SelectQuery, q),
+        )
 
     with timer("llm_api_prep"):
         instance_region = get_instance_region() or "HOBBY"
