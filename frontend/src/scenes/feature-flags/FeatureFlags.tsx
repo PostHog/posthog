@@ -289,6 +289,7 @@ export function OverViewTab({
                                 placeholder={searchPlaceholder || ''}
                                 onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
                                 value={filters.search || ''}
+                                data-attr="feature-flag-search"
                             />
                             <div className="flex items-center gap-2">
                                 <span>
@@ -312,10 +313,15 @@ export function OverViewTab({
                                     options={[
                                         { label: 'All', value: 'all' },
                                         { label: 'Boolean', value: 'boolean' },
-                                        { label: 'Multiple variants', value: 'multivariant' },
+                                        {
+                                            label: 'Multiple variants',
+                                            value: 'multivariant',
+                                            'data-attr': 'feature-flag-select-type-option-multiple-variants',
+                                        },
                                         { label: 'Experiment', value: 'experiment' },
                                     ]}
                                     value={filters.type ?? 'all'}
+                                    data-attr="feature-flag-select-type"
                                 />
                                 <span>
                                     <b>Status</b>
@@ -334,11 +340,16 @@ export function OverViewTab({
                                         }
                                     }}
                                     options={[
-                                        { label: 'All', value: 'all' },
+                                        { label: 'All', value: 'all', 'data-attr': 'feature-flag-select-status-all' },
                                         { label: 'Enabled', value: 'true' },
-                                        { label: 'Disabled', value: 'false' },
+                                        {
+                                            label: 'Disabled',
+                                            value: 'false',
+                                            'data-attr': 'feature-flag-select-status-disabled',
+                                        },
                                     ]}
                                     value={filters.active ?? 'all'}
+                                    data-attr="feature-flag-select-status"
                                 />
                                 <span className="ml-1">
                                     <b>Created by</b>
@@ -356,6 +367,7 @@ export function OverViewTab({
                                             setFeatureFlagsFilters({ created_by_id: user.id, page: 1 })
                                         }
                                     }}
+                                    data-attr="feature-flag-select-created-by"
                                 />
                             </div>
                         </div>

@@ -365,6 +365,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 label="Enable feature flag"
                                                 onChange={() => onChange(!value)}
                                                 checked={value}
+                                                dataAttr="feature-flag-enabled-checkbox"
                                             />
                                         </div>
                                     )}

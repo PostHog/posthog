@@ -5,7 +5,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 export const FeatureFlagsEmptyState = (): JSX.Element => (
-    <div className="text-center">
+    <div className="text-center" data-attr="feature-flag-empty-state-filtered">
         <div className="w-40 m-auto">
             <BuilderHog3 className="w-full h-full" />
         </div>
