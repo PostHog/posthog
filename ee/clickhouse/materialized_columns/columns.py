@@ -146,6 +146,38 @@ def materialize(
         add_minmax_index(table, column_name)
 
 
+def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name: str, is_disabled: bool) -> None:
+    # XXX: copy/pasted from `get_materialized_columns`
+    rows = sync_execute(
+        """
+        SELECT comment
+        FROM system.columns
+        WHERE database = %(database)s
+          AND table = %(table)s
+          AND name = %(column)s
+    """,
+        {"database": CLICKHOUSE_DATABASE, "table": table, "column": column_name},
+    )
+
+    if len(rows) == 0:
+        raise ValueError("column does not exist")
+    elif len(rows) != 1:
+        raise ValueError(f"got {len(rows)}, expected 1")
+
+    [(comment,)] = rows
+
+    details = MaterializedColumnDetails.from_column_comment(comment)
+    details.is_disabled = is_disabled
+
+    # XXX: copy/pasted from `materialize`
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+    sync_execute(
+        f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
+        {"comment": details.as_column_comment()},
+        settings={"alter_sync": 2 if TEST else 1},
+    )
+
+
 def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
     # Note: This will be populated on backfill
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
