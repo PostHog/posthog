@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import re
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Literal, cast
+from typing import Literal
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
@@ -30,10 +33,32 @@ SHORT_TABLE_COLUMN_NAME = {
 }
 
 
+@dataclass
+class MaterializedColumnDetails:
+    table_column: TableColumn
+    property_name: PropertyName
+    is_enabled: bool
+
+    @staticmethod
+    def from_column_comment(comment: str) -> MaterializedColumnDetails:
+        # Old style comments have the format "column_materializer::property", dealing with the default table column.
+        # Otherwise, it's "column_materializer::table_column::property"
+        match comment.split("::", 2):
+            case ["column_materializer", property_name]:
+                return MaterializedColumnDetails(DEFAULT_TABLE_COLUMN, property_name, True)
+            case ["column_materializer", table_column, property_name]:
+                return MaterializedColumnDetails(table_column, property_name, True)
+            case _:
+                raise ValueError(f"unexpected comment format: {comment!r}")
+
+
 @cache_for(timedelta(minutes=15))
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+    if not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
+        return {}
+
     rows = sync_execute(
         """
         SELECT comment, name
@@ -45,10 +70,12 @@ def get_materialized_columns(
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
-    if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
-        return {_extract_property(comment): column_name for comment, column_name in rows}
-    else:
-        return {}
+
+    materialized_columns = {}
+    for comment, column_name in rows:
+        details = MaterializedColumnDetails.from_column_comment(comment)
+        materialized_columns[(details.property_name, details.table_column)] = column_name
+    return materialized_columns
 
 
 def materialize(
@@ -211,14 +238,3 @@ def _materialized_column_name(
         suffix = "_" + generate_random_short_suffix()
 
     return f"{prefix}{property_str}{suffix}"
-
-
-def _extract_property(comment: str) -> tuple[PropertyName, TableColumn]:
-    # Old style comments have the format "column_materializer::property", dealing with the default table column.
-    # Otherwise, it's "column_materializer::table_column::property"
-    split_column = comment.split("::", 2)
-
-    if len(split_column) == 2:
-        return split_column[1], DEFAULT_TABLE_COLUMN
-
-    return split_column[2], cast(TableColumn, split_column[1])
