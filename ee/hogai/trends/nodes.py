@@ -32,13 +32,9 @@ class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
         return super()._run(state, toolkit, config=config)
 
 
-class TrendsGeneratorOutput(SchemaGeneratorOutput[AssistantTrendsQuery]):
-    pass
-
-
-class TrendsGeneratorNode(SchemaGeneratorNode[TrendsGeneratorOutput]):
+class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     insight_name = "Trends"
-    output_model = TrendsGeneratorOutput
+    output_model = SchemaGeneratorOutput[AssistantTrendsQuery]
 
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(

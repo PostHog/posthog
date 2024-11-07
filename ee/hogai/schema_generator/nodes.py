@@ -30,7 +30,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-T = TypeVar("T", bound=type[BaseModel])
+T = TypeVar("T", bound=BaseModel)
 
 
 class SchemaGeneratorNode(AssistantNode, Generic[T]):
