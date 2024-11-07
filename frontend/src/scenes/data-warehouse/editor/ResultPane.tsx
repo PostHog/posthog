@@ -7,6 +7,7 @@ import DataGrid from 'react-data-grid'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+
 enum ResultsTab {
     Results = 'results',
     Visualization = 'visualization',
@@ -74,7 +75,11 @@ export function ResultPane({ onQueryInputChange, onSave, saveDisabledReason }: R
                     <span className="text-muted mt-3">Query results will appear here</span>
                 ) : (
                     <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
-                        <DataGrid className={isDarkModeOn ? 'rdg-dark' : 'rdg-light'} columns={columns} rows={rows} />
+                        <DataGrid
+                            className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
+                            columns={columns}
+                            rows={rows}
+                        />
                     </div>
                 )}
             </div>
