@@ -4,6 +4,8 @@ from datetime import datetime
 
 from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
+from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import (
     exceptions,
     request,
@@ -18,6 +20,7 @@ from rest_framework.response import Response
 from sentry_sdk import capture_exception
 from posthog.api.cohort import CohortSerializer
 
+from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -494,6 +497,39 @@ class FeatureFlagViewSet(
 
         return queryset.select_related("created_by")
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "active",
+                OpenApiTypes.STR,
+                in_=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+            ),
+            OpenApiParameter(
+                "created_by_id",
+                OpenApiTypes.STR,
+                in_=OpenApiParameter.QUERY,
+                required=False,
+                description="The User ID which initially created the feature flag.",
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                in_=OpenApiParameter.QUERY,
+                required=False,
+                description="Search by feature flag key or name. Case insensitive.",
+            ),
+            OpenApiParameter(
+                "type",
+                OpenApiTypes.STR,
+                in_=OpenApiParameter.QUERY,
+                required=False,
+                enum=["boolean", "multivariant", "experiment"],
+            ),
+        ]
+    )
+    @action(methods=["GET"], detail=True)
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
