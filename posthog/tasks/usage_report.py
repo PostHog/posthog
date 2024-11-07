@@ -19,7 +19,7 @@ from sentry_sdk import capture_exception
 
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.materialized_columns import get_materialized_columns
+from posthog.clickhouse.materialized_columns import get_materialized_columns_cached
 from posthog.client import sync_execute
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
@@ -459,7 +459,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
-    materialized_columns = get_materialized_columns("events")
+    materialized_columns = get_materialized_columns_cached("events")
 
     # Check if $lib is materialized
     lib_expression = materialized_columns.get(("$lib", "properties"), "JSONExtractString(properties, '$lib')")
