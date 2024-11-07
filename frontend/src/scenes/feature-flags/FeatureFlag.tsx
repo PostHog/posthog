@@ -26,6 +26,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import posthog from 'posthog-js'
 import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -744,6 +745,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         })
     }
 
+    const reportViewRecordingsClicked = (variantKey?: string): void => {
+        const properties: Record<string, string> = {
+            multivariate: multivariateEnabled.toString(),
+        }
+        if (variantKey) {
+            properties.variant_key = variantKey
+        }
+        posthog.capture('viewed recordings from feature flag', properties)
+    }
+
     return (
         <>
             {readOnly ? (
@@ -853,7 +864,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     size="xsmall"
                                                     icon={<IconRewindPlay />}
                                                     type="secondary"
-                                                    onClick={() =>
+                                                    onClick={() => {
+                                                        reportViewRecordingsClicked(variant.key)
                                                         router.actions.push(
                                                             urls.replay(
                                                                 ReplayTabs.Home,
@@ -864,7 +876,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                                 )
                                                             )
                                                         )
-                                                    }
+                                                    }}
                                                 >
                                                     View recordings
                                                 </LemonButton>
@@ -957,7 +969,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         <p>Watch recordings of people who have been exposed to the feature flag.</p>
                         <div className="inline-block">
                             <LemonButton
-                                to={urls.replay(ReplayTabs.Home, recordingFilterForFlag)}
+                                onClick={() => {
+                                    reportViewRecordingsClicked()
+                                    router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
+                                }}
                                 icon={<IconRewindPlay />}
                                 type="secondary"
                                 size="small"
