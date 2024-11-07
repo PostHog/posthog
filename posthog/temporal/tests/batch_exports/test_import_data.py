@@ -3,7 +3,8 @@ from unittest import mock
 import pytest
 from asgiref.sync import sync_to_async
 from posthog.models.team.team import Team
-from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs, import_data_activity
+from posthog.temporal.data_imports import import_data_activity_sync
+from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -75,7 +76,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
         ) as sql_source_for_type,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
     ):
-        await activity_environment.run(import_data_activity, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         sql_source_for_type.assert_called_once_with(
             source_type=ExternalDataSource.Type.POSTGRES,
@@ -116,7 +117,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
         ) as sql_source_for_type,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
     ):
-        await activity_environment.run(import_data_activity, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         sql_source_for_type.assert_called_once_with(
             source_type=ExternalDataSource.Type.POSTGRES,
@@ -174,7 +175,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
     ):
-        await activity_environment.run(import_data_activity, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         sql_source_for_type_v2.assert_called_once_with(
             source_type=ExternalDataSource.Type.POSTGRES,
