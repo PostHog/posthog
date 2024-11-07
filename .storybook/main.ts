@@ -11,6 +11,7 @@ const config: StorybookConfig = {
         '@storybook/addon-storysource',
         '@storybook/addon-a11y',
         'storybook-addon-pseudo-states',
+        '@storybook/addon-webpack5-compiler-swc',
     ],
 
     staticDirs: ['public', { from: '../frontend/public', to: '/static' }],
@@ -38,12 +39,10 @@ const config: StorybookConfig = {
 
     framework: {
         name: '@storybook/react-webpack5',
-        options: { builder: { useSWC: true } },
+        options: { builder: {} },
     },
 
-    docs: {
-        autodocs: 'tag',
-    },
+    docs: {},
 
     typescript: { reactDocgen: 'react-docgen' }, // Shouldn't be needed in Storybook 8
 }
