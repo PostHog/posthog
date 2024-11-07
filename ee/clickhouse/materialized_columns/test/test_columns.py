@@ -301,12 +301,12 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert destination_column is not None
 
         key = (property, source_column)
-        assert get_materialized_columns("events")[key] == destination_column
+        assert get_materialized_columns(table)[key] == destination_column
 
         update_column_is_disabled(table, destination_column, is_disabled=True)
-        assert get_materialized_columns("events", exclude_disabled_columns=False)[key] == destination_column
-        assert key not in get_materialized_columns("events", exclude_disabled_columns=True)
+        assert get_materialized_columns(table)[key] == destination_column
+        assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
 
         update_column_is_disabled(table, destination_column, is_disabled=False)
-        assert get_materialized_columns("events", exclude_disabled_columns=False)[key] == destination_column
-        assert get_materialized_columns("events", exclude_disabled_columns=True)[key] == destination_column
+        assert get_materialized_columns(table, exclude_disabled_columns=False)[key] == destination_column
+        assert get_materialized_columns(table, exclude_disabled_columns=True)[key] == destination_column
