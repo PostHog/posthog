@@ -2,14 +2,10 @@ import { StorybookConfig } from 'storybook-react-rsbuild'
 
 const config: StorybookConfig = {
     framework: 'storybook-react-rsbuild',
-    rsbuildFinal: (config) => {
-        // Customize the final Rsbuild config here
-        return config
-    },
 
     stories: ['../frontend/src/**/*.mdx', '../frontend/src/**/*.stories.@(js|jsx|ts|tsx)'],
     addons: [
-        '@storybook/addon-docs',
+        // '@storybook/addon-docs',
         '@storybook/addon-links',
         '@storybook/addon-essentials',
         '@storybook/addon-storysource',
@@ -18,6 +14,12 @@ const config: StorybookConfig = {
     ],
 
     staticDirs: ['public', { from: '../frontend/public', to: '/static' }],
+    docs: {
+        docsMode: false,
+    },
+    typescript: {
+        reactDocgen: false,
+    },
 }
 
 export default config

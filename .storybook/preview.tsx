@@ -90,7 +90,7 @@ export const decorators: Meta['decorators'] = [
 ]
 
 const preview: Preview = {
-    tags: ['autodocs'],
+    // tags: ['autodocs'],
     parameters: {
         actions: { argTypesRegex: '^on[A-Z].*' },
         controls: {

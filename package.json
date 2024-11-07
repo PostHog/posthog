@@ -201,6 +201,11 @@
         "@babel/preset-typescript": "^7.22.5",
         "@cypress/webpack-preprocessor": "^5.17.1",
         "@playwright/test": "1.45.0",
+        "@rsbuild/core": "^1.1.0",
+        "@rsbuild/plugin-mdx": "^1.0.2",
+        "@rsbuild/plugin-node-polyfill": "^1.2.0",
+        "@rsbuild/plugin-react": "^1.0.7",
+        "@rsbuild/plugin-sass": "^1.1.0",
         "@sentry/types": "7.112.1",
         "@storybook/addon-a11y": "^8.4.2",
         "@storybook/addon-actions": "^8.4.2",
@@ -373,7 +378,7 @@
             "last 2 edge versions"
         ],
         "production": [
-            "defaults and not not op_mini all"
+            "defaults and not op_mini all"
         ]
     },
     "browser": {

@@ -39,7 +39,7 @@
         "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2021"]
     },
-    "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*", "vite.config.mts"],
+    "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*", "rsbuild.config.ts"],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {
