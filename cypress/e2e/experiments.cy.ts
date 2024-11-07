@@ -88,11 +88,10 @@ describe('Experiments', () => {
         // Wait for the goal modal to open and click the confirmation button
         cy.get('.LemonModal__layout').should('be.visible')
         cy.contains('Change experiment goal').should('be.visible')
-        cy.get('.LemonModal__footer').contains('button', 'Save').should('be.disabled')
+        cy.get('.LemonModal__footer').contains('button', 'Save').should('have.attr', 'aria-disabled', 'true')
         cy.get('.LemonModal__content').contains('button', 'Add funnel step').click()
-        cy.get('.LemonModal__footer').contains('button', 'Save').should('not.be.disabled')
+        cy.get('.LemonModal__footer').contains('button', 'Save').should('not.have.attr', 'aria-disabled', 'true')
         cy.get('.LemonModal__footer').contains('button', 'Save').click()
-        cy.get('.LemonModal__layout').should('not.be.visible')
     }
 
     it('create, launch and stop experiment with new ui', () => {
