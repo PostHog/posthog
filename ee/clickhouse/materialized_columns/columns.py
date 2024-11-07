@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Literal
 
@@ -173,8 +173,10 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
 
     [(comment,)] = rows
 
-    details = MaterializedColumnDetails.from_column_comment(comment)
-    details.is_disabled = is_disabled
+    details = replace(
+        MaterializedColumnDetails.from_column_comment(comment),
+        is_disabled=is_disabled,
+    )
 
     # XXX: copy/pasted from `materialize`
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""

@@ -10,6 +10,7 @@ from ee.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
+    update_column_is_disabled,
 )
 from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
 from posthog.client import sync_execute
@@ -54,6 +55,15 @@ class TestMaterializedColumnDetails(TestCase):
             is_disabled=True,
         )
         assert new_format_disabled_details.as_column_comment() == new_format_disabled_comment
+
+        with self.assertRaises(ValueError):
+            MaterializedColumnDetails.from_column_comment("bad-prefix::property")
+
+        with self.assertRaises(ValueError):
+            MaterializedColumnDetails.from_column_comment("bad-prefix::column::property")
+
+        with self.assertRaises(ValueError):
+            MaterializedColumnDetails.from_column_comment("column_materializer::column::property::enabled")
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
@@ -281,3 +291,20 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 "column": column,
             },
         )[0]
+
+    def test_update_column_is_disabled(self):
+        table = "events"
+        property = "myprop"
+        source_column = "properties"
+
+        destination_column = materialize(table, property, table_column=source_column, create_minmax_index=True)
+        key = (property, source_column)
+        assert get_materialized_columns("events")[key] == destination_column
+
+        update_column_is_disabled(table, destination_column, is_disabled=True)
+        assert get_materialized_columns("events", exclude_disabled_columns=False)[key] == destination_column
+        assert key not in get_materialized_columns("events", exclude_disabled_columns=True)
+
+        update_column_is_disabled(table, destination_column, is_disabled=False)
+        assert get_materialized_columns("events", exclude_disabled_columns=False)[key] == destination_column
+        assert get_materialized_columns("events", exclude_disabled_columns=True)[key] == destination_column
