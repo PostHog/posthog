@@ -159,6 +159,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
+        setExperimentFeatureFlagKeyFromName: true,
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setExperimentType: (type?: string) => ({ type }),
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
@@ -453,6 +454,9 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         setExperimentType: async ({ type }) => {
             actions.setExperiment({ type: type })
+        },
+        setExperimentFeatureFlagKeyFromName: async () => {
+            actions.setExperiment({ feature_flag_key: values.dynamicFeatureFlagKey })
         },
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
@@ -943,6 +947,12 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        dynamicFeatureFlagKey: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string => {
+                return experiment.name.toLowerCase().replace(/[^A-Za-z0-9-_]+/g, '-')
+            },
+        ],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
