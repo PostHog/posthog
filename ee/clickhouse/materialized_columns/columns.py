@@ -166,29 +166,16 @@ def materialize(
 
 
 def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name: str, is_disabled: bool) -> None:
-    # XXX: copy/pasted from `get_materialized_columns`
-    rows = sync_execute(
-        """
-        SELECT comment
-        FROM system.columns
-        WHERE database = %(database)s
-          AND table = %(table)s
-          AND name = %(column)s
-    """,
-        {"database": CLICKHOUSE_DATABASE, "table": table, "column": column_name},
-    )
+    columns = [column for column in MaterializedColumn.get_all(table) if column.name == column_name]
 
-    if len(rows) == 0:
+    if len(columns) == 0:
         raise ValueError("column does not exist")
-    elif len(rows) != 1:
-        raise ValueError(f"got {len(rows)}, expected 1")
+    elif len(columns) != 1:
+        # this should never happen as column names are unique -- this would suggest an error in the query
+        raise ValueError(f"got {len(columns)} columns, expected 1")
 
-    [(comment,)] = rows
-
-    details = replace(
-        MaterializedColumnDetails.from_column_comment(comment),
-        is_disabled=is_disabled,
-    )
+    [column] = columns
+    details = replace(column.details, is_disabled=is_disabled)
 
     # XXX: copy/pasted from `materialize`
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
