@@ -21,6 +21,7 @@ import {
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
+    ReactSnippet,
     RNSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
@@ -58,6 +59,13 @@ const OPTIONS = [
         documentationLink: `${DOC_BASE_URL}libraries/ios${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconAppleIOS,
         Snippet: IOSSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'React',
+        documentationLink: `${DOC_BASE_URL}libraries/react${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconJavascript,
+        Snippet: ReactSnippet,
         type: LibraryType.Client,
     },
     {

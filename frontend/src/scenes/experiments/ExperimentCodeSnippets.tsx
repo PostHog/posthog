@@ -89,6 +89,43 @@ export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     )
 }
 
+export function ReactSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.JavaScript} wrap>
+                {`// You can either use the useFeatureFlagVariantKey hook,
+// or you can use the feature flags component - https://posthog.com/docs/libraries/react#feature-flags-react-component
+
+// Method one: using the useFeatureFlagVariantKey hook
+import { useFeatureFlagVariantKey } from 'posthog-js/react'
+
+function App() {
+    const variant = useFeatureFlagVariantKey('${flagKey}')
+    if (variant === '${variant}') {
+        // do something
+    }
+}
+
+// Method two: using the feature flags component
+import { PostHogFeature } from 'posthog-js/react'
+
+function App() {
+    return (
+        <PostHogFeature flag='${flagKey}' match='${variant}'>
+            <div>
+                {/* the component to show */}
+            </div>
+        </PostHogFeature>
+    )
+}
+
+// You can also test your code by overriding the feature flag:
+posthog.featureFlags.override({'${flagKey}': '${variant}'})`}
+            </CodeSnippet>
+        </>
+    )
+}
+
 export function RNSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
