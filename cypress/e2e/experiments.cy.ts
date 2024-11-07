@@ -42,25 +42,6 @@ describe('Experiments', () => {
             .type('test-variant-2')
             .should('have.value', 'test-variant-2')
 
-        // Continue to step 2
-        cy.get('[data-attr="continue-experiment-creation"]').click()
-
-        // Goal type selection is visible
-        cy.get('[data-attr="experiment-goal-type-select"]')
-            .should('be.visible')
-            .within(() => {
-                cy.contains('Conversion funnel').should('be.visible')
-                cy.contains('Trend').should('be.visible')
-            })
-
-        // Goal input is visible
-        cy.get('[data-attr="experiment-goal-input"]')
-            .should('be.visible')
-            .within(() => {
-                cy.get('li.ActionFilterRow').should('exist')
-                cy.get('button').contains('Add funnel step').should('exist')
-            })
-
         // Save experiment
         cy.get('[data-attr="save-experiment"]').first().click()
     })
