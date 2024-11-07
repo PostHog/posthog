@@ -34,7 +34,7 @@ SHORT_TABLE_COLUMN_NAME = {
 
 
 class MaterializedColumn(NamedTuple):
-    column_name: ColumnName
+    name: ColumnName
     details: MaterializedColumnDetails
 
     @staticmethod
@@ -53,6 +53,18 @@ class MaterializedColumn(NamedTuple):
 
         for name, comment in rows:
             yield (name, MaterializedColumnDetails.from_column_comment(comment))
+
+    @staticmethod
+    def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn | None:
+        columns = [column for column in MaterializedColumn.get_all(table) if column.name == column_name]
+        match columns:
+            case []:
+                return None
+            case [column]:
+                return column
+            case _:
+                # this should never happen (column names are unique within a table) and suggests an error in the query
+                raise ValueError(f"got {len(columns)} columns, expected 0 or 1")
 
 
 @dataclass(frozen=True)
@@ -166,15 +178,10 @@ def materialize(
 
 
 def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name: str, is_disabled: bool) -> None:
-    columns = [column for column in MaterializedColumn.get_all(table) if column.name == column_name]
+    column = MaterializedColumn.get(table, column_name)
+    if column is None:
+        raise ValueError("invalid column")
 
-    if len(columns) == 0:
-        raise ValueError("column does not exist")
-    elif len(columns) != 1:
-        # this should never happen as column names are unique -- this would suggest an error in the query
-        raise ValueError(f"got {len(columns)} columns, expected 1")
-
-    [column] = columns
     details = replace(column.details, is_disabled=is_disabled)
 
     # XXX: copy/pasted from `materialize`
