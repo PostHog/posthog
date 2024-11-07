@@ -12,11 +12,12 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
     update_column_is_disabled,
 )
-from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
@@ -293,9 +294,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         )[0]
 
     def test_update_column_is_disabled(self):
-        table = "events"
-        property = "myprop"
-        source_column = "properties"
+        table: TablesWithMaterializedColumns = "events"
+        property: PropertyName = "myprop"
+        source_column: TableColumn = "properties"
 
         destination_column = materialize(table, property, table_column=source_column, create_minmax_index=True)
         assert destination_column is not None
