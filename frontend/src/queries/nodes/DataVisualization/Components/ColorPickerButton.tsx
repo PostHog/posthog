@@ -24,12 +24,10 @@ export const ColorPickerButton = ({
     color,
     onColorSelect: propOnColorSelect,
     colorChoices = DEFAULT_PICKER_COLORS,
-    children,
 }: {
     color: string
     onColorSelect?: (color: string) => void
     colorChoices?: string[]
-    children: React.ReactNode
 }): JSX.Element => {
     const [pickerOpen, setPickerOpen] = useState(false)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -70,7 +68,6 @@ export const ColorPickerButton = ({
                 >
                     <></>
                 </SeriesGlyph>
-                {children}
             </LemonButton>
         </Popover>
     )
