@@ -686,7 +686,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ) + timedelta(days=1)
 
         try:
-            question_index = int(request.query_params.get("question_index", None))
+            question_index_param = request.query_params.get("question_index", None)
+            question_index = int(question_index_param) if question_index_param else None
         except (ValueError, TypeError):
             question_index = None
 
