@@ -186,7 +186,12 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentCollectionGoalModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
+        openDistributionModal: true,
+        closeDistributionModal: true,
+        openReleaseConditionsModal: true,
+        closeReleaseConditionsModal: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
+        setTabKey: (tabKey: string) => ({ tabKey }),
     }),
     reducers({
         experiment: [
@@ -330,12 +335,32 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeShipVariantModal: () => false,
             },
         ],
+        isDistributionModalOpen: [
+            false,
+            {
+                openDistributionModal: () => true,
+                closeDistributionModal: () => false,
+            },
+        ],
+        isReleaseConditionsModalOpen: [
+            false,
+            {
+                openReleaseConditionsModal: () => true,
+                closeReleaseConditionsModal: () => false,
+            },
+        ],
         experimentValuesChangedLocally: [
             false,
             {
                 setExperiment: () => true,
                 loadExperiment: () => false,
                 updateExperiment: () => false,
+            },
+        ],
+        tabKey: [
+            'results',
+            {
+                setTabKey: (_, { tabKey }) => tabKey,
             },
         ],
     }),
