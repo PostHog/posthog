@@ -94,10 +94,10 @@ def get_materialized_columns(
 def materialize(
     table: TableWithProperties,
     property: PropertyName,
-    column_name=None,
+    column_name: ColumnName | None = None,
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
     create_minmax_index=not TEST,
-) -> None:
+) -> ColumnName | None:
     if (property, table_column) in get_materialized_columns(table):
         if TEST:
             return
@@ -152,6 +152,8 @@ def materialize(
     if create_minmax_index:
         add_minmax_index(table, column_name)
 
+    return column_name
+
 
 def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name: str, is_disabled: bool) -> None:
     # XXX: copy/pasted from `get_materialized_columns`
@@ -187,7 +189,7 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     )
 
 
-def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
+def add_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName):
     # Note: This will be populated on backfill
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
@@ -269,7 +271,7 @@ def _materialized_column_name(
     table: TableWithProperties,
     property: PropertyName,
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
-) -> str:
+) -> ColumnName:
     "Returns a sanitized and unique column name to use for materialized column"
 
     prefix = "pmat_" if table == "person" else "mat_"

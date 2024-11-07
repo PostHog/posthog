@@ -298,6 +298,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         source_column = "properties"
 
         destination_column = materialize(table, property, table_column=source_column, create_minmax_index=True)
+        assert destination_column is not None
+
         key = (property, source_column)
         assert get_materialized_columns("events")[key] == destination_column
 
