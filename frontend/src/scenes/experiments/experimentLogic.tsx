@@ -190,8 +190,6 @@ export const experimentLogic = kea<experimentLogicType>([
         closeDistributionModal: true,
         openReleaseConditionsModal: true,
         closeReleaseConditionsModal: true,
-        setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
-        moveToNextFormStep: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, Record<string, string>>) => ({
             variantPreviewMediaIds,
         }),
