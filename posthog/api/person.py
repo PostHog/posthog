@@ -422,11 +422,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if distinct_ids := request.data.get("distinct_ids"):
             if len(distinct_ids) > 1000:
                 raise ValidationError("You can only pass 1000 distinct_ids in one call")
-            persons = Person.objects.filter(persondistinctid__distinct_id__in=distinct_ids, team_id=self.team_id)
+            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids)
         elif ids := request.data.get("ids"):
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id)
+            persons = self.get_queryset().filter(uuid__in=ids)
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
