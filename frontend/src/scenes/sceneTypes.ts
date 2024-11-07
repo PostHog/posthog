@@ -26,6 +26,8 @@ export enum Scene {
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
+    ThemeCreator = 'ThemeCreator',
+    ThemeLibrary = 'ThemeLibrary',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     PipelineNodeNew = 'PipelineNodeNew',

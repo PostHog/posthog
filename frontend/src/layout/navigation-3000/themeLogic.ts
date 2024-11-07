@@ -7,6 +7,33 @@ import { userLogic } from 'scenes/userLogic'
 import type { themeLogicType } from './themeLogicType'
 import { Theme, themes } from './themes'
 
+export const THEMES = [
+    {
+        id: 'hacker',
+        title: 'Hacker',
+        styles: '',
+        primaryColors: [],
+    },
+    {
+        id: 'retro',
+        title: 'Retro',
+        styles: '',
+        primaryColors: [],
+    },
+    {
+        id: 'fisher-price',
+        title: 'Fisher Price',
+        styles: '',
+        primaryColors: ['red', 'green', 'blue'],
+    },
+    {
+        id: 'usa',
+        title: 'USA',
+        styles: '',
+        primaryColors: [],
+    },
+]
+
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     connect({
@@ -15,6 +42,7 @@ export const themeLogic = kea<themeLogicType>([
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),
+        setCustomThemeId: (themeId: string | null) => ({ themeId }),
     }),
     reducers({
         darkModeSystemPreference: [
@@ -28,6 +56,13 @@ export const themeLogic = kea<themeLogicType>([
             { persist: true },
             {
                 setTheme: (_, { theme }) => theme,
+            },
+        ],
+        customThemeId: [
+            null as string | null,
+            { persist: true },
+            {
+                setCustomThemeId: (_, { themeId }) => themeId,
             },
         ],
     }),

@@ -37,6 +37,8 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.ErrorTrackingGroup]: () => import('./error-tracking/ErrorTrackingGroupScene'),
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.Survey]: () => import('./surveys/Survey'),
+    [Scene.ThemeCreator]: () => import('./themes/ThemeCreatorScene'),
+    [Scene.ThemeLibrary]: () => import('./themes/ThemeLibraryScene'),
     [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
     [Scene.DataModel]: () => import('./data-model/DataModelScene'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
