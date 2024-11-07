@@ -1,14 +1,21 @@
 from collections.abc import Generator
 from typing import Any, Literal, TypedDict, TypeGuard, Union
 
+from langchain_core.globals import set_debug, set_verbose
 from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import StateGraph
 from pydantic import BaseModel
 
 from ee import settings
-from ee.hogai.funnels.nodes import FunnelGeneratorNode, FunnelPlannerNode, FunnelPlannerToolsNode
+from ee.hogai.funnels.nodes import (
+    FunnelGeneratorNode,
+    FunnelGeneratorToolsNode,
+    FunnelPlannerNode,
+    FunnelPlannerToolsNode,
+)
 from ee.hogai.router.nodes import RouterNode
+from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
     TrendsGeneratorToolsNode,
@@ -22,6 +29,9 @@ from posthog.schema import (
     AssistantGenerationStatusType,
     VisualizationMessage,
 )
+
+set_debug(True)
+set_verbose(True)
 
 if settings.LANGFUSE_PUBLIC_KEY:
     langfuse_handler = CallbackHandler(
@@ -138,7 +148,19 @@ class Assistant:
 
         funnel_generator = FunnelGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator.run)
-        builder.add_edge(AssistantNodeName.FUNNEL_GENERATOR, AssistantNodeName.END)
+
+        funnel_generator_tools_node = FunnelGeneratorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools_node.run)
+
+        builder.add_edge(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, AssistantNodeName.FUNNEL_GENERATOR)
+        builder.add_conditional_edges(
+            AssistantNodeName.FUNNEL_GENERATOR,
+            generate_trends_node.router,
+            path_map={
+                "tools": AssistantNodeName.FUNNEL_GENERATOR_TOOLS,
+                "next": AssistantNodeName.END,
+            },
+        )
 
         return builder.compile()
 
@@ -149,6 +171,10 @@ class Assistant:
 
         chunks = AIMessageChunk(content="")
         state: AssistantState = {"messages": messages, "intermediate_steps": None, "plan": None}
+        visualization_nodes: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
+            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
+            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
+        }
 
         generator = assistant_graph.stream(
             state,
@@ -168,15 +194,16 @@ class Assistant:
 
             elif is_value_update(update):
                 _, state_update = update
-                visualization_nodes = {AssistantNodeName.TRENDS_GENERATOR, AssistantNodeName.FUNNEL_GENERATOR}
 
                 if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
                     yield state_update[AssistantNodeName.ROUTER]["messages"][0]
-                elif state_update.keys() & visualization_nodes:
+                elif state_update.keys() & visualization_nodes.keys():
                     # Reset chunks when schema validation fails.
                     chunks = AIMessageChunk(content="")
 
-                    for node_name in visualization_nodes:
+                    for node_name in visualization_nodes.keys():
+                        if node_name not in state_update:
+                            continue
                         if "messages" in state_update[node_name]:
                             yield state_update[node_name]["messages"][0]
                         elif state_update[node_name].get("intermediate_steps", []):
@@ -184,12 +211,11 @@ class Assistant:
 
             elif is_message_update(update):
                 langchain_message, langgraph_state = update[1]
-                if langgraph_state["langgraph_node"] == AssistantNodeName.TRENDS_GENERATOR and isinstance(
-                    langchain_message, AIMessageChunk
-                ):
-                    chunks += langchain_message  # type: ignore
-                    parsed_message = TrendsGeneratorNode.parse_output(chunks.tool_calls[0]["args"])
-                    if parsed_message:
-                        yield VisualizationMessage(
-                            reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
-                        )
+                for node_name, viz_node in visualization_nodes.items():
+                    if langgraph_state["langgraph_node"] == node_name and isinstance(langchain_message, AIMessageChunk):
+                        chunks += langchain_message  # type: ignore
+                        parsed_message = viz_node.parse_output(chunks.tool_calls[0]["args"])
+                        if parsed_message:
+                            yield VisualizationMessage(
+                                reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
+                            )

@@ -9,7 +9,7 @@ from ee.hogai.trends.prompts import (
     react_system_prompt,
     trends_system_prompt,
 )
-from ee.hogai.trends.toolkit import GenerateTrendTool, TrendsTaxonomyAgentToolkit
+from ee.hogai.trends.toolkit import TRENDS_SCHEMA, TrendsTaxonomyAgentToolkit
 from ee.hogai.utils import AssistantState
 from posthog.schema import AssistantTrendsQuery
 
@@ -48,7 +48,7 @@ class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     @property
     def _model(self):
         return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True).with_structured_output(
-            GenerateTrendTool().schema,
+            TRENDS_SCHEMA,
             method="function_calling",
             include_raw=False,
         )

@@ -1,8 +1,5 @@
-import json
-from functools import cached_property
-from typing import Any
-
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
+from ee.hogai.utils import flatten_schema
 from posthog.schema import (
     AssistantTrendsQuery,
 )
@@ -60,65 +57,43 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
         ]
 
 
-class GenerateTrendTool:
-    def _replace_value_in_dict(self, item: Any, original_schema: Any):
-        if isinstance(item, list):
-            return [self._replace_value_in_dict(i, original_schema) for i in item]
-        elif isinstance(item, dict):
-            if list(item.keys()) == ["$ref"]:
-                definitions = item["$ref"][2:].split("/")
-                res = original_schema.copy()
-                for definition in definitions:
-                    res = res[definition]
-                return res
-            else:
-                return {key: self._replace_value_in_dict(i, original_schema) for key, i in item.items()}
-        else:
-            return item
+def generate_trends_schema() -> dict:
+    schema = AssistantTrendsQuery.model_json_schema()
 
-    def _flatten_schema(self):
-        schema = AssistantTrendsQuery.model_json_schema()
+    # Patch `numeric` types
+    schema["$defs"]["MathGroupTypeIndex"]["type"] = "number"
+    property_filters = (
+        "EventPropertyFilter",
+        "PersonPropertyFilter",
+        "SessionPropertyFilter",
+        "FeaturePropertyFilter",
+        "GroupPropertyFilter",
+    )
 
-        # Patch `numeric` types
-        schema["$defs"]["MathGroupTypeIndex"]["type"] = "number"
-        property_filters = (
-            "EventPropertyFilter",
-            "PersonPropertyFilter",
-            "SessionPropertyFilter",
-            "FeaturePropertyFilter",
-            "GroupPropertyFilter",
+    # Clean up the property filters
+    for key in property_filters:
+        property_schema = schema["$defs"][key]
+        property_schema["properties"]["key"]["description"] = (
+            f"Use one of the properties the user has provided in the plan."
         )
 
-        # Clean up the property filters
-        for key in property_filters:
-            property_schema = schema["$defs"][key]
-            property_schema["properties"]["key"]["description"] = (
-                f"Use one of the properties the user has provided in the plan."
-            )
-
-        for _ in range(100):
-            if "$ref" not in json.dumps(schema):
-                break
-            schema = self._replace_value_in_dict(schema.copy(), schema.copy())
-        del schema["$defs"]
-        return schema
-
-    @cached_property
-    def schema(self):
-        return {
-            "name": "output_insight_schema",
-            "description": "Outputs the JSON schema of a product analytics insight",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reasoning_steps": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
-                    },
-                    "answer": self._flatten_schema(),
+    return {
+        "name": "output_insight_schema",
+        "description": "Outputs the JSON schema of a funnel insight",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reasoning_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
                 },
-                "additionalProperties": False,
-                "required": ["reasoning_steps", "answer"],
+                "answer": flatten_schema(schema),
             },
-        }
+            "additionalProperties": False,
+            "required": ["reasoning_steps", "answer"],
+        },
+    }
+
+
+TRENDS_SCHEMA = generate_trends_schema()

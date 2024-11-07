@@ -2248,7 +2248,7 @@ export interface VisualizationMessage {
     type: AssistantMessageType.Visualization
     plan?: string
     reasoning_steps?: string[] | null
-    answer?: AssistantTrendsQuery
+    answer?: AssistantTrendsQuery | AssistantFunnelsQuery
 }
 
 export interface FailureMessage {

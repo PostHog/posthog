@@ -1788,8 +1788,11 @@ class AssistantFunnelsFilter(BaseModel):
         default=FunnelVizType.STEPS,
         description=(
             "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a"
-            " step-by-step funnel. `time_to_convert` - shows a histogram of the time it took to complete the funnel."
-            " `trends` - shows a trend of the whole sequence's conversion rate over time."
+            " step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default)."
+            " `time_to_convert` - shows a histogram of the time it took to complete the funnel. Use this if the user"
+            " asks about the average time it takes to complete the funnel. `trends` - shows a trend of the whole"
+            " sequence's conversion rate over time. Use this if the user wants to see how the conversion rate changes"
+            " over time."
         ),
     )
     funnelWindowInterval: Optional[int] = Field(
@@ -5081,16 +5084,6 @@ class TeamTaxonomyQuery(BaseModel):
     response: Optional[TeamTaxonomyQueryResponse] = None
 
 
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: Optional[AssistantTrendsQuery] = None
-    plan: Optional[str] = None
-    reasoning_steps: Optional[list[str]] = None
-    type: Literal["ai/viz"] = "ai/viz"
-
-
 class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5442,12 +5435,6 @@ class RetentionQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
-):
-    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
-
-
 class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5544,6 +5531,16 @@ class TrendsQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
+    plan: Optional[str] = None
+    reasoning_steps: Optional[list[str]] = None
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class CachedExperimentTrendsQueryResponse(BaseModel):
@@ -6152,6 +6149,12 @@ class QueryResponseAlternative(
         QueryResponseAlternative40,
         QueryResponseAlternative41,
     ]
+
+
+class RootAssistantMessage(
+    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
+):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
