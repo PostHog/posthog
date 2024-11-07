@@ -1,9 +1,12 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.clickhouse.materialized_columns import materialize
-
 
 def create_materialized_columns(database):
+    try:
+        from ee.clickhouse.materialized_columns.columns import materialize
+    except ImportError:
+        return
+
     try:
         materialize("events", "$group_0", "$group_0")
         materialize("events", "$group_1", "$group_1")
