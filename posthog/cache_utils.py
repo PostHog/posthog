@@ -22,8 +22,9 @@ class CachedFunction(Generic[P, R]):
     _fn: Callable[P, R]
     _cache_time: timedelta
     _background_refresh: bool = False
-    _cache: dict[CacheKey, tuple[datetime, R]] = field(default_factory=dict, init=False)
-    _refreshing: dict[CacheKey, datetime | None] = field(default_factory=dict, init=False)
+
+    _cache: dict[CacheKey, tuple[datetime, R]] = field(default_factory=dict, init=False, repr=False)
+    _refreshing: dict[CacheKey, datetime | None] = field(default_factory=dict, init=False, repr=False)
 
     def __call__(self, *args: P.args, use_cache: bool = not TEST, **kwargs: P.kwargs) -> R:
         if not use_cache:
