@@ -500,8 +500,6 @@ export const experimentLogic = kea<experimentLogicType>([
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
 
-            actions.setNewExperimentInsight(experiment?.filters)
-
             if (experiment?.start_date) {
                 actions.loadExperimentResults()
                 actions.loadSecondaryMetricResults()
@@ -1512,6 +1510,17 @@ export const experimentLogic = kea<experimentLogicType>([
                     filters.groups?.[0]?.rollout_percentage === 100 &&
                     (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) ||
                         false)
+                )
+            },
+        ],
+        hasGoalSet: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                const filters = experiment?.filters
+                return !!(
+                    (filters?.actions && filters.actions.length > 0) ||
+                    (filters?.events && filters.events.length > 0) ||
+                    (filters?.data_warehouse && filters.data_warehouse.length > 0)
                 )
             },
         ],
