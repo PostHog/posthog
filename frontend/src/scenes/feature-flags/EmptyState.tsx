@@ -9,7 +9,7 @@ export const FeatureFlagsEmptyState = (): JSX.Element => (
         <div className="w-40 m-auto">
             <BuilderHog3 className="w-full h-full" />
         </div>
-        <h2>There are no feature flags matching these filters</h2>
+        <h2>There are no feature flags matching these filters.</h2>
         <p>Refine your keyword search, or try using other filters such as type, status or created by.</p>
 
         <div className="flex justify-center">
