@@ -99,7 +99,7 @@ jobs:
 
             - name: Build and push image
               id: docker_build
-              uses: depot/build-push-action@v1
+              uses: docker/build-push-action@v6
               with:
                   context: ./rust/
                   file: ${{ matrix.dockerfile }}
