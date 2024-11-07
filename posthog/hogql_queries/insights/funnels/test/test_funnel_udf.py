@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import cast
+from typing import cast, Any
 from unittest.mock import patch, Mock
 
 from freezegun import freeze_time
@@ -11,8 +11,9 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
     funnel_breakdown_group_test_factory,
 )
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action
+from posthog.models import Action, Team
 from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import FunnelsQuery, FunnelsQueryResponse
 from posthog.test.base import (
@@ -38,12 +39,32 @@ def _create_action(**kwargs):
 use_udf_funnel_flag_side_effect = lambda key, *args, **kwargs: key == "insight-funnels-use-udf"
 
 
+class PsuedoFunnelActors:
+    def __init__(self, person_filter: Any, team: Team):
+        self.filters = person_filter._data
+        self.team = team
+
+    def get_actors(self):
+        actors = get_actors(
+            self.filters,
+            self.team,
+            funnel_step=self.filters.get("funnel_step"),
+            funnel_step_breakdown=self.filters.get("funnel_step_breakdown"),
+        )
+
+        return (
+            None,
+            [{"id": x[0]} for x in actors],
+            None,
+        )
+
+
 @patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelBreakdownUDF(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
+        PsuedoFunnelActors,
         _create_action,
         _create_person,
     ),
@@ -57,7 +78,7 @@ class TestFunnelGroupBreakdownUDF(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
+        PsuedoFunnelActors,
     ),
 ):
     pass
