@@ -11,6 +11,8 @@ class HeartbeaterSync:
         self.details: tuple[Any, ...] = details
         self.factor = factor
         self.logger = logger
+        self.stop_event: Optional[threading.Event] = None
+        self.heartbeat_thread: Optional[threading.Thread] = None
 
     def log_debug(self, message: str, exc_info: Optional[Any] = None) -> None:
         if self.logger:

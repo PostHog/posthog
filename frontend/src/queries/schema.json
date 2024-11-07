@@ -807,6 +807,9 @@
         "BreakdownKeyType": {
             "anyOf": [
                 {
+                    "type": "integer"
+                },
+                {
                     "type": "string"
                 },
                 {
@@ -814,7 +817,17 @@
                 },
                 {
                     "items": {
-                        "type": ["string", "number"]
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            }
+                        ]
                     },
                     "type": "array"
                 },

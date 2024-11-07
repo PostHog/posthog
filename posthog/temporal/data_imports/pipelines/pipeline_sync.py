@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any, Literal, Optional
 from collections.abc import Iterator, Sequence
 import uuid
@@ -34,7 +35,6 @@ from collections import Counter
 from clickhouse_driver.errors import ServerException
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.temporal.data_imports.pipelines.pipeline import PipelineInputs
 from posthog.warehouse.data_load.validate_schema import dlt_to_hogql_type
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -42,6 +42,16 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+
+
+@dataclass
+class PipelineInputs:
+    source_id: uuid.UUID
+    run_id: str
+    schema_id: uuid.UUID
+    dataset_name: str
+    job_type: ExternalDataSource.Type
+    team_id: int
 
 
 class DataImportPipelineSync:

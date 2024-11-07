@@ -42,25 +42,6 @@ describe('Experiments', () => {
             .type('test-variant-2')
             .should('have.value', 'test-variant-2')
 
-        // Continue to step 2
-        cy.get('[data-attr="continue-experiment-creation"]').click()
-
-        // Goal type selection is visible
-        cy.get('[data-attr="experiment-goal-type-select"]')
-            .should('be.visible')
-            .within(() => {
-                cy.contains('Conversion funnel').should('be.visible')
-                cy.contains('Trend').should('be.visible')
-            })
-
-        // Goal input is visible
-        cy.get('[data-attr="experiment-goal-input"]')
-            .should('be.visible')
-            .within(() => {
-                cy.get('li.ActionFilterRow').should('exist')
-                cy.get('button').contains('Add funnel step').should('exist')
-            })
-
         // Save experiment
         cy.get('[data-attr="save-experiment"]').first().click()
     })
@@ -98,10 +79,19 @@ describe('Experiments', () => {
             .type('test-variant-2')
             .should('have.value', 'test-variant-2')
 
-        // Continue creation
-        cy.get('[data-attr="continue-experiment-creation"]').first().click()
         // Save experiment
         cy.get('[data-attr="save-experiment"]').first().click()
+
+        // Set the experiment goal once the experiment is drafted
+        cy.get('[data-attr="add-experiment-goal"]').click()
+
+        // Wait for the goal modal to open and click the confirmation button
+        cy.get('.LemonModal__layout').should('be.visible')
+        cy.contains('Change experiment goal').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Save').should('have.attr', 'aria-disabled', 'true')
+        cy.get('.LemonModal__content').contains('button', 'Add funnel step').click()
+        cy.get('.LemonModal__footer').contains('button', 'Save').should('not.have.attr', 'aria-disabled', 'true')
+        cy.get('.LemonModal__footer').contains('button', 'Save').click()
     }
 
     it('create, launch and stop experiment with new ui', () => {
