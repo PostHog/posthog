@@ -199,19 +199,13 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
 
     on_cluster = get_on_cluster_clause_for_table(table)
     sync_execute(
-        f"""
-        ALTER TABLE {table} {on_cluster}
-        DROP COLUMN IF EXISTS {column_name}
-    """,
+        f"ALTER TABLE {table} {on_cluster} DROP COLUMN IF EXISTS {column_name}",
         settings={"alter_sync": 2 if TEST else 1},
     )
 
     if table == "events":
         sync_execute(
-            f"""
-            ALTER TABLE sharded_{table} {on_cluster}
-            DROP COLUMN IF EXISTS {column_name}
-        """,
+            f"ALTER TABLE sharded_{table} {on_cluster} DROP COLUMN IF EXISTS {column_name}",
             {"property": property},
             settings={"alter_sync": 2 if TEST else 1},
         )
@@ -247,10 +241,7 @@ def drop_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnN
     index_name = f"minmax_{column_name}"
 
     sync_execute(
-        f"""
-        ALTER TABLE {updated_table} {on_cluster}
-        DROP INDEX IF EXISTS {index_name}
-        """,
+        f"ALTER TABLE {updated_table} {on_cluster} DROP INDEX IF EXISTS {index_name}",
         settings={"alter_sync": 2 if TEST else 1},
     )
 
