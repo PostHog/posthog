@@ -1,7 +1,8 @@
 import threading
 from datetime import timedelta
 from functools import wraps
-from typing import no_type_check, Any
+from typing import TypeVar, Any
+from collections.abc import Callable
 
 import orjson
 from rest_framework.utils.encoders import JSONEncoder
@@ -10,12 +11,13 @@ from django_redis.serializers.base import BaseSerializer
 
 from posthog.settings import TEST
 
+R = TypeVar("R")
 
-def cache_for(cache_time: timedelta, background_refresh=False):
-    def wrapper(fn):
+
+def cache_for(cache_time: timedelta, background_refresh=False) -> Callable[[Callable[..., R]], Callable[..., R]]:
+    def wrapper(fn: Callable[..., R]) -> Callable[..., R]:
         @wraps(fn)
-        @no_type_check
-        def memoized_fn(*args, use_cache=not TEST, **kwargs):
+        def memoized_fn(*args, use_cache=not TEST, **kwargs) -> R:
             if not use_cache:
                 return fn(*args, **kwargs)
 
