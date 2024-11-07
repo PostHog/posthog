@@ -37,7 +37,8 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
+import { FeatureFlagsEmptyState } from './EmptyState'
+import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFlagsLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -57,10 +58,13 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, filters, shouldShowEmptyState } =
-        useValues(flagLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
+    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+
+    const page = filters.page || 1
+    const startCount = (page - 1) * FLAGS_PER_PAGE + 1
+    const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -283,8 +287,9 @@ export function OverViewTab({
                                 className="w-60"
                                 type="search"
                                 placeholder={searchPlaceholder || ''}
-                                onChange={setSearchTerm}
-                                value={searchTerm || ''}
+                                onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
+                                value={filters.search || ''}
+                                data-attr="feature-flag-search"
                             />
                             <div className="flex items-center gap-2">
                                 <span>
@@ -298,20 +303,25 @@ export function OverViewTab({
                                             if (type === 'all') {
                                                 if (filters) {
                                                     const { type, ...restFilters } = filters
-                                                    setFeatureFlagsFilters(restFilters, true)
+                                                    setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                                 }
                                             } else {
-                                                setFeatureFlagsFilters({ type })
+                                                setFeatureFlagsFilters({ type, page: 1 })
                                             }
                                         }
                                     }}
                                     options={[
                                         { label: 'All', value: 'all' },
                                         { label: 'Boolean', value: 'boolean' },
-                                        { label: 'Multiple variants', value: 'multivariant' },
+                                        {
+                                            label: 'Multiple variants',
+                                            value: 'multivariant',
+                                            'data-attr': 'feature-flag-select-type-option-multiple-variants',
+                                        },
                                         { label: 'Experiment', value: 'experiment' },
                                     ]}
                                     value={filters.type ?? 'all'}
+                                    data-attr="feature-flag-select-type"
                                 />
                                 <span>
                                     <b>Status</b>
@@ -320,59 +330,85 @@ export function OverViewTab({
                                     dropdownMatchSelectWidth={false}
                                     size="small"
                                     onChange={(status) => {
-                                        if (status) {
-                                            if (status === 'all') {
-                                                if (filters) {
-                                                    const { active, ...restFilters } = filters
-                                                    setFeatureFlagsFilters(restFilters, true)
-                                                }
-                                            } else {
-                                                setFeatureFlagsFilters({ active: status })
+                                        if (status === 'all') {
+                                            if (filters) {
+                                                const { active, ...restFilters } = filters
+                                                setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                             }
+                                        } else {
+                                            setFeatureFlagsFilters({ active: status, page: 1 })
                                         }
                                     }}
                                     options={[
-                                        { label: 'All', value: 'all' },
+                                        { label: 'All', value: 'all', 'data-attr': 'feature-flag-select-status-all' },
                                         { label: 'Enabled', value: 'true' },
-                                        { label: 'Disabled', value: 'false' },
+                                        {
+                                            label: 'Disabled',
+                                            value: 'false',
+                                            'data-attr': 'feature-flag-select-status-disabled',
+                                        },
                                     ]}
                                     value={filters.active ?? 'all'}
+                                    data-attr="feature-flag-select-status"
                                 />
                                 <span className="ml-1">
                                     <b>Created by</b>
                                 </span>
                                 <MemberSelect
                                     defaultLabel="Any user"
-                                    value={filters.created_by ?? null}
+                                    value={filters.created_by_id ?? null}
                                     onChange={(user) => {
                                         if (!user) {
                                             if (filters) {
-                                                const { created_by, ...restFilters } = filters
-                                                setFeatureFlagsFilters(restFilters, true)
+                                                const { created_by_id, ...restFilters } = filters
+                                                setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                             }
                                         } else {
-                                            setFeatureFlagsFilters({ created_by: user.id })
+                                            setFeatureFlagsFilters({ created_by_id: user.id, page: 1 })
                                         }
                                     }}
+                                    data-attr="feature-flag-select-created-by"
                                 />
                             </div>
                         </div>
                     </div>
-                    <LemonTable
-                        dataSource={searchedFeatureFlags}
-                        columns={columns}
-                        rowKey="key"
-                        defaultSorting={{
-                            columnKey: 'created_at',
-                            order: -1,
-                        }}
-                        noSortingCancellation
-                        loading={featureFlagsLoading}
-                        pagination={{ pageSize: 100 }}
-                        nouns={nouns}
-                        data-attr="feature-flag-table"
-                        emptyState="No results for this filter, change filter or create a new flag."
-                    />
+                    <LemonDivider className="my-4" />
+                    <div className="mb-4">
+                        <span className="text-muted-alt ">
+                            {count
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
+                                      count === 1 ? '' : 's'
+                                  }`
+                                : null}
+                        </span>
+                    </div>
+                    {!featureFlagsLoading && featureFlags.count < 1 ? (
+                        <FeatureFlagsEmptyState />
+                    ) : (
+                        <LemonTable
+                            dataSource={featureFlags.results}
+                            columns={columns}
+                            rowKey="key"
+                            defaultSorting={{
+                                columnKey: 'created_at',
+                                order: -1,
+                            }}
+                            noSortingCancellation
+                            loading={featureFlagsLoading}
+                            pagination={pagination}
+                            nouns={nouns}
+                            data-attr="feature-flag-table"
+                            emptyState="No results for this filter, change filter or create a new flag."
+                            onSort={(newSorting) =>
+                                setFeatureFlagsFilters({
+                                    order: newSorting
+                                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                        : undefined,
+                                    page: 1,
+                                })
+                            }
+                        />
+                    )}
                 </>
             )}
         </>
