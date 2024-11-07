@@ -11,11 +11,12 @@ export function useThemedHtml(overflowHidden = true): void {
 
     useEffect(() => {
         document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
+
         // overflow-hidden since each area handles scrolling individually (e.g. navbar, scene, side panel)
         if (overflowHidden) {
             document.body.classList.add('overflow-hidden')
         }
-    }, [isDarkModeOn])
+    }, [isDarkModeOn, overflowHidden])
 
     useEffect(() => {
         // Add a theme-color meta tag to the head to change the address bar color on browsers that support it

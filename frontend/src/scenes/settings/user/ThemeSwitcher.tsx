@@ -1,6 +1,7 @@
-import { IconDay, IconLaptop, IconNight } from '@posthog/icons'
+import { IconDay, IconLaptop, IconNight, IconPalette } from '@posthog/icons'
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 export function ThemeSwitcher({
@@ -16,6 +17,7 @@ export function ThemeSwitcher({
                 { icon: <IconDay />, value: 'light', label: 'Light mode' },
                 { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
                 { icon: <IconLaptop />, value: 'system', label: `Sync with system` },
+                { icon: <IconPalette />, value: 'custom', label: 'Custom theme' },
             ]}
             value={themeMode}
             renderButtonContent={(leaf) => {
@@ -31,7 +33,12 @@ export function ThemeSwitcher({
                     </>
                 )
             }}
-            onChange={(value) => updateUser({ theme_mode: value })}
+            onChange={(value) => {
+                updateUser({ theme_mode: value })
+                if (value === 'custom') {
+                    urls.settings('user-customization', 'custom-theme')
+                }
+            }}
             dropdownPlacement="right-start"
             dropdownMatchSelectWidth={false}
             {...props}

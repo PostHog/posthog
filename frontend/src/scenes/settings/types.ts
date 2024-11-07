@@ -98,6 +98,7 @@ export type SettingId =
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
+    | 'custom-theme'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

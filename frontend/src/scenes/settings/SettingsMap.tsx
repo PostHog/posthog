@@ -54,6 +54,7 @@ import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
+import { CustomThemeSettings } from './user/CustomThemeSettings'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -500,6 +501,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'hedgehog-mode',
                 title: 'Hedgehog mode',
                 component: <HedgehogModeSettings />,
+            },
+            {
+                id: 'custom-theme',
+                title: 'Custom theme',
+                component: <CustomThemeSettings />,
             },
         ],
     },
