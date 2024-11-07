@@ -50,6 +50,7 @@ import {
     FunnelConversionWindowTimeUnit,
     FunnelExperimentVariant,
     FunnelStep,
+    FunnelStepReference,
     FunnelVizType,
     InsightType,
     MultivariateFlagVariant,
@@ -57,6 +58,7 @@ import {
     SecondaryExperimentMetric,
     SecondaryMetricResults,
     SignificanceCode,
+    StepOrderValue,
     TrendExperimentVariant,
     TrendResult,
     TrendsFilterType,
@@ -180,7 +182,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
-        setTrendMetric: ({
+        setTrendsMetric: ({
             metricIdx,
             series,
             filterTestAccounts,
@@ -189,7 +191,7 @@ export const experimentLogic = kea<experimentLogicType>([
             series?: any[]
             filterTestAccounts?: boolean
         }) => ({ metricIdx, series, filterTestAccounts }),
-        setFunnelMetric: ({
+        setFunnelsMetric: ({
             metricIdx,
             series,
             filterTestAccounts,
@@ -209,11 +211,11 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelWindowIntervalUnit?: string
             aggregation_group_type_index?: number
             funnelAggregateByHogQL?: string
-        }) => ({ 
-            metricIdx, 
-            series, 
-            filterTestAccounts, 
-            breakdownAttributionType, 
+        }) => ({
+            metricIdx,
+            series,
+            filterTestAccounts,
+            breakdownAttributionType,
             breakdownAttributionValue,
             funnelWindowInterval,
             funnelWindowIntervalUnit,
@@ -226,15 +228,16 @@ export const experimentLogic = kea<experimentLogicType>([
             { ...NEW_EXPERIMENT } as Experiment,
             {
                 setExperiment: (state, { experiment }) => {
-                    if (experiment.filters) {
-                        return { ...state, ...experiment, filters: experiment.filters }
-                    }
+                    // if (experiment.filters) {
+                    //     return { ...state, ...experiment, filters: experiment.filters }
+                    // }
 
-                    // assuming setExperiment isn't called with new filters & parameters at the same time
-                    if (experiment.parameters) {
-                        const newParameters = { ...state?.parameters, ...experiment.parameters }
-                        return { ...state, ...experiment, parameters: newParameters }
-                    }
+                    // // assuming setExperiment isn't called with new filters & parameters at the same time
+                    // if (experiment.parameters) {
+                    //     const newParameters = { ...state?.parameters, ...experiment.parameters }
+                    //     return { ...state, ...experiment, parameters: newParameters }
+                    // }
+                    console.log('ee', experiment)
                     return { ...state, ...experiment }
                 },
                 addExperimentGroup: (state) => {
@@ -286,7 +289,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 },
-                setTrendMetric: (state, { metricIdx, series, filterTestAccounts }) => {
+                setTrendsMetric: (state, { metricIdx, series, filterTestAccounts }) => {
                     const metrics = [...(state?.metrics || [])]
                     const metric = metrics[metricIdx]
 
@@ -307,23 +310,23 @@ export const experimentLogic = kea<experimentLogicType>([
                         metrics,
                     }
                 },
-                setFunnelMetric: (
-                    state, 
-                    { 
-                        metricIdx, 
-                        series, 
-                        filterTestAccounts, 
-                        breakdownAttributionType, 
-                        breakdownAttributionValue, 
-                        funnelWindowInterval, 
-                        funnelWindowIntervalUnit, 
-                        aggregation_group_type_index, 
-                        funnelAggregateByHogQL 
+                setFunnelsMetric: (
+                    state,
+                    {
+                        metricIdx,
+                        series,
+                        filterTestAccounts,
+                        breakdownAttributionType,
+                        breakdownAttributionValue,
+                        funnelWindowInterval,
+                        funnelWindowIntervalUnit,
+                        aggregation_group_type_index,
+                        funnelAggregateByHogQL,
                     }
                 ) => {
                     const metrics = [...(state?.metrics || [])]
                     const metric = metrics[metricIdx]
-                    
+
                     metrics[metricIdx] = {
                         ...metric,
                         query: {
@@ -1221,6 +1224,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 2
                             )
                         ).toFixed(1)
+                    )
                 },
         ],
         expectedRunningTime: [
@@ -1645,4 +1649,65 @@ export function getDefaultFilters(insightType: InsightType, aggregationGroupType
     }
 
     return newInsightFilters
+}
+
+export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
+    return {
+        experiment_id: 88,
+        kind: NodeKind.ExperimentTrendsQuery,
+        count_query: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+            ],
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+        },
+    }
+}
+
+export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
+    return {
+        kind: NodeKind.ExperimentFunnelsQuery,
+        experiment_id: 89,
+        funnels_query: {
+            kind: NodeKind.FunnelsQuery,
+            filterTestAccounts: true,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+            ],
+            funnelsFilter: {
+                funnelVizType: FunnelVizType.Steps,
+                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                funnelWindowInterval: 14,
+                layout: FunnelLayout.horizontal,
+            },
+        },
+    }
 }

@@ -32,7 +32,7 @@ import {
     StepOrderValue,
 } from '~/types'
 
-import { experimentLogic } from './experimentLogic'
+import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from './experimentLogic'
 
 export interface MetricSelectorProps {
     forceTrendExposureMetric?: boolean
@@ -40,7 +40,7 @@ export interface MetricSelectorProps {
 
 export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps): JSX.Element {
     const { experiment, experimentInsightType, isExperimentRunning, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setTrendMetric, setFunnelMetric } = useActions(experimentLogic)
+    const { setExperiment, setTrendsMetric, setFunnelsMetric } = useActions(experimentLogic)
     const isTrends = experimentInsightType === InsightType.TRENDS
 
     return (
@@ -53,14 +53,37 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                     onChange={(newInsightType) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            console.log('GET DEFAULT TREND/FUNNEL METRIC')
+                            if (newInsightType === InsightType.TRENDS) {
+                                setExperiment({
+                                    metrics: [
+                                        {
+                                            type: 'primary',
+                                            query: getDefaultTrendsMetric(),
+                                        },
+                                        ...experiment.metrics.slice(1),
+                                    ],
+                                })
+                                console.log(experiment.metrics[0].query)
+                            } else {
+                                setExperiment({
+                                    metrics: [
+                                        {
+                                            type: 'primary',
+                                            query: getDefaultFunnelsMetric(),
+                                        },
+                                        ...experiment.metrics.slice(1),
+                                    ],
+                                })
+                                console.log(experiment.metrics[0].query)
+                            }
+                        } else {
+                            setExperiment({
+                                filters: {
+                                    ...experiment.filters,
+                                    insight: newInsightType,
+                                },
+                            })
                         }
-                        setExperiment({
-                            filters: {
-                                ...experiment.filters,
-                                insight: newInsightType,
-                            },
-                        })
                     }}
                     options={[
                         { value: InsightType.TRENDS, label: <b>Trends</b> },
@@ -69,7 +92,6 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                     disabledReason={forceTrendExposureMetric ? 'Exposure metric can only be a trend graph' : undefined}
                 />
             </div>
-
             <div>
                 <br />
             </div>
@@ -96,12 +118,12 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                             )
 
                             if (experimentInsightType === InsightType.FUNNELS) {
-                                setFunnelMetric({
+                                setFunnelsMetric({
                                     metricIdx: 0,
                                     series,
                                 })
                             } else {
-                                setTrendMetric({
+                                setTrendsMetric({
                                     metricIdx: 0,
                                     series,
                                 })
@@ -182,16 +204,18 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                     mismatch between the preview and the actual results.
                 </LemonBanner>
             )}
-
             <div className="mt-4">
                 {/* :FLAG: CLEAN UP AFTER MIGRATION */}
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] ? (
                     <Query
                         query={{
                             kind: NodeKind.InsightVizNode,
-                            source:
-                                (experiment.metrics[0].query as ExperimentTrendsQuery).count_query ||
-                                (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query,
+                            source: (() => {
+                                if (experiment.metrics[0].query.kind === NodeKind.ExperimentTrendsQuery) {
+                                    return experiment.metrics[0].query.count_query
+                                }
+                                return experiment.metrics[0].query.funnels_query
+                            })(),
                             showTable: false,
                             showLastComputation: true,
                             showLastComputationRefresh: false,
@@ -220,7 +244,7 @@ export function FunnelAggregationSelect(): JSX.Element {
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setFunnelMetric } = useActions(experimentLogic)
+    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
 
     const UNIQUE_USERS = 'person_id'
     const baseValues = [UNIQUE_USERS]
@@ -303,7 +327,7 @@ export function FunnelAggregationSelect(): JSX.Element {
                 const { groupIndex, aggregationQuery } = hogQLToFilterValue(newValue)
                 // :FLAG: CLEAN UP AFTER MIGRATION
                 if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    setFunnelMetric({
+                    setFunnelsMetric({
                         metricIdx: 0,
                         aggregation_group_type_index: groupIndex,
                         funnelAggregateByHogQL: aggregationQuery,
@@ -337,7 +361,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     const DEFAULT_FUNNEL_WINDOW_INTERVAL = 14
 
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setFunnelMetric } = useActions(experimentLogic)
+    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
 
     const {
         funnelWindowInterval = DEFAULT_FUNNEL_WINDOW_INTERVAL,
@@ -385,7 +409,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     onChange={(funnelWindowInterval) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelMetric({
+                            setFunnelsMetric({
                                 metricIdx: 0,
                                 funnelWindowInterval: funnelWindowInterval,
                             })
@@ -412,7 +436,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     onChange={(funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | null) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelMetric({
+                            setFunnelsMetric({
                                 metricIdx: 0,
                                 funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
                             })
@@ -434,7 +458,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
 
 export function FunnelAttributionSelect(): JSX.Element {
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setFunnelMetric } = useActions(experimentLogic)
+    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
     const funnelOrderType = undefined
 
     // :FLAG: CLEAN UP AFTER MIGRATION
@@ -540,7 +564,7 @@ export function FunnelAttributionSelect(): JSX.Element {
                     const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
                     // :FLAG: CLEAN UP AFTER MIGRATION
                     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        setFunnelMetric({
+                        setFunnelsMetric({
                             metricIdx: 0,
                             breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
                             breakdownAttributionValue: breakdownAttributionValue
@@ -569,7 +593,7 @@ export function FunnelAttributionSelect(): JSX.Element {
 export function InsightTestAccountFilter(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, experimentInsightType, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setTrendMetric, setFunnelMetric } = useActions(experimentLogic)
+    const { setExperiment, setTrendsMetric, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     return (
         <TestAccountFilterSwitch
@@ -587,12 +611,12 @@ export function InsightTestAccountFilter(): JSX.Element | null {
                 // :FLAG: CLEAN UP AFTER MIGRATION
                 if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                     if (experimentInsightType === InsightType.FUNNELS) {
-                        setFunnelMetric({
+                        setFunnelsMetric({
                             metricIdx: 0,
                             filterTestAccounts: checked,
                         })
                     } else {
-                        setTrendMetric({
+                        setTrendsMetric({
                             metricIdx: 0,
                             filterTestAccounts: checked,
                         })

@@ -409,7 +409,7 @@ export function ExperimentForm(): JSX.Element {
     const CurrentStepComponent = (currentFormStep && stepComponents[currentFormStep]) || <StepInfo />
 
     useEffect(() => {
-        setCurrentFormStep(1)
+        setCurrentFormStep(0)
     }, [])
 
     return (
