@@ -240,7 +240,13 @@ export function Goal(): JSX.Element {
                     <div className="text-sm text-balance mt-2 mb-2">
                         Add the main goal before launching the experiment.
                     </div>
-                    <LemonButton icon={<IconPlus />} type="secondary" size="small" onClick={openExperimentGoalModal}>
+                    <LemonButton
+                        icon={<IconPlus />}
+                        type="secondary"
+                        size="small"
+                        data-attr="add-experiment-goal"
+                        onClick={openExperimentGoalModal}
+                    >
                         Add goal
                     </LemonButton>
                 </div>
