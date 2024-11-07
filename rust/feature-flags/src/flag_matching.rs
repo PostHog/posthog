@@ -1212,6 +1212,7 @@ fn apply_cohort_membership_logic(
 /// - C depends on A and B
 /// - D depends on B
 /// - E depends on C and D
+///
 /// The graph is acyclic, which is required for valid cohort dependencies.
 fn build_cohort_dependency_graph(
     initial_cohort_id: CohortId,
