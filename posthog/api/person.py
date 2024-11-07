@@ -17,10 +17,12 @@ from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
-from rest_framework import request, response, serializers, viewsets
 from posthog.api.utils import action
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.decorators import parser_classes
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -415,6 +417,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
+    @parser_classes([JSONParser])
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call.
