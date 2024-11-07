@@ -283,8 +283,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        if not validated_data.get("filters"):
-            raise ValidationError("Filters are required to create an Experiment")
+        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
+
+        if not validated_data.get("filters") and not is_draft:
+            raise ValidationError("Filters are required when creating a launched experiment")
 
         saved_metrics_data = validated_data.pop("saved_metrics_ids", [])
 
@@ -298,8 +300,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
-
-        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
 
         properties = validated_data["filters"].get("properties", [])
 
