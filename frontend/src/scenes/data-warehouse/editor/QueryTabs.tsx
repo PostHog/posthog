@@ -18,7 +18,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, activeModelUri }: Q
                 <QueryTab
                     key={model.path}
                     model={model}
-                    onClear={onClear}
+                    onClear={models.length > 1 ? onClear : undefined}
                     onClick={onClick}
                     active={activeModelUri?.path === model.path}
                 />
@@ -31,7 +31,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, activeModelUri }: Q
 interface QueryTabProps {
     model: Uri
     onClick: (model: Uri) => void
-    onClear: (model: Uri) => void
+    onClear?: (model: Uri) => void
     active: boolean
 }
 
@@ -42,7 +42,7 @@ function QueryTab({ model, active, onClear, onClick }: QueryTabProps): JSX.Eleme
             className={clsx(
                 'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
                 active ? 'bg-[var(--bg-light)] border' : 'bg-bg-3000',
-                'pl-3 pr-2'
+                onClear ? 'pl-3 pr-2' : 'px-3'
             )}
         >
             Untitled

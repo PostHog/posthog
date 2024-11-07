@@ -164,6 +164,7 @@
         "re2js": "^0.4.1",
         "react": "^18.2.0",
         "react-color": "^2.19.3",
+        "react-data-grid": "7.0.0-beta.47",
         "react-dom": "^18.2.0",
         "react-draggable": "^4.2.0",
         "react-email-editor": "^1.7.11",

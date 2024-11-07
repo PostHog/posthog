@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import {
     activemodelStateKey,
@@ -10,6 +10,7 @@ import {
 import type { editor as importedEditor, Uri } from 'monaco-editor'
 import { useCallback, useEffect, useState } from 'react'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { hogQLQueryEditorLogic } from '~/queries/nodes/HogQLQuery/hogQLQueryEditorLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 
@@ -24,22 +25,23 @@ export function QueryWindow(): JSX.Element {
     const [monaco, editor] = monacoAndEditor ?? []
 
     const key = router.values.location.pathname
-    const query: HogQLQuery = {
+
+    const [query, setActiveQueryInput] = useState<HogQLQuery>({
         kind: NodeKind.HogQLQuery,
         query: '',
-    }
+    })
 
     const hogQLQueryEditorLogicProps = {
         query,
-        setQuery: () => {},
+        setQuery: (query: HogQLQuery) => {
+            setActiveQueryInput(query)
+        },
         onChange: () => {},
         key,
-        editor,
-        monaco,
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
-    const { queryInput, promptError, multitab } = useValues(logic)
-    const { setQueryInput, saveQuery } = useActions(logic)
+    const { queryInput, promptError } = useValues(logic)
+    const { setQueryInput, saveQuery, saveAsView } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
@@ -51,22 +53,24 @@ export function QueryWindow(): JSX.Element {
         metadataFilters: query.filters,
         monaco,
         editor,
-        multitab,
+        multitab: true,
     }
-    const { activeModelUri, allModels } = useValues(codeEditorLogic(codeEditorLogicProps))
+    const { activeModelUri, allModels, hasErrors, error, isValidView } = useValues(
+        codeEditorLogic(codeEditorLogicProps)
+    )
 
     const { createModel, setModel, deleteModel, setModels, addModel, updateState } = useActions(
         codeEditorLogic(codeEditorLogicProps)
     )
 
+    const modelKey = `hogQLQueryEditor/${activeModelUri?.path}`
+
     useEffect(() => {
-        if (monaco && activeModelUri && multitab) {
+        if (monaco && activeModelUri) {
             const _model = monaco.editor.getModel(activeModelUri)
             const val = _model?.getValue()
-            if (val) {
-                setQueryInput(val)
-                saveQuery()
-            }
+            setQueryInput(val ?? '')
+            saveQuery()
         }
     }, [activeModelUri])
 
@@ -97,7 +101,7 @@ export function QueryWindow(): JSX.Element {
                         const allModelQueries = localStorage.getItem(editorModelsStateKey(codeEditorKey))
                         const activeModelUri = localStorage.getItem(activemodelStateKey(codeEditorKey))
 
-                        if (allModelQueries && multitab) {
+                        if (allModelQueries) {
                             // clear existing models
                             monaco.editor.getModels().forEach((model) => {
                                 model.dispose()
@@ -150,7 +154,22 @@ export function QueryWindow(): JSX.Element {
                     },
                 }}
             />
-            <ResultPane />
+            <BindLogic
+                logic={dataNodeLogic}
+                props={{
+                    key: modelKey,
+                    query: query,
+                    doNotLoad: !query.query,
+                }}
+            >
+                <ResultPane
+                    onQueryInputChange={saveQuery}
+                    onSave={saveAsView}
+                    saveDisabledReason={
+                        hasErrors ? error ?? 'Query has errors' : !isValidView ? 'All fields must have an alias' : ''
+                    }
+                />
+            </BindLogic>
         </div>
     )
 }
