@@ -33,7 +33,7 @@ SHORT_TABLE_COLUMN_NAME = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class MaterializedColumnDetails:
     table_column: TableColumn
     property_name: PropertyName
