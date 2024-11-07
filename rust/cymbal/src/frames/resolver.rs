@@ -35,10 +35,6 @@ impl Resolver {
             return Ok(result.contents);
         }
 
-        if !frame.needs_symbols() {
-            return frame.resolve(team_id, catalog).await;
-        }
-
         if let Some(result) =
             ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id()).await?
         {
@@ -48,7 +44,11 @@ impl Resolver {
 
         let resolved = frame.resolve(team_id, catalog).await?;
 
-        let set = SymbolSetRecord::load(pool, team_id, &frame.symbol_set_ref()).await?;
+        let set = if let Some(set_ref) = frame.symbol_set_ref() {
+            SymbolSetRecord::load(pool, team_id, &set_ref).await?
+        } else {
+            None
+        };
 
         let record = ErrorTrackingStackFrame::new(
             frame.frame_id(),
@@ -212,7 +212,7 @@ mod test {
 
         // get the symbol set
         let set_ref = frame.symbol_set_ref();
-        let set = SymbolSetRecord::load(&pool, 0, &set_ref)
+        let set = SymbolSetRecord::load(&pool, 0, &set_ref.unwrap())
             .await
             .unwrap()
             .unwrap();
