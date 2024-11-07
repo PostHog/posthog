@@ -3,7 +3,7 @@ from collections import Counter as TCounter
 from typing import Union, cast
 from collections.abc import Generator
 
-from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_columns_cached
+from posthog.clickhouse.materialized_columns import ColumnName, get_enabled_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import (
     get_action_tables_and_properties,
@@ -73,7 +73,7 @@ class FOSSColumnOptimizer:
     ) -> set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
 
-        materialized_columns = get_materialized_columns_cached(table)
+        materialized_columns = get_enabled_materialized_columns(table)
         return {
             materialized_columns.get((property_name, table_column), table_column)
             for property_name, _, _ in used_properties

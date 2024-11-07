@@ -56,6 +56,7 @@ class MaterializedColumnDetails:
 
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
+    exclude_disabled_columns: bool = False,
 ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
     if not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
         return {}
@@ -75,7 +76,8 @@ def get_materialized_columns(
     materialized_columns = {}
     for comment, column_name in rows:
         details = MaterializedColumnDetails.from_column_comment(comment)
-        materialized_columns[(details.property_name, details.table_column)] = column_name
+        if not (exclude_disabled_columns and not details.is_enabled):
+            materialized_columns[(details.property_name, details.table_column)] = column_name
     return materialized_columns
 
 

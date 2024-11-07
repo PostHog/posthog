@@ -16,7 +16,7 @@ from rest_framework import exceptions
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import (
     TableWithProperties,
-    get_materialized_columns_cached,
+    get_enabled_materialized_columns,
 )
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
@@ -711,7 +711,7 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
-    materialized_columns = get_materialized_columns_cached(table) if allow_denormalized_props else {}
+    materialized_columns = get_enabled_materialized_columns(table) if allow_denormalized_props else {}
 
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 

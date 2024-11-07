@@ -14,12 +14,13 @@ else:
 
     def get_materialized_columns(
         table: TablesWithMaterializedColumns,
+        exclude_disabled_columns: bool = False,
     ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
         return {}
 
 
 @cache_for(timedelta(minutes=15))
-def get_materialized_columns_cached(
+def get_enabled_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
-    return get_materialized_columns(table)
+    return get_materialized_columns(table, exclude_disabled_columns=True)

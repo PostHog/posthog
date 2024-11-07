@@ -9,7 +9,7 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
-from posthog.clickhouse.materialized_columns import get_materialized_columns_cached
+from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -53,12 +53,12 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             self.assertCountEqual(
                 [
                     property_name
-                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                    for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
                 ],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
             self.assertCountEqual(
-                get_materialized_columns_cached("person", use_cache=True).keys(),
+                get_enabled_materialized_columns("person", use_cache=True).keys(),
                 [("$zeta", "properties")],
             )
 
@@ -67,7 +67,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             self.assertCountEqual(
                 [
                     property_name
-                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                    for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
                 ],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
@@ -76,7 +76,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             self.assertCountEqual(
                 [
                     property_name
-                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                    for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
                 ],
                 ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
