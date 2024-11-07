@@ -950,7 +950,11 @@ export const experimentLogic = kea<experimentLogicType>([
         dynamicFeatureFlagKey: [
             (s) => [s.experiment],
             (experiment: Experiment): string => {
-                return experiment.name.toLowerCase().replace(/[^A-Za-z0-9-_]+/g, '-')
+                return experiment.name
+                    .toLowerCase()
+                    .replace(/[^A-Za-z0-9-_]+/g, '-')
+                    .replace(/-+$/, '')
+                    .replace(/^-+/, '')
             },
         ],
         experimentId: [
