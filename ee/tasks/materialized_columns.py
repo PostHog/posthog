@@ -6,7 +6,7 @@ from ee.clickhouse.materialized_columns.columns import (
 )
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 
 logger = get_task_logger(__name__)
 
@@ -39,7 +39,8 @@ def mark_all_materialized() -> None:
 
 
 def get_materialized_columns_with_default_expression():
-    for table in ["events", "person"]:
+    tables: list[TablesWithMaterializedColumns] = ["events", "person"]
+    for table in tables:
         materialized_columns = get_materialized_columns(table)
         for (property_name, table_column), column_name in materialized_columns.items():
             if is_default_expression(table, column_name):

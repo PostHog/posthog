@@ -4,7 +4,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Literal
+from typing import Literal, cast
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
@@ -57,10 +57,10 @@ class MaterializedColumnDetails:
                 return MaterializedColumnDetails(DEFAULT_TABLE_COLUMN, property_name, is_disabled=False)
             # Otherwise, it's "column_materializer::table_column::property" for columns that are active.
             case [cls.COMMENT_PREFIX, table_column, property_name]:
-                return MaterializedColumnDetails(table_column, property_name, is_disabled=False)
+                return MaterializedColumnDetails(cast(TableColumn, table_column), property_name, is_disabled=False)
             # Columns that are marked as disabled have an extra trailer indicating their status.
             case [cls.COMMENT_PREFIX, table_column, property_name, cls.COMMENT_DISABLED_MARKER]:
-                return MaterializedColumnDetails(table_column, property_name, is_disabled=True)
+                return MaterializedColumnDetails(cast(TableColumn, table_column), property_name, is_disabled=True)
             case _:
                 raise ValueError(f"unexpected comment format: {comment!r}")
 
@@ -105,7 +105,7 @@ def materialize(
 ) -> ColumnName | None:
     if (property, table_column) in get_materialized_columns(table):
         if TEST:
-            return
+            return None
 
         raise ValueError(f"Property already materialized. table={table}, property={property}, column={table_column}")
 
