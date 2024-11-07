@@ -1,4 +1,4 @@
-import { newHogCallable, newHogClosure, printHogStringOutput, VMState } from '@posthog/hogvm'
+import { newHogCallable, newHogClosure, VMState } from '@posthog/hogvm'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -10,7 +10,7 @@ import type { hogReplLogicType } from './hogReplLogicType'
 export interface ReplChunk {
     code: string
     result?: string
-    print?: string
+    print?: any[][]
     error?: string
     bytecode?: any[]
     locals?: any[]
@@ -23,7 +23,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
     actions({
         runCode: (code: string) => ({ code }),
         setResult: (index: number, result?: string, error?: string) => ({ index, result, error }),
-        print: (index: number, line?: string) => ({ index, line }),
+        print: (index: number, line: any[]) => ({ index, line }),
         setBytecode: (index: number, bytecode: any[], locals: any[]) => ({ index, bytecode, locals }),
         setVMState: (index: number, state: any) => ({ index, state }),
         setCurrentCode: (code: string) => ({ code }),
@@ -46,7 +46,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
                     state.map((chunk, i) => (i === index ? { ...chunk, bytecode, locals } : chunk)),
                 print: (state, { index, line }) =>
                     state.map((chunk, i) =>
-                        i === index ? { ...chunk, print: (chunk.print ? chunk.print + '\n' : '') + line } : chunk
+                        i === index ? { ...chunk, print: [...(chunk.print ?? []), line] } : chunk
                     ),
                 setVMState: (state, { index, state: vmState }) =>
                     state.map((chunk, i) => (i === index ? { ...chunk, state: vmState } : chunk)),
@@ -148,7 +148,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
                     repl: true,
                     functions: {
                         print: (...args: any[]) => {
-                            actions.print(index, args.map((arg) => printHogStringOutput(arg)).join(' '))
+                            actions.print(index, args)
                         },
                     },
                 })
@@ -160,7 +160,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
                         : (result.state?.stack?.length ?? 0) > 0
                         ? result.state?.stack?.[result.state.stack.length - 1]
                         : 'null'
-                actions.setResult(index, printHogStringOutput(response))
+                actions.setResult(index, response)
                 actions.setVMState(index, result.state)
             } catch (error: any) {
                 // Handle errors
