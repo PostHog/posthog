@@ -266,7 +266,7 @@ export class EventPipelineRunner {
         )
         kafkaAcks.push(eventAck)
 
-        if (event.event === '$exception') {
+        if (event.event === '$exception' && event.team_id == 2) {
             const [exceptionAck] = await this.runStep(
                 produceExceptionSymbolificationEventStep,
                 [this, rawClickhouseEvent],
