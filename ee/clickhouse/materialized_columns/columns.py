@@ -36,7 +36,7 @@ SHORT_TABLE_COLUMN_NAME = {
 class MaterializedColumnDetails:
     table_column: TableColumn
     property_name: PropertyName
-    is_enabled: bool
+    is_disabled: bool
 
     COMMENT_PREFIX = "column_materializer"
     COMMENT_SEPARATOR = "::"
@@ -47,9 +47,9 @@ class MaterializedColumnDetails:
         # Otherwise, it's "column_materializer::table_column::property"
         match comment.split(cls.COMMENT_SEPARATOR, 2):
             case [cls.COMMENT_PREFIX, property_name]:
-                return MaterializedColumnDetails(DEFAULT_TABLE_COLUMN, property_name, True)
+                return MaterializedColumnDetails(DEFAULT_TABLE_COLUMN, property_name, False)
             case [cls.COMMENT_PREFIX, table_column, property_name]:
-                return MaterializedColumnDetails(table_column, property_name, True)
+                return MaterializedColumnDetails(table_column, property_name, False)
             case _:
                 raise ValueError(f"unexpected comment format: {comment!r}")
 
@@ -76,7 +76,7 @@ def get_materialized_columns(
     materialized_columns = {}
     for comment, column_name in rows:
         details = MaterializedColumnDetails.from_column_comment(comment)
-        if not (exclude_disabled_columns and not details.is_enabled):
+        if not (exclude_disabled_columns and details.is_disabled):
             materialized_columns[(details.property_name, details.table_column)] = column_name
     return materialized_columns
 
