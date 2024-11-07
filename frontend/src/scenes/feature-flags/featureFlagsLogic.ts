@@ -205,10 +205,23 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 actions.setActiveTab(tabInURL)
             }
 
-            const pageInURL = searchParams['page']
-            if (pageInURL) {
-                actions.setFeatureFlagsFilters({ page: parseInt(pageInURL) })
+            const { page, created_by_id, active, type, search, order } = searchParams
+            const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
+                created_by_id,
+                type,
+                search,
+                order,
             }
+
+            if (active !== undefined) {
+                pageFiltersFromUrl.active = String(active)
+            }
+
+            if (page !== undefined) {
+                pageFiltersFromUrl.page = parseInt(page)
+            }
+
+            actions.setFeatureFlagsFilters(pageFiltersFromUrl)
         },
     })),
     events(({ actions }) => ({
