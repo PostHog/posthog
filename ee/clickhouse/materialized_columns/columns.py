@@ -39,14 +39,17 @@ class MaterializedColumnDetails:
     property_name: PropertyName
     is_enabled: bool
 
-    @staticmethod
-    def from_column_comment(comment: str) -> MaterializedColumnDetails:
+    COMMENT_PREFIX = "column_materializer"
+    COMMENT_SEPARATOR = "::"
+
+    @classmethod
+    def from_column_comment(cls, comment: str) -> MaterializedColumnDetails:
         # Old style comments have the format "column_materializer::property", dealing with the default table column.
         # Otherwise, it's "column_materializer::table_column::property"
-        match comment.split("::", 2):
-            case ["column_materializer", property_name]:
+        match comment.split(cls.COMMENT_SEPARATOR, 2):
+            case [cls.COMMENT_PREFIX, property_name]:
                 return MaterializedColumnDetails(DEFAULT_TABLE_COLUMN, property_name, True)
-            case ["column_materializer", table_column, property_name]:
+            case [cls.COMMENT_PREFIX, table_column, property_name]:
                 return MaterializedColumnDetails(table_column, property_name, True)
             case _:
                 raise ValueError(f"unexpected comment format: {comment!r}")
