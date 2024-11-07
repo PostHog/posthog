@@ -3,8 +3,9 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -141,6 +142,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (experimentsLoading, experiments): boolean => {
                 return experiments.length === 0 && !experimentsLoading && !values.searchTerm && !values.searchStatus
             },
+        ],
+        webExperimentsAvailable: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.WEB_EXPERIMENTS],
         ],
     })),
     events(({ actions }) => ({

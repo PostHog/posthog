@@ -13,6 +13,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -25,8 +26,9 @@ import { ExperimentInsightCreator } from './MetricSelector'
 
 const StepInfo = (): JSX.Element => {
     const { experiment, featureFlags } = useValues(experimentLogic)
-    const { addExperimentGroup, removeExperimentGroup, moveToNextFormStep } = useActions(experimentLogic)
-
+    const { addExperimentGroup, removeExperimentGroup, moveToNextFormStep, setExperimentType } =
+        useActions(experimentLogic)
+    const { webExperimentsAvailable } = useValues(experimentsLogic)
     return (
         <div>
             <div className="space-y-8">
@@ -48,6 +50,47 @@ const StepInfo = (): JSX.Element => {
                         />
                     </LemonField>
                 </div>
+                {webExperimentsAvailable && (
+                    <div className="mt-10">
+                        <h3 className="mb-1">Experiment type</h3>
+                        <div className="text-xs text-muted font-medium tracking-normal">
+                            Select your experiment setup, this cannot be changed once saved.
+                        </div>
+                        <LemonDivider />
+                        <LemonRadio
+                            value={experiment.type}
+                            className="space-y-2 -mt-2"
+                            onChange={(type) => {
+                                setExperimentType(type)
+                            }}
+                            options={[
+                                {
+                                    value: 'product',
+                                    label: (
+                                        <div className="translate-y-2">
+                                            <div>Product experiment</div>
+                                            <div className="text-xs text-muted">
+                                                Use custom code to manage how variants modify your product.
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    value: 'web',
+                                    label: (
+                                        <div className="translate-y-2">
+                                            <div>No-code web experiment</div>
+                                            <div className="text-xs text-muted">
+                                                Define variants on your website using the PostHog toolbar, no coding
+                                                required.
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
+                )}
                 <div className="mt-10">
                     <h3 className="mb-1">Variants</h3>
                     <div className="text-xs text-muted">Add up to 9 variants to test against your control.</div>
