@@ -1,6 +1,6 @@
 import './Experiment.scss'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -24,6 +24,7 @@ const ExperimentFormFields = (): JSX.Element => {
         setNewExperimentInsight,
         createExperiment,
         setExperimentType,
+        setExperimentValue,
     } = useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
 
@@ -34,13 +35,38 @@ const ExperimentFormFields = (): JSX.Element => {
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
                     </LemonField>
-                    <LemonField
-                        name="feature_flag_key"
-                        label="Feature flag key"
-                        help="Each experiment is backed by a feature flag. You'll use this key in your code."
-                    >
-                        <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
-                    </LemonField>
+                    <div className="flex items-center">
+                        <LemonField
+                            name="feature_flag_key"
+                            label="Feature flag key"
+                            help="Each experiment is backed by a feature flag. You'll use this key in your code."
+                        >
+                            <div className="flex items-center space-x-2">
+                                <LemonInput
+                                    className="flex-grow"
+                                    placeholder="pricing-page-conversion"
+                                    data-attr="experiment-feature-flag-key"
+                                />
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    title="Generate key"
+                                    disabledReason={!experiment.name ? 'Please enter an experiment name' : undefined}
+                                    onClick={() => {
+                                        const feature_flag_key = experiment.name
+                                            .toLowerCase()
+                                            .replace(/[^A-Za-z0-9-_]+/g, '-')
+                                        // setExperiment({
+                                        //     feature_flag_key
+                                        // })
+                                        setExperimentValue('feature_flag_key', feature_flag_key)
+                                    }}
+                                >
+                                    <IconMagicWand />
+                                </LemonButton>
+                            </div>
+                        </LemonField>
+                    </div>
                     <LemonField name="description" label="Description">
                         <LemonTextArea
                             placeholder="The goal of this experiment is ..."
