@@ -46,7 +46,7 @@ export function ThemeLibraryScene(): JSX.Element {
                     setCustomThemeId(null)
                 }}
             />
-            {THEMES.map(({ id, title, primaryColors, baseTheme, disabled }) => (
+            {Object.entries(THEMES).map(([id, { title, primaryColors, baseTheme, disabled }]) => (
                 <ThemeCard
                     key={id}
                     title={title}
@@ -104,7 +104,7 @@ const ThemeCard = ({
                         />
                     </div>
                 </div>
-                <div className="p-3 space-x-1">
+                <div className="py-3 space-x-1">
                     <span className="font-semibold">{title}</span>
                     {selected && <LemonTag type="option">Selected</LemonTag>}
                 </div>

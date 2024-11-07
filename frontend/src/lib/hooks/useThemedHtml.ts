@@ -16,7 +16,7 @@ export function useThemedHtml(overflowHidden = true): void {
             return
         }
 
-        const customTheme = THEMES.find((t) => t.id === customThemeId)
+        const customTheme = THEMES[customThemeId]
         if (!customTheme) {
             return
         }

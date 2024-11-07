@@ -7,47 +7,47 @@ import { userLogic } from 'scenes/userLogic'
 import type { themeLogicType } from './themeLogicType'
 import { Theme, themes } from './themes'
 
-export const THEMES: {
-    id: string
-    title: string
-    baseTheme: 'light' | 'dark'
-    styles: string
-    primaryColors: string[]
-    disabled: boolean
-}[] = [
+type CustomThemeType = Record<
+    'tron' | 'retro' | 'fisher-price' | 'usa',
     {
-        id: 'tron',
+        title: string
+        baseTheme: 'light' | 'dark'
+        styles: string
+        primaryColors: string[]
+        disabled: boolean
+    }
+>
+
+export const THEMES: CustomThemeType = {
+    tron: {
         title: 'TRON',
         baseTheme: 'dark',
         styles: '',
         primaryColors: ['black', '#00FF01', 'black'],
         disabled: false,
     },
-    {
-        id: 'retro',
+    retro: {
         title: 'Windows 95',
         baseTheme: 'light',
         styles: '',
         primaryColors: ['#008282', '#C3C3C3', '#02007F'],
         disabled: true,
     },
-    {
-        id: 'fisher-price',
+    'fisher-price': {
         title: 'Fisher Price',
         baseTheme: 'light',
         styles: '',
         primaryColors: ['red', 'green', 'blue'],
         disabled: true,
     },
-    {
-        id: 'usa',
+    usa: {
         title: 'USA',
         baseTheme: 'light',
         styles: '',
         primaryColors: ['#0A3161', '#FFFFFF', '#B31942'],
         disabled: true,
     },
-]
+}
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
@@ -58,6 +58,7 @@ export const themeLogic = kea<themeLogicType>([
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),
         setCustomThemeId: (themeId: string | null) => ({ themeId }),
+        setCustomTheme: (id: string, theme: CustomThemeType) => ({ id, theme }),
     }),
     reducers({
         darkModeSystemPreference: [
@@ -78,6 +79,13 @@ export const themeLogic = kea<themeLogicType>([
             { persist: true },
             {
                 setCustomThemeId: (_, { themeId }) => themeId,
+            },
+        ],
+        customThemes: [
+            THEMES,
+            { persist: true },
+            {
+                setCustomTheme: (state, { id, theme }) => ({ ...state, [id]: theme }),
             },
         ],
     }),
