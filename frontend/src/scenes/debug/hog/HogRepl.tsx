@@ -23,7 +23,7 @@ export function ReplResultsTable({ response }: ReplResultsTableProps): JSX.Eleme
         <div>
             <LemonTabs
                 activeKey={activeTab}
-                onChange={setActiveTab}
+                onChange={setActiveTab as any}
                 tabs={[
                     {
                         key: 'table',
@@ -39,6 +39,11 @@ export function ReplResultsTable({ response }: ReplResultsTableProps): JSX.Eleme
                         key: 'json',
                         label: 'JSON',
                         content: <JSONViewer name={false} src={response} />,
+                    },
+                    {
+                        key: 'raw',
+                        label: 'Raw',
+                        content: <div>{printHogStringOutput(response)}</div>,
                     },
                 ]}
             />
