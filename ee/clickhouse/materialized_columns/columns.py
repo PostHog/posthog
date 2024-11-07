@@ -41,6 +41,9 @@ class MaterializedColumnDetails:
     COMMENT_PREFIX = "column_materializer"
     COMMENT_SEPARATOR = "::"
 
+    def as_column_comment(self) -> str:
+        return self.COMMENT_SEPARATOR.join([self.COMMENT_PREFIX, self.table_column, self.property_name])
+
     @classmethod
     def from_column_comment(cls, comment: str) -> MaterializedColumnDetails:
         # Old style comments have the format "column_materializer::property", dealing with the default table column.
@@ -135,7 +138,7 @@ def materialize(
 
     sync_execute(
         f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
-        {"comment": f"column_materializer::{table_column}::{property}"},
+        {"comment": MaterializedColumnDetails(table_column, property, is_disabled=False).as_column_comment()},
         settings={"alter_sync": 2 if TEST else 1},
     )
 
