@@ -79,8 +79,6 @@ describe('Experiments', () => {
             .type('test-variant-2')
             .should('have.value', 'test-variant-2')
 
-        // Continue creation
-        cy.get('[data-attr="continue-experiment-creation"]').first().click()
         // Save experiment
         cy.get('[data-attr="save-experiment"]').first().click()
     }
