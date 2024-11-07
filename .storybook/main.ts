@@ -1,9 +1,13 @@
-import { StorybookConfig } from '@storybook/react-vite'
+import { StorybookConfig } from 'storybook-react-rsbuild'
 
 const config: StorybookConfig = {
-    stories: ['../frontend/src/**/*.mdx', '../frontend/src/**/*.stories.@(js|jsx|ts|tsx)'],
-    framework: '@storybook/react-vite',
+    framework: 'storybook-react-rsbuild',
+    rsbuildFinal: (config) => {
+        // Customize the final Rsbuild config here
+        return config
+    },
 
+    stories: ['../frontend/src/**/*.mdx', '../frontend/src/**/*.stories.@(js|jsx|ts|tsx)'],
     addons: [
         '@storybook/addon-docs',
         '@storybook/addon-links',
@@ -14,9 +18,6 @@ const config: StorybookConfig = {
     ],
 
     staticDirs: ['public', { from: '../frontend/public', to: '/static' }],
-
-    docs: {},
-
 }
 
 export default config
