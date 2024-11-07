@@ -26,6 +26,7 @@ import {
 } from '../types'
 import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
+import { safeClickhouseString } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
@@ -158,7 +159,7 @@ abstract class CdpConsumerBase {
             messages.map((x) =>
                 this.kafkaProducer!.produce({
                     topic: x.topic,
-                    value: Buffer.from(JSON.stringify(x.value)),
+                    value: Buffer.from(safeClickhouseString(JSON.stringify(x.value))),
                     key: x.key,
                     waitForAck: true,
                 }).catch((reason) => {

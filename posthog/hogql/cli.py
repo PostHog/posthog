@@ -15,7 +15,7 @@ with open(filename) as file:
     code = file.read()
 
 if filename.endswith(".hog"):
-    bytecode = create_bytecode(parse_program(code))
+    bytecode = create_bytecode(parse_program(code)).bytecode
 else:
     bytecode = json.loads(code)
 

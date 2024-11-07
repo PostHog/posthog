@@ -613,7 +613,7 @@ export const experimentLogic = kea<experimentLogicType>([
             if (values.changingGoalMetric) {
                 actions.loadExperimentResults()
             }
-            if (values.changingSecondaryMetrics) {
+            if (values.changingSecondaryMetrics && values.experiment?.start_date) {
                 actions.loadSecondaryMetricResults()
             }
             if (values.experiment?.start_date) {

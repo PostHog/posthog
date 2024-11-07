@@ -1,4 +1,80 @@
-hardcoded_prop_defs: dict = {
+from typing import Literal, NotRequired, TypedDict
+
+
+class CoreFilterDefinition(TypedDict):
+    """Like the CoreFilterDefinition type in the frontend, except no JSX.Element allowed."""
+
+    label: str
+    description: NotRequired[str]
+    examples: NotRequired[list[str | int | float]]
+    system: NotRequired[bool]
+    type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
+    ignored_in_assistant: NotRequired[bool]
+
+
+CAMPAIGN_PROPERTIES: list[str] = [
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_content",
+    "utm_term",
+    "gclid",
+    "gad_source",
+    "gclsrc",
+    "dclid",
+    "gbraid",
+    "wbraid",
+    "fbclid",
+    "msclkid",
+    "twclid",
+    "li_fat_id",
+    "mc_cid",
+    "igshid",
+    "ttclid",
+    "rdt_cid",
+]
+
+PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
+    "$app_build",
+    "$app_name",
+    "$app_namespace",
+    "$app_version",
+    "$browser",
+    "$browser_version",
+    "$device_type",
+    "$current_url",
+    "$pathname",
+    "$os",
+    "$os_version",
+    "$referring_domain",
+    "$referrer",
+    *CAMPAIGN_PROPERTIES,
+}
+
+SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
+    "$referring_domain",
+    "utm_source",
+    "utm_campaign",
+    "utm_medium",
+    "utm_content",
+    "utm_term",
+    "gclid",
+    "gad_source",
+    "gclsrc",
+    "dclid",
+    "gbraid",
+    "wbraid",
+    "fbclid",
+    "msclkid",
+    "twclid",
+    "li_fat_id",
+    "mc_cid",
+    "igshid",
+    "ttclid",
+    "rdt_cid",
+}
+
+CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
         "": {
             "label": "All events",
@@ -11,15 +87,18 @@ hardcoded_prop_defs: dict = {
         "$pageleave": {
             "label": "Pageleave",
             "description": "When a user leaves a page.",
+            "ignored_in_assistant": True,  # Pageleave confuses the LLM, it just can't use this event in a sensible way
         },
         "$autocapture": {
             "label": "Autocapture",
             "description": "User interactions that were automatically captured.",
             "examples": ["clicked button"],
+            "ignored_in_assistant": True,  # Autocapture is only useful with autocapture-specific filters, which the LLM isn't adept at yet
         },
         "$copy_autocapture": {
             "label": "Clipboard autocapture",
             "description": "Selected text automatically captured when a user copies or cuts.",
+            "ignored_in_assistant": True,  # Too niche
         },
         "$screen": {
             "label": "Screen",
@@ -28,10 +107,12 @@ hardcoded_prop_defs: dict = {
         "$set": {
             "label": "Set",
             "description": "Setting person properties.",
+            "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$opt_in": {
             "label": "Opt In",
             "description": "When a user opts into analytics.",
+            "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$feature_flag_called": {
             "label": "Feature Flag Called",
@@ -39,18 +120,22 @@ hardcoded_prop_defs: dict = {
                 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active Feature Flags".'
             ),
             "examples": ["beta-feature"],
+            "ignored_in_assistant": True,  # Mostly irrelevant product-wise
         },
         "$feature_view": {
             "label": "Feature View",
             "description": "When a user views a feature.",
+            "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
         "$feature_interaction": {
             "label": "Feature Interaction",
             "description": "When a user interacts with a feature.",
+            "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
         "$capture_metrics": {
             "label": "Capture Metrics",
             "description": "Metrics captured with values pertaining to your systems at a specific point in time",
+            "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$identify": {
             "label": "Identify",
@@ -59,14 +144,17 @@ hardcoded_prop_defs: dict = {
         "$create_alias": {
             "label": "Alias",
             "description": "An alias ID has been added to a user",
+            "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$merge_dangerously": {
             "label": "Merge",
             "description": "An alias ID has been added to a user",
+            "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$groupidentify": {
             "label": "Group Identify",
             "description": "A group has been identified with properties",
+            "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$rageclick": {
             "label": "Rageclick",
@@ -82,27 +170,27 @@ hardcoded_prop_defs: dict = {
         },
         "Application Opened": {
             "label": "Application Opened",
-            "description": "When a user opens the app either for the first time or from the foreground.",
+            "description": "When a user opens the mobile app either for the first time or from the foreground.",
         },
         "Application Backgrounded": {
             "label": "Application Backgrounded",
-            "description": "When a user puts the app in the background.",
+            "description": "When a user puts the mobile app in the background.",
         },
         "Application Updated": {
             "label": "Application Updated",
-            "description": "When a user upgrades the app.",
+            "description": "When a user upgrades the mobile app.",
         },
         "Application Installed": {
             "label": "Application Installed",
-            "description": "When a user installs the app.",
+            "description": "When a user installs the mobile app.",
         },
         "Application Became Active": {
             "label": "Application Became Active",
-            "description": "When a user puts the app in the foreground.",
+            "description": "When a user puts the mobile app in the foreground.",
         },
         "Deep Link Opened": {
             "label": "Deep Link Opened",
-            "description": "When a user opens the app via a deep link.",
+            "description": "When a user opens the mobile app via a deep link.",
         },
     },
     "elements": {
@@ -134,8 +222,6 @@ hardcoded_prop_defs: dict = {
         },
     },
     "event_properties": {
-        "distinct_id": {},
-        "$session_duration": {},
         "$copy_type": {
             "label": "Copy Type",
             "description": "Type of copy event.",
@@ -1025,3 +1111,38 @@ hardcoded_prop_defs: dict = {
         },
     },
 }
+
+for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
+    if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):
+        CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = {
+            **value,
+            "label": f"Latest {value['label']}",
+            "description": (
+                f"{value['description']} Data from the last time this user was seen."
+                if "description" in value
+                else "Data from the last time this user was seen."
+            ),
+        }
+
+        CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][f"$initial_{key.lstrip('$')}"] = {
+            **value,
+            "label": f"Initial {value['label']}",
+            "description": (
+                f"{value['description']} Data from the first time this user was seen."
+                if "description" in value
+                else "Data from the first time this user was seen."
+            ),
+        }
+    else:
+        CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = value
+
+    if key in SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS:
+        CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][f"$entry_{key.lstrip('$')}"] = {
+            **value,
+            "label": f"Entry {value['label']}",
+            "description": (
+                f"{value['description']} Data from the first event in this session."
+                if "description" in value
+                else "Data from the first event in this session."
+            ),
+        }

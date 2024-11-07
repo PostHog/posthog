@@ -362,6 +362,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.DebugQuery]: {
         projectBased: true,
     },
+    [Scene.DebugHog]: {
+        projectBased: true,
+        name: 'Hog Repl',
+    },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
         layout: 'plain',
@@ -586,6 +590,7 @@ export const routes: Record<string, Scene> = {
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.debugQuery()]: Scene.DebugQuery,
+    [urls.debugHog()]: Scene.DebugHog,
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
     [urls.canvas()]: Scene.Canvas,
