@@ -9,6 +9,7 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
+from posthog.clickhouse.materialized_columns import get_materialized_columns_cached
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -50,24 +51,33 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             materialize("person", "$zeta", create_minmax_index=True)
 
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
             self.assertCountEqual(
-                get_materialized_columns("person", use_cache=True).keys(),
+                get_materialized_columns_cached("person", use_cache=True).keys(),
                 [("$zeta", "properties")],
             )
 
             materialize("events", "abc", create_minmax_index=True)
 
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
         with freeze_time("2020-01-04T14:00:01Z"):
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_materialized_columns_cached("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 

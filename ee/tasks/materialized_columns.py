@@ -40,7 +40,7 @@ def mark_all_materialized() -> None:
 
 def get_materialized_columns_with_default_expression():
     for table in ["events", "person"]:
-        materialized_columns = get_materialized_columns(table, use_cache=False)
+        materialized_columns = get_materialized_columns(table)
         for (property_name, table_column), column_name in materialized_columns.items():
             if is_default_expression(table, column_name):
                 yield table, property_name, table_column, column_name
