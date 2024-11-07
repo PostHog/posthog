@@ -3,6 +3,8 @@ from typing import Any, Literal, Optional
 from collections.abc import Iterator, Sequence
 import uuid
 
+from deltalake import DeltaTable
+from deltalake.exceptions import TableNotFoundError
 import dlt
 from django.conf import settings
 from django.db.models import Prefetch
@@ -41,7 +43,7 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.temporal.data_imports.util import is_posthog_team, prepare_s3_files_for_querying
 
 
 @dataclass
@@ -88,9 +90,9 @@ class DataImportPipelineSync:
     def _get_pipeline_name(self):
         return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.schema_id}"
 
-    def _get_destination(self):
+    def _get_credentials(self):
         if TEST:
-            credentials = {
+            return {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
@@ -98,16 +100,17 @@ class DataImportPipelineSync:
                 "AWS_ALLOW_HTTP": "true",
                 "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
             }
-        else:
-            credentials = {
-                "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-                "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-                "region_name": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-            }
 
+        return {
+            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def _get_destination(self):
         return dlt.destinations.filesystem(
-            credentials=credentials,
+            credentials=self._get_credentials(),
             bucket_url=settings.BUCKET_URL,  # type: ignore
         )
 
@@ -151,16 +154,14 @@ class DataImportPipelineSync:
                 yield lst[i : i + n]
 
         # Monkey patch to fix large memory consumption until https://github.com/dlt-hub/dlt/pull/2031 gets merged in
-        # This only works on incremental syncs right now though
-        if self._incremental:
-            FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
-            FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
-            FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
+        FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
+        FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
+        FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
 
-            dlt.config["data_writer.file_max_items"] = 500_000
-            dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
-            dlt.config["loader_parallelism_strategy"] = "table-sequential"
-            dlt.config["delta_jobs_per_write"] = 1
+        dlt.config["data_writer.file_max_items"] = 500_000
+        dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
+        dlt.config["loader_parallelism_strategy"] = "table-sequential"
+        dlt.config["delta_jobs_per_write"] = 1
 
         dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
         dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
@@ -187,6 +188,23 @@ class DataImportPipelineSync:
             self.logger.info("Pipeline getting a full refresh due to reset_pipeline being set")
 
         pipeline = self._create_pipeline()
+
+        # Workaround for full refresh schemas while we wait for Rust to fix memory issue
+        if is_posthog_team(self.inputs.team_id):
+            for name, resource in self.source._resources.items():
+                if resource.write_disposition == "replace":
+                    try:
+                        delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{name}"
+                        delta_table = DeltaTable(delta_uri, storage_options=self._get_credentials())
+                    except TableNotFoundError:
+                        delta_table = None
+
+                    if delta_table:
+                        self.logger.debug("Deleting existing delta table")
+                        delta_table.delete()
+
+                    self.logger.debug("Updating table write_disposition to append")
+                    resource.apply_hints(write_disposition="append")
 
         total_counts: Counter[str] = Counter({})
 
