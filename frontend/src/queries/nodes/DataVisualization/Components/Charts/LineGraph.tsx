@@ -93,6 +93,7 @@ const getYAxisSettings = (
     }
 }
 
+// LineGraph displays a graph using either x and y data or series breakdown data
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -100,16 +101,14 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-
-    // LineGraph displays a graph using either x and y data or series breakdown data
-    const { xData, yData, presetChartHeight, visualizationType, showEditingUI, chartSettings } =
+    const { xData, yData, presetChartHeight, visualizationType, showEditingUI, chartSettings, dataVisualizationProps } =
         useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
 
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic)
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
     useEffect(() => {

@@ -34,10 +34,12 @@ export const SeriesTab = (): JSX.Element => {
         showTableSettings,
         tabularColumns,
         selectedXAxis,
+        dataVisualizationProps,
     } = useValues(dataVisualizationLogic)
     const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
-    const { showSeriesBreakdown } = useValues(seriesBreakdownLogic)
-    const { addSeriesBreakdown } = useActions(seriesBreakdownLogic)
+    const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
+    const { showSeriesBreakdown } = useValues(breakdownLogic)
+    const { addSeriesBreakdown } = useActions(breakdownLogic)
 
     const hideAddYSeries = yData.length >= numericalColumns.length
     const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
@@ -116,7 +118,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
         useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
-    const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic)
+    const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
 
     const seriesLogicProps: YSeriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
     const seriesLogic = ySeriesLogic(seriesLogicProps)
@@ -329,9 +331,10 @@ const Y_SERIES_SETTINGS_TABS = {
 }
 
 export const SeriesBreakdownSelector = (): JSX.Element => {
-    const { columns, responseLoading, selectedXAxis } = useValues(dataVisualizationLogic)
-    const { selectedSeriesBreakdownColumn, seriesBreakdownData } = useValues(seriesBreakdownLogic)
-    const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(seriesBreakdownLogic)
+    const { columns, responseLoading, selectedXAxis, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
+    const { selectedSeriesBreakdownColumn, seriesBreakdownData } = useValues(breakdownLogic)
+    const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(breakdownLogic)
 
     const seriesBreakdownOptions = columns
         .map(({ name, type }) => ({
