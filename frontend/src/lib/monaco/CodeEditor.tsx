@@ -235,6 +235,7 @@ export function CodeEditor({
                                     onPressCmdEnter(highlightedText, 'selection')
                                     return
                                 }
+
                                 onPressCmdEnter(editor.getValue(), 'full')
                             },
                         })
