@@ -52,7 +52,7 @@ class MaterializedColumn(NamedTuple):
         )
 
         for name, comment in rows:
-            yield (name, MaterializedColumnDetails.from_column_comment(comment))
+            yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment))
 
     @staticmethod
     def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn:
