@@ -5,13 +5,15 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-const DEFAULT_CUSTOM_THEME_CONFIG = `--bg-3000: var(--bg-3000);
---bg-light: var(--bg-light);
---primary-alt-highlight: var(--primary-alt-highlight);
---primary-alt: var(--primary-alt);
---text-3000: var(--text-3000);
---muted-3000: var(--muted-3000);
---radius: var(--radius);`
+const DEFAULT_CUSTOM_THEME_CONFIG = `body {
+    --bg-3000: var(--bg-3000);
+    --bg-light: var(--bg-light);
+    --primary-alt-highlight: var(--primary-alt-highlight);
+    --primary-alt: var(--primary-alt);
+    --text-3000: var(--text-3000);
+    --muted-3000: var(--muted-3000);
+    --radius: var(--radius);
+}`
 
 export function CustomThemeSettings(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -54,7 +56,7 @@ export function CustomThemeSettings(): JSX.Element {
                         onChange={(v) => {
                             setLocalCustomThemeConfig(v ?? '')
                         }}
-                        height={600}
+                        height={400}
                         options={{
                             minimap: {
                                 enabled: false,
