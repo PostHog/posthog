@@ -26,6 +26,7 @@ use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
 pub type TeamId = i32;
+pub type PersonId = i32;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
@@ -176,6 +177,7 @@ impl GroupTypeMappingCache {
 /// to fetch the properties from the DB each time.
 #[derive(Clone, Default, Debug)]
 pub struct PropertiesCache {
+    person_id: Option<PersonId>,
     person_properties: Option<HashMap<String, Value>>,
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
 }
@@ -755,22 +757,28 @@ impl FeatureFlagMatcher {
                     .partition(|prop| prop.is_cohort());
 
             // Get the properties we need to check for in this condition match from the flag + any overrides
-            let target_properties = self
+            let person_or_group_properties = self
                 .get_properties_to_check(feature_flag, property_overrides, &non_cohort_filters)
                 .await?;
 
             // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
-            if !all_properties_match(&non_cohort_filters, &target_properties) {
+            if !all_properties_match(&non_cohort_filters, &person_or_group_properties) {
                 return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
 
             // Evaluate cohort filters, if any.
-            if !cohort_filters.is_empty()
-                && !self
-                    .evaluate_cohort_filters(&cohort_filters, &target_properties)
+            if !cohort_filters.is_empty() {
+                let person_id = self.get_person_id().await?;
+                if !self
+                    .evaluate_cohort_filters(
+                        &cohort_filters,
+                        &person_or_group_properties,
+                        person_id,
+                    )
                     .await?
-            {
-                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                {
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                }
             }
         }
 
@@ -818,6 +826,31 @@ impl FeatureFlagMatcher {
         }
     }
 
+    /// Retrieves the `PersonId` from the properties cache.
+    /// If the cache does not contain a `PersonId`, it fetches it from the database
+    /// and updates the cache accordingly.
+    async fn get_person_id(&mut self) -> Result<PersonId, FlagError> {
+        match self.properties_cache.person_id {
+            Some(id) => Ok(id),
+            None => {
+                let id = self.get_person_id_from_db().await?;
+                self.properties_cache.person_id = Some(id);
+                Ok(id)
+            }
+        }
+    }
+
+    /// Fetches the `PersonId` from the database based on the current `distinct_id` and `team_id`.
+    /// This method is called when the `PersonId` is not present in the properties cache.
+    async fn get_person_id_from_db(&mut self) -> Result<PersonId, FlagError> {
+        let postgres_reader = self.postgres_reader.clone();
+        let distinct_id = self.distinct_id.clone();
+        let team_id = self.team_id;
+        fetch_person_properties_from_db(postgres_reader, distinct_id, team_id)
+            .await
+            .map(|(_, person_id)| person_id)
+    }
+
     /// Get person properties from cache or database.
     ///
     /// This function attempts to retrieve person properties either from a cache or directly from the database.
@@ -845,6 +878,7 @@ impl FeatureFlagMatcher {
         &self,
         cohort_property_filters: &[PropertyFilter],
         target_properties: &HashMap<String, Value>,
+        person_id: PersonId,
     ) -> Result<bool, FlagError> {
         // At the start of the request, fetch all of the cohorts for the team from the cache
         // This method also caches any cohorts for a given team in memory for the duration of the application, so we don't need to fetch from
@@ -864,8 +898,7 @@ impl FeatureFlagMatcher {
         if !static_cohorts.is_empty() {
             let results = evaluate_static_cohorts(
                 self.postgres_reader.clone(),
-                self.team_id,
-                self.distinct_id.clone(),
+                person_id,
                 static_cohorts.iter().map(|c| c.id).collect(),
             )
             .await?;
@@ -999,11 +1032,12 @@ impl FeatureFlagMatcher {
         let postgres_reader = self.postgres_reader.clone();
         let distinct_id = self.distinct_id.clone();
         let team_id = self.team_id;
-        let db_properties =
+        let (db_properties, person_id) =
             fetch_person_properties_from_db(postgres_reader, distinct_id, team_id).await?;
 
-        // once the properties are fetched, cache them so we don't need to fetch again in a given request
+        // once the properties and person ID are fetched, cache them so we don't need to fetch again in a given request
         self.properties_cache.person_properties = Some(db_properties.clone());
+        self.properties_cache.person_id = Some(person_id);
 
         Ok(db_properties)
     }
@@ -1133,40 +1167,27 @@ impl FeatureFlagMatcher {
 /// Evaluate static cohort filters by checking if the person is in each cohort.
 async fn evaluate_static_cohorts(
     postgres_reader: PostgresReader,
-    team_id: TeamId,
-    distinct_id: String,
+    person_id: i32, // Change this parameter from distinct_id to person_id
     cohort_ids: Vec<CohortId>,
 ) -> Result<Vec<(CohortId, bool)>, FlagError> {
     let mut conn = postgres_reader.get_connection().await?;
 
     let query = r#"
-        WITH person AS (
-            SELECT posthog_person.id AS person_id
-            FROM posthog_person
-            JOIN posthog_persondistinctid 
-              ON posthog_persondistinctid.person_id = posthog_person.id
-            WHERE 
-                posthog_person.team_id = $1
-                AND posthog_persondistinctid.team_id = $1
-                AND posthog_persondistinctid.distinct_id = $2
-            LIMIT 1
-        ),
-        cohort_membership AS (
-            SELECT c.cohort_id, 
-                   CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
-            FROM unnest($3::integer[]) AS c(cohort_id)
-            LEFT JOIN posthog_cohortpeople AS pc
-              ON pc.person_id = (SELECT person_id FROM person)
-              AND pc.cohort_id = c.cohort_id
-        )
-        SELECT cohort_id, is_member
-        FROM cohort_membership
-    "#;
+           WITH cohort_membership AS (
+               SELECT c.cohort_id, 
+                      CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
+               FROM unnest($1::integer[]) AS c(cohort_id)
+               LEFT JOIN posthog_cohortpeople AS pc
+                 ON pc.person_id = $2
+                 AND pc.cohort_id = c.cohort_id
+           )
+           SELECT cohort_id, is_member
+           FROM cohort_membership
+       "#;
 
     let rows = sqlx::query(query)
-        .bind(team_id)
-        .bind(&distinct_id)
         .bind(&cohort_ids)
+        .bind(person_id) // Bind person_id directly
         .fetch_all(&mut *conn)
         .await?;
 
@@ -1372,32 +1393,31 @@ async fn fetch_and_locally_cache_all_properties(
 
     let query = r#"
         SELECT 
-            (SELECT "posthog_person"."properties"
-             FROM "posthog_person"
-             INNER JOIN "posthog_persondistinctid" 
-             ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-             WHERE ("posthog_persondistinctid"."distinct_id" = $1
-                    AND "posthog_persondistinctid"."team_id" = $2
-                    AND "posthog_person"."team_id" = $2)
-             LIMIT 1) as person_properties,
-            
-            (SELECT json_object_agg("posthog_group"."group_type_index", "posthog_group"."group_properties")
-             FROM "posthog_group"
-             WHERE ("posthog_group"."team_id" = $2
-                    AND "posthog_group"."group_type_index" = ANY($3))) as group_properties
+            p.id AS person_id,
+            p.properties AS person_properties,
+            json_object_agg(g.group_type_index, g.group_properties) AS group_properties
+        FROM posthog_person p
+        INNER JOIN posthog_persondistinctid pd
+            ON p.id = pd.person_id
+        LEFT JOIN posthog_group g
+            ON p.team_id = g.team_id
+            AND g.group_type_index = ANY($3)
+        WHERE pd.distinct_id = $1
+            AND pd.team_id = $2
+            AND p.team_id = $2
+        GROUP BY p.id, p.properties
     "#;
 
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
 
-    let row: (Option<Value>, Option<Value>) = sqlx::query_as(query)
+    let row: Option<(i32, Value, Value)> = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .bind(&group_type_indexes_vec)
         .fetch_optional(&mut *conn)
-        .await?
-        .unwrap_or((None, None));
+        .await?;
 
-    if let Some(person_props) = row.0 {
+    if let Some((person_id, person_props, group_props)) = row {
         properties_cache.person_properties = Some(
             person_props
                 .as_object()
@@ -1406,9 +1426,8 @@ async fn fetch_and_locally_cache_all_properties(
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
         );
-    }
+        properties_cache.person_id = Some(person_id); // Store person_id
 
-    if let Some(group_props) = row.1 {
         let group_props_map: HashMap<GroupTypeIndex, HashMap<String, Value>> = group_props
             .as_object()
             .unwrap_or(&serde_json::Map::new())
@@ -1439,31 +1458,37 @@ async fn fetch_person_properties_from_db(
     postgres_reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
-) -> Result<HashMap<String, Value>, FlagError> {
+) -> Result<(HashMap<String, Value>, i32), FlagError> {
     let mut conn = postgres_reader.as_ref().get_connection().await?;
 
     let query = r#"
-        SELECT "posthog_person"."properties" as person_properties
-        FROM "posthog_person"
-        INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-        WHERE ("posthog_persondistinctid"."distinct_id" = $1
-                AND "posthog_persondistinctid"."team_id" = $2
-                AND "posthog_person"."team_id" = $2)
-        LIMIT 1
-    "#;
+           SELECT "posthog_person"."id" as person_id, "posthog_person"."properties" as person_properties
+           FROM "posthog_person"
+           INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+           WHERE ("posthog_persondistinctid"."distinct_id" = $1
+                   AND "posthog_persondistinctid"."team_id" = $2
+                   AND "posthog_person"."team_id" = $2)
+           LIMIT 1
+       "#;
 
-    let row: Option<Value> = sqlx::query_scalar(query)
+    let row: Option<(i32, Value)> = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .fetch_optional(&mut *conn)
         .await?;
 
-    Ok(row
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(k, v)| (k, v.clone()))
-        .collect())
+    match row {
+        Some((person_id, person_props)) => {
+            let properties_map = person_props
+                .as_object()
+                .unwrap_or(&serde_json::Map::new())
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            Ok((properties_map, person_id))
+        }
+        None => Err(FlagError::PersonNotFound),
+    }
 }
 
 /// Fetch group properties from the database for a given team ID and group type index.
