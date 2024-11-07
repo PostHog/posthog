@@ -35,6 +35,21 @@ export function AndroidSnippet({ flagKey, variant }: SnippetProps): JSX.Element 
     )
 }
 
+export function IOSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Swift} wrap>
+                {`if (PostHogSDK.shared.getFeatureFlag("${flagKey}") as? String == "${variant}") {
+    // do something
+} else {
+    // It's a good idea to let control variant always be the default behaviour,
+    // so if something goes wrong with flag evaluation, you don't break your app.
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
 export function NodeJSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
