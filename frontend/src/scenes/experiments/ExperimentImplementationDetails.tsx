@@ -55,7 +55,7 @@ const OPTIONS = [
         type: LibraryType.Client,
     },
     {
-        value: 'Golang',
+        value: 'Go',
         documentationLink: `${DOC_BASE_URL}libraries/go${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconGolang,
         Snippet: GolangSnippet,
