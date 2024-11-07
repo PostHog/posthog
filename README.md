@@ -102,7 +102,7 @@ This repo is available under the [MIT expat license](https://github.com/PostHog/
 
 Need *absolutely 💯% FOSS*? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
 
-To learn more, [book a demo](https://posthog.com/book-a-demo) or see our [pricing page](https://posthog.com/pricing).
+To learn more, [book a demo](https://posthog.com/talk-to-a-human) or see our [pricing page](https://posthog.com/pricing).
 
 ### We’re hiring!
 
