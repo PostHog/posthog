@@ -163,7 +163,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
@@ -346,7 +346,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
   ORDER BY aggregation_target
   LIMIT 100
@@ -529,7 +529,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps = 2
   ORDER BY aggregation_target
   LIMIT 100

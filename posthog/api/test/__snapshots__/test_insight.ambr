@@ -114,7 +114,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -189,7 +189,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_local_filters
@@ -265,7 +265,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown
@@ -1684,24 +1684,6 @@
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.30
-  '''
-  SELECT "posthog_taggeditem"."id",
-         "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."dashboard_id",
-         "posthog_taggeditem"."insight_id",
-         "posthog_taggeditem"."event_definition_id",
-         "posthog_taggeditem"."property_definition_id",
-         "posthog_taggeditem"."action_id",
-         "posthog_taggeditem"."feature_flag_id"
-  FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."insight_id" IN (1,
-                                              2,
-                                              3,
-                                              4,
-                                              5 /* ... */)
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.4
