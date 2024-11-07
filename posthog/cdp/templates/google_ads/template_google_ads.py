@@ -1,5 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
+# Based on https://developers.google.com/google-ads/api/reference/rpc/v17/ClickConversion
+
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     type="destination",
@@ -14,6 +16,25 @@ if (empty(inputs.gclid)) {
     return
 }
 
+let body := {
+    'conversions': [
+        {
+            'gclid': inputs.gclid,
+            'conversion_action': f'customers/{replaceAll(inputs.customerId, '-', '')}/conversionActions/{replaceAll(inputs.conversionActionId, 'AW-', '')}',
+            'conversion_date_time': inputs.conversionDateTime
+        }
+    ],
+    'partialFailure': true,
+    'validateOnly': true
+}
+
+if (not empty(inputs.conversionValue)) {
+    body.conversions[1].conversion_value := inputs.conversionValue
+}
+if (not empty(inputs.currencyCode)) {
+    body.conversions[1].currency_code := inputs.currencyCode
+}
+
 let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(inputs.customerId, '-', '')}:uploadClickConversions', {
     'method': 'POST',
     'headers': {
@@ -21,23 +42,12 @@ let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(in
         'Content-Type': 'application/json',
         'developer-token': inputs.developerToken
     },
-    'body': {
-        'conversions': [
-            {
-                'gclid': inputs.gclid,
-                'conversionAction': f'customers/{replaceAll(inputs.customerId, '-', '')}/conversionActions/{replaceAll(inputs.conversionActionId, 'AW-', '')}',
-                'conversionDateTime': inputs.conversionDateTime
-            }
-        ],
-        'partialFailure': true,
-        'validateOnly': true
-    }
+    'body': body
 })
 
 if (res.status >= 400) {
     throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body}')
 }
-
 """.strip(),
     inputs_schema=[
         {
@@ -89,6 +99,24 @@ if (res.status >= 400) {
             "default": "{event.timestamp}",
             "secret": False,
             "required": True,
+        },
+        {
+            "key": "conversionValue",
+            "type": "string",
+            "label": "Conversion value",
+            "description": "The value of the conversion for the advertiser.",
+            "default": "",
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "currencyCode",
+            "type": "string",
+            "label": "Currency code",
+            "description": "Currency associated with the conversion value. This is the ISO 4217 3-character currency code. For example: USD, EUR.",
+            "default": "",
+            "secret": False,
+            "required": False,
         },
     ],
     filters={
