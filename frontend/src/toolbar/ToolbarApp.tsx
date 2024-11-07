@@ -13,7 +13,7 @@ import { TOOLBAR_ID } from './utils'
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
 export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
-    const { jsURL } = useValues(toolbarConfigLogic(props))
+    const { apiURL } = useValues(toolbarConfigLogic(props))
 
     const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
     const [didLoadStyles, setDidLoadStyles] = useState(false)
@@ -32,7 +32,7 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   // this ensures that we bust the cache periodically
                   const timestampToNearestFiveMinutes =
                       Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                  styleLink.href = `${jsURL}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
+                  styleLink.href = `${apiURL}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
                   styleLink.onload = () => setDidLoadStyles(true)
                   const shadowRoot =
                       shadowRef.current?.shadowRoot || window.document.getElementById(TOOLBAR_ID)?.shadowRoot
