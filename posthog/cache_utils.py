@@ -12,7 +12,7 @@ from posthog.settings import TEST
 
 R = TypeVar("R")
 
-CacheKey = Any
+CacheKey = tuple[tuple[Any, ...], frozenset[tuple[Any, Any]]]
 
 
 class CachedFunction(Generic[R]):
