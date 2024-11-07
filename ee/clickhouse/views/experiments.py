@@ -369,6 +369,14 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
+        if (
+            not instance.filters.get("events")
+            and not instance.filters.get("actions")
+            and validated_data.get("start_date")
+            and not validated_data.get("filters")
+        ):
+            raise ValidationError("Filters are required when launching an experiment")
+
         update_saved_metrics = "saved_metrics_ids" in validated_data
         saved_metrics_data = validated_data.pop("saved_metrics_ids", []) or []
 
