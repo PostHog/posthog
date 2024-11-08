@@ -5,6 +5,8 @@ import { ExperimentsAngularInstructions } from './angular'
 import { ExperimentsAstroInstructions } from './astro'
 import { ExperimentsBubbleInstructions } from './bubble'
 import { ExperimentsDjangoInstructions } from './django'
+import { ExperimentsFlutterInstructions } from './flutter'
+import { ExperimentsFramerInstructions } from './framer'
 import { ExperimentsGoInstructions } from './go'
 import { ExperimentsIOSInstructions } from './ios'
 import { ExperimentsJSWebInstructions } from './js-web'
@@ -16,7 +18,10 @@ import { ExperimentsPHPInstructions } from './php'
 import { ExperimentsPythonInstructions } from './python'
 import { ExperimentsReactInstructions } from './react'
 import { ExperimentsReactNativeInstructions } from './react-native'
+import { ExperimentsRemixInstructions } from './remix'
 import { ExperimentsRubyInstructions } from './ruby'
+import { ExperimentsSvelteInstructions } from './svelte'
+import { ExperimentsWebflowInstructions } from './webflow'
 
 export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: ExperimentsJSWebInstructions,
@@ -25,6 +30,8 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ASTRO]: ExperimentsAstroInstructions,
     [SDKKey.BUBBLE]: ExperimentsBubbleInstructions,
     [SDKKey.DJANGO]: ExperimentsDjangoInstructions,
+    [SDKKey.FLUTTER]: ExperimentsFlutterInstructions,
+    [SDKKey.FRAMER]: ExperimentsFramerInstructions,
     [SDKKey.GO]: ExperimentsGoInstructions,
     [SDKKey.IOS]: ExperimentsIOSInstructions,
     [SDKKey.LARAVEL]: ExperimentsLaravelInstructions,
@@ -35,5 +42,8 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: ExperimentsPythonInstructions,
     [SDKKey.REACT]: ExperimentsReactInstructions,
     [SDKKey.REACT_NATIVE]: ExperimentsReactNativeInstructions,
+    [SDKKey.REMIX]: ExperimentsRemixInstructions,
     [SDKKey.RUBY]: ExperimentsRubyInstructions,
+    [SDKKey.SVELTE]: ExperimentsSvelteInstructions,
+    [SDKKey.WEBFLOW]: ExperimentsWebflowInstructions,
 }

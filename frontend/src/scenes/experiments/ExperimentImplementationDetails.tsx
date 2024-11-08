@@ -2,6 +2,7 @@ import { LemonSelect, Link } from '@posthog/lemon-ui'
 import {
     IconAndroidOS,
     IconAppleIOS,
+    IconFlutter,
     IconGolang,
     IconJavascript,
     IconNodeJS,
@@ -15,6 +16,7 @@ import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
 
 import {
     AndroidSnippet,
+    FlutterSnippet,
     GolangSnippet,
     IOSSnippet,
     JSSnippet,
@@ -63,6 +65,14 @@ export const OPTIONS = [
         Icon: IconGolang,
         Snippet: GolangSnippet,
         type: LibraryType.Server,
+    },
+    {
+        value: 'Flutter',
+        key: SDKKey.FLUTTER,
+        documentationLink: `${DOC_BASE_URL}libraries/flutter${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconFlutter,
+        Snippet: FlutterSnippet,
+        type: LibraryType.Client,
     },
     {
         value: 'iOS',
