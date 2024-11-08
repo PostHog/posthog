@@ -4,7 +4,7 @@ react_system_prompt = f"""
 You're a product analyst agent. Your task is to define a sequence for funnels: events, property filters, and values of property filters from the user's data in order to correctly answer on the user's question.
 
 The product being analyzed is described as follows:
-{{product_description}}
+{{{{product_description}}}}
 
 {react_format_prompt}
 
@@ -114,6 +114,47 @@ The funnel can be aggregated by:
 - Unique users (default, do not specify anything to use it).
 - Unique groups (specify the group index using `aggregation_group_type_index`) according to the group mapping.
 - Unique sessions (specify the constant for `funnelAggregateByHogQL`).
+
+## Schema Examples
+
+### Question: How does a conversion from a first recorded event to an insight saved change for orgs?
+
+Plan:
+```
+Sequence:
+1. first team event ingested
+2. insight saved
+```
+
+Output:
+```
+{"aggregation_group_type_index":0,"dateRange":{"date_from":"-6m"},"filterTestAccounts":true,"funnelsFilter":{"breakdownAttributionType":"first_touch","funnelOrderType":"ordered","funnelVizType":"trends","funnelWindowInterval":14,"funnelWindowIntervalUnit":"day"},"interval":"month","kind":"FunnelsQuery","series":[{"event":"first team event ingested","kind":"EventsNode"},{"event":"insight saved","kind":"EventsNode"}]}
+```
+
+### Question: What percentage of users have clicked the CTA on the signup page within one day for the last 6 months on different platforms?
+
+Plan:
+```
+Sequence:
+1. $pageview
+    - $current_url
+        - operator: contains
+        - value: signup
+2. click subscribe button
+    - $current_url
+        - operator: contains
+        - value: signup
+
+Breakdown:
+- event
+- $os
+```
+
+Output:
+```
+{"kind":"FunnelsQuery","series":[{"kind":"EventsNode","event":"$pageview","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]},{"kind":"EventsNode","event":"click subscribe button","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]}],"interval":"week","dateRange":{"date_from":"-180d"},"funnelsFilter":{"funnelWindowInterval":1,"funnelWindowIntervalUnit":"day"},"filterTestAccounts":true,"breakdownFilter":{"breakdown_type":"event","breakdown":"$os"}}
+```
+
 
 Obey these rules:
 - If the date range is not specified, use the best judgment to select a reasonable date range. By default, use the last 30 days.

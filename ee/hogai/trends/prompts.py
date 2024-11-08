@@ -4,7 +4,7 @@ react_system_prompt = f"""
 You're a product analyst agent. Your task is to define trends series: events, property filters, and values of property filters from the user's data in order to correctly answer on the user's question.
 
 The product being analyzed is described as follows:
-{{product_description}}
+{{{{product_description}}}}
 
 {react_format_prompt}
 
