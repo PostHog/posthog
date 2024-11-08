@@ -1,15 +1,24 @@
-from argparse import BooleanOptionalAction
+from typing import Any
+from collections.abc import Callable
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
-from ee.clickhouse.materialized_columns.columns import update_column_is_disabled
+from ee.clickhouse.materialized_columns.columns import update_column_is_disabled, drop_column
+
+
+COLUMN_OPERATIONS: dict[str, Callable[[TablesWithMaterializedColumns, ColumnName], Any]] = {
+    "enable": lambda table, column_name: update_column_is_disabled(table, column_name, is_disabled=False),
+    "disable": lambda table, column_name: update_column_is_disabled(table, column_name, is_disabled=True),
+    "drop": drop_column,
+}
 
 
 class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
+        parser.add_argument("operation", choices=COLUMN_OPERATIONS.keys())
         parser.add_argument("table")
         parser.add_argument("column_name")
-        parser.add_argument("--enable", action=BooleanOptionalAction, required=True)
 
-    def handle(self, table: TablesWithMaterializedColumns, column_name: ColumnName, enable: bool, **options):
-        update_column_is_disabled(table, column_name, is_disabled=not enable)
+    def handle(self, operation: str, table: TablesWithMaterializedColumns, column_name: ColumnName, **options):
+        fn = COLUMN_OPERATIONS[operation]
+        fn(table, column_name)
