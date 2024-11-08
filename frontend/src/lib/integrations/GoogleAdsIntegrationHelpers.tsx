@@ -52,7 +52,7 @@ export function GoogleAdsConversionActionPicker({
     )
     const { loadGoogleAdsConversionActions } = useActions(googleAdsIntegrationLogic({ id: integration.id }))
 
-    const googleAdsAccountOptions = useMemo(
+    const googleAdsConversionActionOptions = useMemo(
         () => getGoogleAdsConversionActionOptions(googleAdsConversionActions),
         [googleAdsConversionActions]
     )
@@ -73,7 +73,7 @@ export function GoogleAdsConversionActionPicker({
                 data-attr="select-google-ads-conversion-action"
                 placeholder="Select a Conversion Action..."
                 options={
-                    googleAdsAccountOptions ??
+                    googleAdsConversionActionOptions ??
                     (value
                         ? [
                               {
@@ -125,7 +125,7 @@ export function GoogleAdsCustomerIdPicker({
                         ? [
                               {
                                   key: value,
-                                  label: value,
+                                  label: value.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'),
                               },
                           ]
                         : [])

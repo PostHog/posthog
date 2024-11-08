@@ -271,7 +271,8 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    required_field?: string
+    integration_field?: string
 }
 
 export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'

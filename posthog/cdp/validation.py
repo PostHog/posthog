@@ -36,7 +36,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     description = serializers.CharField(required=False)
     integration = serializers.CharField(required=False)
     integration_key = serializers.CharField(required=False)
-    integration_field = serializers.ChoiceField(choices=["slack_channel"], required=False)
+    required_field = serializers.CharField(required=False)
+    integration_field = serializers.CharField(required=False)
 
     # TODO Validate choices if type=choice
 
