@@ -7887,10 +7887,17 @@
                     "type": "array"
                 },
                 "local_path_cleaning_filters": {
-                    "items": {
-                        "$ref": "#/definitions/PathCleaningFilter"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/PathCleaningFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "max_edge_weight": {
                     "type": "integer"
