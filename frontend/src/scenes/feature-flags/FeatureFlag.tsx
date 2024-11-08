@@ -550,7 +550,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 ? 'restore-feature-flag'
                                                                 : 'delete-feature-flag'
                                                         }
-                                                        status={featureFlag.deleted ? 'default' : 'danger'}
+                                                        status="danger"
                                                         fullWidth
                                                         onClick={() => {
                                                             featureFlag.deleted
@@ -775,38 +775,44 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             <div className="col-span-2 card-secondary">Status</div>
                             <div className="col-span-6 card-secondary">Type</div>
                             <div className="col-span-2">
-                                <LemonSwitch
-                                    onChange={(newValue) => {
-                                        LemonDialog.open({
-                                            title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                            description: `This flag will be immediately ${
-                                                newValue === true ? 'rolled out to' : 'rolled back from'
-                                            } the users matching the release conditions.`,
-                                            primaryButton: {
-                                                children: 'Confirm',
-                                                type: 'primary',
-                                                onClick: () => {
-                                                    const updatedFlag = { ...featureFlag, active: newValue }
-                                                    setFeatureFlag(updatedFlag)
-                                                    saveFeatureFlag(updatedFlag)
+                                {featureFlag.deleted ? (
+                                    <LemonTag size="medium" type="danger" className="uppercase">
+                                        Deleted
+                                    </LemonTag>
+                                ) : (
+                                    <LemonSwitch
+                                        onChange={(newValue) => {
+                                            LemonDialog.open({
+                                                title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                                description: `This flag will be immediately ${
+                                                    newValue === true ? 'rolled out to' : 'rolled back from'
+                                                } the users matching the release conditions.`,
+                                                primaryButton: {
+                                                    children: 'Confirm',
+                                                    type: 'primary',
+                                                    onClick: () => {
+                                                        const updatedFlag = { ...featureFlag, active: newValue }
+                                                        setFeatureFlag(updatedFlag)
+                                                        saveFeatureFlag(updatedFlag)
+                                                    },
+                                                    size: 'small',
                                                 },
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
-                                    label="Enabled"
-                                    disabledReason={
-                                        !featureFlag.can_edit
-                                            ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                            : null
-                                    }
-                                    checked={featureFlag.active}
-                                />
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
+                                        }}
+                                        label="Enabled"
+                                        disabledReason={
+                                            !featureFlag.can_edit
+                                                ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                                : null
+                                        }
+                                        checked={featureFlag.active}
+                                    />
+                                )}
                             </div>
                             <div className="col-span-6">
                                 <span className="mt-1">
