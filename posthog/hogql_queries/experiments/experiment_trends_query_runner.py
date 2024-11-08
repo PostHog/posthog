@@ -118,7 +118,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         prepared_count_query.properties = [
             EventPropertyFilter(
                 key=self.breakdown_key,
-                value=[variant["key"] for variant in self.feature_flag.variants],
+                value=self.variants,
                 operator="exact",
                 type="event",
             )
@@ -158,7 +158,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 prepared_exposure_query.properties = [
                     EventPropertyFilter(
                         key=self.breakdown_key,
-                        value=[variant["key"] for variant in self.feature_flag.variants],
+                        value=self.variants,
                         operator="exact",
                         type="event",
                     )
@@ -174,7 +174,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_exposure_query.properties = [
                 EventPropertyFilter(
                     key=self.breakdown_key,
-                    value=[variant["key"] for variant in self.feature_flag.variants],
+                    value=self.variants,
                     operator="exact",
                     type="event",
                 )
@@ -193,7 +193,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 properties=[
                     EventPropertyFilter(
                         key=self.breakdown_key,
-                        value=[variant["key"] for variant in self.feature_flag.variants],
+                        value=self.variants,
                         operator="exact",
                         type="event",
                     ),

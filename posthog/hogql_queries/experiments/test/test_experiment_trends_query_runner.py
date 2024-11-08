@@ -372,10 +372,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 11)
         self.assertEqual(test_result.count, 15)
-        self.assertEqual(holdout_result.count, 4)
+        self.assertEqual(holdout_result.count, 8)
         self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 9)
-        self.assertEqual(holdout_result.absolute_exposure, 8)
+        self.assertEqual(holdout_result.absolute_exposure, 4)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_avg_math(self):
