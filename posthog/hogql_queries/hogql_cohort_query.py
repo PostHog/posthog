@@ -4,7 +4,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
-from posthog.hogql.ast import SelectQuery, SelectUnionNode
+from posthog.hogql.ast import SelectQuery, SelectSetNode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -255,7 +255,7 @@ class HogQLCohortQuery:
 
         return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
 
-    def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         res: str = ""
         params: dict[str, Any] = {}
 
@@ -288,10 +288,10 @@ class HogQLCohortQuery:
 
         return res
 
-    def _get_conditions(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]]
-        ) -> None | ast.SelectQuery | ast.SelectUnionQuery:
+        ) -> None | ast.SelectQuery | ast.SelectSetQuery:
             if not prop:
                 # What do we do here?
                 return None
@@ -306,17 +306,17 @@ class HogQLCohortQuery:
 
                 # TODO: make this do union or intersection based on prop.type
                 if prop.type == PropertyOperatorType.OR:
-                    return ast.SelectUnionQuery(
-                        select_queries=[
-                            SelectUnionNode(select_query=query, union_type="UNION ALL" if query != queries[0] else None)
-                            for query in queries
-                        ]
+                    return ast.SelectSetQuery(
+                        initial_select_query=queries[0],
+                        subsequent_select_queries=[
+                            SelectSetNode(select_query=query, set_operator="UNION ALL") for query in queries[1:]
+                        ],
                     )
-                return ast.SelectUnionQuery(
-                    select_queries=[
-                        SelectUnionNode(select_query=query, union_type="INTERSECT" if query != queries[0] else None)
-                        for query in queries
-                    ]
+                return ast.SelectSetQuery(
+                    initial_select_query=queries[0],
+                    subsequent_select_queries=[
+                        SelectSetNode(select_query=query, set_operator="INTERSECT") for query in queries[1:]
+                    ],
                 )
             else:
                 return self._get_condition_for_property(prop)
