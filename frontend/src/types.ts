@@ -4527,6 +4527,7 @@ export type HogFunctionInputSchemaType = {
     integration?: string
     integration_key?: string
     integration_field?: 'slack_channel'
+    required_field?: string
 }
 
 export type HogFunctionInputType = {

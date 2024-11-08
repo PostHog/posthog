@@ -12,7 +12,13 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.integration import Integration, OauthIntegration, SlackIntegration, GoogleCloudIntegration
+from posthog.models.integration import (
+    Integration,
+    OauthIntegration,
+    SlackIntegration,
+    GoogleCloudIntegration,
+    GoogleAdsIntegration,
+)
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -94,3 +100,34 @@ class IntegrationViewSet(
         ]
 
         return Response({"channels": channels})
+
+    @action(methods=["GET"], detail=True, url_path="conversionActions")
+    def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        google_ads = GoogleAdsIntegration(instance)
+        customer_id = request.query_params.get("customerId")
+
+        conversionActions = [
+            {
+                "id": conversionAction["conversionAction"]["id"],
+                "name": conversionAction["conversionAction"]["name"],
+                "resourceName": conversionAction["conversionAction"]["resourceName"],
+            }
+            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id)[0]["results"]
+        ]
+
+        return Response({"conversionActions": conversionActions})
+
+    @action(methods=["GET"], detail=True, url_path="accessibleAccounts")
+    def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        google_ads = GoogleAdsIntegration(instance)
+
+        accessibleAccounts = [
+            {
+                "id": accountId,
+            }
+            for accountId in google_ads.list_google_ads_accessible_accounts()["resourceNames"]
+        ]
+
+        return Response({"accessibleAccounts": accessibleAccounts})

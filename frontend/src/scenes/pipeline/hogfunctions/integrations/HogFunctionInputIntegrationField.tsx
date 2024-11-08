@@ -1,5 +1,9 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import {
+    GoogleAdsConversionActionPicker,
+    GoogleAdsCustomerIdPicker,
+} from 'lib/integrations/GoogleAdsIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 
@@ -37,7 +41,29 @@ export function HogFunctionInputIntegrationField({
 
     const integrationId = configuration.inputs?.[relatedSchemaIntegration.key]?.value
     const integration = integrations?.find((integration) => integration.id === integrationId)
+    let requiredFieldValue: string | undefined
 
+    if (schema.required_field) {
+        const requiredFieldSchema = configuration.inputs_schema?.find((input) => input.key === schema.required_field)
+
+        if (!requiredFieldSchema) {
+            return (
+                <div className="text-danger">
+                    Bad configuration: required key {schema.required_field} not found in schema
+                </div>
+            )
+        }
+
+        const requiredField = configuration.inputs?.[requiredFieldSchema.key]
+        requiredFieldValue = requiredField?.value
+        if (!requiredFieldValue) {
+            return (
+                <div className="border border-dashed h-10 rounded p-2 text-muted-alt italic">
+                    Configure {requiredFieldSchema.label} to continue
+                </div>
+            )
+        }
+    }
     if (!integration) {
         return (
             <div className="border border-dashed h-10 rounded p-2 text-muted-alt italic">
@@ -48,6 +74,25 @@ export function HogFunctionInputIntegrationField({
     if (schema.integration_field === 'slack_channel') {
         return (
             <SlackChannelPicker
+                value={value}
+                onChange={(x) => onChange?.(x?.split('|')[0])}
+                integration={integration}
+            />
+        )
+    }
+    if (schema.integration_field === 'google_ads_conversion_action' && requiredFieldValue) {
+        return (
+            <GoogleAdsConversionActionPicker
+                value={value}
+                requiredFieldValue={requiredFieldValue}
+                onChange={(x) => onChange?.(x?.split('|')[0])}
+                integration={integration}
+            />
+        )
+    }
+    if (schema.integration_field === 'google_ads_customer_id') {
+        return (
+            <GoogleAdsCustomerIdPicker
                 value={value}
                 onChange={(x) => onChange?.(x?.split('|')[0])}
                 integration={integration}

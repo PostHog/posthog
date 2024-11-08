@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -412,6 +413,47 @@ class SlackIntegration:
         )
 
         return config
+
+
+class GoogleAdsIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "google-ads":
+            raise Exception("GoogleAdsIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    @property
+    def client(self) -> WebClient:
+        return WebClient(self.integration.sensitive_config["access_token"])
+
+    def list_google_ads_conversion_actions(self, customer_id) -> list[dict]:
+        response = requests.request(
+            "POST",
+            f"https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream",
+            json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "developer-token": os.environ.get("ADWORDS_DEVELOPER_TOKEN"),
+            },
+        )
+
+        return response.json()
+
+    def list_google_ads_accessible_accounts(self) -> dict:
+        response = requests.request(
+            "GET",
+            f"https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "developer-token": os.environ.get("ADWORDS_DEVELOPER_TOKEN"),
+            },
+        )
+
+        return response.json()
 
 
 class GoogleCloudIntegration:
