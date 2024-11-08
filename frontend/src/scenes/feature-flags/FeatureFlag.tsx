@@ -100,6 +100,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
+        restoreFeatureFlag,
         editFeatureFlag,
         loadFeatureFlag,
         saveFeatureFlag,
@@ -552,11 +553,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     )}
                                                     <LemonDivider />
                                                     <LemonButton
-                                                        data-attr="delete-feature-flag"
-                                                        status="danger"
+                                                        data-attr={
+                                                            featureFlag.deleted
+                                                                ? 'restore-feature-flag'
+                                                                : 'delete-feature-flag'
+                                                        }
+                                                        status={featureFlag.deleted ? 'default' : 'danger'}
                                                         fullWidth
                                                         onClick={() => {
-                                                            deleteFeatureFlag(featureFlag)
+                                                            featureFlag.deleted
+                                                                ? restoreFeatureFlag(featureFlag)
+                                                                : deleteFeatureFlag(featureFlag)
                                                         }}
                                                         disabledReason={
                                                             !featureFlag.can_edit
@@ -568,7 +575,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 : null
                                                         }
                                                     >
-                                                        Delete feature flag
+                                                        {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
                                                     </LemonButton>
                                                 </>
                                             }
@@ -585,8 +592,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             disabledReason={
-                                                !featureFlag.can_edit &&
-                                                "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                !featureFlag.can_edit
+                                                    ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    : featureFlag.deleted
+                                                    ? 'This feature flag has been deleted. Restore it to edit.'
+                                                    : null
                                             }
                                             onClick={() => {
                                                 editFeatureFlag(true)

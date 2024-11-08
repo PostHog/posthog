@@ -219,6 +219,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         addRollbackCondition: true,
         removeRollbackCondition: (index: number) => ({ index }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -741,7 +742,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
+                    // Load latest change so a backwards navigation shows the flag as deleted
+                    actions.loadFeatureFlag()
                     router.actions.push(urls.featureFlags())
+                },
+            })
+        },
+        restoreFeatureFlag: async ({ featureFlag }) => {
+            await deleteWithUndo({
+                endpoint: `projects/${values.currentProjectId}/feature_flags`,
+                object: { name: featureFlag.key, id: featureFlag.id },
+                undo: true,
+                callback: () => {
+                    actions.loadFeatureFlag()
                 },
             })
         },
