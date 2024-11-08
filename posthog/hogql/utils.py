@@ -11,8 +11,14 @@ def unwrap_optional(t):
     return t
 
 
+def unwrap_list(t):
+    if get_origin(t) is list and len(get_args(t)) == 1:
+        return get_args(t)[0]
+    return t
+
+
 def is_ast_subclass(t):
-    return issubclass(t, AST)
+    return isinstance(t, type) and issubclass(t, AST)
 
 
 def deserialize_hog_ast(hog_ast: dict) -> AST:
@@ -29,10 +35,13 @@ def deserialize_hog_ast(hog_ast: dict) -> AST:
             if isinstance(value, dict) and "__hog_ast" in value:
                 init_args[key] = deserialize_hog_ast(value)
             elif isinstance(value, list):
+                field_type = unwrap_list(cls_fields[key])
                 init_args[key] = []
                 for item in value:
                     if isinstance(item, dict) and "__hog_ast" in item:
                         init_args[key].append(deserialize_hog_ast(item))
+                    elif is_ast_subclass(field_type):
+                        init_args[key].append(Constant(value=item))
                     else:
                         init_args[key].append(item)
             else:
