@@ -21,6 +21,7 @@ import { ExperimentsReactNativeInstructions } from './react-native'
 import { ExperimentsRemixInstructions } from './remix'
 import { ExperimentsRubyInstructions } from './ruby'
 import { ExperimentsSvelteInstructions } from './svelte'
+import { ExperimentsVueInstructions } from './vue'
 import { ExperimentsWebflowInstructions } from './webflow'
 
 export const ExperimentsSDKInstructions: SDKInstructionsMap = {
@@ -46,4 +47,5 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.RUBY]: ExperimentsRubyInstructions,
     [SDKKey.SVELTE]: ExperimentsSvelteInstructions,
     [SDKKey.WEBFLOW]: ExperimentsWebflowInstructions,
+    [SDKKey.VUE_JS]: ExperimentsVueInstructions,
 }
