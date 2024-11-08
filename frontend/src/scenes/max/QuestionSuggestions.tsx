@@ -29,7 +29,7 @@ export function QuestionSuggestions(): JSX.Element {
     }
 
     return (
-        <div className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5 w-[min(44rem,100%)]">
+        <div className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5 w-[min(48rem,100%)]">
             {
                 allSuggestionsLoading ? (
                     Array.from({ length: 3 }).map((_, index) => (

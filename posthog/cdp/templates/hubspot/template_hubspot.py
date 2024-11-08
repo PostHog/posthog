@@ -110,8 +110,8 @@ if (empty(inputs.email)) {
     return
 }
 
-if (not match(event.event, '^([a-z])([a-z0-9_-])+$')) {
-    throw Error(f'Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event: {event.event}')
+if (not match(inputs.eventName, '^([a-z])([a-z0-9_-])+$')) {
+    throw Error(f'Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event: {inputs.eventName}')
     return
 }
 
@@ -139,7 +139,7 @@ if (inputs.include_all_properties) {
     }
 }
 
-let eventSchema := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{event.event}/?includeProperties=true', {
+let eventSchema := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{inputs.eventName}/?includeProperties=true', {
     'method': 'GET',
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',
@@ -213,9 +213,9 @@ let fullyQualifiedName := ''
 
 if (eventSchema.status >= 400) {
     let body := {
-        'label': event.event,
-        'name': event.event,
-        'description': f'{event.event} - (created by PostHog)',
+        'label': inputs.eventName,
+        'name': inputs.eventName,
+        'description': f'{inputs.eventName} - (created by PostHog)',
         'primaryObject': 'CONTACT',
         'propertyDefinitions': []
     }
@@ -252,7 +252,7 @@ if (eventSchema.status >= 400) {
 
     if (not empty(missingProperties)) {
         for (let i, obj in missingProperties) {
-            let res := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{event.event}/property', {
+            let res := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{inputs.eventName}/property', {
                 'method': 'POST',
                 'headers': {
                     'Authorization': f'Bearer {inputs.oauth.access_token}',
@@ -296,6 +296,15 @@ if (res.status >= 400) {
             "type": "integration",
             "integration": "hubspot",
             "label": "Hubspot connection",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "eventName",
+            "type": "string",
+            "label": "Event Name",
+            "description": "Hubspot only allows events that start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens.",
+            "default": "{replaceAll(replaceAll(trim(lower(event.event)), '$', ''), ' ', '_')}",
             "secret": False,
             "required": True,
         },

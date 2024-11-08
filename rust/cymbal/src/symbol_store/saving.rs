@@ -22,13 +22,13 @@ pub struct Saving<F> {
 // A record of an attempt to fetch a symbol set. If it succeeded, it will have a storage pointer
 #[derive(Debug, sqlx::FromRow)]
 pub struct SymbolSetRecord {
-    id: Uuid,
-    team_id: i32,
+    pub id: Uuid,
+    pub team_id: i32,
     // "ref" is a reserved keyword in Rust, whoops
-    set_ref: String,
-    storage_ptr: Option<String>,
-    failure_reason: Option<String>,
-    created_at: DateTime<Utc>,
+    pub set_ref: String,
+    pub storage_ptr: Option<String>,
+    pub failure_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 // This is the "intermediate" symbol set data. Rather than a simple `Vec<u8>`, the saving layer

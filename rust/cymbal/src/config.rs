@@ -44,6 +44,12 @@ pub struct Config {
 
     #[envconfig(default = "sets")]
     pub ss_prefix: String,
+
+    #[envconfig(default = "100000")]
+    pub frame_cache_size: u64,
+
+    #[envconfig(default = "600")]
+    pub frame_cache_ttl_seconds: u64,
 }
 
 impl Config {

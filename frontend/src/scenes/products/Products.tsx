@@ -153,7 +153,7 @@ export function Products(): JSX.Element {
                     <div className="flex flex-col justify-center flex-grow items-center">
                         <div className="mb-8">
                             <h2 className="text-center text-4xl">What would you like to set up?</h2>
-                            <p className="text-center">Don’t worry &mdash; you can pick more than one!</p>
+                            <p className="text-center">Don't worry &ndash; you can pick more than one!</p>
                         </div>
                         <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (

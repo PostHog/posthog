@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
@@ -93,12 +93,14 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading } = useValues(
-        experimentLogic({ experimentId })
-    )
+    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading, experimentInsightType } =
+        useValues(experimentLogic({ experimentId }))
     const { closeExperimentGoalModal, updateExperimentGoal, setNewExperimentInsight } = useActions(
         experimentLogic({ experimentId })
     )
+
+    const experimentFiltersLength =
+        (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
 
     return (
         <LemonModal
@@ -113,7 +115,10 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                     </LemonButton>
                     <LemonButton
                         disabledReason={
-                            goalInsightDataLoading && 'The insight needs to be loaded before saving the goal'
+                            (goalInsightDataLoading && 'The insight needs to be loaded before saving the goal.') ||
+                            (experimentInsightType === InsightType.FUNNELS &&
+                                experimentFiltersLength < 2 &&
+                                'The experiment needs at least two funnel steps.')
                         }
                         form="edit-experiment-goal-form"
                         onClick={() => {
@@ -206,7 +211,7 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
 }
 
 export function Goal(): JSX.Element {
-    const { experiment, experimentId, experimentInsightType, experimentMathAggregationForTrends } =
+    const { experiment, experimentId, experimentInsightType, experimentMathAggregationForTrends, hasGoalSet } =
         useValues(experimentLogic)
     const { openExperimentGoalModal } = useActions(experimentLogic({ experimentId }))
 
@@ -230,27 +235,44 @@ export function Goal(): JSX.Element {
                     </Tooltip>
                 </div>
             </div>
-            <div className="inline-flex space-x-6">
-                <div>
-                    <div className="card-secondary mb-2 mt-2">
-                        {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
+            {!hasGoalSet ? (
+                <div className="text-muted">
+                    <div className="text-sm text-balance mt-2 mb-2">
+                        Add the main goal before launching the experiment.
                     </div>
-                    <MetricDisplay filters={experiment.filters} />
-                    <LemonButton size="xsmall" type="secondary" onClick={openExperimentGoalModal}>
-                        Change goal
+                    <LemonButton
+                        icon={<IconPlus />}
+                        type="secondary"
+                        size="small"
+                        data-attr="add-experiment-goal"
+                        onClick={openExperimentGoalModal}
+                    >
+                        Add goal
                     </LemonButton>
                 </div>
-                {experimentInsightType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
-                    <>
-                        <LemonDivider className="" vertical />
-                        <div className="">
-                            <div className="mt-auto ml-auto">
-                                <ExposureMetric experimentId={experimentId} />
-                            </div>
+            ) : (
+                <div className="inline-flex space-x-6">
+                    <div>
+                        <div className="card-secondary mb-2 mt-2">
+                            {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                         </div>
-                    </>
-                )}
-            </div>
+                        <MetricDisplay filters={experiment.filters} />
+                        <LemonButton size="xsmall" type="secondary" onClick={openExperimentGoalModal}>
+                            Change goal
+                        </LemonButton>
+                    </div>
+                    {experimentInsightType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
+                        <>
+                            <LemonDivider className="" vertical />
+                            <div className="">
+                                <div className="mt-auto ml-auto">
+                                    <ExposureMetric experimentId={experimentId} />
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
