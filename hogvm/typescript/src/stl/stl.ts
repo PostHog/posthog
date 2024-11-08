@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
@@ -236,7 +236,7 @@ export const STL: Record<string, STLFunction> = {
                         if (Array.isArray(x)) {
                             return x.map((v) => convert(v, marked))
                         }
-                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
+                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x) || isHogAST(x)) {
                             return x
                         }
                         if (isHogCallable(x) || isHogClosure(x)) {
@@ -756,6 +756,8 @@ export const STL: Record<string, STLFunction> = {
                 return 'error'
             } else if (isHogCallable(args[0]) || isHogClosure(args[0])) {
                 return 'function'
+            } else if (isHogAST(args[0])) {
+                return 'sql'
             } else if (Array.isArray(args[0])) {
                 if ((args[0] as any).__isHogTuple) {
                     return 'tuple'

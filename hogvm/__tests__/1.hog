@@ -1,0 +1,3 @@
+let event := '$pageview'
+let query := (select * from events where event={event})
+return toString(query)
