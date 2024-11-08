@@ -7806,10 +7806,17 @@
                     "type": "array"
                 },
                 "localPathCleaningFilters": {
-                    "items": {
-                        "$ref": "#/definitions/PathCleaningFilter"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/PathCleaningFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "maxEdgeWeight": {
                     "type": "integer"
