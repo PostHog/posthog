@@ -321,6 +321,7 @@ class SocialSignupSerializer(serializers.Serializer):
     organization_name: serializers.Field = serializers.CharField(max_length=128)
     first_name: serializers.Field = serializers.CharField(max_length=128)
     role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    invite_id: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -334,6 +335,7 @@ class SocialSignupSerializer(serializers.Serializer):
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
         first_name = validated_data["first_name"]
+        invite_id = validated_data["invite_id"]
 
         serializer = SignupSerializer(
             data={
@@ -342,6 +344,7 @@ class SocialSignupSerializer(serializers.Serializer):
                 "email": email,
                 "password": None,
                 "role_at_organization": role_at_organization,
+                "invite_id": invite_id,
             },
             context={"request": request},
         )
@@ -384,6 +387,13 @@ class TeamInviteSurrogate:
 class CompanyNameForm(forms.Form):
     companyName = forms.CharField(max_length=64)
     emailOptIn = forms.BooleanField(required=False)
+
+
+def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
+    organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
+    if not organization_domain:
+        return None
+    return OrganizationInvite.objects.filter(target_email=email, organization=organization_domain.organization).first()
 
 
 def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email: str, full_name: str) -> User:
@@ -512,6 +522,12 @@ def social_create_user(
     strategy.session_set("backend", backend.name)
     from_invite = False
     invite_id = strategy.session_get("invite_id")
+
+    # Handle SAML invites (organization_domain_id is the relay_state)
+    organization_domain_id = kwargs.get("response", {}).get("idp_name")
+    if not invite_id and organization_domain_id:
+        invite = lookup_invite_for_saml(email, organization_domain_id)
+        invite_id = invite.id if invite else None
 
     if not email or not full_name:
         missing_attr = "email" if not email else "name"
