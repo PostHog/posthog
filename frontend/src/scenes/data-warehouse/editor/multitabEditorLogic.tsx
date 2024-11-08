@@ -1,12 +1,15 @@
 import { Monaco } from '@monaco-editor/react'
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { editor, Uri } from 'monaco-editor'
 import { Editor } from 'react-email-editor'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
 
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 
 interface MultitabEditorLogicProps {
@@ -32,6 +35,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         selectTab: (tab: Uri) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
         initialize: true,
+        saveAsView: true,
+        saveAsViewSuccess: (name: string) => ({ name }),
     }),
     propsChanged(({ actions }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor) {
@@ -197,6 +202,28 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         runQuery: ({ queryOverride }) => {
             actions.setActiveQuery(queryOverride || values.queryInput)
+        },
+        saveAsView: async () => {
+            LemonDialog.openForm({
+                title: 'Save as view',
+                initialValues: { viewName: '' },
+                content: (
+                    <LemonField name="viewName">
+                        <LemonInput placeholder="Please enter the name of the view" autoFocus />
+                    </LemonField>
+                ),
+                errors: {
+                    viewName: (name) => (!name ? 'You must enter a name' : undefined),
+                },
+                onSubmit: ({ viewName }) => actions.saveAsViewSuccess(viewName),
+            })
+        },
+        saveAsViewSuccess: async ({ name }) => {
+            const query: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: values.queryInput,
+            }
+            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
         },
     })),
     subscriptions(({ props, actions, values }) => ({

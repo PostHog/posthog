@@ -23,7 +23,7 @@ export function QueryWindow(): JSX.Element {
         editor,
     })
     const { allTabs, activeModelUri, queryInput, activeQuery, activeTabKey } = useValues(logic)
-    const { selectTab, deleteTab, createTab, setQueryInput, runQuery } = useActions(logic)
+    const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView } = useActions(logic)
 
     return (
         <div className="flex flex-1 flex-col h-full">
@@ -57,7 +57,7 @@ export function QueryWindow(): JSX.Element {
                 logicKey={activeTabKey}
                 query={activeQuery ?? ''}
                 onQueryInputChange={runQuery}
-                onSave={() => {}}
+                onSave={saveAsView}
                 saveDisabledReason=""
             />
         </div>
