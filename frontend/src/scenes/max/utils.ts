@@ -10,6 +10,7 @@ import {
     TrendsQuery,
     VisualizationMessage,
 } from '~/queries/schema'
+import { isTrendsQuery } from '~/queries/utils'
 
 export function isVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -42,4 +43,12 @@ export function castAssistantTrendsQuery(query: AssistantTrendsQuery): TrendsQue
  */
 export function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
     return query
+}
+
+export function castAssistantQuery(query: AssistantTrendsQuery | AssistantFunnelsQuery): TrendsQuery | FunnelsQuery {
+    if (isTrendsQuery(query)) {
+        return castAssistantTrendsQuery(query)
+    }
+
+    return castAssistantFunnelsQuery(query as AssistantFunnelsQuery)
 }
