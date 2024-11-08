@@ -229,7 +229,6 @@ mod test {
 
         // Re-do the resolution, which will then hit the in-memory frame cache
         let frame = get_test_frame(&server);
-        println!("GETTING FRAME FROM CACHE");
         let resolved_2 = resolver.resolve(&frame, 0, &pool, &catalog).await.unwrap();
 
         resolver.cache.invalidate_all();
@@ -238,7 +237,6 @@ mod test {
 
         // Now we should hit PG for the frame
         let frame = get_test_frame(&server);
-        println!("GETTING FRAME FROM PG");
         let resolved_3 = resolver.resolve(&frame, 0, &pool, &catalog).await.unwrap();
 
         assert_eq!(resolved_1, resolved_2);
