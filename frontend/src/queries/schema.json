@@ -6603,7 +6603,14 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "query": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "object"
+                        }
+                    ]
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"

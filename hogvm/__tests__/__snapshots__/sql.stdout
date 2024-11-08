@@ -1,0 +1,3 @@
+{'__hog_ast': 'SelectQuery', 'select': [{'__hog_ast': 'Field', 'chain': ['*']}, {'__hog_ast': 'Field', 'chain': ['event']}], 'select_from': {'__hog_ast': 'JoinExpr', 'table': {'__hog_ast': 'Field', 'chain': ['events']}}}
+[{'__hog_ast': 'Field', 'chain': ['*']}, {'__hog_ast': 'Field', 'chain': ['event']}]
+{'__hog_ast': 'SelectQuery', 'select': [{'__hog_ast': 'Field', 'chain': ['*']}], 'select_from': {'__hog_ast': 'JoinExpr', 'table': {'__hog_ast': 'Field', 'chain': ['events']}}, 'where': {'__hog_ast': 'CompareOperation', 'left': {'__hog_ast': 'Field', 'chain': ['event']}, 'right': '$pageview', 'op': '=='}}

@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any, Optional, cast, TYPE_CHECKING
+from typing import Any, Optional, cast, TYPE_CHECKING, Literal
 from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, BytecodeResult
@@ -105,6 +105,8 @@ def create_bytecode(
 
 
 class BytecodeCompiler(Visitor):
+    mode: Literal["hog", "ast"]
+
     def __init__(
         self,
         supported_functions: Optional[set[str]] = None,
@@ -116,6 +118,7 @@ class BytecodeCompiler(Visitor):
     ):
         super().__init__()
         self.enclosing = enclosing
+        self.mode = enclosing.mode if enclosing else "hog"
         self.supported_functions = supported_functions or set()
         self.in_repl = in_repl
         self.locals: list[Local] = locals or []
@@ -164,6 +167,11 @@ class BytecodeCompiler(Visitor):
         response.append(Operation.AND)
         response.append(len(node.exprs))
         return response
+
+    def visit(self, node: ast.AST | None):
+        if self.mode == "hog" or isinstance(node, ast.Placeholder):
+            return super().visit(node)
+        return self._visit_hog_ast(node)
 
     def visit_or(self, node: ast.Or):
         response = []
@@ -339,6 +347,11 @@ class BytecodeCompiler(Visitor):
             response.extend([Operation.JUMP_IF_STACK_NOT_NULL, len(if_null) + 1])
             response.extend([Operation.POP])
             response.extend(if_null)
+            return response
+        if node.name == "sql" and len(node.args) == 1:
+            self.mode = "ast"
+            response = self.visit(node.args[0])
+            self.mode = "hog"
             return response
 
         # HogQL functions can have two sets of parameters: asd(args) or asd(params)(args)
@@ -839,6 +852,24 @@ class BytecodeCompiler(Visitor):
         response.append(len(node.attributes) + 1)
         return response
 
+    def _visit_hog_ast(self, node: ast.AST):
+        response = []
+        response.extend([Operation.STRING, "__hog_ast"])
+        response.extend([Operation.STRING, node.__class__.__name__])
+        fields = 1
+        for field in dataclasses.fields(node):
+            if field.name in ["start", "end", "type"]:
+                continue
+            value = getattr(node, field.name)
+            if value is None:
+                continue
+            response.extend([Operation.STRING, field.name])
+            response.extend(self._visit_hogqlx_value(value))
+            fields += 1
+        response.append(Operation.DICT)
+        response.append(fields)
+        return response
+
     def _visit_hogqlx_value(self, value: Any) -> list[Any]:
         if isinstance(value, AST):
             return self.visit(value)
@@ -853,6 +884,14 @@ class BytecodeCompiler(Visitor):
                 elems.extend(self._visit_hogqlx_value(k))
                 elems.extend(self._visit_hogqlx_value(v))
             return [*elems, Operation.DICT, len(value.items())]
+        if isinstance(value, ast.AST):
+            if isinstance(value, ast.Placeholder):
+                # TODO: this is a nested placeholder?
+                self.mode = "hog"
+                response = self.visit(value.expr)
+                self.mode = "ast"
+                return response
+            return self._visit_hog_ast(value)
         if isinstance(value, StrEnum):
             return [Operation.STRING, value.value]
         if isinstance(value, int):
@@ -866,6 +905,24 @@ class BytecodeCompiler(Visitor):
         if value is False:
             return [Operation.FALSE]
         return [Operation.NULL]
+
+    def visit_placeholder(self, node: ast.Placeholder):
+        if self.mode == "ast":
+            self.mode = "hog"
+            result = self.visit(node.expr)
+            self.mode = "ast"
+            return result
+        raise QueryError("Placeholders are not allowed in this context")
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        # Select queries trigger AST-mode always
+        last_mode = self.mode
+        self.mode = "ast"
+        response = self._visit_hog_ast(node)
+        self.mode = last_mode
+        return response
+
+    # TODO: select unions, etc
 
 
 def execute_hog(

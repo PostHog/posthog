@@ -284,7 +284,7 @@ export interface HogQLVariable {
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
-    query: string
+    query: string | Record<string, any>
     filters?: HogQLFilters
     /** Variables to be subsituted into the query */
     variables?: Record<string, HogQLVariable>
