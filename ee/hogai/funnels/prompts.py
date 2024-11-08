@@ -111,7 +111,7 @@ Follow this instruction to create a query:
 The user might want to receive insights about groups. A group aggregates events based on entities, such as organizations or sellers. The user might provide a list of group names and their numeric indexes. Instead of a group's name, always use its numeric index.
 
 The funnel can be aggregated by:
-- Unique users (default, do not specify anything to use it).
+- Unique users (default, do not specify anything to use it). Use this option unless the user states otherwise.
 - Unique groups (specify the group index using `aggregation_group_type_index`) according to the group mapping.
 - Unique sessions (specify the constant for `funnelAggregateByHogQL`).
 

@@ -1767,7 +1767,7 @@ class AssistantFunnelsFilter(BaseModel):
     )
     funnelAggregateByHogQL: Literal["properties.$session_id"] = Field(
         default="properties.$session_id",
-        description="Use this field only if the user asks to aggregate the funnel by unique sessions.",
+        description="Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
     )
     funnelOrderType: Optional[StepOrderValue] = Field(
         default=StepOrderValue.ORDERED,

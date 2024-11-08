@@ -1037,7 +1037,7 @@ export interface AssistantFunnelsFilter {
      */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
     /**
-     * Use this field only if the user asks to aggregate the funnel by unique sessions.
+     * Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
      */
     funnelAggregateByHogQL?: 'properties.$session_id'
 }
