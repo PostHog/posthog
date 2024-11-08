@@ -768,6 +768,7 @@ impl FeatureFlagMatcher {
 
             // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
+                // Get the person ID for the current distinct ID – this value should be cached at this point, but as a fallback we fetch from the database
                 let person_id = self.get_person_id().await?;
                 if !self
                     .evaluate_cohort_filters(
@@ -1472,7 +1473,7 @@ async fn fetch_and_locally_cache_all_properties(
     Ok(())
 }
 
-/// Fetch person properties from the database for a given distinct ID and team ID.
+/// Fetch person properties and person ID from the database for a given distinct ID and team ID.
 ///
 /// This function constructs and executes a SQL query to fetch the person properties for a specified distinct ID and team ID.
 /// It returns the fetched properties as a HashMap.
@@ -1572,11 +1573,11 @@ fn locally_computable_property_overrides(
 /// Check if all properties match the given filters
 fn all_properties_match(
     flag_condition_properties: &[PropertyFilter],
-    target_properties: &HashMap<String, Value>,
+    matching_property_values: &HashMap<String, Value>,
 ) -> bool {
     flag_condition_properties
         .iter()
-        .all(|property| match_property(property, target_properties, false).unwrap_or(false))
+        .all(|property| match_property(property, matching_property_values, false).unwrap_or(false))
 }
 
 async fn get_feature_flag_hash_key_overrides(
