@@ -131,17 +131,20 @@ def configure_logger_sync(
         logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
-    context = copy_context()
-    listener_thread = threading.Thread(target=context.run, args=(log_producer.listen,), daemon=True)
+    listener_thread = threading.Thread(target=log_producer.listen, daemon=True)
     listener_thread.start()
 
     def worker_shutdown_handler():
+        if not temporalio.activity.in_activity():
+            return
+
         temporalio.activity.wait_for_worker_shutdown_sync()
         log_queue.put(None)
         log_queue.join()
         listener_thread.join()
 
-    shutdown_thread = threading.Thread(target=worker_shutdown_handler, daemon=True)
+    context = copy_context()
+    shutdown_thread = threading.Thread(target=context.run, args=(worker_shutdown_handler,), daemon=True)
     shutdown_thread.start()
 
 
