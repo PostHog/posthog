@@ -1,6 +1,6 @@
 from django.test import override_settings
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
     EventsNode,
@@ -57,6 +57,18 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             start_date=timezone.now(),
             end_date=timezone.now() + timedelta(days=14),
         )
+
+    def create_holdout_for_experiment(self, experiment: Experiment):
+        holdout = ExperimentHoldout.objects.create(
+            experiment=experiment,
+            team=self.team,
+            name="Test Experiment holdout",
+        )
+        holdout.filters = [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout.id}"}]
+        holdout.save()
+        experiment.holdout = holdout
+        experiment.save()
+        return holdout
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
@@ -304,6 +316,66 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.absolute_exposure, 2)
         self.assertEqual(test_result.absolute_exposure, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner_with_holdout(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        holdout = self.create_holdout_for_experiment(experiment)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        # Populate experiment events
+        for variant, count in [("control", 11), ("test", 15), (f"holdout-{holdout.id}", 18)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={feature_flag_property: variant},
+                )
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9), (f"holdout-{holdout.id}", 10)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    properties={feature_flag_property: variant},
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 3)
+
+        control_result = next(variant for variant in result.variants if variant.key == "control")
+        test_result = next(variant for variant in result.variants if variant.key == "test")
+        holdout_result = next(variant for variant in result.variants if variant.key == f"holdout-{holdout.id}")
+
+        self.assertEqual(control_result.count, 11)
+        self.assertEqual(test_result.count, 15)
+        self.assertEqual(holdout_result.count, 18)
+        self.assertEqual(control_result.absolute_exposure, 7)
+        self.assertEqual(test_result.absolute_exposure, 9)
+        self.assertEqual(holdout_result.absolute_exposure, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_avg_math(self):
