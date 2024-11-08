@@ -55,26 +55,12 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             if (newInsightType === InsightType.TRENDS) {
                                 setExperiment({
-                                    metrics: [
-                                        {
-                                            type: 'primary',
-                                            query: getDefaultTrendsMetric(),
-                                        },
-                                        ...experiment.metrics.slice(1),
-                                    ],
+                                    metrics: [getDefaultTrendsMetric()],
                                 })
-                                console.log(experiment.metrics[0].query)
                             } else {
                                 setExperiment({
-                                    metrics: [
-                                        {
-                                            type: 'primary',
-                                            query: getDefaultFunnelsMetric(),
-                                        },
-                                        ...experiment.metrics.slice(1),
-                                    ],
+                                    metrics: [getDefaultFunnelsMetric()],
                                 })
-                                console.log(experiment.metrics[0].query)
                             }
                         } else {
                             setExperiment({
@@ -102,8 +88,8 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             return queryNodeToFilter(
-                                (experiment.metrics[0].query as ExperimentTrendsQuery).count_query ||
-                                    (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query
+                                (experiment.metrics[0] as ExperimentTrendsQuery).count_query ||
+                                    (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
                             )
                         }
                         return experiment.filters
@@ -211,10 +197,10 @@ export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps
                         query={{
                             kind: NodeKind.InsightVizNode,
                             source: (() => {
-                                if (experiment.metrics[0].query.kind === NodeKind.ExperimentTrendsQuery) {
-                                    return experiment.metrics[0].query.count_query
+                                if (experiment.metrics[0].kind === NodeKind.ExperimentTrendsQuery) {
+                                    return experiment.metrics[0].count_query
                                 }
-                                return experiment.metrics[0].query.funnels_query
+                                return experiment.metrics[0].funnels_query
                             })(),
                             showTable: false,
                             showLastComputation: true,
@@ -276,10 +262,9 @@ export function FunnelAggregationSelect(): JSX.Element {
     let value
     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
         value = getHogQLValue(
-            (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query.aggregation_group_type_index ??
-                undefined,
-            (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query.funnelsFilter
-                ?.funnelAggregateByHogQL ?? undefined
+            (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query.aggregation_group_type_index ?? undefined,
+            (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query.funnelsFilter?.funnelAggregateByHogQL ??
+                undefined
         )
     } else {
         value = getHogQLValue(
@@ -401,7 +386,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     value={(() => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query?.funnelsFilter
+                            return (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query?.funnelsFilter
                                 ?.funnelWindowInterval
                         }
                         return (experiment.filters as FunnelsFilterType).funnel_window_interval
@@ -428,7 +413,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     value={(() => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query?.funnelsFilter
+                            return (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query?.funnelsFilter
                                 ?.funnelWindowIntervalUnit
                         }
                         return (experiment.filters as FunnelsFilterType).funnel_window_interval_unit
@@ -465,8 +450,8 @@ export function FunnelAttributionSelect(): JSX.Element {
     let stepsLength
     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
         stepsLength =
-            (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query?.series?.length ||
-            (experiment.metrics[0].query as ExperimentTrendsQuery).count_query?.series?.length
+            (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query?.series?.length ||
+            (experiment.metrics[0] as ExperimentTrendsQuery).count_query?.series?.length
     } else {
         stepsLength = Math.max(
             experiment.filters.actions?.length ?? 0,
@@ -519,10 +504,10 @@ export function FunnelAttributionSelect(): JSX.Element {
                     let breakdownAttributionType
                     let breakdownAttributionValue
                     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        breakdownAttributionType = (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query
+                        breakdownAttributionType = (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
                             ?.funnelsFilter?.breakdownAttributionType
-                        breakdownAttributionValue = (experiment.metrics[0].query as ExperimentFunnelsQuery)
-                            .funnels_query?.funnelsFilter?.breakdownAttributionValue
+                        breakdownAttributionValue = (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
+                            ?.funnelsFilter?.breakdownAttributionValue
                     } else {
                         breakdownAttributionType = (experiment.filters as FunnelsFilterType).breakdown_attribution_type
                         breakdownAttributionValue = (experiment.filters as FunnelsFilterType)
@@ -601,8 +586,8 @@ export function InsightTestAccountFilter(): JSX.Element | null {
                 // :FLAG: CLEAN UP AFTER MIGRATION
                 if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                     const val =
-                        (experiment.metrics[0].query as ExperimentFunnelsQuery).funnels_query?.filterTestAccounts ||
-                        (experiment.metrics[0].query as ExperimentTrendsQuery).count_query?.filterTestAccounts
+                        (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query?.filterTestAccounts ||
+                        (experiment.metrics[0] as ExperimentTrendsQuery).count_query?.filterTestAccounts
                     return hasFilters ? !!val : false
                 }
                 return hasFilters ? !!experiment.filters.filter_test_accounts : false

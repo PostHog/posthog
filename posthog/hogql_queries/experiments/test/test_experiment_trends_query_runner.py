@@ -567,3 +567,24 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_endpoint_with_params(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+        )
+
+        # Call the query endpoint directly with query parameters
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/query?param1=value1&param2=value2",
+            {"query": experiment_query.model_dump()},
+        )
+        print("response", response.json())
+        self.assertEqual(response.status_code, 200)
+        # Add assertions here once we confirm how to access the params

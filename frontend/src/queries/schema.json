@@ -5215,11 +5215,14 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
                 }
             },
-            "required": ["experiment_id", "funnels_query", "kind"],
+            "required": ["funnels_query", "kind"],
             "type": "object"
         },
         "ExperimentFunnelsQueryResponse": {
@@ -5310,11 +5313,14 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
                 }
             },
-            "required": ["count_query", "experiment_id", "kind"],
+            "required": ["count_query", "kind"],
             "type": "object"
         },
         "ExperimentTrendsQueryResponse": {

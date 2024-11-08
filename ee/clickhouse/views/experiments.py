@@ -194,6 +194,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "updated_at",
             "type",
             "metrics",
+            "metrics_secondary",
         ]
         read_only_fields = [
             "id",
