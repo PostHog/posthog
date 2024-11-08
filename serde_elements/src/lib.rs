@@ -1,9 +1,16 @@
-//! Python extension to deserialize chains of HTML elements as serialized by PostHog
+//! Python extension to deserialize chains of HTML elements as serialized by PostHog.
+//!
+//! The PostHog serialization format of HTML elements requires several regular
+//! expressions to deserialize, and in hot parts of the application the reference
+//! Python code this can be very slow. This extension provides a parallelized
+//! version of the deserialization running in Rust. During bench-marking, we saw
+//! deserialization take one third of the time it takes with the reference Python
+//! implementation.
 use std::collections;
 
 use once_cell::sync::Lazy;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyList};
+use pyo3::types::IntoPyDict;
 use rayon::prelude::*;
 use regex::{Regex, RegexBuilder};
 
@@ -22,9 +29,11 @@ static PARSE_ATTRIBUTES_REGEX: Lazy<Regex> = Lazy::new(|| {
         .expect("hard-coded regular expression should be valid")
 });
 
-/// Represents an HTML element.
+/// Represents a PostHog HTML element.
 ///
-/// Meant to replicate a PostHog `Element` model internally.
+/// Meant to replicate a PostHog `Element` Django model internally.
+/// This struct implements `IntoPy` to allow conversion into a Python
+/// dictionary.
 struct Element {
     order: usize,
     text: Option<String>,
@@ -37,6 +46,9 @@ struct Element {
     attributes: collections::HashMap<String, String>,
 }
 
+/// Implementation of `Element`.
+///
+/// Provides mutable access to all of the Element's attributes.
 impl Element {
     fn new_with_order(order: usize) -> Self {
         Self {
@@ -93,38 +105,49 @@ impl Element {
 }
 
 impl IntoPy<PyObject> for Element {
-    /// Convert a Rust `Element` into a Python dictionary.
+    /// Convert an `Element` struct into a Python dictionary.
+    ///
+    /// This dictionary will match the Django `Element` model (except for
+    /// foreign keys).
     fn into_py(self, py: Python<'_>) -> PyObject {
         let dict = &[("order", self.order)].into_py_dict_bound(py);
 
-        dict.set_item("attributes", self.attributes);
+        dict.set_item("attributes", self.attributes)
+            .expect("Python dictionary failed to insert `attributes`");
 
         if let Some(tag_name) = self.tag_name {
-            dict.set_item("tag_name", tag_name);
+            dict.set_item("tag_name", tag_name)
+                .expect("Python dictionary failed to insert `tag_name`");
         }
 
         if self.attr_class.len() > 0 {
-            dict.set_item("attr_class", self.attr_class);
+            dict.set_item("attr_class", self.attr_class)
+                .expect("Python dictionary failed to insert `attr_class`");
         }
 
         if let Some(href) = self.href {
-            dict.set_item("href", href);
+            dict.set_item("href", href)
+                .expect("Python dictionary failed to insert `href`");
         }
 
         if let Some(nth_child) = self.nth_child {
-            dict.set_item("nth_child", nth_child);
+            dict.set_item("nth_child", nth_child)
+                .expect("Python dictionary failed to insert `nth_child`");
         }
 
         if let Some(nth_of_type) = self.nth_of_type {
-            dict.set_item("nth_of_type", nth_of_type);
+            dict.set_item("nth_of_type", nth_of_type)
+                .expect("Python dictionary failed to insert `nth_of_type`");
         }
 
         if let Some(text) = self.text {
-            dict.set_item("text", text);
+            dict.set_item("text", text)
+                .expect("Python dictionary failed to insert `text`");
         }
 
         if let Some(attr_id) = self.attr_id {
-            dict.set_item("attr_id", attr_id);
+            dict.set_item("attr_id", attr_id)
+                .expect("Python dictionary failed to insert `attr_id`");
         }
 
         dict.into_py(py)
@@ -136,8 +159,20 @@ impl IntoPy<PyObject> for Element {
 /// This function mimics the `chain_to_elements` Python function provided
 /// by the `posthog.models.element.elements` module. The only difference is
 /// that this function returns a dictionary instead of a Django model.
+///
+/// This function is divided into 3 parts (each associated with a regular
+/// expression):
+/// 1. Iterating over HTML elements stored in a chain.
+/// 2. Recording HTML class tags and class attributes of each HTML element.
+/// 3. Recording all other HTML attributes from the HTML element.
+/// Each iteration creates an `Element` struct to record everything, and
+/// only once we are done deserializing everything do we acquire the GIL and
+/// Output the result as a Python dictionary.
+///
+/// We parallelize iteration over HTML elements using `rayon` for blazing
+/// speed.
 #[pyfunction]
-pub fn chain_to_elements_dict(chain: &str) -> PyResult<PyObject> {
+pub fn deserialize(chain: &str) -> PyResult<PyObject> {
     let elements: Vec<Element> = SPLIT_CHAIN_REGEX
         .find_iter(chain)
         .collect::<Vec<regex::Match<'_>>>()
@@ -189,8 +224,9 @@ pub fn chain_to_elements_dict(chain: &str) -> PyResult<PyObject> {
     Python::with_gil(|py| Ok(elements.into_py(py)))
 }
 
+/// Provides the `serde_elements` Python module.
 #[pymodule]
-fn elements(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(chain_to_elements_dict, m)?)?;
+fn serde_elements(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     Ok(())
 }

@@ -1,10 +1,10 @@
 [package]
-name = "elements"
+name = "serde-elements"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "elements"
+name = "serde_elements"
 crate-type = ["cdylib"]
 
 [dependencies]
