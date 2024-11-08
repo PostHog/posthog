@@ -354,7 +354,6 @@ pub async fn insert_person_for_team_in_pg(
     .await?;
 
     let person_id: i32 = row.get::<i32, _>("person_id");
-    // println!("Inserted person with ID: {}", person_id); // Log the inserted person_id
     Ok(person_id)
 }
 
