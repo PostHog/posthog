@@ -321,7 +321,6 @@ class SocialSignupSerializer(serializers.Serializer):
     organization_name: serializers.Field = serializers.CharField(max_length=128)
     first_name: serializers.Field = serializers.CharField(max_length=128)
     role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
-    invite_id: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -335,7 +334,6 @@ class SocialSignupSerializer(serializers.Serializer):
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
         first_name = validated_data["first_name"]
-        invite_id = validated_data["invite_id"]
 
         serializer = SignupSerializer(
             data={
@@ -344,7 +342,6 @@ class SocialSignupSerializer(serializers.Serializer):
                 "email": email,
                 "password": None,
                 "role_at_organization": role_at_organization,
-                "invite_id": invite_id,
             },
             context={"request": request},
         )
