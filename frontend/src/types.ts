@@ -4728,3 +4728,9 @@ export type ReplayTemplateVariableType = {
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
 }
+
+export type GoogleAdsConversionActionType = {
+    id: string
+    name: string
+    resourceName: string
+}

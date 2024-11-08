@@ -3,11 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-// import { SlackChannelType } from '~/types'
-type GoogleAdsConversionActionType = {
-    id: string
-    name: string
-}
+import { GoogleAdsConversionActionType } from '~/types'
 
 import type { googleAdsIntegrationLogicType } from './googleAdsIntegrationLogicType'
 
@@ -34,7 +30,7 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
             },
         ],
         googleAdsAccessibleAccounts: [
-            null as string[] | null,
+            null as { id: string }[] | null,
             {
                 loadGoogleAdsAccessibleAccounts: async () => {
                     const res = await api.integrations.googleAdsAccounts(props.id)

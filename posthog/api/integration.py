@@ -107,7 +107,7 @@ class IntegrationViewSet(
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
 
-        conversionActions = [
+        conversion_actions = [
             {
                 "id": conversionAction["conversionAction"]["id"],
                 "name": conversionAction["conversionAction"]["name"],
@@ -116,18 +116,18 @@ class IntegrationViewSet(
             for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id)[0]["results"]
         ]
 
-        return Response({"conversionActions": conversionActions})
+        return Response({"conversionActions": conversion_actions})
 
     @action(methods=["GET"], detail=True, url_path="accessibleAccounts")
     def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
 
-        accessibleAccounts = [
+        accessible_accounts = [
             {
                 "id": accountId,
             }
             for accountId in google_ads.list_google_ads_accessible_accounts()["resourceNames"]
         ]
 
-        return Response({"accessibleAccounts": accessibleAccounts})
+        return Response({"accessibleAccounts": accessible_accounts})

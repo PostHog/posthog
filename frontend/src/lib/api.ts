@@ -57,6 +57,7 @@ import {
     ExternalDataSourceType,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
+    GoogleAdsConversionActionType,
     Group,
     GroupListParams,
     HogFunctionIconResponse,
@@ -2399,13 +2400,13 @@ const api = {
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
         },
-        async googleAdsAccounts(id: IntegrationType['id']): Promise<{ accessibleAccounts: { id: string } }> {
+        async googleAdsAccounts(id: IntegrationType['id']): Promise<{ accessibleAccounts: { id: string }[] }> {
             return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
         },
         async googleAdsConversionActions(
             id: IntegrationType['id'],
             customerId: string
-        ): Promise<{ conversionActions: { id: string; name: string; resourceName: string } }> {
+        ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
             return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
         },
     },

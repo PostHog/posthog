@@ -2,7 +2,7 @@ import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IntegrationType } from '~/types'
+import { GoogleAdsConversionActionType, IntegrationType } from '~/types'
 
 import { googleAdsIntegrationLogic } from './googleAdsIntegrationLogic'
 
@@ -21,7 +21,7 @@ const getGoogleAdsAccountOptions = (googleAdsAccounts?: { id: string }[] | null)
 }
 
 const getGoogleAdsConversionActionOptions = (
-    googleAdsConversionActions?: { id: string }[] | null
+    googleAdsConversionActions?: GoogleAdsConversionActionType[] | null
 ): LemonInputSelectOption[] | null => {
     return googleAdsConversionActions
         ? googleAdsConversionActions.map(({ id, name }) => ({
@@ -65,6 +65,7 @@ export function GoogleAdsConversionActionPicker({
                 onFocus={() =>
                     !googleAdsConversionActions &&
                     !googleAdsConversionActionsLoading &&
+                    requiredFieldValue &&
                     loadGoogleAdsConversionActions(requiredFieldValue)
                 }
                 disabled={disabled}
