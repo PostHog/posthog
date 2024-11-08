@@ -2,7 +2,10 @@ import asyncio
 import json
 import logging
 import ssl
+import threading
 import uuid
+from kafka import KafkaProducer
+import queue as sync_queue
 
 import aiokafka
 import structlog
@@ -20,7 +23,7 @@ BACKGROUND_LOGGER_TASKS = set()
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers."""
     if not structlog.is_configured():
-        configure_logger()
+        configure_logger_async()
 
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
@@ -31,7 +34,7 @@ async def bind_temporal_worker_logger(team_id: int, destination: str | None = No
 def bind_temporal_worker_logger_sync(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers."""
     if not structlog.is_configured():
-        configure_logger()
+        configure_logger_sync()
 
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
@@ -44,7 +47,7 @@ async def configure_temporal_worker_logger(
 ) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers."""
     if not structlog.is_configured():
-        configure_logger()
+        configure_logger_async()
 
     temporal_context = get_temporal_context()
 
@@ -56,7 +59,7 @@ async def bind_temporal_org_worker_logger(
 ) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers scoped by organization instead of team."""
     if not structlog.is_configured():
-        configure_logger()
+        configure_logger_async()
 
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
@@ -64,14 +67,91 @@ async def bind_temporal_org_worker_logger(
     return logger.new(organization_id=str(organization_id), destination=destination, **temporal_context)
 
 
-def configure_logger(
+def configure_logger_sync(
+    logger_factory=structlog.PrintLoggerFactory,
+    extra_processors: list[structlog.types.Processor] | None = None,
+    queue: sync_queue.Queue | None = None,
+    producer: KafkaProducer | None = None,
+    cache_logger_on_first_use: bool = True,
+) -> None:
+    """Configure a sync StructLog logger for temporal workflows.
+
+    Keep up to date with the async version `configure_logger_async`
+
+    Configuring the logger involves:
+    * Setting up processors.
+    * Spawning a task to listen for Kafka logs.
+    * Spawning a task to shutdown gracefully on worker shutdown.
+
+    Args:
+        logger_factory: Optionally, override the logger_factory.
+        extra_processors: Optionally, add any processors at the end of the chain.
+        queue: Optionally, bring your own log queue.
+        producer: Optionally, bring your own Kafka producer.
+        cache_logger_on_first_use: Set whether to cache logger for performance.
+            Should always be True except in tests.
+    """
+
+    base_processors: list[structlog.types.Processor] = [
+        structlog.processors.add_log_level,
+        structlog.processors.format_exc_info,
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
+        structlog.stdlib.PositionalArgumentsFormatter(),
+    ]
+
+    log_queue = queue if queue is not None else sync_queue.Queue(maxsize=-1)
+    log_producer = None
+    log_producer_error = None
+
+    try:
+        log_producer = KafkaLogProducerFromQueueSync(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
+    except Exception as e:
+        # Skip putting logs in queue if we don't have a producer that can consume the queue.
+        # We save the error to log it later as the logger hasn't yet been configured at this time.
+        log_producer_error = e
+    else:
+        put_in_queue = PutInLogQueueProcessor(log_queue)
+        base_processors.append(put_in_queue)
+
+    base_processors += [
+        EventRenamer("msg"),
+        structlog.processors.JSONRenderer(),
+    ]
+    extra_processors_to_add = extra_processors if extra_processors is not None else []
+
+    structlog.configure(
+        processors=base_processors + extra_processors_to_add,
+        logger_factory=logger_factory(),
+        cache_logger_on_first_use=cache_logger_on_first_use,
+    )
+
+    if log_producer is None:
+        logger = structlog.get_logger()
+        logger.error("Failed to initialize log producer", exc_info=log_producer_error)
+        return
+
+    listener_thread = threading.Thread(target=log_producer.listen, daemon=True)
+    listener_thread.start()
+
+    def worker_shutdown_handler():
+        temporalio.activity.wait_for_worker_shutdown_sync()
+        log_queue.join()
+        listener_thread.join()
+
+    shutdown_thread = threading.Thread(target=worker_shutdown_handler, daemon=True)
+    shutdown_thread.start()
+
+
+def configure_logger_async(
     logger_factory=structlog.PrintLoggerFactory,
     extra_processors: list[structlog.types.Processor] | None = None,
     queue: asyncio.Queue | None = None,
     producer: aiokafka.AIOKafkaProducer | None = None,
     cache_logger_on_first_use: bool = True,
 ) -> None:
-    """Configure a StructLog logger for batch exports.
+    """Configure a StructLog logger for temporal workflows.
+
+    Keep up to date with the sync version `configure_logger_sync`
 
     Configuring the logger involves:
     * Setting up processors.
@@ -98,7 +178,7 @@ def configure_logger(
     log_producer_error = None
 
     try:
-        log_producer = KafkaLogProducerFromQueue(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
+        log_producer = KafkaLogProducerFromQueueAsync(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
     except Exception as e:
         # Skip putting logs in queue if we don't have a producer that can consume the queue.
         # We save the error to log it later as the logger hasn't yet been configured at this time.
@@ -161,7 +241,7 @@ class PutInLogQueueProcessor:
     We format event_dict as a message to be sent to Kafka by a queue listener.
     """
 
-    def __init__(self, queue: asyncio.Queue):
+    def __init__(self, queue: asyncio.Queue | sync_queue.Queue):
         self.queue = queue
 
     def __call__(
@@ -262,10 +342,10 @@ def attempt_to_fetch_activity_info() -> Info | None:
     return (workflow_id, workflow_type, workflow_run_id, attempt)
 
 
-class KafkaLogProducerFromQueue:
+class KafkaLogProducerFromQueueAsync:
     """Produce log messages to Kafka by getting them from a queue.
 
-    This KafkaLogProducerFromQueue was designed to ingest logs into the ClickHouse log_entries table.
+    This KafkaLogProducerFromQueueAsync was designed to ingest logs into the ClickHouse log_entries table.
     For this reason, the messages we produce to Kafka are serialized as JSON in the schema expected by
     the log_entries table. Eventually, we could de-couple this producer from the table schema, but
     schema changes are rare in ClickHouse, and for now we are only using this for logs, so the tight
@@ -340,6 +420,51 @@ class KafkaLogProducerFromQueue:
 
     def mark_queue_done(self, _=None):
         self.queue.task_done()
+
+
+class KafkaLogProducerFromQueueSync:
+    """Produce log messages to Kafka by getting them from a queue."""
+
+    def __init__(self, queue: sync_queue.Queue, topic: str = KAFKA_LOG_ENTRIES, key: str | None = None, producer=None):
+        self.queue = queue
+        self.topic = topic
+        self.key = key
+        self.producer = producer or KafkaProducer(
+            bootstrap_servers=settings.KAFKA_HOSTS,
+            security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+            acks="all",
+            api_version=(2, 5, 0),
+            ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),  # Serialize JSON
+        )
+        self.logger = structlog.get_logger()
+
+    def listen(self):
+        """Listen to messages in the queue and produce them to Kafka."""
+        try:
+            while True:
+                msg = self.queue.get()
+                if msg is None:  # Stop signal
+                    break
+                self.produce(msg)
+        finally:
+            self.flush()
+
+    def produce(self, msg: bytes):
+        """Produce messages to configured topic and key."""
+        try:
+            self.producer.send(self.topic, value=msg, key=self.key.encode("utf-8") if self.key else None).get(
+                timeout=10
+            )
+        except Exception as e:
+            self.logger.exception(f"Failed to produce log to Kafka topic {self.topic}: {e}")
+
+    def flush(self):
+        """Flush any remaining messages."""
+        try:
+            self.producer.flush()
+        except Exception as e:
+            self.logger.exception(f"Failed to flush producer: {e}")
 
 
 def configure_default_ssl_context():
