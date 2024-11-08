@@ -27,14 +27,14 @@ def log_capture():
 
 
 class QueueCapture(sync_queue.Queue):
-    """A test asyncio.Queue that captures items that we put into it."""
+    """A test queue.Queue that captures items that we put into it."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.entries = []
 
     def put_nowait(self, item):
-        """Append item to entries and delegate to asyncio.Queue."""
+        """Append item to entries and delegate to queue.Queue."""
         self.entries.append(item)
         super().put_nowait(item)
 
@@ -89,13 +89,13 @@ class CaptureKafkaProducer:
         return self.producer._closed
 
 
-@pytest.fixture(scope="function")
-def producer(event_loop):
+@pytest.fixture
+def producer():
     """Yield a CaptureKafkaProducer to inspect entries captured.
 
     After usage, we ensure the producer was closed to avoid leaking/warnings.
     """
-    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_HOSTS, loop=event_loop)
+    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_HOSTS)
 
     yield producer
 
