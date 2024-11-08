@@ -66,15 +66,15 @@ Supported operators for the Boolean type are:
 
 ## Exclusion Steps
 
-Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel.
+Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is zero and the maximum index is the number of steps minus one in the funnel.
 
-For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step will be:
+For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users have not navigated away before finishing the onboarding, the exclusion step will be:
 
 ```
-exclusions:
+Exclusions:
 - $pageleave
-    - start index: 2
-    - end index: 3
+    - start index: 0
+    - end index: 1
 ```
 
 ## Breakdown Series by a Property
@@ -131,7 +131,7 @@ Output:
 {"aggregation_group_type_index":0,"dateRange":{"date_from":"-6m"},"filterTestAccounts":true,"funnelsFilter":{"breakdownAttributionType":"first_touch","funnelOrderType":"ordered","funnelVizType":"trends","funnelWindowInterval":14,"funnelWindowIntervalUnit":"day"},"interval":"month","kind":"FunnelsQuery","series":[{"event":"first team event ingested","kind":"EventsNode"},{"event":"insight saved","kind":"EventsNode"}]}
 ```
 
-### Question: What percentage of users have clicked the CTA on the signup page within one day for the last 6 months on different platforms?
+### Question: What percentage of users have clicked the CTA on the signup page within one hour on different platforms in the last six months without leaving the page?
 
 Plan:
 ```
@@ -145,6 +145,11 @@ Sequence:
         - operator: contains
         - value: signup
 
+Exclusions:
+- $pageleave
+    - start index: 1
+    - end index: 2
+
 Breakdown:
 - event
 - $os
@@ -152,9 +157,25 @@ Breakdown:
 
 Output:
 ```
-{"kind":"FunnelsQuery","series":[{"kind":"EventsNode","event":"$pageview","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]},{"kind":"EventsNode","event":"click subscribe button","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]}],"interval":"week","dateRange":{"date_from":"-180d"},"funnelsFilter":{"funnelWindowInterval":1,"funnelWindowIntervalUnit":"day"},"filterTestAccounts":true,"breakdownFilter":{"breakdown_type":"event","breakdown":"$os"}}
+{"kind":"FunnelsQuery","series":[{"kind":"EventsNode","event":"$pageview","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]},{"kind":"EventsNode","event":"click subscribe button","properties":[{"key":"$current_url","type":"event","value":"signup","operator":"icontains"}]}],"interval":"week","dateRange":{"date_from":"-180d"},"funnelsFilter":{"funnelWindowInterval":1,"funnelWindowIntervalUnit":"hour","funnelOrderType":"ordered","exclusions":[{"kind":"EventsNode","event":"$pageleave","funnelFromStep":0,"funnelToStep":1}]},"filterTestAccounts":true,"breakdownFilter":{"breakdown_type":"event","breakdown":"$os"}}
 ```
 
+### Question: rate of credit card purchases from viewing the product without any events in between
+
+Plan:
+```
+Sequence:
+1. view product
+2. purchase
+    - paymentMethod
+        - operator: exact
+        - value: credit_card
+```
+
+Output:
+```
+{"dateRange":{"date_from":"-30d"},"filterTestAccounts":true,"funnelsFilter":{"funnelOrderType":"strict","funnelWindowInterval":14,"funnelWindowIntervalUnit":"day"},"interval":"month","kind":"FunnelsQuery","series":[{"event":"view product","kind":"EventsNode"},{"event":"purchase","kind":"EventsNode","properties":[{"key":"paymentMethod","type":"event","value":"credit_card","operator":"exact"}]}]}
+```
 
 Obey these rules:
 - If the date range is not specified, use the best judgment to select a reasonable date range. By default, use the last 30 days.
