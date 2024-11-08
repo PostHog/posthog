@@ -1,7 +1,6 @@
 from collections.abc import Generator
 from typing import Any, Literal, TypedDict, TypeGuard, Union
 
-from langchain_core.globals import set_debug, set_verbose
 from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import StateGraph
@@ -29,9 +28,6 @@ from posthog.schema import (
     AssistantGenerationStatusType,
     VisualizationMessage,
 )
-
-set_debug(True)
-set_verbose(True)
 
 if settings.LANGFUSE_PUBLIC_KEY:
     langfuse_handler = CallbackHandler(
