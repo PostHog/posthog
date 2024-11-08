@@ -29,9 +29,12 @@ class FunnelPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
         return super()._run(state, toolkit, config=config)
 
 
+FunnelsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantFunnelsQuery]
+
+
 class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
     insight_name = "Funnels"
-    output_model = SchemaGeneratorOutput[AssistantFunnelsQuery]
+    output_model = FunnelsSchemaGeneratorOutput
 
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
