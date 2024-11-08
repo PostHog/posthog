@@ -316,62 +316,57 @@ export function SummaryTable(): JSX.Element {
         title: '',
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
-            const exposure = exposureCountDataForVariant(experimentResults, variantKey)
             return (
-                <>
-                    {exposure ? (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconRewindPlay />}
-                            tooltip="Watch recordings of people who were exposed to this variant."
-                            type="secondary"
-                            onClick={() => {
-                                const filters: UniversalFiltersGroupValue[] = [
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconRewindPlay />}
+                    tooltip="Watch recordings of people who were exposed to this variant."
+                    type="secondary"
+                    onClick={() => {
+                        const filters: UniversalFiltersGroupValue[] = [
+                            {
+                                id: '$feature_flag_called',
+                                name: '$feature_flag_called',
+                                type: 'events',
+                                properties: [
                                     {
-                                        id: '$feature_flag_called',
-                                        name: '$feature_flag_called',
-                                        type: 'events',
-                                        properties: [
-                                            {
-                                                key: `$feature/${experiment.feature_flag_key}`,
-                                                type: PropertyFilterType.Event,
-                                                value: [variantKey],
-                                                operator: PropertyOperator.Exact,
-                                            },
-                                            {
-                                                key: `$feature/${experiment.feature_flag_key}`,
-                                                type: PropertyFilterType.Event,
-                                                value: 'is_set',
-                                                operator: PropertyOperator.IsSet,
-                                            },
-                                            {
-                                                key: '$feature_flag',
-                                                type: PropertyFilterType.Event,
-                                                value: experiment.feature_flag_key,
-                                                operator: PropertyOperator.Exact,
-                                            },
-                                        ],
+                                        key: `$feature/${experiment.feature_flag_key}`,
+                                        type: PropertyFilterType.Event,
+                                        value: [variantKey],
+                                        operator: PropertyOperator.Exact,
                                     },
-                                ]
-                                const filterGroup: Partial<RecordingUniversalFilters> = {
-                                    filter_group: {
+                                    {
+                                        key: `$feature/${experiment.feature_flag_key}`,
+                                        type: PropertyFilterType.Event,
+                                        value: 'is_set',
+                                        operator: PropertyOperator.IsSet,
+                                    },
+                                    {
+                                        key: '$feature_flag',
+                                        type: PropertyFilterType.Event,
+                                        value: experiment.feature_flag_key,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ]
+                        const filterGroup: Partial<RecordingUniversalFilters> = {
+                            filter_group: {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
                                         type: FilterLogicalOperator.And,
-                                        values: [
-                                            {
-                                                type: FilterLogicalOperator.And,
-                                                values: filters,
-                                            },
-                                        ],
+                                        values: filters,
                                     },
-                                }
-                                router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
-                                posthog.capture('viewed recordings from experiment', { variant: variantKey })
-                            }}
-                        >
-                            View recordings
-                        </LemonButton>
-                    ) : null}
-                </>
+                                ],
+                            },
+                        }
+                        router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
+                        posthog.capture('viewed recordings from experiment', { variant: variantKey })
+                    }}
+                >
+                    View recordings
+                </LemonButton>
             )
         },
     })
