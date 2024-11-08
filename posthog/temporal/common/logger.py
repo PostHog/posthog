@@ -1,4 +1,5 @@
 import asyncio
+from contextvars import copy_context
 import json
 import logging
 import ssl
@@ -130,7 +131,8 @@ def configure_logger_sync(
         logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
-    listener_thread = threading.Thread(target=log_producer.listen, daemon=True)
+    context = copy_context()
+    listener_thread = threading.Thread(target=context.run, args=(log_producer.listen,), daemon=True)
     listener_thread.start()
 
     def worker_shutdown_handler():
@@ -436,7 +438,6 @@ class KafkaLogProducerFromQueueSync:
             acks="all",
             api_version=(2, 5, 0),
             ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
-            value_serializer=lambda v: json.dumps(v).encode("utf-8"),  # Serialize JSON
         )
         self.logger = structlog.get_logger()
 
