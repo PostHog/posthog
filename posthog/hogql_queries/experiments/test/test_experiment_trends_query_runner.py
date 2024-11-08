@@ -338,7 +338,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
 
         # Populate experiment events
-        for variant, count in [("control", 11), ("test", 15), (f"holdout-{holdout.id}", 18)]:
+        for variant, count in [("control", 11), ("test", 15), (f"holdout-{holdout.id}", 8)]:
             for i in range(count):
                 _create_event(
                     team=self.team,
@@ -348,7 +348,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
 
         # Populate exposure events
-        for variant, count in [("control", 7), ("test", 9), (f"holdout-{holdout.id}", 10)]:
+        for variant, count in [("control", 7), ("test", 9), (f"holdout-{holdout.id}", 4)]:
             for i in range(count):
                 _create_event(
                     team=self.team,
@@ -372,10 +372,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 11)
         self.assertEqual(test_result.count, 15)
-        self.assertEqual(holdout_result.count, 18)
+        self.assertEqual(holdout_result.count, 4)
         self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 9)
-        self.assertEqual(holdout_result.absolute_exposure, 10)
+        self.assertEqual(holdout_result.absolute_exposure, 8)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_avg_math(self):
