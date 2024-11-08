@@ -20,5 +20,6 @@ CREATE TABLE IF NOT EXISTS posthog_errortrackingstackframe (
     symbol_set_id UUID,
     contents JSONB NOT NULL,
     resolved BOOLEAN NOT NULL,
+    context TEXT,
     UNIQUE(raw_id, team_id)
 );
