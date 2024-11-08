@@ -6,7 +6,9 @@ import psycopg
 import pytest
 import pytest_asyncio
 from psycopg import sql
+from temporalio.testing import ActivityEnvironment
 
+from posthog.temporal.common.utils import BatchExportRangeHeartbeatDetails, HeartbeatType
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -285,3 +287,22 @@ async def generate_test_data(ateam, clickhouse_client, exclude_events, data_inte
         persons_to_export_created.append(person_to_export)
 
     return (events_to_export_created, persons_to_export_created)
+
+
+class HeartbeatActivityEnvironment(ActivityEnvironment):
+    def __init__(self, *args, heartbeat_cls: type[HeartbeatType] = BatchExportRangeHeartbeatDetails, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.track_heartbeat_details = []
+        self.heartbeat_cls = heartbeat_cls
+        self.on_heartbeat = self.call_on_heartbeat
+
+    def call_on_heartbeat(self, *details):
+        """Record heartbeat details received."""
+        details = self.heartbeat_cls.from_activity_details(details)
+        self.track_heartbeat_details.append(details)
+
+
+@pytest.fixture
+def activity_environment():
+    """Return a testing temporal ActivityEnvironment."""
+    return HeartbeatActivityEnvironment()

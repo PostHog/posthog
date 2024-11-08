@@ -53,7 +53,8 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 from posthog.temporal.common.utils import (
-    BatchExportHeartbeatDetails,
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
     should_resume_from_activity_heartbeat,
 )
 
@@ -113,7 +114,7 @@ def get_bigquery_fields_from_record_schema(
 
 
 @dataclasses.dataclass
-class BigQueryHeartbeatDetails(BatchExportHeartbeatDetails):
+class BigQueryHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The BigQuery batch export details included in every heartbeat."""
 
     pass
@@ -366,12 +367,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
+        _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
+        if details is None:
+            details = BigQueryHeartbeatDetails()
 
-        if should_resume is True and details is not None:
-            data_interval_start: str | None = details.last_inserted_at.isoformat()
-        else:
-            data_interval_start = inputs.data_interval_start
+        done_ranges: list[DateRange] = details.done_ranges
 
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None and "batch_export_model" in {
@@ -392,13 +392,18 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
 
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        full_range = (data_interval_start, data_interval_end)
         queue, produce_task = start_produce_batch_export_record_batches(
             client=client,
             model_name=model_name,
             is_backfill=inputs.is_backfill,
             team_id=inputs.team_id,
-            interval_start=data_interval_start,
-            interval_end=inputs.data_interval_end,
+            full_range=full_range,
+            done_ranges=done_ranges,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             fields=fields,
@@ -490,7 +495,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     records_since_last_flush: int,
                     bytes_since_last_flush: int,
                     flush_counter: int,
-                    last_inserted_at,
+                    last_date_range,
                     last: bool,
                     error: Exception | None,
                 ):
@@ -508,7 +513,14 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    heartbeater.details = (str(last_inserted_at),)
+                    if len(details.done_ranges) == 0:
+                        if data_interval_start is None:
+                            last_date_range = (dt.datetime.fromtimestamp(0, tz=dt.UTC), last_date_range[1])
+                        else:
+                            last_date_range = (data_interval_start, last_date_range[1])
+
+                    details.insert_done_range(last_date_range)
+                    heartbeater.details = tuple(details.serialize_details())
 
                 flush_tasks = []
                 while not queue.empty() or not produce_task.done():

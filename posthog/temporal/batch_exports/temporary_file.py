@@ -17,6 +17,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
 
+from posthog.temporal.common.utils import DateRange
+
 logger = structlog.get_logger()
 
 
@@ -247,7 +249,6 @@ class BatchExportTemporaryFile:
         self.records_since_last_reset = 0
 
 
-LastInsertedAt = dt.datetime
 IsLast = bool
 RecordsSinceLastFlush = int
 BytesSinceLastFlush = int
@@ -258,7 +259,7 @@ FlushCallable = collections.abc.Callable[
         RecordsSinceLastFlush,
         BytesSinceLastFlush,
         FlushCounter,
-        LastInsertedAt,
+        DateRange,
         IsLast,
         Exception | None,
     ],
@@ -318,13 +319,21 @@ class BatchExportWriter(abc.ABC):
 
     def reset_writer_tracking(self):
         """Reset this writer's tracking state."""
-        self.last_inserted_at: dt.datetime | None = None
+        self.last_batch_start_at: dt.datetime | None = None
+        self.last_batch_end_at: dt.datetime | None = None
         self.records_total = 0
         self.records_since_last_flush = 0
         self.bytes_total = 0
         self.bytes_since_last_flush = 0
         self.flush_counter = 0
         self.error = None
+
+    @property
+    def last_date_range(self) -> tuple[dt.datetime, dt.datetime] | None:
+        if self.last_batch_start_at is not None and self.last_batch_end_at is not None:
+            return (self.last_batch_start_at, self.last_batch_end_at)
+        else:
+            return None
 
     @contextlib.asynccontextmanager
     async def open_temporary_file(self, current_flush_counter: int = 0):
@@ -352,12 +361,12 @@ class BatchExportWriter(abc.ABC):
             finally:
                 self.track_bytes_written(temp_file)
 
-                if self.last_inserted_at is not None and self.bytes_since_last_flush > 0:
+                if self.last_date_range is not None and self.bytes_since_last_flush > 0:
                     # `bytes_since_last_flush` should be 0 unless:
                     # 1. The last batch wasn't flushed as it didn't reach `max_bytes`.
                     # 2. The last batch was flushed but there was another write after the last call to
                     #    `write_record_batch`. For example, footer bytes.
-                    await self.flush(self.last_inserted_at, is_last=True)
+                    await self.flush(self.last_date_range, is_last=True)
 
                 self._batch_export_file = None
 
@@ -394,24 +403,38 @@ class BatchExportWriter(abc.ABC):
     async def write_record_batch(self, record_batch: pa.RecordBatch, flush: bool = True) -> None:
         """Issue a record batch write tracking progress and flushing if required."""
         record_batch = record_batch.sort_by("_inserted_at")
-        last_inserted_at = record_batch.column("_inserted_at")[-1].as_py()
+
+        if self.last_batch_start_at is None:
+            raw_start_at = record_batch.column("_inserted_at")[0].as_py()
+            if isinstance(raw_start_at, int):
+                try:
+                    self.last_batch_start_at = dt.datetime.fromtimestamp(raw_start_at, tz=dt.UTC)
+                except Exception:
+                    raise
+            else:
+                self.last_batch_start_at = raw_start_at
+
+        raw_end_at = record_batch.column("_inserted_at")[-1].as_py()
+        if isinstance(raw_end_at, int):
+            self.last_batch_end_at = dt.datetime.fromtimestamp(raw_end_at, tz=dt.UTC)
+        else:
+            self.last_batch_end_at = raw_end_at
 
         column_names = record_batch.column_names
         column_names.pop(column_names.index("_inserted_at"))
 
         await asyncio.to_thread(self._write_record_batch, record_batch.select(column_names))
 
-        self.last_inserted_at = last_inserted_at
         self.track_records_written(record_batch)
         self.track_bytes_written(self.batch_export_file)
 
         if flush and self.should_flush():
-            await self.flush(last_inserted_at)
+            await self.flush(self.last_date_range)
 
     def should_flush(self) -> bool:
         return self.bytes_since_last_flush >= self.max_bytes
 
-    async def flush(self, last_inserted_at: dt.datetime, is_last: bool = False) -> None:
+    async def flush(self, last_date_range: tuple[dt.datetime, dt.datetime], is_last: bool = False) -> None:
         """Call the provided `flush_callable` and reset underlying file.
 
         The underlying batch export temporary file will be reset after calling `flush_callable`.
@@ -426,7 +449,7 @@ class BatchExportWriter(abc.ABC):
             self.records_since_last_flush,
             self.bytes_since_last_flush,
             self.flush_counter,
-            last_inserted_at,
+            last_date_range,
             is_last,
             self.error,
         )
@@ -435,6 +458,8 @@ class BatchExportWriter(abc.ABC):
         self.records_since_last_flush = 0
         self.bytes_since_last_flush = 0
         self.flush_counter += 1
+        self.last_batch_start_at = None
+        self.last_batch_end_at = None
 
 
 class JSONLBatchExportWriter(BatchExportWriter):

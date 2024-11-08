@@ -27,6 +27,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
+    BigQueryHeartbeatDetails,
     BigQueryInsertInputs,
     bigquery_default_fields,
     get_bigquery_fields_from_record_schema,
@@ -54,14 +55,19 @@ pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asynci
 TEST_TIME = dt.datetime.now(dt.UTC)
 
 
+@pytest.fixture
+def activity_environment(activity_environment):
+    activity_environment.heartbeat_class = BigQueryHeartbeatDetails
+    return activity_environment
+
+
 async def assert_clickhouse_records_in_bigquery(
     bigquery_client: bigquery.Client,
     clickhouse_client: ClickHouseClient,
     team_id: int,
     table_id: str,
     dataset_id: str,
-    data_interval_start: dt.datetime,
-    data_interval_end: dt.datetime,
+    date_ranges: list[tuple[dt.datetime, dt.datetime]],
     min_ingested_timestamp: dt.datetime | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
@@ -135,34 +141,35 @@ async def assert_clickhouse_records_in_bigquery(
             ]
 
     expected_records = []
-    async for record_batch in iter_model_records(
-        client=clickhouse_client,
-        model=batch_export_model,
-        team_id=team_id,
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
-        exclude_events=exclude_events,
-        include_events=include_events,
-        destination_default_fields=bigquery_default_fields(),
-        is_backfill=is_backfill,
-    ):
-        for record in record_batch.select(schema_column_names).to_pylist():
-            expected_record = {}
+    for data_interval_start, data_interval_end in date_ranges:
+        async for record_batch in iter_model_records(
+            client=clickhouse_client,
+            model=batch_export_model,
+            team_id=team_id,
+            interval_start=data_interval_start.isoformat(),
+            interval_end=data_interval_end.isoformat(),
+            exclude_events=exclude_events,
+            include_events=include_events,
+            destination_default_fields=bigquery_default_fields(),
+            is_backfill=is_backfill,
+        ):
+            for record in record_batch.select(schema_column_names).to_pylist():
+                expected_record = {}
 
-            for k, v in record.items():
-                if k not in schema_column_names or k == "_inserted_at" or k == "bq_ingested_timestamp":
-                    # _inserted_at is not exported, only used for tracking progress.
-                    # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
-                    continue
+                for k, v in record.items():
+                    if k not in schema_column_names or k == "_inserted_at" or k == "bq_ingested_timestamp":
+                        # _inserted_at is not exported, only used for tracking progress.
+                        # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
+                        continue
 
-                if k in json_columns and v is not None:
-                    expected_record[k] = json.loads(v)
-                elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.UTC)
-                else:
-                    expected_record[k] = v
+                    if k in json_columns and v is not None:
+                        expected_record[k] = json.loads(v)
+                    elif isinstance(v, dt.datetime):
+                        expected_record[k] = v.replace(tzinfo=dt.UTC)
+                    else:
+                        expected_record[k] = v
 
-            expected_records.append(expected_record)
+                expected_records.append(expected_record)
 
     assert len(inserted_records) == len(expected_records)
 
@@ -328,8 +335,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
             table_id=f"test_insert_activity_table_{ateam.pk}",
             dataset_id=bigquery_dataset.dataset_id,
             team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
+            date_ranges=[(data_interval_start, data_interval_end)],
             exclude_events=exclude_events,
             include_events=None,
             batch_export_model=model,
@@ -382,8 +388,7 @@ async def test_insert_into_bigquery_activity_merges_data_in_follow_up_runs(
             table_id=f"test_insert_activity_mutability_table_{ateam.pk}",
             dataset_id=bigquery_dataset.dataset_id,
             team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
+            date_ranges=[(data_interval_start, data_interval_end)],
             batch_export_model=model,
             min_ingested_timestamp=ingested_timestamp,
             sort_key="person_id",
@@ -423,12 +428,234 @@ async def test_insert_into_bigquery_activity_merges_data_in_follow_up_runs(
             table_id=f"test_insert_activity_mutability_table_{ateam.pk}",
             dataset_id=bigquery_dataset.dataset_id,
             team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
+            date_ranges=[(data_interval_start, data_interval_end)],
             batch_export_model=model,
             min_ingested_timestamp=ingested_timestamp,
             sort_key="person_id",
         )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize(
+    "done_relative_ranges,expected_relative_ranges",
+    [
+        (
+            [(dt.timedelta(minutes=0), dt.timedelta(minutes=15))],
+            [(dt.timedelta(minutes=15), dt.timedelta(minutes=60))],
+        ),
+        (
+            [
+                (dt.timedelta(minutes=10), dt.timedelta(minutes=15)),
+                (dt.timedelta(minutes=35), dt.timedelta(minutes=45)),
+            ],
+            [
+                (dt.timedelta(minutes=0), dt.timedelta(minutes=10)),
+                (dt.timedelta(minutes=15), dt.timedelta(minutes=35)),
+                (dt.timedelta(minutes=45), dt.timedelta(minutes=60)),
+            ],
+        ),
+        (
+            [
+                (dt.timedelta(minutes=45), dt.timedelta(minutes=60)),
+            ],
+            [
+                (dt.timedelta(minutes=0), dt.timedelta(minutes=45)),
+            ],
+        ),
+    ],
+)
+async def test_insert_into_bigquery_activity_resumes_from_heartbeat(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    done_relative_ranges,
+    expected_relative_ranges,
+):
+    """Test we insert partial data into a BigQuery table when resuming.
+
+    After an activity runs, heartbeats, and crashes, a follow-up activity should
+    pick-up from where the first one left. This capability is critical to ensure
+    long-running activities that export a lot of data will eventually finish.
+    """
+    batch_export_model = BatchExportModel(name="events", schema=None)
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        use_json_type=True,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    now = dt.datetime.now(tz=dt.UTC)
+    done_ranges = [
+        (
+            (data_interval_start + done_relative_range[0]).isoformat(),
+            (data_interval_start + done_relative_range[1]).isoformat(),
+        )
+        for done_relative_range in done_relative_ranges
+    ]
+    expected_ranges = [
+        (
+            (data_interval_start + expected_relative_range[0]),
+            (data_interval_start + expected_relative_range[1]),
+        )
+        for expected_relative_range in expected_relative_ranges
+    ]
+    workflow_id = uuid.uuid4()
+
+    fake_info = activity.Info(
+        activity_id="insert-into-bigquery-activity",
+        activity_type="unknown",
+        current_attempt_scheduled_time=dt.datetime.now(dt.UTC),
+        workflow_id=str(workflow_id),
+        workflow_type="bigquery-export",
+        workflow_run_id=str(uuid.uuid4()),
+        attempt=1,
+        heartbeat_timeout=dt.timedelta(seconds=1),
+        heartbeat_details=[done_ranges],
+        is_local=False,
+        schedule_to_close_timeout=dt.timedelta(seconds=10),
+        scheduled_time=dt.datetime.now(dt.UTC),
+        start_to_close_timeout=dt.timedelta(seconds=20),
+        started_time=dt.datetime.now(dt.UTC),
+        task_queue="test",
+        task_token=b"test",
+        workflow_namespace="default",
+    )
+
+    activity_environment.info = fake_info
+    await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=expected_ranges,
+        include_events=None,
+        batch_export_model=batch_export_model,
+        use_json_type=True,
+        min_ingested_timestamp=now,
+        sort_key="event",
+    )
+
+
+async def test_insert_into_bigquery_activity_completes_range(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test we complete a full range of data into a BigQuery table when resuming.
+
+    In particular, we are interested in no duplicate events generated in the boundary
+    between one run and the next. So, we look for a cutoff event around the middle of
+    the set of exported events, and then run two activities:
+    1. First activity, up to (and including) the cutoff event.
+    2. Second activity with a heartbeat detail matching the cutoff event.
+
+    This simulates the batch export resuming from a failed execution. The full range
+    should be completed (without duplicates) after both activites are done.
+    """
+    batch_export_model = BatchExportModel(name="events", schema=None)
+    now = dt.datetime.now(tz=dt.UTC)
+
+    events_to_export_created, _ = generate_test_data
+    events_to_export_created.sort(key=operator.itemgetter("inserted_at"))
+
+    cutoff_event = events_to_export_created[len(events_to_export_created) // 2 : len(events_to_export_created) // 2 + 1]
+    assert len(cutoff_event) == 1
+    cutoff_event = cutoff_event[0]
+    cutoff_data_interval_end = dt.datetime.fromisoformat(cutoff_event["inserted_at"]).replace(tzinfo=dt.UTC)
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        # The extra microsecond is because the upper range select is exclusive and
+        # we want cutoff to be the last event included. One microsecond is the smallest
+        # increment for a `DateTime64` with precision of 6.
+        data_interval_end=(cutoff_data_interval_end + dt.timedelta(microseconds=1)).isoformat(),
+        use_json_type=True,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    done_ranges = [
+        (
+            data_interval_start.isoformat(),
+            cutoff_data_interval_end.isoformat(),
+        ),
+    ]
+    workflow_id = uuid.uuid4()
+
+    fake_info = activity.Info(
+        activity_id="insert-into-bigquery-activity",
+        activity_type="unknown",
+        current_attempt_scheduled_time=dt.datetime.now(dt.UTC),
+        workflow_id=str(workflow_id),
+        workflow_type="bigquery-export",
+        workflow_run_id=str(uuid.uuid4()),
+        attempt=1,
+        heartbeat_timeout=dt.timedelta(seconds=1),
+        heartbeat_details=[done_ranges],
+        is_local=False,
+        schedule_to_close_timeout=dt.timedelta(seconds=10),
+        scheduled_time=dt.datetime.now(dt.UTC),
+        start_to_close_timeout=dt.timedelta(seconds=20),
+        started_time=dt.datetime.now(dt.UTC),
+        task_queue="test",
+        task_token=b"test",
+        workflow_namespace="default",
+    )
+
+    activity_environment.info = fake_info
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        use_json_type=True,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        include_events=None,
+        batch_export_model=batch_export_model,
+        use_json_type=True,
+        min_ingested_timestamp=now,
+        sort_key="event",
+    )
 
 
 @pytest.fixture
@@ -552,8 +779,7 @@ async def test_bigquery_export_workflow(
             table_id=table_id,
             dataset_id=bigquery_batch_export.destination.config["dataset_id"],
             team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
+            date_ranges=[(data_interval_start, data_interval_end)],
             exclude_events=exclude_events,
             include_events=None,
             batch_export_model=model,
@@ -715,8 +941,7 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
         table_id=table_id,
         dataset_id=bigquery_batch_export.destination.config["dataset_id"],
         team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
+        date_ranges=[(data_interval_start, data_interval_end)],
         batch_export_model=model,
         use_json_type=use_json_type,
         sort_key="person_id",

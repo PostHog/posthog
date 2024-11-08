@@ -356,13 +356,23 @@ class TaskNotDoneError(Exception):
         super().__init__(f"Expected task '{task}' to be done by now")
 
 
+class RecordBatchProducer:
+    def __init__(self, client: ClickHouseClient, team_id: int, model: str, is_backfill: bool):
+        self.client = client
+        self.team_id = team_id
+        self.model = model
+
+    async def produce(self):
+        pass
+
+
 def start_produce_batch_export_record_batches(
     client: ClickHouseClient,
     model_name: str,
     is_backfill: bool,
     team_id: int,
-    interval_start: str | None,
-    interval_end: str,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: list[tuple[dt.datetime, dt.datetime]],
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
     **parameters,
@@ -386,7 +396,7 @@ def start_produce_batch_export_record_batches(
             fields = destination_default_fields
 
     if model_name == "persons":
-        if is_backfill and interval_start is None:
+        if is_backfill and full_range[0] is None:
             view = SELECT_FROM_PERSONS_VIEW_BACKFILL
         else:
             view = SELECT_FROM_PERSONS_VIEW
@@ -420,24 +430,104 @@ def start_produce_batch_export_record_batches(
 
         view = query_template.substitute(fields=query_fields)
 
-    if interval_start is not None:
-        parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-
-    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     parameters["team_id"] = team_id
 
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
     parameters = {**parameters, **extra_query_parameters}
 
     queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES)
-    query_id = uuid.uuid4()
     produce_task = asyncio.create_task(
-        client.aproduce_query_as_arrow_record_batches(
-            view, queue=queue, query_parameters=parameters, query_id=str(query_id)
+        produce_batch_export_record_batches_from_range(
+            client=client,
+            query=view,
+            full_range=full_range,
+            done_ranges=done_ranges,
+            queue=queue,
+            query_parameters=parameters,
         )
     )
 
     return queue, produce_task
+
+
+async def produce_batch_export_record_batches_from_range(
+    client: ClickHouseClient,
+    query: str,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
+    queue: RecordBatchQueue,
+    query_parameters: dict[str, typing.Any],
+):
+    for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
+        if interval_start is not None:
+            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_id = uuid.uuid4()
+
+        await client.aproduce_query_as_arrow_record_batches(
+            query, queue=queue, query_parameters=query_parameters, query_id=str(query_id)
+        )
+
+
+def generate_query_ranges(
+    remaining_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
+) -> typing.Iterator[tuple[dt.datetime | None, dt.datetime]]:
+    """Recursively yield ranges of dates that need to be queried.
+
+    There are essentially 3 scenarios we are covering:
+    * The batch export just started, so we expect `done_ranges` to be an empty
+      list, and thus should return the `full_range`.
+    * The batch export crashed mid-execution, so we have some `done_ranges` that
+      do not completely add up to the full range. In this case we need to yield
+      ranges in between all the done ones.
+    * The batch export crashed right after we finish, so we have a full list of
+      `done_ranges` adding up to the `full_range`. In this case we should not
+      yield anything.
+    """
+    import operator
+
+    if len(done_ranges) == 0:
+        yield remaining_range
+        return
+
+    epoch = dt.datetime.fromtimestamp(0, tz=dt.UTC)
+    list_done_ranges: list[tuple[dt.datetime, dt.datetime]] = list(done_ranges)
+
+    list_done_ranges.sort(key=operator.itemgetter(0))
+
+    while True:
+        try:
+            next_range: tuple[dt.datetime | None, dt.datetime] = list_done_ranges.pop(0)
+        except IndexError:
+            if remaining_range[0] != remaining_range[1]:
+                # If they were equal it would mean we have finished.
+                yield remaining_range
+
+            return
+        else:
+            candidate_end_at = next_range[0] if next_range[0] is not None else epoch
+
+        candidate_start_at = remaining_range[0]
+        remaining_range = (next_range[1], remaining_range[1])
+
+        if candidate_start_at is not None and candidate_start_at >= candidate_end_at:
+            # We have landed within a done range.
+            continue
+
+        if candidate_start_at is None and candidate_end_at == epoch:
+            # We have landed within the first done range of a backfill.
+            continue
+
+        if candidate_start_at is not None:
+            # ClickHouse uses `DateTime64(6, 'UTC')` to store `inserted_at` and
+            # we use an inclusive lower range (e.g. "WHERE inserted_at >= ...")
+            # We add a microsecond (smallest  unit with precision of 6) to avoid
+            # selecting the event that lands right on `candidate_start_at` more than
+            # once on follow-up runs.
+            candidate_start_at = candidate_start_at + dt.timedelta(microseconds=1)
+
+        yield (candidate_start_at, candidate_end_at)
 
 
 async def raise_on_produce_task_failure(produce_task: asyncio.Task) -> None:
