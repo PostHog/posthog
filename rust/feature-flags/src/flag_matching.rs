@@ -1424,14 +1424,21 @@ async fn fetch_and_locally_cache_all_properties(
 
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
 
-    let row: Option<(i32, Value, Value)> = sqlx::query_as(query)
+    let row: (Option<i32>, Option<Value>, Option<Value>) = sqlx::query_as(query)
         .bind(&distinct_id)
         .bind(team_id)
         .bind(&group_type_indexes_vec)
         .fetch_optional(&mut *conn)
-        .await?;
+        .await?
+        .unwrap_or((None, None, None));
 
-    if let Some((person_id, person_props, group_props)) = row {
+    let (person_id, person_props, group_props) = row;
+
+    if let Some(person_id) = person_id {
+        properties_cache.person_id = Some(person_id);
+    }
+
+    if let Some(person_props) = person_props {
         properties_cache.person_properties = Some(
             person_props
                 .as_object()
@@ -1440,8 +1447,9 @@ async fn fetch_and_locally_cache_all_properties(
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
         );
-        properties_cache.person_id = Some(person_id); // Store person_id
+    }
 
+    if let Some(group_props) = group_props {
         let group_props_map: HashMap<GroupTypeIndex, HashMap<String, Value>> = group_props
             .as_object()
             .unwrap_or(&serde_json::Map::new())
@@ -1879,6 +1887,7 @@ mod tests {
         ))
         .unwrap();
 
+        // Matcher for a matching distinct_id
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
@@ -1892,6 +1901,7 @@ mod tests {
         assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
 
+        // Matcher for a non-matching distinct_id
         let mut matcher = FeatureFlagMatcher::new(
             not_matching_distinct_id.clone(),
             team.id,
@@ -1905,6 +1915,7 @@ mod tests {
         assert!(!match_result.matches);
         assert_eq!(match_result.variant, None);
 
+        // Matcher for a distinct_id that does not exist
         let mut matcher = FeatureFlagMatcher::new(
             "other_distinct_id".to_string(),
             team.id,
@@ -1914,9 +1925,10 @@ mod tests {
             None,
             None,
         );
-        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
-        assert!(!match_result.matches);
-        assert_eq!(match_result.variant, None);
+        let match_result = matcher.get_match(&flag, None, None).await;
+
+        // Expecting an error for non-existent distinct_id
+        assert!(match_result.is_err());
     }
 
     #[tokio::test]
@@ -3235,6 +3247,19 @@ mod tests {
         .await
         .unwrap();
 
+        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, "lil_id".to_string(), None)
+            .await
+            .unwrap();
+
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            "another_id".to_string(),
+            None,
+        )
+        .await
+        .unwrap();
+
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
@@ -3393,6 +3418,19 @@ mod tests {
         )
         .await
         .unwrap();
+
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            "another_id".to_string(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, "lil_id".to_string(), None)
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             Some(1),
@@ -4562,7 +4600,6 @@ mod tests {
             .unwrap();
         let distinct_id = "user4".to_string();
 
-        // Insert person
         insert_person_for_team_in_pg(
             postgres_reader.clone(),
             team.id,
@@ -4635,7 +4672,6 @@ mod tests {
             .unwrap();
         let distinct_id = "user5".to_string();
 
-        // Insert person
         insert_person_for_team_in_pg(
             postgres_reader.clone(),
             team.id,

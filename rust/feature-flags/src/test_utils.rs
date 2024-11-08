@@ -1,7 +1,7 @@
 use anyhow::Error;
 use axum::async_trait;
 use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -317,7 +317,8 @@ pub async fn insert_person_for_team_in_pg(
     team_id: i32,
     distinct_id: String,
     properties: Option<Value>,
-) -> Result<(), Error> {
+) -> Result<i32, Error> {
+    // Changed return type to Result<i32, Error>
     let payload = match properties {
         Some(value) => value,
         None => json!({
@@ -329,7 +330,7 @@ pub async fn insert_person_for_team_in_pg(
     let uuid = Uuid::now_v7();
 
     let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
+    let row = sqlx::query(
         r#"
         WITH inserted_person AS (
             INSERT INTO posthog_person (
@@ -337,10 +338,11 @@ pub async fn insert_person_for_team_in_pg(
                 properties_last_operation, team_id, is_user_id, is_identified, uuid, version
             )
             VALUES ('2023-04-05', $1, '{}', '{}', $2, NULL, true, $3, 0)
-            RETURNING *
+            RETURNING id
         )
         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
         VALUES ($4, (SELECT id FROM inserted_person), $5, 0)
+        RETURNING person_id
         "#,
     )
     .bind(&payload)
@@ -348,12 +350,12 @@ pub async fn insert_person_for_team_in_pg(
     .bind(uuid)
     .bind(&distinct_id)
     .bind(team_id)
-    .execute(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
 
-    assert_eq!(res.rows_affected(), 1);
-
-    Ok(())
+    let person_id: i32 = row.get::<i32, _>("person_id");
+    // println!("Inserted person with ID: {}", person_id); // Log the inserted person_id
+    Ok(person_id)
 }
 
 pub async fn insert_cohort_for_team_in_pg(
