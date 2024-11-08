@@ -60,7 +60,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def create_holdout_for_experiment(self, experiment: Experiment):
         holdout = ExperimentHoldout.objects.create(
-            experiment=experiment,
             team=self.team,
             name="Test Experiment holdout",
         )

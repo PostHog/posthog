@@ -57,7 +57,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def create_holdout_for_experiment(self, experiment):
         holdout = ExperimentHoldout.objects.create(
-            experiment=experiment,
             team=self.team,
             name="Test Experiment holdout",
         )
