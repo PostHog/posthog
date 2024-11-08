@@ -155,10 +155,8 @@ impl From<(&RawJSFrame, JsResolveErr)> for Frame {
     }
 }
 
-fn get_context<'a>(token: &Token<'a>) -> Option<String> {
-    let Some(sv) = token.get_source_view() else {
-        return None;
-    };
+fn get_context(token: &Token) -> Option<String> {
+    let sv = token.get_source_view()?;
 
     let token_line = token.get_src_line();
     let start_line = token_line.saturating_sub(5);
@@ -174,7 +172,7 @@ fn get_context<'a>(token: &Token<'a>) -> Option<String> {
         }
     }
 
-    if context.len() > 0 {
+    if !context.is_empty() {
         Some(context)
     } else {
         None
