@@ -103,12 +103,9 @@ def configure_logger_sync(
     log_queue = queue if queue is not None else sync_queue.Queue(maxsize=-1)
     log_producer = None
     log_producer_error = None
-    shutdown_signal = threading.Event()
 
     try:
-        log_producer = KafkaLogProducerFromQueueSync(
-            queue=log_queue, shutdown_signal=shutdown_signal, topic=KAFKA_LOG_ENTRIES, producer=producer
-        )
+        log_producer = KafkaLogProducerFromQueueSync(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
     except Exception as e:
         # Skip putting logs in queue if we don't have a producer that can consume the queue.
         # We save the error to log it later as the logger hasn't yet been configured at this time.
@@ -142,8 +139,9 @@ def configure_logger_sync(
             return
 
         temporalio.activity.wait_for_worker_shutdown_sync()
-        shutdown_signal.set()
+        log_queue.join()
         log_queue.put(None)
+        listener_thread.join()
 
     context = copy_context()
     shutdown_thread = threading.Thread(target=context.run, args=(worker_shutdown_handler,), daemon=True)
@@ -433,16 +431,8 @@ class KafkaLogProducerFromQueueAsync:
 class KafkaLogProducerFromQueueSync:
     """Produce log messages to Kafka by getting them from a queue."""
 
-    def __init__(
-        self,
-        queue: sync_queue.Queue,
-        shutdown_signal: threading.Event,
-        topic: str = KAFKA_LOG_ENTRIES,
-        key: str | None = None,
-        producer=None,
-    ):
+    def __init__(self, queue: sync_queue.Queue, topic: str = KAFKA_LOG_ENTRIES, key: str | None = None, producer=None):
         self.queue = queue
-        self.shutdown_signal = shutdown_signal
         self.topic = topic
         self.key = key
         self.producer = producer or KafkaProducer(
@@ -457,7 +447,7 @@ class KafkaLogProducerFromQueueSync:
     def listen(self):
         """Listen to messages in the queue and produce them to Kafka."""
         try:
-            while not self.shutdown_signal.is_set():
+            while True:
                 msg = self.queue.get()
                 if msg is None:  # Stop signal
                     break
