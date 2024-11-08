@@ -135,6 +135,7 @@ def configure_logger_sync(
 
     def worker_shutdown_handler():
         temporalio.activity.wait_for_worker_shutdown_sync()
+        log_queue.put(None)
         log_queue.join()
         listener_thread.join()
 
