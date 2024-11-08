@@ -165,6 +165,7 @@ export function Products(): JSX.Element {
                                         toggleSelectedProduct(productKey as ProductKey)
                                     }}
                                     selected={selectedProducts.includes(productKey as ProductKey)}
+                                    className={productKey === ProductKey.SURVEYS ? 'md:col-start-2' : ''}
                                 />
                             ))}
                         </div>
@@ -228,6 +229,7 @@ export function Products(): JSX.Element {
                                 product={availableOnboardingProducts[productKey]}
                                 key={productKey}
                                 productKey={productKey}
+                                className={productKey === ProductKey.SURVEYS ? 'md:col-start-2' : ''}
                             />
                         ))}
                     </div>
