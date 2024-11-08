@@ -2,14 +2,18 @@ from copy import deepcopy
 from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
-from posthog.hogql.ast import SelectUnionNode
+from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
 
 
-def clone_expr(expr: Expr, clear_types=False, clear_locations=False) -> Expr:
+def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> Expr:
     """Clone an expression node."""
-    return CloningVisitor(clear_types=clear_types, clear_locations=clear_locations).visit(expr)
+    return CloningVisitor(
+        clear_types=clear_types,
+        clear_locations=clear_locations,
+        inline_subquery_field_names=inline_subquery_field_names,
+    ).visit(expr)
 
 
 def clear_locations(expr: Expr) -> Expr:
@@ -148,8 +152,9 @@ class TraversingVisitor(Visitor[None]):
         for expr in (node.window_exprs or {}).values():
             self.visit(expr)
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        for expr in node.select_queries:
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        self.visit(node.initial_select_query)
+        for expr in node.subsequent_select_queries:
             self.visit(expr.select_query)
 
     def visit_lambda_argument_type(self, node: ast.LambdaArgumentType):
@@ -171,7 +176,7 @@ class TraversingVisitor(Visitor[None]):
         for expr in node.columns.values():
             self.visit(expr)
 
-    def visit_select_union_query_type(self, node: ast.SelectUnionQueryType):
+    def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
         for type in node.types:
             self.visit(type)
 
@@ -235,6 +240,9 @@ class TraversingVisitor(Visitor[None]):
         pass
 
     def visit_date_time_type(self, node: ast.DateTimeType):
+        pass
+
+    def visit_interval_type(self, node: ast.IntervalType):
         pass
 
     def visit_uuid_type(self, node: ast.UUIDType):
@@ -348,9 +356,11 @@ class CloningVisitor(Visitor[Any]):
         self,
         clear_types: Optional[bool] = True,
         clear_locations: Optional[bool] = False,
+        inline_subquery_field_names: Optional[bool] = False,
     ):
         self.clear_types = clear_types
         self.clear_locations = clear_locations
+        self.inline_subquery_field_names = inline_subquery_field_names
 
     def visit_cte(self, node: ast.CTE):
         return ast.CTE(
@@ -487,12 +497,20 @@ class CloningVisitor(Visitor[Any]):
         )
 
     def visit_field(self, node: ast.Field):
-        return ast.Field(
+        field = ast.Field(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             chain=node.chain.copy(),
         )
+        if (
+            self.inline_subquery_field_names
+            and isinstance(node.type, ast.PropertyType)
+            and node.type.joined_subquery is not None
+            and node.type.joined_subquery_field_name is not None
+        ):
+            field.chain = [node.type.joined_subquery_field_name]
+        return field
 
     def visit_placeholder(self, node: ast.Placeholder):
         return ast.Placeholder(
@@ -584,14 +602,15 @@ class CloningVisitor(Visitor[Any]):
             view_name=node.view_name,
         )
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        return ast.SelectUnionQuery(
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        return ast.SelectSetQuery(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            select_queries=[
-                SelectUnionNode(union_type=expr.union_type, select_query=self.visit(expr.select_query))
-                for expr in node.select_queries
+            initial_select_query=self.visit(node.initial_select_query),
+            subsequent_select_queries=[
+                SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
+                for expr in node.subsequent_select_queries
             ],
         )
 

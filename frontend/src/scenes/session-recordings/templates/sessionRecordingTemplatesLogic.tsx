@@ -1,5 +1,8 @@
-import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import clsx from 'clsx'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -64,20 +67,35 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     path(() => ['scenes', 'session-recordings', 'templates', 'sessionReplayTemplatesLogic']),
     props({} as ReplayTemplateLogicPropsType),
     key((props) => `${props.category}-${props.template.key}`),
+    connect({
+        values: [teamLogic, ['currentTeam']],
+    }),
     actions({
-        setVariables: (variables: ReplayTemplateVariableType[]) => ({ variables }),
+        setVariables: (variables?: ReplayTemplateVariableType[]) => ({ variables }),
         setVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
+        resetVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
         navigate: true,
         showVariables: true,
         hideVariables: true,
     }),
-    reducers(({ props }) => ({
+    reducers(({ props, values }) => ({
         variables: [
-            props.template.variables,
+            props.template.variables ?? [],
             {
-                setVariables: (_, { variables }) => variables,
+                persist: true,
+                storageKey: clsx(
+                    'session-recordings.templates.variables',
+                    values.currentTeam?.id,
+                    props.category,
+                    props.template.key
+                ),
+            },
+            {
+                setVariables: (_, { variables }) => variables ?? [],
                 setVariable: (state, { variable }) =>
                     state.map((v) => (v.key === variable.key ? { ...variable, touched: true } : v)),
+                resetVariable: (state, { variable }) =>
+                    state.map((v) => (v.key === variable.key ? { ...variable, touched: false } : v)),
             },
         ],
         variablesVisible: [
@@ -100,7 +118,10 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                         if (variable.type === 'flag' && variable.value) {
                             return getFlagFilterValue(variable.value)
                         }
-                        if (['snapshot_source', 'event'].includes(variable.type) && variable.filterGroup) {
+                        if (
+                            ['snapshot_source', 'event', 'person-property'].includes(variable.type) &&
+                            variable.filterGroup
+                        ) {
                             return variable.filterGroup
                         }
                         return undefined
@@ -122,21 +143,31 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                 return filterGroup
             },
         ],
+        canApplyFilters: [
+            (s) => [s.variables, s.areAnyVariablesTouched],
+            (variables, areAnyVariablesTouched) => areAnyVariablesTouched || variables.length === 0,
+        ],
         areAnyVariablesTouched: [
             (s) => [s.variables],
             (variables) => variables.some((v) => v.touched) || variables.some((v) => v.noTouch),
         ],
         editableVariables: [(s) => [s.variables], (variables) => variables.filter((v) => !v.noTouch)],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, props }) => ({
         navigate: () => {
+            posthog.capture('session replay template used', {
+                template: props.template.key,
+                category: props.category,
+            })
             const filterGroup = values.variables.length > 0 ? values.filterGroup : undefined
-            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
+            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup, undefined, props.template.order))
         },
     })),
-    events(({ actions, props }) => ({
+    events(({ actions, props, values }) => ({
         afterMount: () => {
-            actions.setVariables(props.template.variables)
+            if (values.variables.length === 0) {
+                actions.setVariables(props.template.variables)
+            }
         },
     })),
 ])

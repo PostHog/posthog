@@ -60,7 +60,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.82
 
             - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
@@ -120,7 +120,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.82
 
             - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'
@@ -199,7 +199,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.77
+              uses: dtolnay/rust-toolchain@1.82
               with:
                   components: clippy,rustfmt
 
@@ -218,7 +218,7 @@ jobs:
 
             - name: Run clippy
               if: needs.changes.outputs.rust == 'true'
-              run: cargo clippy -- -D warnings
+              run: cargo clippy --all-targets --all-features -- -D warnings
 
             - name: Run cargo check
               if: needs.changes.outputs.rust == 'true'

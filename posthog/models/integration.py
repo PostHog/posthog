@@ -166,7 +166,7 @@ class OauthIntegration:
                 token_info_config_fields=["hub_id", "hub_domain", "user", "user_id"],
                 client_id=settings.HUBSPOT_APP_CLIENT_ID,
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
-                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read",
+                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read analytics.behavioral_events.send behavioral_events.event_definitions.read_write",
                 id_path="hub_id",
                 name_path="hub_domain",
             )

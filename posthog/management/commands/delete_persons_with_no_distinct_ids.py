@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
+import time
 
 
 class Command(BaseCommand):
@@ -7,7 +8,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--team-id", default=None, type=int, help="Team ID to migrate from (on this instance)")
-        parser.add_argument("--dry-run", action="store_false", help="Dry run (default: true)")
+        parser.add_argument("--dry_run", action="store_false", help="Dry run mode (no changes will be made)")
 
     def handle(self, **options):
         team_id = options["team_id"]
@@ -19,8 +20,11 @@ class Command(BaseCommand):
         print("Deleting persons with no distinct ids for team", team_id)  # noqa: T201
 
         if dry_run:
+            print("Dry run mode enabled. No changes will be made.")  # noqa: T201
             delete_persons_without_distinct_ids_raw_sql_dry_run(team_id)
         else:
+            print("This is for real. Changes will be made. Sleeping for 10 seconds")  # noqa: T201
+            time.sleep(10)
             delete_persons_without_distinct_ids_raw_sql(team_id)
 
 

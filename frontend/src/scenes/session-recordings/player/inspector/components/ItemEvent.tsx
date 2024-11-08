@@ -6,6 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
@@ -53,7 +54,7 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
 
 export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
     const insightUrl = insightUrlForEvent(item.data)
-    const { promoteProperties, filterProperties } = useValues(eventPropertyFilteringLogic)
+    const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
     const subValue =
         item.data.event === '$pageview' ? (
@@ -64,7 +65,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             <SummarizeWebVitals properties={item.data.properties} />
         ) : undefined
 
-    const promotedKeys = promoteProperties(item.data.event)
+    const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
 
     return (
         <div data-attr="item-event">

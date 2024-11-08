@@ -11,11 +11,11 @@
     (SELECT countIf(ifNull(ifNull(equals(step_reached, 0), 0), 0)) AS step_1,
             countIf(ifNull(ifNull(equals(step_reached, 1), 0), 0)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
-            rowNumberInBlock() AS row_number,
+            rowNumberInAllBlocks() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_array_v3(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                             and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                                             and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                                            and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -53,23 +53,23 @@
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 2)
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
+              WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelStrictStepsBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -84,11 +84,11 @@
     (SELECT countIf(ifNull(ifNull(equals(step_reached, 0), 0), 0)) AS step_1,
             countIf(ifNull(ifNull(equals(step_reached, 1), 0), 0)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
-            rowNumberInBlock() AS row_number,
+            rowNumberInAllBlocks() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'step_1', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_array_v3(2, 1209600, 'step_1', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -130,10 +130,10 @@
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 2)
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))) ARRAY
+              WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))) ARRAY
            JOIN prop_vals AS prop
            WHERE ifNull(notEquals(prop, []), isNotNull(prop)
                         or isNotNull([])))
@@ -142,14 +142,14 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelStrictStepsBreakdownUDF.test_funnel_step_multiple_breakdown_snapshot
@@ -164,11 +164,11 @@
     (SELECT countIf(ifNull(ifNull(equals(step_reached, 0), 0), 0)) AS step_1,
             countIf(ifNull(ifNull(equals(step_reached, 1), 0), 0)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
-            rowNumberInBlock() AS row_number,
+            rowNumberInAllBlocks() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_array_v3(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                             and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                                             and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                                            and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -206,23 +206,23 @@
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 2)
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
+              WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -242,11 +242,11 @@
             countIf(ifNull(ifNull(equals(step_reached, 2), 0), 0)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
-            rowNumberInBlock() AS row_number,
+            rowNumberInAllBlocks() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v2(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v3(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -287,23 +287,23 @@
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
-                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
+              WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -323,11 +323,11 @@
             countIf(ifNull(ifNull(equals(step_reached, 2), 0), 0)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
-            rowNumberInBlock() AS row_number,
+            rowNumberInAllBlocks() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v2(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v3(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -368,23 +368,23 @@
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
-                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
+              WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group
@@ -404,11 +404,11 @@
             countIf(ifNull(ifNull(equals(step_reached, 2), 0), 0)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
-            rowNumberInBlock() AS row_number,
+            rowNumberInAllBlocks() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v2(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v3(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -448,7 +448,7 @@
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 2)
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
@@ -456,23 +456,23 @@
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
-                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
+              WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.1
@@ -485,10 +485,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -562,11 +562,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -575,10 +575,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
@@ -605,10 +605,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -682,11 +682,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -695,10 +695,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
@@ -725,10 +725,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -802,11 +802,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -815,10 +815,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
@@ -845,10 +845,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -922,11 +922,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -935,10 +935,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))

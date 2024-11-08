@@ -1,5 +1,4 @@
 import { connect, kea, path, selectors } from 'kea'
-import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -40,8 +39,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['status'],
             userLogic,
             ['hasAvailableFeature'],
-            router,
-            ['currentLocation'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
@@ -52,7 +49,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags) => {
                 const tabs: SidePanelTab[] = []
 
-                tabs.push(SidePanelTab.ExperimentFeatureFlag)
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
@@ -78,24 +74,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [
-                s.enabledTabs,
-                s.selectedTab,
-                s.sidePanelOpen,
-                s.unreadCount,
-                s.status,
-                s.hasAvailableFeature,
-                s.currentLocation,
-            ],
-            (
-                enabledTabs,
-                selectedTab,
-                sidePanelOpen,
-                unreadCount,
-                status,
-                hasAvailableFeature,
-                currentLocation
-            ): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount, s.status, s.hasAvailableFeature],
+            (enabledTabs, selectedTab, sidePanelOpen, unreadCount, status, hasAvailableFeature): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
@@ -116,10 +96,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     // Hide certain tabs unless they are selected
                     if (ALWAYS_EXTRA_TABS.includes(tab)) {
                         return false
-                    }
-
-                    if (tab === SidePanelTab.ExperimentFeatureFlag) {
-                        return /^\/project\/[0-9]+\/experiments\/[0-9]+/.test(currentLocation.pathname)
                     }
 
                     return true

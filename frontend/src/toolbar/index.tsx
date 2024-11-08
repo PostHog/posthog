@@ -24,7 +24,7 @@ import { ToolbarParams } from '~/types'
         <ToolbarApp
             {...toolbarParams}
             actionId={parseInt(String(toolbarParams.actionId))}
-            jsURL={toolbarParams.jsURL || toolbarParams.apiURL}
+            experimentId={parseInt(String(toolbarParams.experimentId))}
             posthog={posthog}
         />
     )

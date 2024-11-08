@@ -2,29 +2,30 @@ import './Experiment.scss'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect } from 'react'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightType } from '~/types'
-
-import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { experimentLogic } from './experimentLogic'
-import { ExperimentInsightCreator } from './MetricSelector'
 
-const StepInfo = (): JSX.Element => {
-    const { experiment } = useValues(experimentLogic)
-    const { addExperimentGroup, removeExperimentGroup, moveToNextFormStep } = useActions(experimentLogic)
+const ExperimentFormFields = (): JSX.Element => {
+    const { experiment, featureFlags, groupTypes, aggregationLabel } = useValues(experimentLogic)
+    const {
+        addExperimentGroup,
+        removeExperimentGroup,
+        setExperiment,
+        setNewExperimentInsight,
+        createExperiment,
+        setExperimentType,
+    } = useActions(experimentLogic)
+    const { webExperimentsAvailable } = useValues(experimentsLogic)
 
     return (
         <div>
@@ -46,6 +47,79 @@ const StepInfo = (): JSX.Element => {
                             data-attr="experiment-description"
                         />
                     </LemonField>
+                </div>
+                {webExperimentsAvailable && (
+                    <div className="mt-10">
+                        <h3 className="mb-1">Experiment type</h3>
+                        <div className="text-xs text-muted font-medium tracking-normal">
+                            Select your experiment setup, this cannot be changed once saved.
+                        </div>
+                        <LemonDivider />
+                        <LemonRadio
+                            value={experiment.type}
+                            className="space-y-2 -mt-2"
+                            onChange={(type) => {
+                                setExperimentType(type)
+                            }}
+                            options={[
+                                {
+                                    value: 'product',
+                                    label: (
+                                        <div className="translate-y-2">
+                                            <div>Product experiment</div>
+                                            <div className="text-xs text-muted">
+                                                Use custom code to manage how variants modify your product.
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    value: 'web',
+                                    label: (
+                                        <div className="translate-y-2">
+                                            <div>No-code web experiment</div>
+                                            <div className="text-xs text-muted">
+                                                Define variants on your website using the PostHog toolbar, no coding
+                                                required.
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
+                )}
+                <div>
+                    <h3 className="mt-10">Participant type</h3>
+                    <div className="text-xs text-muted">
+                        The type on which to aggregate metrics. You can change this at any time during the experiment.
+                    </div>
+                    <LemonDivider />
+                    <LemonRadio
+                        value={
+                            experiment.parameters.aggregation_group_type_index != undefined
+                                ? experiment.parameters.aggregation_group_type_index
+                                : -1
+                        }
+                        onChange={(rawGroupTypeIndex) => {
+                            const groupTypeIndex = rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
+
+                            setExperiment({
+                                parameters: {
+                                    ...experiment.parameters,
+                                    aggregation_group_type_index: groupTypeIndex ?? undefined,
+                                },
+                            })
+                            setNewExperimentInsight()
+                        }}
+                        options={[
+                            { value: -1, label: 'Persons' },
+                            ...Array.from(groupTypes.values()).map((groupType) => ({
+                                value: groupType.group_type_index,
+                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                            })),
+                        ]}
+                    />
                 </div>
                 <div className="mt-10">
                     <h3 className="mb-1">Variants</h3>
@@ -134,135 +208,14 @@ const StepInfo = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
-            </div>
-            <LemonButton
-                className="mt-2"
-                type="primary"
-                data-attr="continue-experiment-creation"
-                onClick={() => moveToNextFormStep()}
-            >
-                Continue
-            </LemonButton>
-        </div>
-    )
-}
-
-const StepGoal = (): JSX.Element => {
-    const { experiment, experimentInsightType, groupTypes, aggregationLabel } = useValues(experimentLogic)
-    const { setExperiment, setNewExperimentInsight, createExperiment } = useActions(experimentLogic)
-
-    // insightLogic
-    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
-    const { insightProps } = useValues(logic)
-
-    // insightDataLogic
-    const { query } = useValues(insightDataLogic(insightProps))
-
-    return (
-        <div>
-            <div className="space-y-8">
-                {groupTypes.size > 0 && (
+                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && (
                     <div>
-                        <h3 className="mb-1">Participant type</h3>
-                        <div className="text-xs text-muted">
-                            The type on which to aggregate metrics. You can change this at any time during the
-                            experiment.
-                        </div>
+                        <h3>Holdout group</h3>
+                        <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
                         <LemonDivider />
-                        <LemonRadio
-                            value={
-                                experiment.parameters.aggregation_group_type_index != undefined
-                                    ? experiment.parameters.aggregation_group_type_index
-                                    : -1
-                            }
-                            onChange={(rawGroupTypeIndex) => {
-                                const groupTypeIndex = rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
-
-                                setExperiment({
-                                    parameters: {
-                                        ...experiment.parameters,
-                                        aggregation_group_type_index: groupTypeIndex ?? undefined,
-                                    },
-                                })
-                                setNewExperimentInsight()
-                            }}
-                            options={[
-                                { value: -1, label: 'Persons' },
-                                ...Array.from(groupTypes.values()).map((groupType) => ({
-                                    value: groupType.group_type_index,
-                                    label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                                })),
-                            ]}
-                        />
+                        <HoldoutSelector />
                     </div>
                 )}
-                <div>
-                    <h3 className="mb-1">Goal type</h3>
-                    <div className="text-xs text-muted font-medium tracking-normal">
-                        You can change this at any time during the experiment.
-                    </div>
-                    <LemonDivider />
-                    <div data-attr="experiment-goal-type-select">
-                        <LemonRadio
-                            className="space-y-2 -mt-2"
-                            value={experimentInsightType}
-                            onChange={(val) => {
-                                val &&
-                                    setNewExperimentInsight({
-                                        insight: val,
-                                        properties: experiment?.filters?.properties,
-                                    })
-                            }}
-                            options={[
-                                {
-                                    value: InsightType.FUNNELS,
-                                    label: (
-                                        <div className="translate-y-2">
-                                            <div>Conversion funnel</div>
-                                            <div className="text-xs text-muted">
-                                                Track how many people complete a sequence of actions and/or events
-                                            </div>
-                                        </div>
-                                    ),
-                                },
-                                {
-                                    value: InsightType.TRENDS,
-                                    label: (
-                                        <div className="translate-y-2">
-                                            <div>Trend</div>
-                                            <div className="text-xs text-muted">
-                                                Track the total count of a specific event or action.
-                                            </div>
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </div>
-                </div>
-                <div>
-                    <h3 className="mb-1">Goal criteria</h3>
-                    <div className="text-xs text-muted">
-                        {experimentInsightType === InsightType.FUNNELS
-                            ? 'Create the funnel you want to measure.'
-                            : 'Select a single metric to track.'}
-                    </div>
-                    <LemonDivider />
-                    <div
-                        data-attr="experiment-goal-input"
-                        className="p-4 border rounded mt-4 w-full lg:w-3/4 bg-bg-light"
-                    >
-                        <ExperimentInsightCreator insightProps={insightProps} />
-                    </div>
-                </div>
-                <div className="pb-4">
-                    <h3>Goal preview</h3>
-                    <div className="mt-4 w-full lg:w-3/4">
-                        <BindLogic logic={insightLogic} props={insightProps}>
-                            <Query query={query} context={{ insightProps }} readOnly />
-                        </BindLogic>
-                    </div>
-                </div>
             </div>
             <LemonButton
                 className="mt-2"
@@ -276,34 +229,38 @@ const StepGoal = (): JSX.Element => {
     )
 }
 
+export const HoldoutSelector = (): JSX.Element => {
+    const { experiment, holdouts } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
+
+    const holdoutOptions = holdouts.map((holdout) => ({
+        value: holdout.id,
+        label: holdout.name,
+    }))
+    holdoutOptions.unshift({ value: null, label: 'No holdout' })
+
+    return (
+        <div className="mt-4 mb-8">
+            <LemonSelect
+                options={holdoutOptions}
+                value={experiment.holdout_id || null}
+                onChange={(value) => {
+                    setExperiment({
+                        ...experiment,
+                        holdout_id: value,
+                    })
+                }}
+                data-attr="experiment-holdout-selector"
+            />
+        </div>
+    )
+}
+
 export function ExperimentForm(): JSX.Element {
-    const { currentFormStep, props } = useValues(experimentLogic)
-    const { setCurrentFormStep } = useActions(experimentLogic)
-
-    const stepComponents = {
-        0: <StepInfo />,
-        1: <StepGoal />,
-    }
-    const CurrentStepComponent = (currentFormStep && stepComponents[currentFormStep]) || <StepInfo />
-
-    useEffect(() => {
-        setCurrentFormStep(0)
-    }, [])
+    const { props } = useValues(experimentLogic)
 
     return (
         <div>
-            {currentFormStep > 0 && (
-                <LemonButton
-                    icon={<IconChevronLeft />}
-                    type="secondary"
-                    className="my-4"
-                    onClick={() => {
-                        setCurrentFormStep(currentFormStep - 1)
-                    }}
-                >
-                    Back
-                </LemonButton>
-            )}
             <Form
                 id="experiment-step"
                 logic={experimentLogic}
@@ -312,7 +269,7 @@ export function ExperimentForm(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-6 experiment-form"
             >
-                {CurrentStepComponent}
+                <ExperimentFormFields />
             </Form>
         </div>
     )

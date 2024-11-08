@@ -1,11 +1,11 @@
 import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
+import { SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     InspectorListBrowserVisibility,
     InspectorListItemDoctor,
     InspectorListItemEvent,
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SharedListMiniFilter } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 import { PerformanceEvent, SessionRecordingPlayerTab } from '~/types'
 

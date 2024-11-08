@@ -100,7 +100,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
 
     hogql_query = parse_select(model_query)
 
-    if isinstance(hogql_query, ast.SelectUnionQuery):
+    if isinstance(hogql_query, ast.SelectSetQuery):
         queries = list(extract_select_queries(hogql_query))
     else:
         queries = [hogql_query]
@@ -115,7 +115,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
             for name, cte in query.ctes.items():
                 ctes.add(name)
 
-                if isinstance(cte.expr, ast.SelectUnionQuery):
+                if isinstance(cte.expr, ast.SelectSetQuery):
                     queries.extend(list(extract_select_queries(cte.expr)))
                 elif isinstance(cte.expr, ast.SelectQuery):
                     queries.append(cte.expr)
@@ -131,7 +131,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
                 continue
 
             queries.append(join.table)
-        elif isinstance(join.table, ast.SelectUnionQuery):
+        elif isinstance(join.table, ast.SelectSetQuery):
             queries.extend(list(extract_select_queries(join.table)))
 
         while join is not None:

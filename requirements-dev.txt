@@ -10,7 +10,7 @@ aiosignal==1.2.0
     # via
     #   -c requirements.txt
     #   aiohttp
-annotated-types==0.5.0
+annotated-types==0.7.0
     # via
     #   -c requirements.txt
     #   pydantic
@@ -69,13 +69,16 @@ cryptography==39.0.2
     # via
     #   -c requirements.txt
     #   types-paramiko
-datamodel-code-generator==0.25.6
+datamodel-code-generator==0.26.1
     # via -r requirements-dev.in
 django==4.2.15
     # via
     #   -c requirements.txt
+    #   django-linear-migrations
     #   django-stubs
     #   django-stubs-ext
+django-linear-migrations==2.16.0
+    # via -r requirements-dev.in
 django-stubs==5.0.4
     # via
     #   -r requirements-dev.in
@@ -113,7 +116,7 @@ genson==1.2.2
     # via datamodel-code-generator
 icdiff==2.0.5
     # via pytest-icdiff
-idna==2.8
+idna==3.10
     # via
     #   -c requirements.txt
     #   email-validator
@@ -189,8 +192,10 @@ platformdirs==3.11.0
     # via
     #   -c requirements.txt
     #   black
-pluggy==0.13.1
-    # via pytest
+pluggy==1.5.0
+    # via
+    #   -c requirements.txt
+    #   pytest
 pprintpp==0.4.0
     # via pytest-icdiff
 prance==23.6.21.0
@@ -199,17 +204,17 @@ pycparser==2.20
     # via
     #   -c requirements.txt
     #   cffi
-pydantic==2.5.3
+pydantic==2.9.2
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
-pydantic-core==2.14.6
+pydantic-core==2.23.4
     # via
     #   -c requirements.txt
     #   pydantic
 pygments==2.18.0
     # via rich
-pytest==7.4.4
+pytest==8.0.2
     # via
     #   -r requirements-dev.in
     #   pytest-asyncio
@@ -234,7 +239,7 @@ pytest-icdiff==0.6
     # via -r requirements-dev.in
 pytest-mock==3.11.1
     # via -r requirements-dev.in
-pytest-split==0.8.1
+pytest-split==0.9.0
     # via -r requirements-dev.in
 pytest-watch==4.2.0
     # via -r requirements-dev.in
@@ -301,7 +306,7 @@ sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
-syrupy==4.6.0
+syrupy==4.6.4
     # via -r requirements-dev.in
 toml==0.10.2
     # via

@@ -21,6 +21,8 @@ from posthog.hogql.ast import (
     Array,
     Dict,
     VariableDeclaration,
+    SelectSetNode,
+    SelectSetQuery,
 )
 
 from posthog.hogql.parser import parse_program
@@ -50,9 +52,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def _select(
             self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
-        ) -> ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag:
+        ) -> ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag:
             return cast(
-                ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag,
+                ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag,
                 clear_locations(parse_select(query, placeholders=placeholders, backend=backend)),
             )
 
@@ -1381,12 +1383,47 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_select_union_all(self):
             self.assertEqual(
                 self._select("select 1 union all select 2 union all select 3"),
-                ast.SelectUnionQuery(
-                    value="UNION ALL",
-                    select_queries=[
-                        ast.SelectQuery(select=[ast.Constant(value=1)]),
-                        ast.SelectQuery(select=[ast.Constant(value=2)]),
-                        ast.SelectQuery(select=[ast.Constant(value=3)]),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(set_operator="UNION ALL", select_query=query)
+                        for query in (
+                            ast.SelectQuery(select=[ast.Constant(value=2)]),
+                            ast.SelectQuery(select=[ast.Constant(value=3)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_nested_selects(self):
+            self.assertEqual(
+                self._select("(select 1 intersect select 2) union all (select 3 except select 4)"),
+                SelectSetQuery(
+                    initial_select_query=SelectSetQuery(
+                        initial_select_query=SelectQuery(select=[Constant(value=1)]),
+                        subsequent_select_queries=[
+                            SelectSetNode(
+                                select_query=SelectQuery(
+                                    select=[Constant(value=2)],
+                                ),
+                                set_operator="INTERSECT",
+                            )
+                        ],
+                    ),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            select_query=SelectSetQuery(
+                                initial_select_query=SelectQuery(
+                                    select=[Constant(value=3)],
+                                ),
+                                subsequent_select_queries=[
+                                    SelectSetNode(
+                                        select_query=SelectQuery(select=[Constant(value=4)]), set_operator="EXCEPT"
+                                    )
+                                ],
+                            ),
+                            set_operator="UNION ALL",
+                        )
                     ],
                 ),
             )

@@ -855,6 +855,120 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
+    def test_feature_flag_with_holdout_filter(self):
+        # example_id is outside 70% holdout
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"$some_prop": 5},
+        )
+        # example_id2 is within 70% holdout
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id2"],
+            properties={"$some_prop": 5},
+        )
+
+        multivariate_json = {
+            "variants": [
+                {
+                    "key": "first-variant",
+                    "name": "First Variant",
+                    "rollout_percentage": 50,
+                },
+                {
+                    "key": "second-variant",
+                    "name": "Second Variant",
+                    "rollout_percentage": 25,
+                },
+                {
+                    "key": "third-variant",
+                    "name": "Third Variant",
+                    "rollout_percentage": 25,
+                },
+            ]
+        }
+        feature_flag = self.create_feature_flag(
+            key="flag-with-gt-filter",
+            filters={
+                "groups": [{"properties": [{"key": "$some_prop", "value": 4, "type": "person", "operator": "gt"}]}],
+                "holdout_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 70,
+                        "variant": "holdout",
+                    }
+                ],
+                "multivariate": multivariate_json,
+            },
+        )
+
+        other_feature_flag = self.create_feature_flag(
+            key="other-flag-with-gt-filter",
+            filters={
+                "groups": [{"properties": [{"key": "$some_prop", "value": 4, "type": "person", "operator": "gt"}]}],
+                "holdout_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 70,
+                        "variant": "holdout",
+                    }
+                ],
+                "multivariate": multivariate_json,
+            },
+        )
+
+        other_flag_without_holdout = self.create_feature_flag(
+            key="other-flag-without-holdout-with-gt-filter",
+            filters={
+                "groups": [{"properties": [{"key": "$some_prop", "value": 4, "type": "person", "operator": "gt"}]}],
+                "holdout_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 0,
+                        "variant": "holdout",
+                    }
+                ],
+                "multivariate": multivariate_json,
+            },
+        )
+
+        # regular flag evaluation when outside holdout
+        with self.assertNumQueries(4):
+            self.assertEqual(
+                self.match_flag(feature_flag, "example_id"),
+                FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        # inside holdout, get holdout variant override.
+        # also, should have no db queries here.
+        with self.assertNumQueries(0):
+            self.assertEqual(
+                self.match_flag(feature_flag, "example_id2"),
+                FeatureFlagMatch(True, "holdout", FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE, 0),
+            )
+
+        # same should hold true for a different feature flag when within holdout
+        self.assertEqual(
+            self.match_flag(other_feature_flag, "example_id2"),
+            FeatureFlagMatch(True, "holdout", FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE, 0),
+        )
+        # but the variants may change outside holdout since different flag
+        self.assertEqual(
+            self.match_flag(other_feature_flag, "example_id"),
+            FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # when holdout exists but is zero, should default to regular flag evaluation
+        self.assertEqual(
+            self.match_flag(other_flag_without_holdout, "example_id"),
+            FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(other_flag_without_holdout, "example_id2"),
+            FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
     def test_coercion_of_strings_and_numbers(self):
         Person.objects.create(
             team=self.team,
@@ -4443,7 +4557,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "aggregation_group_type_index": 0,
             },
         )
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         matcher = FeatureFlagMatcher([flag, flag2], "example_id_1", ["organization"])  # type: ignore
 
@@ -4756,8 +4872,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def create_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
+        )
 
         # Add other irrelevant groups
         for i in range(5):
@@ -5005,8 +5125,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             distinct_ids=["307"],
             properties={"number": 30, "string_number": "30", "version": "1.24"},
         )
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
+        )
 
         Group.objects.create(
             team=self.team,

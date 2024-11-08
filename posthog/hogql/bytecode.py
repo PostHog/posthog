@@ -1,10 +1,12 @@
 import dataclasses
 from datetime import timedelta
+from enum import StrEnum
 from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, BytecodeResult
 from hogvm.python.stl import STL
+from hogvm.python.stl.bytecode import BYTECODE_STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
@@ -50,29 +52,6 @@ ARITHMETIC_OPERATIONS = {
 }
 
 
-def to_bytecode(expr: str) -> list[Any]:
-    from posthog.hogql.parser import parse_expr
-
-    return create_bytecode(parse_expr(expr))
-
-
-def create_bytecode(
-    expr: ast.Expr | ast.Statement | ast.Program,
-    supported_functions: Optional[set[str]] = None,
-    args: Optional[list[str]] = None,
-    context: Optional[HogQLContext] = None,
-    enclosing: Optional["BytecodeCompiler"] = None,
-) -> list[Any]:
-    supported_functions = supported_functions or set()
-    bytecode: list[Any] = []
-    if args is None:
-        bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
-        bytecode.append(HOGQL_BYTECODE_VERSION)
-
-    bytecode.extend(BytecodeCompiler(supported_functions, args, context, enclosing).visit(expr))
-    return bytecode
-
-
 @dataclasses.dataclass
 class Local:
     name: str
@@ -93,6 +72,38 @@ class UpValue:
         self.is_local = is_local
 
 
+@dataclasses.dataclass
+class CompiledBytecode:
+    bytecode: list[Any]
+    locals: list[Local]
+    upvalues: list[UpValue]
+
+
+def to_bytecode(expr: str) -> list[Any]:
+    from posthog.hogql.parser import parse_expr
+
+    return create_bytecode(parse_expr(expr)).bytecode
+
+
+def create_bytecode(
+    expr: ast.Expr | ast.Statement | ast.Program,
+    supported_functions: Optional[set[str]] = None,
+    args: Optional[list[str]] = None,
+    context: Optional[HogQLContext] = None,
+    enclosing: Optional["BytecodeCompiler"] = None,
+    in_repl: Optional[bool] = False,
+    locals: Optional[list[Local]] = None,
+) -> CompiledBytecode:
+    supported_functions = supported_functions or set()
+    bytecode: list[Any] = []
+    if args is None:
+        bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
+        bytecode.append(HOGQL_BYTECODE_VERSION)
+    compiler = BytecodeCompiler(supported_functions, args, context, enclosing, in_repl, locals)
+    bytecode.extend(compiler.visit(expr))
+    return CompiledBytecode(bytecode, locals=compiler.locals, upvalues=compiler.upvalues)
+
+
 class BytecodeCompiler(Visitor):
     def __init__(
         self,
@@ -100,11 +111,14 @@ class BytecodeCompiler(Visitor):
         args: Optional[list[str]] = None,
         context: Optional[HogQLContext] = None,
         enclosing: Optional["BytecodeCompiler"] = None,
+        in_repl: Optional[bool] = False,
+        locals: Optional[list[Local]] = None,
     ):
         super().__init__()
         self.enclosing = enclosing
         self.supported_functions = supported_functions or set()
-        self.locals: list[Local] = []
+        self.in_repl = in_repl
+        self.locals: list[Local] = locals or []
         self.upvalues: list[UpValue] = []
         self.scope_depth = 0
         self.args = args
@@ -118,8 +132,11 @@ class BytecodeCompiler(Visitor):
         self.scope_depth += 1
 
     def _end_scope(self) -> list[Any]:
-        response: list[Any] = []
         self.scope_depth -= 1
+        if self.in_repl and self.scope_depth == 0:
+            return []
+
+        response: list[Any] = []
         for local in reversed(self.locals):
             if local.depth <= self.scope_depth:
                 break
@@ -349,7 +366,7 @@ class BytecodeCompiler(Visitor):
                     self.context.add_notice(
                         start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
-                elif node.name in self.supported_functions or node.name in STL:
+                elif node.name in self.supported_functions or node.name in STL or node.name in BYTECODE_STL:
                     pass
                 else:
                     self.context.add_error(
@@ -811,6 +828,45 @@ class BytecodeCompiler(Visitor):
         response.append(len(node.exprs))
         return response
 
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        response = []
+        response.extend(self._visit_hogqlx_value("__hx_tag"))
+        response.extend(self._visit_hogqlx_value(node.kind))
+        for attribute in node.attributes:
+            response.extend(self._visit_hogqlx_value(attribute.name))
+            response.extend(self._visit_hogqlx_value(attribute.value))
+        response.append(Operation.DICT)
+        response.append(len(node.attributes) + 1)
+        return response
+
+    def _visit_hogqlx_value(self, value: Any) -> list[Any]:
+        if isinstance(value, AST):
+            return self.visit(value)
+        if isinstance(value, list):
+            elems = []
+            for v in value:
+                elems.extend(self._visit_hogqlx_value(v))
+            return [*elems, Operation.ARRAY, len(value)]
+        if isinstance(value, dict):
+            elems = []
+            for k, v in value.items():
+                elems.extend(self._visit_hogqlx_value(k))
+                elems.extend(self._visit_hogqlx_value(v))
+            return [*elems, Operation.DICT, len(value.items())]
+        if isinstance(value, StrEnum):
+            return [Operation.STRING, value.value]
+        if isinstance(value, int):
+            return [Operation.INTEGER, value]
+        if isinstance(value, float):
+            return [Operation.FLOAT, value]
+        if isinstance(value, str):
+            return [Operation.STRING, value]
+        if value is True:
+            return [Operation.TRUE]
+        if value is False:
+            return [Operation.FALSE]
+        return [Operation.NULL]
+
 
 def execute_hog(
     source_code: str,
@@ -830,5 +886,5 @@ def execute_hog(
         program,
         supported_functions=set(functions.keys()) if functions is not None else set(),
         context=HogQLContext(team_id=team.id if team else None),
-    )
+    ).bytecode
     return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)

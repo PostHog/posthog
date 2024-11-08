@@ -1,18 +1,24 @@
+import os
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlparse
 
 import nh3
+import posthoganalytics
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import request, serializers, status, viewsets
+from rest_framework import request, serializers, status, viewsets, exceptions
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 from posthog.api.action import ActionSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -23,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.client import sync_execute
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
@@ -597,7 +604,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().destroy(request, *args, **kwargs)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
         earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("start_date"))[
             "start_date__min"
@@ -645,6 +652,67 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], detail=True, required_scopes=["survey:read"])
+    def summarize_responses(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+
+        survey_id = kwargs["pk"]
+
+        if not Survey.objects.filter(id=survey_id, team_id=self.team_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        survey = self.get_object()
+
+        cache_key = f'summarize_survey_responses_{self.team.pk}_{self.kwargs["pk"]}'
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
+
+        environment_is_allowed = settings.DEBUG or is_cloud()
+        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
+        if not environment_is_allowed or not has_openai_api_key:
+            raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
+
+        if not posthoganalytics.feature_enabled("ai-survey-response-summary", str(user.distinct_id)):
+            raise exceptions.ValidationError("survey response summary is not enabled for this user")
+
+        end_date: datetime = (survey.end_date or datetime.now()).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ) + timedelta(days=1)
+
+        try:
+            question_index_param = request.query_params.get("question_index", None)
+            question_index = int(question_index_param) if question_index_param else None
+        except (ValueError, TypeError):
+            question_index = None
+
+        summary = summarize_survey_responses(
+            survey_id=survey_id,
+            question_index=question_index,
+            survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
+            survey_end=end_date,
+            team=self.team,
+            user=user,
+        )
+        timings = summary.pop("timings", None)
+        cache.set(cache_key, summary, timeout=30)
+
+        posthoganalytics.capture(
+            event="survey response summarized", distinct_id=str(user.distinct_id), properties=summary
+        )
+
+        # let the browser cache for half the time we cache on the server
+        r = Response(summary, headers={"Cache-Control": "max-age=15"})
+        if timings:
+            r.headers["Server-Timing"] = ", ".join(
+                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+            )
+        return r
 
 
 class SurveyConfigSerializer(serializers.ModelSerializer):

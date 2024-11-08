@@ -72,7 +72,7 @@ const SingleTemplateVariable = ({
 }: RecordingTemplateCardProps & {
     variable: ReplayTemplateVariableType
 }): JSX.Element | null => {
-    const { setVariable } = useActions(sessionReplayTemplatesLogic(props))
+    const { setVariable, resetVariable } = useActions(sessionReplayTemplatesLogic(props))
     useMountedLogic(actionsModel)
 
     return variable.type === 'pageview' ? (
@@ -80,7 +80,10 @@ const SingleTemplateVariable = ({
             <LemonLabel info={variable.description}>{variable.name}</LemonLabel>
             <LemonInput
                 placeholder={variable.value}
-                onChange={(e) => setVariable({ ...variable, value: e })}
+                value={variable.value}
+                onChange={(e) =>
+                    e ? setVariable({ ...variable, value: e }) : resetVariable({ ...variable, value: undefined })
+                }
                 size="small"
             />
         </div>
@@ -91,7 +94,7 @@ const SingleTemplateVariable = ({
                 rootKey={`session-recordings-${variable.key}`}
                 group={{
                     type: FilterLogicalOperator.And,
-                    values: [],
+                    values: variable.filterGroup ? [variable.filterGroup] : [],
                 }}
                 taxonomicGroupTypes={
                     variable.type === 'event'
@@ -103,9 +106,13 @@ const SingleTemplateVariable = ({
                         : []
                 }
                 onChange={(thisFilterGroup) => {
-                    variable.type === 'flag'
-                        ? setVariable({ ...variable, value: (thisFilterGroup.values[0] as FeaturePropertyFilter).key })
-                        : setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
+                    if (thisFilterGroup.values.length === 0) {
+                        resetVariable({ ...variable, filterGroup: undefined })
+                    } else if (variable.type === 'flag') {
+                        setVariable({ ...variable, value: (thisFilterGroup.values[0] as FeaturePropertyFilter).key })
+                    } else {
+                        setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
+                    }
                 }}
             >
                 <NestedFilterGroup
@@ -122,20 +129,20 @@ const SingleTemplateVariable = ({
 
 const TemplateVariables = (props: RecordingTemplateCardProps): JSX.Element => {
     const { navigate } = useActions(sessionReplayTemplatesLogic(props))
-    const { variables, areAnyVariablesTouched } = useValues(sessionReplayTemplatesLogic(props))
+    const { variables, canApplyFilters } = useValues(sessionReplayTemplatesLogic(props))
     return (
         <div className="flex flex-col gap-2">
-            {variables.map((variable) => (
-                <SingleTemplateVariable key={variable.key} variable={variable} {...props} />
-            ))}
+            {variables
+                .filter((v) => !v.noTouch)
+                .map((variable) => (
+                    <SingleTemplateVariable key={variable.key} variable={variable} {...props} />
+                ))}
             <div>
                 <LemonButton
                     onClick={() => navigate()}
                     type="primary"
                     className="mt-2"
-                    disabledReason={
-                        !areAnyVariablesTouched ? 'Please set a value for at least one variable' : undefined
-                    }
+                    disabledReason={!canApplyFilters ? 'Please set a value for at least one variable' : undefined}
                 >
                     Apply filters
                 </LemonButton>
@@ -145,19 +152,21 @@ const TemplateVariables = (props: RecordingTemplateCardProps): JSX.Element => {
 }
 
 const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element => {
-    const { showVariables, hideVariables, navigate } = useActions(sessionReplayTemplatesLogic(props))
-    const { variablesVisible, editableVariables } = useValues(sessionReplayTemplatesLogic(props))
+    const { showVariables, hideVariables } = useActions(sessionReplayTemplatesLogic(props))
+    const { variablesVisible } = useValues(sessionReplayTemplatesLogic(props))
 
     return (
         <LemonCard
             className="w-80"
             onClick={() => {
-                editableVariables.length > 0 ? showVariables() : navigate()
+                showVariables()
             }}
             closeable={variablesVisible}
             onClose={hideVariables}
             focused={variablesVisible}
-            data-attr={`session-replay-template-${props.category}-${props.template.key}`}
+            data-attr="session-replay-template"
+            data-ph-capture-attribute-category={props.category}
+            data-ph-capture-attribute-template={props.template.key}
         >
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">

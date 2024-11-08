@@ -227,8 +227,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         self._create_group(
             team_id=self.team.pk,
@@ -944,13 +948,14 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
 
         assert response.results[0]["label"] == "Formula (A+B)"
-        assert response.results[0]["breakdown_value"] == "all"
-        assert response.results[0]["count"] == 16
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 9
+        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
 
         assert response.results[1]["label"] == "Formula (A+B)"
-        assert response.results[1]["breakdown_value"] == cohort1.pk
-        assert response.results[1]["count"] == 9
-        assert response.results[1]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 16
+        assert response.results[1]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
