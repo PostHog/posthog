@@ -12,7 +12,7 @@ static SPLIT_CHAIN_REGEX: Lazy<Regex> = Lazy::new(|| {
         .expect("hard-coded regular expression to be valid")
 });
 static SPLIT_CLASS_ATTRIBUTES: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(.*?)($|:([a-zA-Z\-\_0-9]*=.*))"#)
+    Regex::new(r#"(.*?)($|:([a-zA-Z\-_0-9]*=.*))"#)
         .expect("hard-coded regular expression to be valid")
 });
 static PARSE_ATTRIBUTES_REGEX: Lazy<Regex> = Lazy::new(|| {
@@ -97,6 +97,16 @@ impl IntoPy<PyObject> for Element {
     fn into_py(self, py: Python<'_>) -> PyObject {
         let dict = &[("order", self.order)].into_py_dict_bound(py);
 
+        dict.set_item("attributes", self.attributes);
+
+        if let Some(tag_name) = self.tag_name {
+            dict.set_item("tag_name", tag_name);
+        }
+
+        if self.attr_class.len() > 0 {
+            dict.set_item("attr_class", self.attr_class);
+        }
+
         if let Some(href) = self.href {
             dict.set_item("href", href);
         }
@@ -116,18 +126,6 @@ impl IntoPy<PyObject> for Element {
         if let Some(attr_id) = self.attr_id {
             dict.set_item("attr_id", attr_id);
         }
-
-        if let Some(tag_name) = self.tag_name {
-            dict.set_item("tag_name", tag_name);
-        }
-
-        if self.attr_class.len() > 0 {
-            dict.set_item("attr_class", self.attr_class);
-        } else {
-            dict.set_item("attr_class", py.None());
-        }
-
-        dict.set_item("attributes", self.attributes);
 
         dict.into_py(py)
     }
@@ -149,7 +147,7 @@ pub fn chain_to_elements_dict(chain: &str) -> PyResult<PyObject> {
             let mut element = Element::new_with_order(index);
 
             if let Some(el_string_split) = SPLIT_CLASS_ATTRIBUTES.captures(el_string.as_str()) {
-                if let Some(captured) = el_string_split.get(0) {
+                if let Some(captured) = el_string_split.get(1) {
                     if let Some(splitted) = captured.as_str().split_once(".") {
                         element.with_tag_name(splitted.0);
                         element.extend_attr_class(splitted.1);
@@ -158,7 +156,7 @@ pub fn chain_to_elements_dict(chain: &str) -> PyResult<PyObject> {
                     }
                 }
 
-                if let Some(captured) = el_string_split.get(2) {
+                if let Some(captured) = el_string_split.get(3) {
                     for (_, [_, key, value]) in PARSE_ATTRIBUTES_REGEX
                         .captures_iter(captured.as_str())
                         .map(|c| c.extract())
