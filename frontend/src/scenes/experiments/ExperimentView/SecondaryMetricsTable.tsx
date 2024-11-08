@@ -11,10 +11,9 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { InsightType } from '~/types'
 
-import { SECONDARY_METRIC_INSIGHT_ID } from '../constants'
 import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
 import { MetricSelector } from '../MetricSelector'
-import { secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
+import { MAX_SECONDARY_METRICS, secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
 import { ResultsQuery, VariantTag } from './components'
 
 export function SecondaryMetricsModal({
@@ -33,8 +32,8 @@ export function SecondaryMetricsModal({
         metricIdx,
     } = useValues(logic)
 
-    const { deleteMetric, closeModal, saveSecondaryMetric, setPreviewInsight } = useActions(logic)
-    const { secondaryMetricResults, isExperimentRunning } = useValues(experimentLogic({ experimentId }))
+    const { deleteMetric, closeModal, saveSecondaryMetric } = useActions(logic)
+    const { secondaryMetricResults } = useValues(experimentLogic({ experimentId }))
     const targetResults = secondaryMetricResults && secondaryMetricResults[metricIdx]
 
     return (
@@ -288,12 +287,17 @@ export function SecondaryMetricsTable({
 
                     <div className="w-1/2 flex flex-col justify-end">
                         <div className="ml-auto">
-                            {metrics && metrics.length > 0 && metrics.length < 3 && (
+                            {metrics && metrics.length > 0 && (
                                 <div className="mb-2 mt-4 justify-end">
                                     <LemonButton
                                         type="secondary"
                                         size="small"
                                         onClick={openModalToCreateSecondaryMetric}
+                                        disabledReason={
+                                            metrics.length >= MAX_SECONDARY_METRICS
+                                                ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
+                                                : undefined
+                                        }
                                     >
                                         Add metric
                                     </LemonButton>
@@ -308,13 +312,15 @@ export function SecondaryMetricsTable({
                         loading={secondaryMetricResultsLoading}
                         columns={columns}
                         dataSource={tabularSecondaryMetricResults}
+                        emptyState={<div>Waiting for experiment to start&hellip;</div>}
                     />
                 ) : (
                     <div className="border rounded bg-bg-light pt-6 pb-8 text-muted mt-2">
                         <div className="flex flex-col items-center mx-auto space-y-3">
                             <IconAreaChart fontSize="30" />
                             <div className="text-sm text-center text-balance">
-                                Add up to 3 secondary metrics to monitor side effects of your experiment.
+                                Add up to {MAX_SECONDARY_METRICS} secondary metrics to monitor side effects of your
+                                experiment.
                             </div>
                             <LemonButton
                                 icon={<IconPlus />}

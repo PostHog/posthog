@@ -1,0 +1,43 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\n            SELECT raw_id, team_id, created_at, symbol_set_id, contents, resolved\n            FROM posthog_errortrackingstackframe\n            WHERE raw_id = $1 AND team_id = $2\n            ",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "raw_id",
+                "type_info": "Text"
+            },
+            {
+                "ordinal": 1,
+                "name": "team_id",
+                "type_info": "Int4"
+            },
+            {
+                "ordinal": 2,
+                "name": "created_at",
+                "type_info": "Timestamptz"
+            },
+            {
+                "ordinal": 3,
+                "name": "symbol_set_id",
+                "type_info": "Uuid"
+            },
+            {
+                "ordinal": 4,
+                "name": "contents",
+                "type_info": "Jsonb"
+            },
+            {
+                "ordinal": 5,
+                "name": "resolved",
+                "type_info": "Bool"
+            }
+        ],
+        "parameters": {
+            "Left": ["Text", "Int4"]
+        },
+        "nullable": [false, false, false, true, false, false]
+    },
+    "hash": "1bb963ce083f26e4033cf1ad0b8e3aad574562e2c69eb7064ce6588ec7f9d080"
+}

@@ -380,7 +380,6 @@ describe('EventPipelineRunner', () => {
                     'extractHeatmapDataStep',
                     'enrichExceptionEventStep',
                     'createEventStep',
-                    'produceExceptionSymbolificationEventStep',
                 ])
             })
         })

@@ -28,6 +28,17 @@ async def bind_temporal_worker_logger(team_id: int, destination: str | None = No
     return logger.new(team_id=team_id, destination=destination, **temporal_context)
 
 
+def bind_temporal_worker_logger_sync(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
+    """Return a bound logger for Temporal Workers."""
+    if not structlog.is_configured():
+        configure_logger()
+
+    logger = structlog.get_logger()
+    temporal_context = get_temporal_context()
+
+    return logger.new(team_id=team_id, destination=destination, **temporal_context)
+
+
 async def configure_temporal_worker_logger(
     logger, team_id: int, destination: str | None = None
 ) -> FilteringBoundLogger:
