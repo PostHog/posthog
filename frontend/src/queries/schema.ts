@@ -2165,6 +2165,7 @@ export interface TrendsAlertConfig {
 
 export interface HogCompileResponse {
     bytecode: any[]
+    locals: any[]
 }
 
 export interface SuggestedQuestionsQuery extends DataNode<SuggestedQuestionsQueryResponse> {

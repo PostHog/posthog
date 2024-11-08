@@ -32,14 +32,9 @@ impl RawFrame {
         res
     }
 
-    pub fn needs_symbols(&self) -> bool {
-        // For now, we only support JS, so this is always true
-        true
-    }
-
-    pub fn symbol_set_ref(&self) -> String {
+    pub fn symbol_set_ref(&self) -> Option<String> {
         let RawFrame::JavaScript(raw) = self;
-        raw.source_url().map(String::from).unwrap_or_default()
+        raw.source_url().map(String::from).ok()
     }
 
     pub fn frame_id(&self) -> String {

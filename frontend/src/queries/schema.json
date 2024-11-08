@@ -1112,6 +1112,9 @@
         "BreakdownKeyType": {
             "anyOf": [
                 {
+                    "type": "integer"
+                },
+                {
                     "type": "string"
                 },
                 {
@@ -1119,7 +1122,17 @@
                 },
                 {
                     "items": {
-                        "type": ["string", "number"]
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -6579,9 +6592,13 @@
                 "bytecode": {
                     "items": {},
                     "type": "array"
+                },
+                "locals": {
+                    "items": {},
+                    "type": "array"
                 }
             },
-            "required": ["bytecode"],
+            "required": ["bytecode", "locals"],
             "type": "object"
         },
         "HogLanguage": {

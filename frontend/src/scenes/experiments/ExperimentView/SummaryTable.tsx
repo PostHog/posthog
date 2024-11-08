@@ -1,18 +1,27 @@
 import '../Experiment.scss'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconRewindPlay } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
+import posthog from 'posthog-js'
+import { urls } from 'scenes/urls'
 
 import {
     _FunnelExperimentResults,
     _TrendsExperimentResults,
+    FilterLogicalOperator,
     FunnelExperimentVariant,
     InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+    ReplayTabs,
     TrendExperimentVariant,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -21,6 +30,7 @@ import { VariantTag } from './components'
 export function SummaryTable(): JSX.Element {
     const {
         experimentId,
+        experiment,
         experimentResults,
         tabularExperimentResults,
         experimentInsightType,
@@ -296,6 +306,71 @@ export function SummaryTable(): JSX.Element {
                     ) : (
                         '—'
                     )}
+                </>
+            )
+        },
+    })
+
+    columns.push({
+        key: 'recordings',
+        title: '',
+        render: function Key(_, item): JSX.Element {
+            const variantKey = item.key
+            const exposure = exposureCountDataForVariant(experimentResults, variantKey)
+            return (
+                <>
+                    {exposure ? (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconRewindPlay />}
+                            tooltip="Watch recordings of people who were exposed to this variant."
+                            type="secondary"
+                            onClick={() => {
+                                const filters: UniversalFiltersGroupValue[] = [
+                                    {
+                                        id: '$feature_flag_called',
+                                        name: '$feature_flag_called',
+                                        type: 'events',
+                                        properties: [
+                                            {
+                                                key: `$feature/${experiment.feature_flag_key}`,
+                                                type: PropertyFilterType.Event,
+                                                value: [variantKey],
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                            {
+                                                key: `$feature/${experiment.feature_flag_key}`,
+                                                type: PropertyFilterType.Event,
+                                                value: 'is_set',
+                                                operator: PropertyOperator.IsSet,
+                                            },
+                                            {
+                                                key: '$feature_flag',
+                                                type: PropertyFilterType.Event,
+                                                value: experiment.feature_flag_key,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                        ],
+                                    },
+                                ]
+                                const filterGroup: Partial<RecordingUniversalFilters> = {
+                                    filter_group: {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                type: FilterLogicalOperator.And,
+                                                values: filters,
+                                            },
+                                        ],
+                                    },
+                                }
+                                router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
+                                posthog.capture('viewed recordings from experiment', { variant: variantKey })
+                            }}
+                        >
+                            View recordings
+                        </LemonButton>
+                    ) : null}
                 </>
             )
         },

@@ -202,6 +202,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline_sync.is_posthog_team", return_value=False),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
@@ -870,10 +871,11 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer):
 
         return list(jobs)
 
-    with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.create_job_model.acreate_external_data_job",
-    ) as acreate_external_data_job:
-        acreate_external_data_job.side_effect = Exception("Ruhoh!")
+    with mock.patch.object(
+        ExternalDataJob.objects,
+        "create",
+    ) as create_external_data_job:
+        create_external_data_job.side_effect = Exception("Ruhoh!")
 
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
