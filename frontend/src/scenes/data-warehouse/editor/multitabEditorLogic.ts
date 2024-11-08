@@ -23,6 +23,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     props({} as MultitabEditorLogicProps),
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
+        updateState: true,
         runQuery: (queryOverride?: string) => ({ queryOverride }),
         setActiveQuery: (query: string) => ({ query }),
         setTabs: (tabs: Uri[]) => ({ tabs }),
@@ -177,6 +178,22 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.createTab()
                 }
             }
+        },
+        setQueryInput: () => {
+            actions.updateState()
+        },
+        updateState: async (_, breakpoint) => {
+            await breakpoint(100)
+            const queries = values.allTabs.map((model) => {
+                return {
+                    query: props.monaco?.editor.getModel(model)?.getValue() || {
+                        kind: NodeKind.HogQLQuery,
+                        query: '',
+                    },
+                    path: model.path.split('/').pop(),
+                }
+            })
+            localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
         runQuery: ({ queryOverride }) => {
             actions.setActiveQuery(queryOverride || values.queryInput)
