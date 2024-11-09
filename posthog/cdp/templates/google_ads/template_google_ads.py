@@ -47,6 +47,8 @@ let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(in
 
 if (res.status >= 400) {
     throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body}')
+} else if (not empty(res.body.partialFailureError)) {
+    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body.partialFailureError.message}')
 }
 """.strip(),
     inputs_schema=[
