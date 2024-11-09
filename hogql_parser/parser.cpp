@@ -2579,6 +2579,27 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ExprCall", "{s:N, s:N}", "expr", expr, "args", args);
   }
 
+  VISIT(ColumnExprCallSelect) {
+    string name = visitAsString(ctx->identifier());
+    PyObject* args = PyList_New(1);
+    if (!args) throw PyInternalError();
+    PyObject* arg;
+    try {
+      arg = visitAsPyObject(ctx->selectSetStmt());
+    } catch (...) {
+      Py_DECREF(args);
+      throw;
+    }
+    try {
+      PyList_SET_ITEM(args, 0, arg);
+    } catch (...) {
+      Py_DECREF(args);
+      Py_DECREF(arg);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("Call", "{s:s#, s:N}", "name", name.data(), name.size(), "args", args);
+  }
+
   VISIT(ColumnExprTemplateString) { return visit(ctx->templateString()); }
 
   VISIT(String) {

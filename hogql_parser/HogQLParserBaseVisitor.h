@@ -351,6 +351,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprCallSelect(HogQLParser::ColumnExprCallSelectContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprIsNull(HogQLParser::ColumnExprIsNullContext *ctx) override {
     return visitChildren(ctx);
   }
