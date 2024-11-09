@@ -117,7 +117,7 @@ export function DestinationsTable(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Weekly volume',
+                        title: 'Last 7 days',
                         render: function RenderSuccessRate(_, destination) {
                             return (
                                 <Link

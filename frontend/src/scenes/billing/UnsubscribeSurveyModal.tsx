@@ -110,7 +110,7 @@ export const UnsubscribeSurveyModal = ({
                 </LemonButton>
                 <LemonButton
                     type="tertiary"
-                    loading={billingLoading}
+                    disabled={billingLoading}
                     onClick={() => {
                         resetUnsubscribeModalStep()
                         reportSurveyDismissed(surveyID)

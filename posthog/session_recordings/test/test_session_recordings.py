@@ -189,11 +189,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert mock_capture.call_args_list[0] == call(
             self.user.distinct_id,
             "recording list filters changed",
-            {
+            properties={
                 "$current_url": ANY,
                 "$session_id": ANY,
                 "partial_filter_chosen_my_filter": "something",
             },
+            groups=ANY,
         )
 
     @snapshot_postgres_queries

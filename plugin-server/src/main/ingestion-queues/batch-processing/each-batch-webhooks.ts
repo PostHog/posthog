@@ -6,7 +6,7 @@ import { ActionMatcher } from 'worker/ingestion/action-matcher'
 import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
 import { OrganizationManager } from 'worker/ingestion/organization-manager'
 
-import { GroupTypeToColumnIndex, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
+import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
@@ -30,17 +30,17 @@ export function groupIntoBatchesByUsage(
     array: KafkaMessage[],
     batchSize: number,
     shouldProcess: (teamId: number) => boolean
-): { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[] {
+): { eventBatch: RawKafkaEvent[]; lastOffset: string; lastTimestamp: string }[] {
     // Most events will not trigger a webhook call, so we want to filter them out as soon as possible
     // to achieve the highest effective concurrency when executing the actual HTTP calls.
     // actionMatcher holds an in-memory set of all teams with enabled webhooks, that we use to
     // drop events based on that signal. To use it we must parse the message, as there aren't that many
     // webhooks, we can keep batches of the parsed messages in memory with the offsets of the last message
-    const result: { eventBatch: RawClickHouseEvent[]; lastOffset: string; lastTimestamp: string }[] = []
-    let currentBatch: RawClickHouseEvent[] = []
+    const result: { eventBatch: RawKafkaEvent[]; lastOffset: string; lastTimestamp: string }[] = []
+    let currentBatch: RawKafkaEvent[] = []
     let currentCount = 0
     array.forEach((message, index) => {
-        const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+        const clickHouseEvent = JSON.parse(message.value!.toString()) as RawKafkaEvent
         if (shouldProcess(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
@@ -90,7 +90,7 @@ export async function eachBatchWebhooksHandlers(
 export async function eachBatchHandlerHelper(
     payload: EachBatchPayload,
     shouldProcess: (teamId: number) => boolean,
-    eachMessageHandler: (event: RawClickHouseEvent) => Promise<void>,
+    eachMessageHandler: (event: RawKafkaEvent) => Promise<void>,
     concurrency: number,
     stats_key: string
 ): Promise<void> {
@@ -123,7 +123,7 @@ export async function eachBatchHandlerHelper(
             }
 
             await Promise.all(
-                eventBatch.map((event: RawClickHouseEvent) => eachMessageHandler(event).finally(() => heartbeat()))
+                eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
             )
 
             resolveOffset(lastOffset)
@@ -202,19 +202,19 @@ async function addGroupPropertiesToPostIngestionEvent(
 }
 
 export async function eachMessageWebhooksHandlers(
-    clickHouseEvent: RawClickHouseEvent,
+    kafkaEvent: RawKafkaEvent,
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander,
     groupTypeManager: GroupTypeManager,
     organizationManager: OrganizationManager,
     postgres: PostgresRouter
 ): Promise<void> {
-    if (!actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
+    if (!actionMatcher.hasWebhooks(kafkaEvent.team_id)) {
         // exit early if no webhooks nor resthooks
         return
     }
 
-    const eventWithoutGroups = convertToPostIngestionEvent(clickHouseEvent)
+    const eventWithoutGroups = convertToPostIngestionEvent(kafkaEvent)
     // This is very inefficient, we always pull group properties for all groups (up to 5) for this event
     // from PG if a webhook is defined for this team.
     // Instead we should be lazily loading group properties only when needed, but this is the fastest way to fix this consumer

@@ -1,4 +1,5 @@
 import { InspectorListItemPerformance } from 'scenes/session-recordings/apm/performanceEventDataLogic'
+import { SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     IMAGE_WEB_EXTENSIONS,
     InspectorListBrowserVisibility,
@@ -9,7 +10,6 @@ import {
     InspectorListItemEvent,
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import type { SharedListMiniFilter } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 import { SessionRecordingPlayerTab } from '~/types'
 
@@ -100,9 +100,11 @@ export function filterInspectorListItems({
 }: {
     allItems: InspectorListItem[]
     tab: SessionRecordingPlayerTab
-    miniFiltersByKey: {
-        [key: string]: SharedListMiniFilter
-    }
+    miniFiltersByKey:
+        | {
+              [key: string]: SharedListMiniFilter
+          }
+        | undefined
     showMatchingEventsFilter: boolean
     showOnlyMatching: boolean
     windowIdFilter: string | null
@@ -111,6 +113,10 @@ export function filterInspectorListItems({
 
     const shortCircuitExclude = (item: InspectorListItem): boolean =>
         isNetworkEvent(item) && item.data.entry_type === 'paint'
+
+    if (!miniFiltersByKey) {
+        return []
+    }
 
     const inspectorTabFilters: Record<SessionRecordingPlayerTab, (item: InspectorListItem) => boolean> = {
         [SessionRecordingPlayerTab.ALL]: (item: InspectorListItem) => {

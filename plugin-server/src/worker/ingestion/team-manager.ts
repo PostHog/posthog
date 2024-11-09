@@ -41,7 +41,7 @@ export class TeamManager {
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
-        const cachedTeam = this.teamCache.get(teamId)
+        const cachedTeam = this.getCachedTeam(teamId)
         if (cachedTeam !== undefined) {
             return cachedTeam
         }
@@ -54,6 +54,10 @@ export class TeamManager {
         } finally {
             clearTimeout(timeout)
         }
+    }
+
+    public getCachedTeam(teamId: TeamId): Team | null | undefined {
+        return this.teamCache.get(teamId)
     }
 
     public async getTeamByToken(token: string): Promise<Team | null> {
