@@ -11,6 +11,7 @@ import { ActionFilter as ActionFilterType, AnyPropertyFilter, Experiment, Filter
 
 import { experimentLogic } from '../experimentLogic'
 import { MetricSelector } from '../MetricSelector'
+import { PrimaryGoalTrends } from '../PrimaryGoalTrends'
 
 export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Element {
     const experimentInsightType = filters?.insight || InsightType.TRENDS
@@ -138,7 +139,7 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                 className="space-y-4"
             >
                 <Field name="filters">
-                    <MetricSelector />
+                    <PrimaryGoalTrends />
                 </Field>
             </Form>
         </LemonModal>
