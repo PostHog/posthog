@@ -1,18 +1,15 @@
-import '../Experiment.scss'
-
 import { IconInfo, IconPencil, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { InsightType } from '~/types'
 
 import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
-import { MetricSelector } from '../MetricSelector'
+import { SecondaryGoalFunnels } from '../SecondaryGoalFunnels'
+import { SecondaryGoalTrends } from '../SecondaryGoalTrends'
 import { MAX_SECONDARY_METRICS, secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
 import { ResultsQuery, VariantTag } from './components'
 
@@ -35,6 +32,8 @@ export function SecondaryMetricsModal({
     const { deleteMetric, closeModal, saveSecondaryMetric } = useActions(logic)
     const { secondaryMetricResults } = useValues(experimentLogic({ experimentId }))
     const targetResults = secondaryMetricResults && secondaryMetricResults[metricIdx]
+
+    const isTrends = true
 
     return (
         <LemonModal
@@ -86,21 +85,10 @@ export function SecondaryMetricsModal({
         >
             {showResults ? (
                 <ResultsQuery targetResults={targetResults} showTable={false} />
+            ) : isTrends ? (
+                <SecondaryGoalTrends />
             ) : (
-                <Form
-                    logic={secondaryMetricsLogic}
-                    props={{ onMetricsChange, initialMetrics, experimentId, defaultAggregationType }}
-                    formKey="secondaryMetricModal"
-                    id="secondary-metric-modal-form"
-                    className="space-y-4"
-                >
-                    <LemonField name="name" label="Name">
-                        <LemonInput data-attr="secondary-metric-name" />
-                    </LemonField>
-                    <LemonField name="filters" label="Query">
-                        <MetricSelector />
-                    </LemonField>
-                </Form>
+                <SecondaryGoalFunnels />
             )}
         </LemonModal>
     )

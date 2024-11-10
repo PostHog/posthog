@@ -1,17 +1,15 @@
-import '../Experiment.scss'
-
 import { IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 
 import { ActionFilter as ActionFilterType, AnyPropertyFilter, Experiment, FilterType, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { MetricSelector } from '../MetricSelector'
+import { PrimaryGoalFunnels } from '../PrimaryGoalFunnels'
 import { PrimaryGoalTrends } from '../PrimaryGoalTrends'
+import { PrimaryGoalTrendsExposure } from '../PrimaryGoalTrendsExposure'
 
 export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Element {
     const experimentInsightType = filters?.insight || InsightType.TRENDS
@@ -93,12 +91,21 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading, experimentInsightType } =
-        useValues(experimentLogic({ experimentId }))
+    const {
+        experiment,
+        isExperimentGoalModalOpen,
+        experimentLoading,
+        experimentInsightType,
+        trendMetricInsightLoading,
+        funnelMetricInsightLoading,
+    } = useValues(experimentLogic({ experimentId }))
     const { closeExperimentGoalModal, updateExperimentGoal } = useActions(experimentLogic({ experimentId }))
 
     const experimentFiltersLength =
         (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
+
+    const isInsightLoading =
+        experimentInsightType === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
 
     return (
         <LemonModal
@@ -113,7 +120,7 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                     </LemonButton>
                     <LemonButton
                         disabledReason={
-                            (goalInsightDataLoading && 'The insight needs to be loaded before saving the goal.') ||
+                            (isInsightLoading && 'The insight needs to be loaded before saving the goal.') ||
                             (experimentInsightType === InsightType.FUNNELS &&
                                 experimentFiltersLength < 2 &&
                                 'The experiment needs at least two funnel steps.')
@@ -131,17 +138,7 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                 </div>
             }
         >
-            <Form
-                logic={experimentLogic}
-                props={{ experimentId }}
-                formKey="experiment"
-                id="edit-experiment-goal-form"
-                className="space-y-4"
-            >
-                <Field name="filters">
-                    <PrimaryGoalTrends />
-                </Field>
-            </Form>
+            {experimentInsightType === InsightType.TRENDS ? <PrimaryGoalTrends /> : <PrimaryGoalFunnels />}
         </LemonModal>
     )
 }
@@ -183,17 +180,7 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
                 </div>
             }
         >
-            <Form
-                logic={experimentLogic}
-                props={{ experimentId }}
-                formKey="experiment"
-                id="edit-experiment-exposure-form"
-                className="space-y-4"
-            >
-                <Field name="filters">
-                    <MetricSelector forceTrendExposureMetric />
-                </Field>
-            </Form>
+            <PrimaryGoalTrendsExposure />
         </LemonModal>
     )
 }

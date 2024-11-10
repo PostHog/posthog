@@ -1,236 +1,32 @@
-import './Experiment.scss'
-
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { FUNNEL_STEP_COUNT_LIMIT } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { getHogQLValue, hogQLToFilterValue } from 'scenes/insights/filters/AggregationSelect'
+import { TIME_INTERVAL_BOUNDS } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { Query } from '~/queries/Query/Query'
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, FunnelsFilter, NodeKind } from '~/queries/schema'
-import {
-    BreakdownAttributionType,
-    FilterType,
-    FunnelConversionWindowTimeUnit,
-    FunnelsFilterType,
-    InsightType,
-    StepOrderValue,
-} from '~/types'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
+import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, InsightType, StepOrderValue } from '~/types'
 
-import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from './experimentLogic'
+import { experimentLogic } from './experimentLogic'
 
-export interface MetricSelectorProps {
-    forceTrendExposureMetric?: boolean
-}
-
-export function MetricSelector({ forceTrendExposureMetric }: MetricSelectorProps): JSX.Element {
-    const { experiment, experimentInsightType, isExperimentRunning, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setTrendsMetric, setFunnelsMetric } = useActions(experimentLogic)
-    const isTrends = experimentInsightType === InsightType.TRENDS
-
-    return (
-        <>
-            <div className="flex items-center w-full gap-2 mb-4">
-                <span>Insight Type</span>
-                <LemonSelect
-                    data-attr="metrics-selector"
-                    value={experimentInsightType}
-                    onChange={(newInsightType) => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            if (newInsightType === InsightType.TRENDS) {
-                                setExperiment({
-                                    metrics: [getDefaultTrendsMetric()],
-                                })
-                            } else {
-                                setExperiment({
-                                    metrics: [getDefaultFunnelsMetric()],
-                                })
-                            }
-                        } else {
-                            setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    insight: newInsightType,
-                                },
-                            })
-                        }
-                    }}
-                    options={[
-                        { value: InsightType.TRENDS, label: <b>Trends</b> },
-                        { value: InsightType.FUNNELS, label: <b>Funnels</b> },
-                    ]}
-                    disabledReason={forceTrendExposureMetric ? 'Exposure metric can only be a trend graph' : undefined}
-                />
-            </div>
-            <div>
-                <br />
-            </div>
-            <>
-                <ActionFilter
-                    bordered
-                    filters={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return queryNodeToFilter(
-                                (experiment.metrics[0] as ExperimentTrendsQuery).count_query ||
-                                    (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
-                            )
-                        }
-                        return experiment.filters
-                    })()}
-                    setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            const series = actionsAndEventsToSeries(
-                                { actions, events, data_warehouse } as any,
-                                true,
-                                isTrends ? MathAvailability.All : MathAvailability.None
-                            )
-
-                            if (experimentInsightType === InsightType.FUNNELS) {
-                                setFunnelsMetric({
-                                    metricIdx: 0,
-                                    series,
-                                })
-                            } else {
-                                setTrendsMetric({
-                                    metricIdx: 0,
-                                    series,
-                                })
-                            }
-                        } else {
-                            if (actions?.length) {
-                                setExperiment({
-                                    filters: {
-                                        ...experiment.filters,
-                                        actions,
-                                        events: undefined,
-                                        data_warehouse: undefined,
-                                    },
-                                })
-                            } else if (events?.length) {
-                                setExperiment({
-                                    filters: {
-                                        ...experiment.filters,
-                                        events,
-                                        actions: undefined,
-                                        data_warehouse: undefined,
-                                    },
-                                })
-                            } else if (data_warehouse?.length) {
-                                setExperiment({
-                                    filters: {
-                                        ...experiment.filters,
-                                        data_warehouse,
-                                        actions: undefined,
-                                        events: undefined,
-                                    },
-                                })
-                            }
-                        }
-                    }}
-                    typeKey="experiment-metric"
-                    mathAvailability={isTrends ? undefined : MathAvailability.None}
-                    buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}
-                    showSeriesIndicator={true}
-                    entitiesLimit={isTrends ? 1 : undefined}
-                    seriesIndicatorType={isTrends ? undefined : 'numeric'}
-                    sortable={isTrends ? undefined : true}
-                    showNestedArrow={isTrends ? undefined : true}
-                    showNumericalPropsOnly={isTrends}
-                    actionsTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.Events,
-                        TaxonomicFilterGroupType.Actions,
-                        TaxonomicFilterGroupType.DataWarehouse,
-                    ]}
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                        TaxonomicFilterGroupType.DataWarehouseProperties,
-                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                    ]}
-                />
-                <div className="mt-4 space-y-4">
-                    {experimentInsightType === InsightType.FUNNELS && (
-                        <>
-                            <div className="flex items-center w-full gap-2">
-                                <span>Aggregating by</span>
-                                <FunnelAggregationSelect />
-                            </div>
-                            <FunnelConversionWindowFilter />
-                            <FunnelAttributionSelect />
-                        </>
-                    )}
-                    <InsightTestAccountFilter />
-                </div>
-            </>
-            {isExperimentRunning && (
-                <LemonBanner type="info" className="mt-3 mb-3">
-                    Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
-                    mismatch between the preview and the actual results.
-                </LemonBanner>
-            )}
-            <div className="mt-4">
-                {/* :FLAG: CLEAN UP AFTER MIGRATION */}
-                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] ? (
-                    <Query
-                        query={{
-                            kind: NodeKind.InsightVizNode,
-                            source: (() => {
-                                if (experiment.metrics[0].kind === NodeKind.ExperimentTrendsQuery) {
-                                    return experiment.metrics[0].count_query
-                                }
-                                return experiment.metrics[0].funnels_query
-                            })(),
-                            showTable: false,
-                            showLastComputation: true,
-                            showLastComputationRefresh: false,
-                        }}
-                        readOnly
-                    />
-                ) : (
-                    <Query
-                        query={{
-                            kind: NodeKind.InsightVizNode,
-                            source: filtersToQueryNode(experiment.filters),
-                            showTable: false,
-                            showLastComputation: true,
-                            showLastComputationRefresh: false,
-                        }}
-                        readOnly
-                    />
-                )}
-            </div>
-        </>
-    )
-}
-
-export function FunnelAggregationSelect(): JSX.Element {
+export function FunnelAggregationSelect({
+    value,
+    onChange,
+}: {
+    value: string
+    onChange: (value: string) => void
+}): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
-
-    const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
 
     const UNIQUE_USERS = 'person_id'
     const baseValues = [UNIQUE_USERS]
@@ -256,21 +52,6 @@ export function FunnelAggregationSelect(): JSX.Element {
                 label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
             })
         })
-    }
-
-    // :FLAG: CLEAN UP AFTER MIGRATION
-    let value
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        value = getHogQLValue(
-            (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query.aggregation_group_type_index ?? undefined,
-            (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query.funnelsFilter?.funnelAggregateByHogQL ??
-                undefined
-        )
-    } else {
-        value = getHogQLValue(
-            experiment.filters.aggregation_group_type_index,
-            (experiment.filters as FunnelsFilterType).funnel_aggregate_by_hogql
-        )
     }
 
     baseValues.push(`properties.$session_id`)
@@ -305,54 +86,30 @@ export function FunnelAggregationSelect(): JSX.Element {
     })
 
     return (
-        <LemonSelect
-            className="flex-1"
-            value={value}
-            onChange={(newValue) => {
-                const { groupIndex, aggregationQuery } = hogQLToFilterValue(newValue)
-                // :FLAG: CLEAN UP AFTER MIGRATION
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    setFunnelsMetric({
-                        metricIdx: 0,
-                        aggregation_group_type_index: groupIndex,
-                        funnelAggregateByHogQL: aggregationQuery,
-                    })
-                } else {
-                    setExperiment({
-                        filters: {
-                            ...experiment.filters,
-                            aggregation_group_type_index: groupIndex,
-                            funnel_aggregate_by_hogql: aggregationQuery,
-                        },
-                    })
-                }
-            }}
-            options={optionSections}
-            dropdownMatchSelectWidth={false}
-        />
+        <div className="flex items-center w-full gap-2">
+            <span>Aggregating by</span>
+            <LemonSelect
+                className="flex-1"
+                value={value}
+                onChange={onChange}
+                options={optionSections}
+                dropdownMatchSelectWidth={false}
+            />
+        </div>
     )
 }
 
-export function FunnelConversionWindowFilter(): JSX.Element {
-    const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
-        [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
-        [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
-        [FunnelConversionWindowTimeUnit.Hour]: [1, 24],
-        [FunnelConversionWindowTimeUnit.Day]: [1, 365],
-        [FunnelConversionWindowTimeUnit.Week]: [1, 53],
-        [FunnelConversionWindowTimeUnit.Month]: [1, 12],
-    }
-
-    const DEFAULT_FUNNEL_WINDOW_INTERVAL = 14
-
-    const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
-
-    const {
-        funnelWindowInterval = DEFAULT_FUNNEL_WINDOW_INTERVAL,
-        funnelWindowIntervalUnit = FunnelConversionWindowTimeUnit.Day,
-    } = {} as FunnelsFilter
-
+export function FunnelConversionWindowFilter({
+    funnelWindowInterval,
+    funnelWindowIntervalUnit,
+    onFunnelWindowIntervalChange,
+    onFunnelWindowIntervalUnitChange,
+}: {
+    funnelWindowInterval: number | undefined
+    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | undefined
+    onFunnelWindowIntervalChange: (funnelWindowInterval: number | undefined) => void
+    onFunnelWindowIntervalUnitChange: (funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit) => void
+}): JSX.Element {
     const options: LemonSelectOption<FunnelConversionWindowTimeUnit>[] = Object.keys(TIME_INTERVAL_BOUNDS).map(
         (unit) => ({
             label: capitalizeFirstLetter(pluralize(funnelWindowInterval ?? 7, unit, `${unit}s`, false)),
@@ -383,57 +140,13 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     fullWidth={false}
                     min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    value={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query?.funnelsFilter
-                                ?.funnelWindowInterval
-                        }
-                        return (experiment.filters as FunnelsFilterType).funnel_window_interval
-                    })()}
-                    onChange={(funnelWindowInterval) => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx: 0,
-                                funnelWindowInterval: funnelWindowInterval,
-                            })
-                        } else {
-                            setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    funnel_window_interval: funnelWindowInterval,
-                                },
-                            })
-                        }
-                    }}
+                    value={funnelWindowInterval}
+                    onChange={onFunnelWindowIntervalChange}
                 />
                 <LemonSelect
                     dropdownMatchSelectWidth={false}
-                    value={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query?.funnelsFilter
-                                ?.funnelWindowIntervalUnit
-                        }
-                        return (experiment.filters as FunnelsFilterType).funnel_window_interval_unit
-                    })()}
-                    onChange={(funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | null) => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsMetric({
-                                metricIdx: 0,
-                                funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
-                            })
-                        } else {
-                            setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    funnel_window_interval_unit: funnelWindowIntervalUnit || undefined,
-                                },
-                            })
-                        }
-                    }}
+                    value={funnelWindowIntervalUnit}
+                    onChange={onFunnelWindowIntervalUnitChange}
                     options={options}
                 />
             </div>
@@ -441,24 +154,16 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     )
 }
 
-export function FunnelAttributionSelect(): JSX.Element {
-    const { experiment, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
+export function FunnelAttributionSelect({
+    value,
+    onChange,
+    stepsLength,
+}: {
+    value: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}`
+    onChange: (value: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}`) => void
+    stepsLength: number
+}): JSX.Element {
     const funnelOrderType = undefined
-
-    // :FLAG: CLEAN UP AFTER MIGRATION
-    let stepsLength
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-        stepsLength =
-            (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query?.series?.length ||
-            (experiment.metrics[0] as ExperimentTrendsQuery).count_query?.series?.length
-    } else {
-        stepsLength = Math.max(
-            experiment.filters.actions?.length ?? 0,
-            experiment.filters.events?.length ?? 0,
-            experiment.filters.data_warehouse?.length ?? 0
-        )
-    }
 
     return (
         <div className="flex items-center w-full gap-2">
@@ -499,30 +204,7 @@ export function FunnelAttributionSelect(): JSX.Element {
                 </Tooltip>
             </div>
             <LemonSelect
-                value={(() => {
-                    // :FLAG: CLEAN UP AFTER MIGRATION
-                    let breakdownAttributionType
-                    let breakdownAttributionValue
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        breakdownAttributionType = (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
-                            ?.funnelsFilter?.breakdownAttributionType
-                        breakdownAttributionValue = (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
-                            ?.funnelsFilter?.breakdownAttributionValue
-                    } else {
-                        breakdownAttributionType = (experiment.filters as FunnelsFilterType).breakdown_attribution_type
-                        breakdownAttributionValue = (experiment.filters as FunnelsFilterType)
-                            .breakdown_attribution_value
-                    }
-
-                    const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
-                        !breakdownAttributionType
-                            ? BreakdownAttributionType.FirstTouch
-                            : breakdownAttributionType === BreakdownAttributionType.Step
-                            ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-                            : breakdownAttributionType
-
-                    return currentValue
-                })()}
+                value={value}
                 placeholder="Attribution"
                 options={[
                     { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
@@ -538,36 +220,14 @@ export function FunnelAttributionSelect(): JSX.Element {
                         options: Array(FUNNEL_STEP_COUNT_LIMIT)
                             .fill(null)
                             .map((_, stepIndex) => ({
-                                value: `${BreakdownAttributionType.Step}/${stepIndex}`,
+                                value: `${BreakdownAttributionType.Step}/${stepIndex}` as const,
                                 label: `Step ${stepIndex + 1}`,
                                 hidden: stepIndex >= stepsLength,
                             })),
                         hidden: funnelOrderType === StepOrderValue.UNORDERED,
                     },
                 ]}
-                onChange={(value) => {
-                    const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
-                    // :FLAG: CLEAN UP AFTER MIGRATION
-                    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        setFunnelsMetric({
-                            metricIdx: 0,
-                            breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
-                            breakdownAttributionValue: breakdownAttributionValue
-                                ? parseInt(breakdownAttributionValue)
-                                : undefined,
-                        })
-                    } else {
-                        setExperiment({
-                            filters: {
-                                ...experiment.filters,
-                                breakdown_attribution_type: breakdownAttributionType as BreakdownAttributionType,
-                                breakdown_attribution_value: breakdownAttributionValue
-                                    ? parseInt(breakdownAttributionValue)
-                                    : 0,
-                            },
-                        })
-                    }
-                }}
+                onChange={onChange}
                 dropdownMaxContentWidth={true}
                 data-attr="breakdown-attributions"
             />

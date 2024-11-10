@@ -31,7 +31,6 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.filters.filter import Filter
-from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
 from posthog.utils import generate_cache_key, get_safe_cache
 
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 60  # 1 hour
@@ -238,34 +237,34 @@ class ExperimentSerializer(serializers.ModelSerializer):
     def validate_metrics(self, value):
         # TODO: This isn't correct most probably, we wouldn't have experiment_id inside ExperimentTrendsQuery
         # on creation. Not sure how this is supposed to work yet.
-        if not value:
-            return value
+        # if not value:
+        #     return value
 
-        if not isinstance(value, list):
-            raise ValidationError("Metrics must be a list")
+        # if not isinstance(value, list):
+        #     raise ValidationError("Metrics must be a list")
 
-        if len(value) > 10:
-            raise ValidationError("Experiments can have a maximum of 10 metrics")
+        # if len(value) > 10:
+        #     raise ValidationError("Experiments can have a maximum of 10 metrics")
 
-        for metric in value:
-            if not isinstance(metric, dict):
-                raise ValidationError("Metrics must be objects")
-            if not metric.get("query"):
-                raise ValidationError("Metric query is required")
+        # for metric in value:
+        #     if not isinstance(metric, dict):
+        #         raise ValidationError("Metrics must be objects")
+        #     if not metric.get("query"):
+        #         raise ValidationError("Metric query is required")
 
-            if metric.get("type") not in ["primary", "secondary"]:
-                raise ValidationError("Metric type must be 'primary' or 'secondary'")
+        #     if metric.get("type") not in ["primary", "secondary"]:
+        #         raise ValidationError("Metric type must be 'primary' or 'secondary'")
 
-            metric_query = metric["query"]
+        #     metric_query = metric["query"]
 
-            if metric_query.get("kind") not in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
-                raise ValidationError("Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'")
+        #     if metric_query.get("kind") not in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
+        #         raise ValidationError("Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'")
 
-            # pydantic models are used to validate the query
-            if metric_query["kind"] == "ExperimentTrendsQuery":
-                ExperimentTrendsQuery(**metric_query)
-            else:
-                ExperimentFunnelsQuery(**metric_query)
+        #     # pydantic models are used to validate the query
+        #     if metric_query["kind"] == "ExperimentTrendsQuery":
+        #         ExperimentTrendsQuery(**metric_query)
+        #     else:
+        #         ExperimentFunnelsQuery(**metric_query)
 
         return value
 

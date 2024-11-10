@@ -10,17 +10,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
+import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
 import { FilterType } from '~/types'
 
-import { experimentLogic, MetricInsightId } from './experimentLogic'
+import { experimentLogic } from './experimentLogic'
 
-export function PrimaryGoalTrends(): JSX.Element {
+export function PrimaryGoalTrendsExposure(): JSX.Element {
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setTrendsMetric } = useActions(experimentLogic)
+    const { setExperiment, setTrendsExposureMetric } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-
     const currentMetric = experiment.metrics[0] as ExperimentTrendsQuery
 
     return (
@@ -30,9 +29,9 @@ export function PrimaryGoalTrends(): JSX.Element {
                 filters={(() => {
                     // :FLAG: CLEAN UP AFTER MIGRATION
                     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        return queryNodeToFilter(currentMetric.count_query)
+                        return queryNodeToFilter(currentMetric.exposure_query as InsightQueryNode)
                     }
-                    return experiment.filters
+                    return experiment.parameters.custom_exposure_filter as FilterType
                 })()}
                 setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
                     // :FLAG: CLEAN UP AFTER MIGRATION
@@ -43,36 +42,45 @@ export function PrimaryGoalTrends(): JSX.Element {
                             MathAvailability.All
                         )
 
-                        setTrendsMetric({
+                        setTrendsExposureMetric({
                             metricIdx: 0,
                             series,
                         })
                     } else {
                         if (actions?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    actions,
-                                    events: undefined,
-                                    data_warehouse: undefined,
+                                parameters: {
+                                    ...experiment.parameters,
+                                    custom_exposure_filter: {
+                                        ...experiment.parameters.custom_exposure_filter,
+                                        actions,
+                                        events: undefined,
+                                        data_warehouse: undefined,
+                                    },
                                 },
                             })
                         } else if (events?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    events,
-                                    actions: undefined,
-                                    data_warehouse: undefined,
+                                parameters: {
+                                    ...experiment.parameters,
+                                    custom_exposure_filter: {
+                                        ...experiment.parameters.custom_exposure_filter,
+                                        events,
+                                        actions: undefined,
+                                        data_warehouse: undefined,
+                                    },
                                 },
                             })
                         } else if (data_warehouse?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    data_warehouse,
-                                    actions: undefined,
-                                    events: undefined,
+                                parameters: {
+                                    ...experiment.parameters,
+                                    custom_exposure_filter: {
+                                        ...experiment.parameters.custom_exposure_filter,
+                                        data_warehouse,
+                                        actions: undefined,
+                                        events: undefined,
+                                    },
                                 },
                             })
                         }
@@ -104,23 +112,28 @@ export function PrimaryGoalTrends(): JSX.Element {
                     checked={(() => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            const val = currentMetric.count_query?.filterTestAccounts
+                            const val = currentMetric.exposure_query?.filterTestAccounts
                             return hasFilters ? !!val : false
                         }
-                        return hasFilters ? !!experiment.filters.filter_test_accounts : false
+                        return hasFilters
+                            ? !!(experiment.parameters.custom_exposure_filter as FilterType).filter_test_accounts
+                            : false
                     })()}
                     onChange={(checked: boolean) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setTrendsMetric({
+                            setTrendsExposureMetric({
                                 metricIdx: 0,
                                 filterTestAccounts: checked,
                             })
                         } else {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    filter_test_accounts: checked,
+                                parameters: {
+                                    ...experiment.parameters,
+                                    custom_exposure_filter: {
+                                        ...experiment.parameters.custom_exposure_filter,
+                                        filter_test_accounts: checked,
+                                    },
                                 },
                             })
                         }
@@ -142,20 +155,15 @@ export function PrimaryGoalTrends(): JSX.Element {
                         source: (() => {
                             // :FLAG: CLEAN UP AFTER MIGRATION
                             if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                return currentMetric.count_query
+                                return currentMetric.exposure_query
                             }
-                            return filtersToQueryNode(experiment.filters)
+                            return filtersToQueryNode(experiment.parameters.custom_exposure_filter as FilterType)
                         })(),
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,
                     }}
                     readOnly
-                    context={{
-                        insightProps: {
-                            dashboardItemId: MetricInsightId.Trends,
-                        },
-                    }}
                 />
             </div>
         </>

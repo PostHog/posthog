@@ -170,10 +170,18 @@ export function DataCollection(): JSX.Element {
 }
 
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { isExperimentCollectionGoalModalOpen, goalInsightDataLoading } = useValues(experimentLogic({ experimentId }))
+    const {
+        isExperimentCollectionGoalModalOpen,
+        experimentInsightType,
+        trendMetricInsightLoading,
+        funnelMetricInsightLoading,
+    } = useValues(experimentLogic({ experimentId }))
     const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal } = useActions(
         experimentLogic({ experimentId })
     )
+
+    const isInsightLoading =
+        experimentInsightType === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
 
     return (
         <LemonModal
@@ -201,7 +209,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
                 </div>
             }
         >
-            {goalInsightDataLoading ? (
+            {isInsightLoading ? (
                 <div className="flex flex-col flex-1 justify-center items-center mb-6">
                     <Animation type={AnimationType.LaptopHog} />
                     <div className="text-xs text-muted w-60">

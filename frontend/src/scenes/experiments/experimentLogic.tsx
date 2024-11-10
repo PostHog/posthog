@@ -25,14 +25,11 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentFunnelsQuery,
     ExperimentTrendsQuery,
-    InsightVizNode,
     NodeKind,
 } from '~/queries/schema'
 import {
@@ -108,6 +105,14 @@ export interface ExperimentResultCalculationError {
     statusCode: number
 }
 
+export enum MetricInsightId {
+    Trends = 'new-experiment-trends-metric',
+    TrendsExposure = 'new-experiment-trends-exposure',
+    Funnels = 'new-experiment-funnels-metric',
+    SecondaryTrends = 'new-experiment-secondary-trends',
+    SecondaryFunnels = 'new-experiment-secondary-funnels',
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -124,12 +129,21 @@ export const experimentLogic = kea<experimentLogicType>([
             ['results as funnelResults', 'conversionMetrics'],
             trendsDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['results as trendResults'],
-            insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
-            ['insightDataLoading as goalInsightDataLoading'],
             featureFlagLogic,
             ['featureFlags'],
             holdoutsLogic,
             ['holdouts'],
+            // Hook into the loading state of the metric insight
+            insightDataLogic({ dashboardItemId: MetricInsightId.Trends }),
+            ['insightDataLoading as trendMetricInsightLoading'],
+            insightDataLogic({ dashboardItemId: MetricInsightId.TrendsExposure }),
+            ['insightDataLoading as trendExposureMetricInsightLoading'],
+            insightDataLogic({ dashboardItemId: MetricInsightId.Funnels }),
+            ['insightDataLoading as funnelMetricInsightLoading'],
+            insightDataLogic({ dashboardItemId: MetricInsightId.SecondaryTrends }),
+            ['insightDataLoading as secondaryTrendMetricInsightLoading'],
+            insightDataLogic({ dashboardItemId: MetricInsightId.SecondaryFunnels }),
+            ['insightDataLoading as secondaryFunnelMetricInsightLoading'],
         ],
         actions: [
             experimentsLogic,
@@ -155,7 +169,6 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
         setExperimentType: (type?: string) => ({ type }),
-        setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         setExperimentResultCalculationError: (error: ExperimentResultCalculationError) => ({ error }),
@@ -194,7 +207,47 @@ export const experimentLogic = kea<experimentLogicType>([
             series?: any[]
             filterTestAccounts?: boolean
         }) => ({ metricIdx, series, filterTestAccounts }),
+        setTrendsExposureMetric: ({
+            metricIdx,
+            series,
+            filterTestAccounts,
+        }: {
+            metricIdx: number
+            series?: any[]
+            filterTestAccounts?: boolean
+        }) => ({ metricIdx, series, filterTestAccounts }),
         setFunnelsMetric: ({
+            metricIdx,
+            series,
+            filterTestAccounts,
+            breakdownAttributionType,
+            breakdownAttributionValue,
+            funnelWindowInterval,
+            funnelWindowIntervalUnit,
+            aggregation_group_type_index,
+            funnelAggregateByHogQL,
+        }: {
+            metricIdx: number
+            series?: any[]
+            filterTestAccounts?: boolean
+            breakdownAttributionType?: BreakdownAttributionType
+            breakdownAttributionValue?: number
+            funnelWindowInterval?: number
+            funnelWindowIntervalUnit?: string
+            aggregation_group_type_index?: number
+            funnelAggregateByHogQL?: string
+        }) => ({
+            metricIdx,
+            series,
+            filterTestAccounts,
+            breakdownAttributionType,
+            breakdownAttributionValue,
+            funnelWindowInterval,
+            funnelWindowIntervalUnit,
+            aggregation_group_type_index,
+            funnelAggregateByHogQL,
+        }),
+        setFunnelsSecondaryMetric: ({
             metricIdx,
             series,
             filterTestAccounts,
@@ -310,6 +363,24 @@ export const experimentLogic = kea<experimentLogicType>([
                         metrics,
                     }
                 },
+                setTrendsExposureMetric: (state, { metricIdx, series, filterTestAccounts }) => {
+                    const metrics = [...(state?.metrics || [])]
+                    const metric = metrics[metricIdx]
+
+                    metrics[metricIdx] = {
+                        ...metric,
+                        exposure_query: {
+                            ...(metric as ExperimentTrendsQuery).exposure_query,
+                            ...(series && { series }),
+                            ...(filterTestAccounts !== undefined && { filterTestAccounts }),
+                        },
+                    } as ExperimentTrendsQuery
+
+                    return {
+                        ...state,
+                        metrics,
+                    }
+                },
                 setFunnelsMetric: (
                     state,
                     {
@@ -340,7 +411,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 ...(breakdownAttributionValue !== undefined && { breakdownAttributionValue }),
                                 ...(funnelWindowInterval !== undefined && { funnelWindowInterval }),
                                 ...(funnelWindowIntervalUnit && { funnelWindowIntervalUnit }),
-                                ...(funnelAggregateByHogQL && { funnelAggregateByHogQL }),
+                                ...(funnelAggregateByHogQL !== undefined && { funnelAggregateByHogQL }),
                             },
                         },
                     } as ExperimentFunnelsQuery
@@ -348,6 +419,46 @@ export const experimentLogic = kea<experimentLogicType>([
                     return {
                         ...state,
                         metrics,
+                    }
+                },
+                setFunnelsSecondaryMetric: (
+                    state,
+                    {
+                        metricIdx,
+                        series,
+                        filterTestAccounts,
+                        breakdownAttributionType,
+                        breakdownAttributionValue,
+                        funnelWindowInterval,
+                        funnelWindowIntervalUnit,
+                        aggregation_group_type_index,
+                        funnelAggregateByHogQL,
+                    }
+                ) => {
+                    const metrics_secondary = [...(state?.metrics_secondary || [])]
+                    const metric = metrics_secondary[metricIdx]
+
+                    metrics_secondary[metricIdx] = {
+                        ...metric,
+                        funnels_query: {
+                            ...(metric as ExperimentFunnelsQuery).funnels_query,
+                            ...(series && { series }),
+                            ...(filterTestAccounts !== undefined && { filterTestAccounts }),
+                            ...(aggregation_group_type_index !== undefined && { aggregation_group_type_index }),
+                            funnelsFilter: {
+                                ...(metric as ExperimentFunnelsQuery).funnels_query.funnelsFilter,
+                                ...(breakdownAttributionType && { breakdownAttributionType }),
+                                ...(breakdownAttributionValue !== undefined && { breakdownAttributionValue }),
+                                ...(funnelWindowInterval !== undefined && { funnelWindowInterval }),
+                                ...(funnelWindowIntervalUnit && { funnelWindowIntervalUnit }),
+                                ...(funnelAggregateByHogQL !== undefined && { funnelAggregateByHogQL }),
+                            },
+                        },
+                    } as ExperimentFunnelsQuery
+
+                    return {
+                        ...state,
+                        metrics_secondary,
                     }
                 },
             },
@@ -546,29 +657,6 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentType: async ({ type }) => {
             actions.setExperiment({ type: type })
         },
-        // sync form value `filters` with query
-        setQuery: ({ query }) => {
-            actions.setExperiment({ filters: queryNodeToFilter((query as InsightVizNode).source) })
-        },
-        setExperimentExposureInsight: async ({ filters }) => {
-            const newInsightFilters = cleanFilters({
-                insight: InsightType.TRENDS,
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                ...filters,
-            })
-
-            actions.updateExposureQuerySource(filtersToQueryNode(newInsightFilters))
-        },
-        // sync form value `filters` with query
-        setExposureQuery: ({ query }) => {
-            actions.setExperiment({
-                parameters: {
-                    custom_exposure_filter: queryNodeToFilter((query as InsightVizNode).source),
-                    feature_flag_variants: values.experiment?.parameters?.feature_flag_variants,
-                },
-            })
-        },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
 
@@ -638,6 +726,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateExperimentExposure: async ({ filters }) => {
             actions.updateExperiment({
+                metrics: values.experiment.metrics,
                 parameters: {
                     custom_exposure_filter: filters ?? undefined,
                     feature_flag_variants: values.experiment?.parameters?.feature_flag_variants,
@@ -752,9 +841,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.setFlagImplementationWarning(false)
                 }
             }
-        },
-        openExperimentExposureModal: async () => {
-            actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
             if (exposureCohort && exposureCohort.id !== 'new') {
