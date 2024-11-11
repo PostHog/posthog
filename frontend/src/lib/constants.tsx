@@ -228,6 +228,7 @@ export const FEATURE_FLAGS = {
     DEAD_CLICKS_AUTOCAPTURE: 'dead-clicks-autocapture', // owner: @pauldambra #team-replay
     ONBOARDING_PRODUCT_MULTISELECT: 'onboarding-product-multiselect', // owner: @danielbachhuber #team-experiments
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
+    AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: @pauldambra
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
