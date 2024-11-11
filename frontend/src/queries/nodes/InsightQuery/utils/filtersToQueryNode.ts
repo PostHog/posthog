@@ -138,6 +138,7 @@ export const legacyEntityToNode = (
                 ...shared,
                 math: entity.math || 'total',
                 math_property: entity.math_property,
+                math_property_type: entity.math_property_type,
                 math_hogql: entity.math_hogql,
                 math_group_type_index: entity.math_group_type_index,
             } as any
@@ -392,6 +393,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
     return objectCleanWithEmpty({
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
+        showAlertThresholdLines: filters.show_alert_threshold_lines,
         hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         aggregationAxisFormat: filters.aggregation_axis_format,
         aggregationAxisPrefix: filters.aggregation_axis_prefix,

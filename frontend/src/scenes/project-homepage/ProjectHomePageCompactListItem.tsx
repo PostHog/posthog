@@ -3,7 +3,7 @@ import React from 'react'
 
 export type RecentItemRowProps = Pick<LemonButtonProps, 'onClick' | 'to'> & {
     title: string
-    subtitle: string
+    subtitle: React.ReactNode
     prefix?: React.ReactNode
     suffix?: React.ReactNode
 }

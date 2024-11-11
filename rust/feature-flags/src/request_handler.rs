@@ -213,7 +213,7 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
 /// Evaluate feature flags for a given distinct_id
 /// - Returns a map of feature flag keys to their values
 /// - If an error occurs while evaluating a flag, we'll set `error_while_computing_flags` to true be logged,
-///  and that flag will be omitted from the result (we will still attempt to evaluate other flags)
+///   and that flag will be omitted from the result (we will still attempt to evaluate other flags)
 // TODO: it could be a cool idea to store the errors as a tuple instead of top-level, so that users can see
 // which flags failed to evaluate
 pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {

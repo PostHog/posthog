@@ -189,11 +189,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert mock_capture.call_args_list[0] == call(
             self.user.distinct_id,
             "recording list filters changed",
-            {
+            properties={
                 "$current_url": ANY,
                 "$session_id": ANY,
                 "partial_filter_chosen_my_filter": "something",
             },
+            groups=ANY,
         )
 
     @snapshot_postgres_queries
@@ -277,6 +278,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "storage": "object_storage",
                 "viewed": False,
                 "ongoing": True,
+                "activity_score": None,
             },
         ]
 
@@ -504,6 +506,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "storage": "object_storage",
             "snapshot_source": "web",
             "ongoing": None,
+            "activity_score": None,
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):

@@ -1,11 +1,10 @@
 import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DateRange } from '~/queries/schema'
-import { FilterLogicalOperator } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
 

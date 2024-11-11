@@ -33,7 +33,7 @@ impl GeoIpClient {
 
     /// Checks if the given IP address is valid.
     fn is_valid_ip(&self, ip: &str) -> bool {
-        ip != "127.0.0.1" || ip != "::1"
+        ip != "127.0.0.1" && ip != "::1"
     }
 
     /// Looks up the city data for the given IP address.
@@ -56,25 +56,23 @@ impl GeoIpClient {
 
     /// Returns a dictionary of geoip properties for the given ip address.
     pub fn get_geoip_properties(&self, ip_address: Option<&str>) -> HashMap<String, String> {
-        match ip_address {
-            None => {
-                info!("No IP address provided; returning empty properties");
+        let ip = match ip_address {
+            Some(ip) if self.is_valid_ip(ip) => ip,
+            _ => {
+                info!("No valid IP address provided; returning empty properties");
+                return HashMap::new();
+            }
+        };
+
+        match IpAddr::from_str(ip) {
+            Ok(addr) => self
+                .lookup_city(ip, addr)
+                .map(|city| extract_properties(&city))
+                .unwrap_or_default(),
+            Err(_) => {
+                error!("Invalid IP address: {}", ip);
                 HashMap::new()
             }
-            Some(ip) if !self.is_valid_ip(ip) => {
-                info!("Returning empty properties for IP: {}", ip);
-                HashMap::new()
-            }
-            Some(ip) => match IpAddr::from_str(ip) {
-                Ok(addr) => self
-                    .lookup_city(ip, addr)
-                    .map(|city| extract_properties(&city))
-                    .unwrap_or_default(),
-                Err(_) => {
-                    error!("Invalid IP address: {}", ip);
-                    HashMap::new()
-                }
-            },
         }
     }
 }
@@ -176,6 +174,7 @@ mod tests {
             ("13.106.122.3", "Australia"),
             ("31.28.64.3", "United Kingdom"),
             ("2600:6c52:7a00:11c:1b6:b7b0:ea19:6365", "United States"),
+            ("187.188.10.252", "Mexico"),
         ];
 
         for (ip, expected_country) in test_cases {

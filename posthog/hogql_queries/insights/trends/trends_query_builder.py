@@ -60,7 +60,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.modifiers = modifiers
         self.limit_context = limit_context
 
-    def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
         events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
@@ -73,7 +73,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_wrapper_query(
         self, events_query: ast.SelectQuery, breakdown: Breakdown
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if not breakdown.enabled:
             return events_query
 
@@ -312,7 +312,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _outer_select_query(
         self, breakdown: Breakdown, inner_query: ast.SelectQuery
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         total_array = parse_expr(
             """
             arrayMap(
@@ -453,7 +453,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ) or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_select_query(
-        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery
+        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,

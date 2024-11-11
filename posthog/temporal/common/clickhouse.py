@@ -395,7 +395,6 @@ class ClickHouseClient:
         query,
         *data,
         queue: asyncio.Queue,
-        done_event: asyncio.Event,
         query_parameters=None,
         query_id: str | None = None,
     ) -> None:
@@ -407,7 +406,7 @@ class ClickHouseClient:
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchProducer(response.content.iter_chunks())
-            await reader.produce(queue=queue, done_event=done_event)
+            await reader.produce(queue=queue)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
@@ -461,7 +460,7 @@ async def get_client(
     #        ssl_context.load_verify_locations(settings.CLICKHOUSE_CA)
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
-    timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
+    timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=30, sock_read=None)
 
     if team_id is None:
         max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT

@@ -71,6 +71,7 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
+    DebugHog = 'DebugHog',
     VerifyEmail = 'VerifyEmail',
     Notebooks = 'Notebooks',
     Notebook = 'Notebook',
@@ -81,6 +82,8 @@ export enum Scene {
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    MessagingProviders = 'MessagingProviders',
+    MessagingBroadcasts = 'MessagingBroadcasts',
 }
 
 export type SceneProps = Record<string, any>

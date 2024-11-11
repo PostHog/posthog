@@ -66,6 +66,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
+    [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
     [Scene.Notebooks]: () => import('./notebooks/NotebooksScene'),
     [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
@@ -77,4 +78,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
+    [Scene.MessagingProviders]: () => import('./messaging/Providers'),
+    [Scene.MessagingBroadcasts]: () => import('./messaging/Broadcasts'),
 }

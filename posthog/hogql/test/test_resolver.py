@@ -581,6 +581,29 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
 
+    def test_assume_not_null_type(self):
+        node = self._select(f"SELECT assumeNotNull(toDateTime('2020-01-01 00:00:00'))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type == ast.DateTimeType(nullable=False)
+
+    def test_interval_type_arithmetic(self):
+        operators = ["+", "-"]
+        granularites = ["Second", "Minute", "Hour", "Day", "Week", "Month", "Quarter", "Year"]
+        exprs = []
+        for granularity in granularites:
+            for operator in operators:
+                exprs.append(f"timestamp {operator} toInterval{granularity}(1)")
+
+        node = self._select(f"""SELECT {",".join(exprs)} FROM events""")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert len(node.select) == len(exprs)
+        for selected in node.select:
+            assert selected.type == ast.DateTimeType(nullable=False)
+
     def test_recording_button_tag(self):
         node: ast.SelectQuery = self._select("select <RecordingButton sessionId={'12345'} />")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))

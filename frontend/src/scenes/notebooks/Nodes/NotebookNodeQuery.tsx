@@ -14,6 +14,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -97,7 +98,7 @@ const Component = ({
     }
 
     return (
-        <div className="flex flex-1 flex-col h-full">
+        <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <Query
                     // use separate keys for the settings and visualization to avoid conflicts with insightProps
@@ -111,6 +112,8 @@ const Component = ({
                             } as QuerySchema,
                         })
                     }}
+                    embedded
+                    readOnly
                 />
             </BindLogic>
         </div>
@@ -240,7 +243,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             : undefined,
     Settings,
     pasteOptions: {
-        find: urls.insightView('(.+)' as InsightShortId),
+        find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
         getAttributes: async (match) => {
             return {
                 query: {

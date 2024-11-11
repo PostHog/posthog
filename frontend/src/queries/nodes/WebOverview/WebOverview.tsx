@@ -11,7 +11,13 @@ import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from
 import { useState } from 'react'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
-import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+import {
+    AnyResponseType,
+    WebOverviewItem,
+    WebOverviewItemKind,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -146,11 +152,7 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (
-    value: number | undefined,
-    kind: WebOverviewItem['kind'],
-    options?: { precise?: boolean }
-): string => {
+const formatItem = (value: number | undefined, kind: WebOverviewItemKind, options?: { precise?: boolean }): string => {
     if (value == null) {
         return '-'
     } else if (kind === 'percentage') {

@@ -8,10 +8,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
+import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
 import { SessionRecordingPlayerTab } from '~/types'
 
-import { playerSettingsLogic } from '../playerSettingsLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
@@ -39,8 +39,8 @@ function HideProperties(): JSX.Element | null {
 }
 
 function MiniFilters(): JSX.Element {
-    const { miniFilters } = useValues(playerSettingsLogic)
-    const { setMiniFilter } = useActions(playerSettingsLogic)
+    const { miniFilters } = useValues(miniFiltersLogic)
+    const { setMiniFilter } = useActions(miniFiltersLogic)
 
     return (
         <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt" data-attr="mini-filters">
@@ -146,8 +146,8 @@ export function PlayerInspectorControls(): JSX.Element {
     const inspectorLogic = playerInspectorLogic(logicProps)
     const { tab, showMatchingEventsFilter } = useValues(inspectorLogic)
     const { setTab } = useActions(inspectorLogic)
-    const { showOnlyMatching, searchQuery } = useValues(playerSettingsLogic)
-    const { setShowOnlyMatching, setSearchQuery } = useActions(playerSettingsLogic)
+    const { showOnlyMatching, searchQuery } = useValues(miniFiltersLogic)
+    const { setShowOnlyMatching, setSearchQuery } = useActions(miniFiltersLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 

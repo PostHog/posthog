@@ -30,6 +30,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
+    raise_on_produce_task_failure,
     start_batch_export_run,
     start_produce_batch_export_record_batches,
 )
@@ -130,7 +131,7 @@ class BigQueryInsertInputs:
     private_key_id: str
     token_uri: str
     client_email: str
-    data_interval_start: str
+    data_interval_start: str | None
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
@@ -350,8 +351,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
     )
     await logger.ainfo(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.project_id,
         inputs.dataset_id,
         inputs.table_id,
@@ -368,7 +369,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
 
         if should_resume is True and details is not None:
-            data_interval_start = details.last_inserted_at.isoformat()
+            data_interval_start: str | None = details.last_inserted_at.isoformat()
         else:
             data_interval_start = inputs.data_interval_start
 
@@ -391,7 +392,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
 
-        queue, done_event, produce_task = start_produce_batch_export_record_batches(
+        queue, produce_task = start_produce_batch_export_record_batches(
             client=client,
             model_name=model_name,
             is_backfill=inputs.is_backfill,
@@ -406,23 +407,26 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         )
 
         get_schema_task = asyncio.create_task(queue.get_schema())
-        wait_for_producer_done_task = asyncio.create_task(done_event.wait())
 
-        await asyncio.wait([get_schema_task, wait_for_producer_done_task], return_when=asyncio.FIRST_COMPLETED)
+        await asyncio.wait(
+            [get_schema_task, produce_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
 
         # Finishing producing happens sequentially after putting to queue and setting the schema.
-        # So, either we finished both tasks, or we finished without putting anything in the queue.
+        # So, either we finished producing and setting the schema tasks, or we finished without
+        # putting anything in the queue.
         if get_schema_task.done():
             # In the first case, we'll land here.
             # The schema is available, and the queue is not empty, so we can start the batch export.
             record_batch_schema = get_schema_task.result()
-        elif wait_for_producer_done_task.done():
-            # In the second case, we'll land here.
-            # The schema is not available as the queue is empty.
-            # Since we finished producing with an empty queue, there is nothing to batch export.
-            return 0
         else:
-            raise Exception("Unreachable")
+            # In the second case, we'll land here: We finished producing without putting anything.
+            # Since we finished producing with an empty queue, there is nothing to batch export.
+            # We could have also failed, so we need to re-raise that exception to allow a retry if
+            # that's the case.
+            await raise_on_produce_task_failure(produce_task)
+            return 0
 
         if inputs.use_json_type is True:
             json_type = "JSON"
@@ -507,13 +511,13 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     heartbeater.details = (str(last_inserted_at),)
 
                 flush_tasks = []
-                while not queue.empty() or not done_event.is_set():
+                while not queue.empty() or not produce_task.done():
                     await logger.adebug("Starting record batch writer")
                     flush_start_event = asyncio.Event()
                     task = asyncio.create_task(
                         consume_batch_export_record_batches(
                             queue,
-                            done_event,
+                            produce_task,
                             flush_start_event,
                             flush_to_bigquery,
                             json_columns,
@@ -525,10 +529,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
                     flush_tasks.append(task)
 
-                await logger.adebug(
-                    "Finished producing and consuming all record batches, now waiting on any pending flush tasks"
-                )
+                await logger.adebug("Finished producing, now waiting on any pending flush tasks")
                 await asyncio.wait(flush_tasks)
+
+                await raise_on_produce_task_failure(produce_task)
+                await logger.adebug("Successfully consumed all record batches")
 
                 records_total = functools.reduce(operator.add, (task.result() for task in flush_tasks))
 
@@ -549,7 +554,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
 async def consume_batch_export_record_batches(
     queue: asyncio.Queue,
-    done_event: asyncio.Event,
+    produce_task: asyncio.Task,
     flush_start_event: asyncio.Event,
     flush_to_bigquery: FlushCallable,
     json_columns: list[str],
@@ -572,7 +577,9 @@ async def consume_batch_export_record_batches(
 
     Arguments:
         queue: The queue we will be listening on for record batches.
-        done_event: Event set by producer when done.
+        produce_task: Producer task we check to be done if queue is empty, as
+            that would indicate we have finished reading record batches before
+            hitting the flush limit, so we have to break early.
         flush_to_start_event: Event set by us when flushing is to about to
             start.
         json_columns: Used to cast columns of the record batch to JSON.
@@ -592,7 +599,7 @@ async def consume_batch_export_record_batches(
             try:
                 record_batch = queue.get_nowait()
             except asyncio.QueueEmpty:
-                if done_event.is_set():
+                if produce_task.done():
                     await logger.adebug("Empty queue with no more events being produced, closing writer loop")
                     flush_start_event.set()
                     # Exit context manager to trigger flush
@@ -656,11 +663,12 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -694,7 +702,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             private_key_id=inputs.private_key_id,
             token_uri=inputs.token_uri,
             client_email=inputs.client_email,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,

@@ -196,17 +196,17 @@ export function SessionAttributionExplorer(): JSX.Element {
                 <div className="flex items-center flex-wrap gap-2 justify-between">
                     <div className="flex-1 min-w-full sm:min-w-0">
                         <p>
-                            You can use the Session attribution explorer (beta) to find understand how your sessions are
+                            You can use the Session attribution explorer (beta) to understand how your sessions are
                             attributed. We use the referring domain, <code>utm_source</code>, <code>utm_medium</code>,{' '}
                             <code>utm_campaign</code>, and the presence of advertising ids like <code>gclid</code> and{' '}
                             <code>gad_source</code>, to assign a session a{' '}
                             <Link to="https://posthog.com/docs/data/channel-type">Channel type</Link>.
                         </p>
                         <p>
-                            The table below shows sessions that are grouped, and you can change how they are grouped.
-                            Any columns that are not used in the grouping will show example values.
+                            If you believe that a session is attributed incorrectly, please let us know! If you'd like
+                            to customize your Channel attribution, please leave feedback on the{' '}
+                            <Link to="https://github.com/PostHog/posthog/issues/21195">feature request</Link>.
                         </p>
-                        <p>If you believe that a session is attributed incorrectly, please let us know!</p>
                     </div>
                     {showSupportOptions ? (
                         <span className="flex items-center gap-2">

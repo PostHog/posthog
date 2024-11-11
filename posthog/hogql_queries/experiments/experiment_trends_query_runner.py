@@ -106,12 +106,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # :TRICKY: for `avg` aggregation, use `sum` data as an approximation
         if prepared_count_query.series[0].math == PropertyMathType.AVG:
             prepared_count_query.series[0].math = PropertyMathType.SUM
-            prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         # TODO: revisit this; using the count data for the remaining aggregation types is likely wrong
         elif uses_math_aggregation:
             prepared_count_query.series[0].math = None
-            prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
 
+        prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_insight_date_range()
         prepared_count_query.breakdownFilter = self._get_breakdown_filter()
         prepared_count_query.properties = [
@@ -242,7 +241,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         count_result = shared_results["count_result"]
         exposure_result = shared_results["exposure_result"]
-
         if count_result is None or exposure_result is None:
             raise ValueError("One or both query runners failed to produce a response")
 
@@ -255,7 +253,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
         return ExperimentTrendsQueryResponse(
-            insight=count_result,
+            kind="ExperimentTrendsQuery",
+            insight=count_result.results,
+            count_query=self.prepared_count_query,
+            exposure_query=self.prepared_exposure_query,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
             probability={
                 variant.key: probability

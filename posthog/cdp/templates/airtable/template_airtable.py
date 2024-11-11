@@ -3,6 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-airtable",
     name="Airtable",
     description="Creates Airtable records",

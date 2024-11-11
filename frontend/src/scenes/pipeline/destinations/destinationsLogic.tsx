@@ -166,7 +166,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
-                    return (await api.hogFunctions.list()).results
+                    return (await api.hogFunctions.list({ type: 'destination' })).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {

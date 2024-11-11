@@ -131,12 +131,14 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         key: 'dataIntervalStart',
                         tooltip: 'Start of the time range to export',
                         render: (_, run) => {
-                            return (
+                            return run.data_interval_start ? (
                                 <TZLabel
                                     time={run.data_interval_start}
                                     formatDate="MMMM DD, YYYY"
                                     formatTime="HH:mm:ss"
                                 />
+                            ) : (
+                                'Beginning of time'
                             )
                         },
                     },
@@ -273,12 +275,14 @@ export function BatchExportRunsGrouped({
                         key: 'dataIntervalStart',
                         tooltip: 'Start of the time range to export',
                         render: (_, run) => {
-                            return (
+                            return run.data_interval_start ? (
                                 <TZLabel
                                     time={run.data_interval_start}
                                     formatDate="MMMM DD, YYYY"
                                     formatTime="HH:mm:ss"
                                 />
+                            ) : (
+                                'Beginning of time'
                             )
                         },
                     },

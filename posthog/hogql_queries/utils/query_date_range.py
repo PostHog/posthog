@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import cast, Literal, Optional
@@ -41,8 +40,8 @@ class QueryDateRange:
         self._interval = interval or IntervalType.DAY
         self._now_without_timezone = now
 
-        if not isinstance(self._interval, IntervalType) or re.match(r"[^a-z]", "DAY", re.IGNORECASE):
-            raise ValueError(f"Invalid interval: {interval}")
+        if not isinstance(self._interval, IntervalType):
+            raise ValueError(f"Value {repr(interval)} is not an instance of IntervalType")
 
     def date_to(self) -> datetime:
         date_to = self.now_with_timezone

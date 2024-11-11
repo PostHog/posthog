@@ -63,6 +63,7 @@ import {
     HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
+    HogFunctionTypeType,
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
@@ -480,11 +481,11 @@ class ApiRequest {
     }
 
     // Recordings
-    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
-    }
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recordings(teamId).addPathComponent(recordingId)
     }
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
@@ -748,7 +749,7 @@ class ApiRequest {
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent(id)
+        return this.subscriptions(teamId).addPathComponent(id)
     }
 
     // # Integrations
@@ -1739,12 +1740,15 @@ const api = {
         },
     },
     hog: {
-        async create(hog: string): Promise<HogCompileResponse> {
-            return await new ApiRequest().hog().create({ data: { hog } })
+        async create(hog: string, locals?: any[], inRepl?: boolean): Promise<HogCompileResponse> {
+            return await new ApiRequest().hog().create({ data: { hog, locals, in_repl: inRepl || false } })
         },
     },
     hogFunctions: {
-        async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
+        async list(params?: {
+            filters?: any
+            type?: HogFunctionTypeType
+        }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest().hogFunctions().withQueryString(params).get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
@@ -1774,9 +1778,11 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-
-        async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
-            return await new ApiRequest().hogFunctionTemplates().get()
+        async listTemplates(type?: HogFunctionTypeType): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            return new ApiRequest()
+                .hogFunctionTemplates()
+                .withQueryString({ type: type ?? 'destination' })
+                .get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()
@@ -2138,6 +2144,13 @@ const api = {
         async getResponsesCount(): Promise<{ [key: string]: number }> {
             return await new ApiRequest().surveysResponsesCount().get()
         },
+        async summarize_responses(surveyId: Survey['id'], questionIndex: number | undefined): Promise<any> {
+            let apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+            if (questionIndex !== undefined) {
+                apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
+            }
+            return await apiRequest.create()
+        },
     },
 
     dataWarehouseTables: {
@@ -2443,8 +2456,7 @@ const api = {
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
-        refresh?: boolean,
-        async?: boolean,
+        refresh?: RefreshType,
         filtersOverride?: DashboardFilter | null,
         variablesOverride?: Record<string, HogQLVariable> | null
     ): Promise<
@@ -2454,13 +2466,12 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest().query().create({
             ...options,
             data: {
                 query,
                 client_query_id: queryId,
-                refresh: refreshParam,
+                refresh,
                 filters_override: filtersOverride,
                 variables_override: variablesOverride,
             },
@@ -2605,6 +2616,11 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         }
 
         const data = await getJSONOrNull(response)
+
+        if (response.status >= 400 && data && typeof data.error === 'string') {
+            throw new ApiError(data.error, response.status, data)
+        }
+
         throw new ApiError('Non-OK response', response.status, data)
     }
 

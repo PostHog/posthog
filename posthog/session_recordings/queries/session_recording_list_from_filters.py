@@ -73,7 +73,13 @@ class SessionRecordingListFromFilters:
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
-            {ongoing_selection}
+            {ongoing_selection},
+            round((
+            ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
+            /
+            ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
+            * 100
+            ), 2) as activity_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -100,6 +106,7 @@ class SessionRecordingListFromFilters:
             "console_warn_count",
             "console_error_count",
             "ongoing",
+            "activity_score",
         ]
 
         return [
@@ -321,7 +328,7 @@ class PersonsPropertiesSubQuery:
         self._filter = filter
         self._ttl_days = ttl_days
 
-    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         if self.person_properties and not poe_is_active(self._team):
             return parse_select(
                 """
@@ -363,9 +370,12 @@ class CohortPropertyGroupsSubQuery:
     _ttl_days: int
 
     raw_cohort_to_distinct_id = """
-    select distinct_id
-    from person_distinct_ids
-    where {cohort_predicate}
+    SELECT
+    distinct_id
+FROM raw_person_distinct_ids
+WHERE distinct_id in (SELECT distinct_id FROM raw_person_distinct_ids WHERE 1=1 AND {cohort_predicate})
+GROUP BY distinct_id
+HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
     """
 
     def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
@@ -373,7 +383,7 @@ class CohortPropertyGroupsSubQuery:
         self._filter = filter
         self._ttl_days = ttl_days
 
-    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         if self.cohort_properties:
             return parse_select(
                 self.raw_cohort_to_distinct_id,
@@ -423,7 +433,7 @@ class PersonsIdCompareOperation:
                 right=q,
             )
 
-    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         if not self._filter.person_uuid:
             return None
 
@@ -519,14 +529,14 @@ class ReplayFiltersEventsSubQuery:
             group_by=[ast.Field(chain=["$session_id"])],
         )
 
-    def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         use_poe = poe_is_active(self._team) and self.person_properties
         if self._filter.entities or self.event_properties or self.group_properties or use_poe:
             return self._select_from_events(ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])))
         else:
             return None
 
-    def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self._select_from_events(ast.Call(name="groupUniqArray", args=[ast.Field(chain=["uuid"])]))
 
     def get_event_ids_for_session(self) -> SessionRecordingQueryResult:

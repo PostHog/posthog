@@ -100,6 +100,7 @@ class S3BatchExportInputs:
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -123,6 +124,7 @@ class SnowflakeBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -146,6 +148,7 @@ class PostgresBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -176,6 +179,8 @@ class BigQueryBatchExportInputs:
     include_events: list[str] | None = None
     use_json_type: bool = False
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
+
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -193,6 +198,7 @@ class HttpBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -425,7 +431,7 @@ class BackfillBatchExportInputs:
 
     team_id: int
     batch_export_id: str
-    start_at: str
+    start_at: str | None
     end_at: str | None
     buffer_limit: int = 1
     start_delay: float = 1.0
@@ -435,7 +441,7 @@ def backfill_export(
     temporal: Client,
     batch_export_id: str,
     team_id: int,
-    start_at: dt.datetime,
+    start_at: dt.datetime | None,
     end_at: dt.datetime | None,
 ) -> str:
     """Starts a backfill for given team and batch export covering given date range.
@@ -463,13 +469,13 @@ def backfill_export(
     inputs = BackfillBatchExportInputs(
         batch_export_id=batch_export_id,
         team_id=team_id,
-        start_at=start_at.isoformat(),
+        start_at=start_at.isoformat() if start_at else None,
         end_at=end_at.isoformat() if end_at else None,
     )
-    start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat()
+    start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat() if start_at else "START"
     # TODO: Should we use another signal besides "None"? i.e. "Inf" or "END".
     # Keeping it like this for now for backwards compatibility.
-    end_at_utc_str = end_at.astimezone(tz=dt.UTC).isoformat() if end_at else "None"
+    end_at_utc_str = end_at.astimezone(tz=dt.UTC).isoformat() if end_at else "END"
 
     workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc_str}-{end_at_utc_str}"
 
@@ -494,7 +500,7 @@ async def start_backfill_batch_export_workflow(
 
 def create_batch_export_run(
     batch_export_id: UUID,
-    data_interval_start: str,
+    data_interval_start: str | None,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
     records_total_count: int | None = None,
@@ -513,7 +519,7 @@ def create_batch_export_run(
     run = BatchExportRun(
         batch_export_id=batch_export_id,
         status=status,
-        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
+        data_interval_start=dt.datetime.fromisoformat(data_interval_start) if data_interval_start else None,
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
         records_total_count=records_total_count,
     )
@@ -695,7 +701,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 def create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
-    start_at: str,
+    start_at: str | None,
     end_at: str | None,
     status: str = BatchExportRun.Status.RUNNING,
 ) -> BatchExportBackfill:
@@ -712,7 +718,7 @@ def create_batch_export_backfill(
     backfill = BatchExportBackfill(
         batch_export_id=batch_export_id,
         status=status,
-        start_at=dt.datetime.fromisoformat(start_at),
+        start_at=dt.datetime.fromisoformat(start_at) if start_at else None,
         end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
         team_id=team_id,
     )

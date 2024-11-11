@@ -16,7 +16,7 @@ import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './batch-exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from './batch-exports/types'
 import { humanizeBatchExportName } from './batch-exports/utils'
-import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
+import { getDefaultConfiguration, pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
 import { RenderBatchExportIcon } from './utils'
 
 export function PipelineBatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
@@ -50,7 +50,11 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
             <LemonButton
                 type="secondary"
                 htmlType="reset"
-                onClick={() => resetConfiguration(savedConfiguration || {})}
+                onClick={() =>
+                    isNew && service
+                        ? resetConfiguration(getDefaultConfiguration(service))
+                        : resetConfiguration(savedConfiguration)
+                }
                 disabledReason={
                     !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
                 }
@@ -62,6 +66,13 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                 htmlType="submit"
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
+                disabledReason={
+                    !configurationChanged
+                        ? 'No changes to save'
+                        : isConfigurationSubmitting
+                        ? 'Saving in progress…'
+                        : undefined
+                }
             >
                 {isNew ? 'Create' : 'Save'}
             </LemonButton>
