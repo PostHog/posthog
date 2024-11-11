@@ -76,6 +76,11 @@ class Command(BaseCommand):
             default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
             help="Maximum number of concurrent workflow tasks for this worker",
         )
+        parser.add_argument(
+            "--max-concurrent-activities",
+            default=settings.MAX_CONCURRENT_ACTIVITIES,
+            help="Maximum number of concurrent activity tasks for this worker",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -86,6 +91,7 @@ class Command(BaseCommand):
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
+        max_concurrent_activities = options.get("max_concurrent_activities", None)
 
         try:
             workflows = WORKFLOWS_DICT[task_queue]
@@ -113,5 +119,6 @@ class Command(BaseCommand):
                 workflows=workflows,
                 activities=activities,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                max_concurrent_activities=max_concurrent_activities,
             )
         )
