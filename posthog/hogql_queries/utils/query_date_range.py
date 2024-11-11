@@ -223,8 +223,11 @@ class QueryDateRange:
         is_relative = delta_mapping is not None
         interval = self._interval
 
-        if not is_relative or not interval:
+        if not interval:
             return True
+
+        if not is_relative:
+            return False
 
         is_delta_hours = delta_mapping.get("hours", None) is not None
 
