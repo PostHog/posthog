@@ -19,7 +19,10 @@ export function SecondaryMetricsModal({
     experimentId,
     defaultAggregationType,
 }: SecondaryMetricsProps): JSX.Element {
+    const mainLogic = experimentLogic({ experimentId })
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId, defaultAggregationType })
+
+    const { getSecondaryMetricType } = useValues(mainLogic)
     const {
         secondaryMetricModal,
         isModalOpen,
@@ -33,7 +36,7 @@ export function SecondaryMetricsModal({
     const { secondaryMetricResults } = useValues(experimentLogic({ experimentId }))
     const targetResults = secondaryMetricResults && secondaryMetricResults[metricIdx]
 
-    const isTrends = true
+    const secondaryMetricType = getSecondaryMetricType(metricIdx)
 
     return (
         <LemonModal
@@ -85,10 +88,10 @@ export function SecondaryMetricsModal({
         >
             {showResults ? (
                 <ResultsQuery targetResults={targetResults} showTable={false} />
-            ) : isTrends ? (
-                <SecondaryGoalTrends />
+            ) : secondaryMetricType === InsightType.TRENDS ? (
+                <SecondaryGoalTrends metricIdx={metricIdx} />
             ) : (
-                <SecondaryGoalFunnels />
+                <SecondaryGoalFunnels metricIdx={metricIdx} />
             )}
         </LemonModal>
     )

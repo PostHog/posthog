@@ -18,12 +18,12 @@ import { MetricInsightId } from './constants'
 import { experimentLogic } from './experimentLogic'
 import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './MetricSelector'
 
-export function SecondaryGoalFunnels(): JSX.Element {
+export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
     const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    const currentMetric = experiment.metrics_secondary[0] as ExperimentFunnelsQuery
+    const currentMetric = experiment.metrics_secondary[metricIdx] as ExperimentFunnelsQuery
 
     return (
         <>

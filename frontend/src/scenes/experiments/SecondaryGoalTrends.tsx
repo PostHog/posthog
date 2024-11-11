@@ -15,13 +15,14 @@ import { FilterType } from '~/types'
 
 import { MetricInsightId } from './constants'
 import { experimentLogic } from './experimentLogic'
-export function SecondaryGoalTrends(): JSX.Element {
+
+export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.Element {
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
     const { setExperiment, setTrendsMetric } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
-    const currentMetric = experiment.metrics_secondary[0] as ExperimentTrendsQuery
+    const currentMetric = experiment.metrics_secondary[metricIdx] as ExperimentTrendsQuery
 
     return (
         <>
