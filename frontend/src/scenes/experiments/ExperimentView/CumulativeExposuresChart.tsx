@@ -10,11 +10,6 @@ import { experimentLogic } from '../experimentLogic'
 const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<TrendsQuery> => {
     const experimentInsightType = experiment.filters?.insight || InsightType.TRENDS
 
-    const variants = experiment.parameters?.feature_flag_variants?.map((variant) => variant.key)
-    if (experiment.holdout) {
-        variants?.push(`holdout-${experiment.holdout.id}`)
-    }
-
     // Trends Experiment
     if (experimentInsightType === InsightType.TRENDS) {
         const exposureName = experiment.parameters?.custom_exposure_filter?.events?.[0]?.name
