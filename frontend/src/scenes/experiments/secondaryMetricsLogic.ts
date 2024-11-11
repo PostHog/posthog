@@ -72,17 +72,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         ],
     })),
     actions({
-        // modal
-        openModalToCreateSecondaryMetric: true,
-        openModalToEditSecondaryMetric: (
-            metric: SecondaryExperimentMetric,
-            metricIdx: number,
-            showResults: boolean = false
-        ) => ({
-            metric,
-            metricIdx,
-            showResults,
-        }),
         saveSecondaryMetric: true,
         closeModal: true,
 
@@ -96,28 +85,13 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         setPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
     }),
     reducers(({ props }) => ({
-        isModalOpen: [
-            false,
-            {
-                openModalToCreateSecondaryMetric: () => true,
-                openModalToEditSecondaryMetric: () => true,
-                closeModal: () => false,
-            },
-        ],
         showResults: [
             false,
             {
-                openModalToEditSecondaryMetric: (_, { showResults }) => showResults,
                 closeModal: () => false,
             },
         ],
-        existingModalSecondaryMetric: [
-            null as SecondaryExperimentMetric | null,
-            {
-                openModalToCreateSecondaryMetric: () => null,
-                openModalToEditSecondaryMetric: (_, { metric }) => metric,
-            },
-        ],
+        existingModalSecondaryMetric: [null as SecondaryExperimentMetric | null, {}],
         metrics: [
             props.initialMetrics,
             {
@@ -153,18 +127,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         },
     })),
     listeners(({ props, actions, values }) => ({
-        openModalToCreateSecondaryMetric: () => {
-            actions.resetSecondaryMetricModal()
-            actions.setPreviewInsight(
-                defaultFormValuesGenerator(props.defaultAggregationType, false, values.experiment?.exposure_cohort)
-                    .filters
-            )
-        },
-        openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricIdx }) => {
-            actions.setSecondaryMetricModalValue('name', name)
-            actions.setPreviewInsight(filters)
-            actions.setMetricId(metricIdx)
-        },
         setPreviewInsight: async ({ filters }) => {
             let newInsightFilters
             if (filters?.insight === InsightType.FUNNELS) {

@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useState } from 'react'
 
 import { InsightType } from '~/types'
 
@@ -14,18 +15,19 @@ import { MAX_SECONDARY_METRICS, secondaryMetricsLogic, SecondaryMetricsProps } f
 import { ResultsQuery, VariantTag } from './components'
 
 export function SecondaryMetricsModal({
+    isOpen,
+    onClose,
     onMetricsChange,
     initialMetrics,
     experimentId,
     defaultAggregationType,
-}: SecondaryMetricsProps): JSX.Element {
+}: SecondaryMetricsProps & { isOpen: boolean; onClose: () => void }): JSX.Element {
     const mainLogic = experimentLogic({ experimentId })
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId, defaultAggregationType })
 
     const { getSecondaryMetricType } = useValues(mainLogic)
     const {
         secondaryMetricModal,
-        isModalOpen,
         showResults,
         isSecondaryMetricModalSubmitting,
         existingModalSecondaryMetric,
@@ -40,8 +42,8 @@ export function SecondaryMetricsModal({
 
     return (
         <LemonModal
-            isOpen={isModalOpen}
-            onClose={closeModal}
+            isOpen={isOpen}
+            onClose={onClose}
             width={1000}
             title={
                 showResults
@@ -103,10 +105,9 @@ export function SecondaryMetricsTable({
     experimentId,
     defaultAggregationType,
 }: SecondaryMetricsProps): JSX.Element {
+    const [isModalOpen, setIsModalOpen] = useState(false)
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId, defaultAggregationType })
     const { metrics } = useValues(logic)
-
-    const { openModalToCreateSecondaryMetric, openModalToEditSecondaryMetric } = useActions(logic)
 
     const {
         experimentResults,
@@ -156,7 +157,7 @@ export function SecondaryMetricsTable({
                                 type="secondary"
                                 size="xsmall"
                                 icon={<IconAreaChart />}
-                                onClick={() => openModalToEditSecondaryMetric(metric, idx, true)}
+                                onClick={() => {}}
                                 disabledReason={
                                     targetResults && targetResults.insight
                                         ? undefined
@@ -168,7 +169,7 @@ export function SecondaryMetricsTable({
                                 type="secondary"
                                 size="xsmall"
                                 icon={<IconPencil />}
-                                onClick={() => openModalToEditSecondaryMetric(metric, idx, false)}
+                                onClick={() => setIsModalOpen(true)}
                             />
                         </div>
                     </div>
@@ -283,7 +284,7 @@ export function SecondaryMetricsTable({
                                     <LemonButton
                                         type="secondary"
                                         size="small"
-                                        onClick={openModalToCreateSecondaryMetric}
+                                        onClick={() => {}}
                                         disabledReason={
                                             metrics.length >= MAX_SECONDARY_METRICS
                                                 ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
@@ -313,12 +314,7 @@ export function SecondaryMetricsTable({
                                 Add up to {MAX_SECONDARY_METRICS} secondary metrics to monitor side effects of your
                                 experiment.
                             </div>
-                            <LemonButton
-                                icon={<IconPlus />}
-                                type="secondary"
-                                size="small"
-                                onClick={openModalToCreateSecondaryMetric}
-                            >
+                            <LemonButton icon={<IconPlus />} type="secondary" size="small" onClick={() => {}}>
                                 Add metric
                             </LemonButton>
                         </div>
@@ -326,6 +322,8 @@ export function SecondaryMetricsTable({
                 )}
             </div>
             <SecondaryMetricsModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
                 onMetricsChange={onMetricsChange}
                 initialMetrics={initialMetrics}
                 experimentId={experimentId}
