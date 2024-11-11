@@ -164,7 +164,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setTotalUsers(response.total_users)
         },
         addConditionSet: () => {
-            actions.setAffectedUsers(values.filters.groups.length - 1, -1)
+            actions.setAffectedUsers(values.filters.groups.length - 1, values.totalUsers ?? undefined)
         },
         removeConditionSet: ({ index }) => {
             const previousLength = Object.keys(values.affectedUsers).length
@@ -186,7 +186,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 if (!properties || properties.some(isEmptyProperty)) {
                     // don't compute for incomplete conditions
                     usersAffected.push(Promise.resolve({ users_affected: -1, total_users: -1 }))
-                } else if (properties?.length === 0) {
+                } else if (properties.length === 0) {
                     // Request total users for empty condition sets
                     const responsePromise = api.create(
                         `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
