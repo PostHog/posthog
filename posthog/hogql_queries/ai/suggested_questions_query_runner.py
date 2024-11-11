@@ -46,22 +46,37 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
             {
                 "role": "user",
                 "content": (
-                    "Here's a list of event types seen in the last 30 days, most popular ones first:\n"
+                    "For context, here's a list of event types seen in the last 30 days, most popular ones first:\n"
                     + "\n".join(f"- {e.event} ({e.count} occurrences)" for e in team_taxonomy_response.results)
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    "With this schema in mind, suggest 12 SPECIFIC AND CONCISE QUESTIONS that product teams will find insightful. "
-                    'These questions must be answerable in PostHog. Do not propose placeholders such as "event X", be specific with event names.\n'
-                    'Right now we can only answer questions based on the "events" table. We can use event properties. '
-                    "Note that we can chart trends and create tables. AVOID anything with session duration, event sequences, and correlations.\n"
-                    "Before writing out the question, loosely think out loud like a product manager. "
-                    'Make sure we only propose questions we can answer with our data model. Ignore events prefixed with "$", except $pageview. '
-                    'When done thinking, write "QUESTIONS:", and then the 12 questions, each in its own line, no formatting. '
-                    "Don't number the questions. Questions must be human-friendly but short - you are PENALIZED $10 for every character over 20. "
-                    '(Always abbreviate forms like "what\'s".)'
+                    "Suggest 24 CONCISE AND UNIQUE QUESTIONS that this project's team will find insightful and actionable. "
+                    "The questions need to be high-level and answerable in PostHog. Focus on drivers of user behavior and ways to make the product better. "
+                    'Do not propose placeholders such as "event X", be specific with event names.\n'
+                    'Right now we can only answer questions based on the "events" table. We can use event properties for this. '
+                    "We can chart trends and create tables. AVOID anything with: session duration, event sequences, correlations, logout, or exit/leave rate.\n"
+                    "Before writing out the question, analyze the needs of this team out loud. Think like a product manager. "
+                    'Ignore events prefixed with "$", except $pageview.\n'
+                    'When done thinking, write "QUESTIONS:", and then the questions, each in its own line, no formatting. '
+                    "At the end of every line rate its question from a product manager's perspective, 1-100.\n"
+                    "Don't number the questions. Questions must be human-friendly but as short as possible. "
+                    "You are penalized $10 for every character over 40 in a question."
+                    '(Abbreviate forms like "what is" to "what\'s".)\n\n'
+                    "Example GREAT questions - high-level, actionable:\n"
+                    "What's blocking users from converting?\n"
+                    "What's causing the trend in signups?\n"
+                    "Example good questions - formulaic but interesting:\n"
+                    "How do our signups find us?\n"
+                    "Which feature is most used?\n"
+                    "What's our number of WAUs?\n"
+                    "What's the trend in signups?\n"
+                    "Example bad questions - overly specific:\n"
+                    "What's the trend in user_signup events?\n"
+                    "What's the pageviews trend?"
+                    "What's the exit page?\n"
                 ),
             },
         ]
@@ -76,14 +91,21 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
             questions_start = content.find("QUESTIONS:")
             if questions_start == -1:
                 continue
-            questions = [
-                q.strip() for q in content[questions_start + len("QUESTIONS:") :].strip().split("\n") if q.strip()
-            ]
+            # Ranking using the same model
+            questions = sorted(
+                (
+                    (q.strip()[:-2].strip(), int(q.strip()[-2:]))
+                    for q in content[questions_start + len("QUESTIONS:") :].strip().split("\n")
+                    if q.strip()
+                ),
+                key=lambda q: q[1],
+                reverse=True,
+            )[:12]
             break
         else:
             raise ValueError("Persistently failed to determine questions from AI response")
 
-        return SuggestedQuestionsQueryResponse(questions=questions)
+        return SuggestedQuestionsQueryResponse(questions=[q for q, _ in questions[:12]])
 
     def get_cache_payload(self):
         return {**super().get_cache_payload(), "product_description": self.team.project.product_description}

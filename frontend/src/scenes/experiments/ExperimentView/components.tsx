@@ -451,6 +451,7 @@ export function PageHeaderCustom(): JSX.Element {
         areResultsSignificant,
         isSingleVariantShipped,
         featureFlags,
+        hasGoalSet,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -473,6 +474,9 @@ export function PageHeaderCustom(): JSX.Element {
                                 type="primary"
                                 data-attr="launch-experiment"
                                 onClick={() => launchExperiment()}
+                                disabledReason={
+                                    !hasGoalSet ? 'Add the main goal before launching the experiment' : undefined
+                                }
                             >
                                 Launch
                             </LemonButton>
@@ -746,7 +750,8 @@ export function ActionBanner(): JSX.Element {
     if (!isExperimentRunning) {
         return (
             <LemonBanner type="info" className="mt-4">
-                Your experiment is in draft mode. You can edit your variants, adjust release conditions, and{' '}
+                Your experiment is in draft mode. You can set the goal, edit the variants, adjust release conditions,
+                and{' '}
                 <Link className="font-semibold" to="https://posthog.com/docs/experiments/testing-and-launching">
                     test your feature flag
                 </Link>

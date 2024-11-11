@@ -1,8 +1,9 @@
 import pytest
 
-from posthog.hogql.bytecode import to_bytecode, execute_hog
+from posthog.hogql.bytecode import to_bytecode, execute_hog, create_bytecode
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
 from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.parser import parse_program
 from posthog.test.base import BaseTest
 
 
@@ -251,4 +252,20 @@ class TestBytecode(BaseTest):
                 team=self.team,
             ).result,
             8,
+        )
+
+    def test_bytecode_in_repl(self):
+        self.assertEqual(
+            create_bytecode(parse_program("let a:=1"), in_repl=False).bytecode,
+            [_H, HOGQL_BYTECODE_VERSION, op.INTEGER, 1, op.POP],
+        )
+        self.assertEqual(
+            create_bytecode(parse_program("let a:=1"), in_repl=True).bytecode,
+            [_H, HOGQL_BYTECODE_VERSION, op.INTEGER, 1],
+        )
+
+    def test_bytecode_hogqlx(self):
+        self.assertEqual(
+            execute_hog("<Sparkline data={[1,2,3]} />", team=self.team).result,
+            {"__hx_tag": "Sparkline", "data": [1, 2, 3]},
         )

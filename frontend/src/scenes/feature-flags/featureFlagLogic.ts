@@ -181,6 +181,65 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
     return flag
 }
 
+export const getRecordingFilterForFlagVariant = (
+    flagKey: string,
+    variantKey: string | null,
+    hasEnrichedAnalytics?: boolean
+): Partial<RecordingUniversalFilters> => {
+    return {
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        hasEnrichedAnalytics
+                            ? {
+                                  id: '$feature_interaction',
+                                  type: 'events',
+                                  order: 0,
+                                  name: '$feature_interaction',
+                                  properties: [
+                                      {
+                                          key: 'feature_flag',
+                                          value: [flagKey],
+                                          operator: PropertyOperator.Exact,
+                                          type: PropertyFilterType.Event,
+                                      },
+                                  ],
+                              }
+                            : {
+                                  id: '$feature_flag_called',
+                                  name: '$feature_flag_called',
+                                  type: 'events',
+                                  properties: [
+                                      {
+                                          key: '$feature/' + flagKey,
+                                          type: PropertyFilterType.Event,
+                                          value: [variantKey ? variantKey : 'false'],
+                                          operator: variantKey ? PropertyOperator.Exact : PropertyOperator.IsNot,
+                                      },
+                                      {
+                                          key: '$feature/' + flagKey,
+                                          type: PropertyFilterType.Event,
+                                          value: 'is_set',
+                                          operator: PropertyOperator.IsSet,
+                                      },
+                                      {
+                                          key: '$feature_flag',
+                                          type: PropertyFilterType.Event,
+                                          value: flagKey,
+                                          operator: PropertyOperator.Exact,
+                                      },
+                                  ],
+                              },
+                    ],
+                },
+            ],
+        },
+    }
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
@@ -900,58 +959,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {}
                 }
 
-                return {
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    featureFlag.has_enriched_analytics
-                                        ? {
-                                              id: '$feature_interaction',
-                                              type: 'events',
-                                              order: 0,
-                                              name: '$feature_interaction',
-                                              properties: [
-                                                  {
-                                                      key: 'feature_flag',
-                                                      value: [flagKey],
-                                                      operator: PropertyOperator.Exact,
-                                                      type: PropertyFilterType.Event,
-                                                  },
-                                              ],
-                                          }
-                                        : {
-                                              id: '$feature_flag_called',
-                                              name: '$feature_flag_called',
-                                              type: 'events',
-                                              properties: [
-                                                  {
-                                                      key: '$feature/' + flagKey,
-                                                      type: PropertyFilterType.Event,
-                                                      value: ['false'],
-                                                      operator: PropertyOperator.IsNot,
-                                                  },
-                                                  {
-                                                      key: '$feature/' + flagKey,
-                                                      type: PropertyFilterType.Event,
-                                                      value: 'is_set',
-                                                      operator: PropertyOperator.IsSet,
-                                                  },
-                                                  {
-                                                      key: '$feature_flag',
-                                                      type: PropertyFilterType.Event,
-                                                      value: flagKey,
-                                                      operator: PropertyOperator.Exact,
-                                                  },
-                                              ],
-                                          },
-                                ],
-                            },
-                        ],
-                    },
-                }
+                return getRecordingFilterForFlagVariant(flagKey, null, featureFlag.has_enriched_analytics)
             },
         ],
         hasEarlyAccessFeatures: [
@@ -1003,7 +1011,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
-        const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
+        const foundFlag = featureFlagsLogic
+            .findMounted()
+            ?.values.featureFlags.results.find((flag) => flag.id === props.id)
         if (foundFlag) {
             const formatPayloadsWithFlag = variantKeyToIndexFeatureFlagPayloads(foundFlag)
             actions.setFeatureFlag(formatPayloadsWithFlag)

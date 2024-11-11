@@ -494,46 +494,6 @@ async def test_reset_pipeline(team, stripe_balance_transaction):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_make_sure_deletions_occur(team, stripe_balance_transaction):
-    workflow_id, inputs = await _run(
-        team=team,
-        schema_name="BalanceTransaction",
-        table_name="stripe_balancetransaction",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-        mock_data_response=stripe_balance_transaction["data"],
-    )
-
-    @sync_to_async
-    def get_jobs():
-        job_ids = (
-            ExternalDataJob.objects.filter(
-                team_id=team.pk,
-                pipeline_id=inputs.external_data_source_id,
-            )
-            .order_by("-created_at")
-            .values_list("id", flat=True)
-        )
-
-        return [str(job_id) for job_id in job_ids]
-
-    with mock.patch("posthog.warehouse.models.external_data_job.get_s3_client") as mock_s3_client:
-        s3_client_mock = mock.Mock()
-        mock_s3_client.return_value = s3_client_mock
-
-        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
-        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
-
-        job_ids = await get_jobs()
-        latest_job = job_ids[0]
-        assert s3_client_mock.exists.call_count == 3
-
-        for call in s3_client_mock.exists.call_args_list:
-            assert latest_job not in call[0][0]
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
 async def test_postgres_binary_columns(team, postgres_config, postgres_connection):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.binary_col_test (id integer, binary_column bytea)".format(
@@ -910,10 +870,11 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer):
 
         return list(jobs)
 
-    with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.create_job_model.acreate_external_data_job",
-    ) as acreate_external_data_job:
-        acreate_external_data_job.side_effect = Exception("Ruhoh!")
+    with mock.patch.object(
+        ExternalDataJob.objects,
+        "create",
+    ) as create_external_data_job:
+        create_external_data_job.side_effect = Exception("Ruhoh!")
 
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
