@@ -15,6 +15,7 @@ CORS_ALLOWED_TRACING_HEADERS = (
     "x-b3-spanid",
     "x-b3-traceid",
     "x-b3-parentspanid",
+    "b3",
 )
 
 

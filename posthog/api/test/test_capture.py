@@ -1758,12 +1758,7 @@ class TestCapture(BaseTest):
             ("DateDome", ["x-datadome-clientid"]),
             (
                 "zipkin",
-                [
-                    "x-b3-sampled",
-                    "x-b3-spanid",
-                    "x-b3-traceid",
-                    "x-b3-parentspanid",
-                ],
+                ["x-b3-sampled", "x-b3-spanid", "x-b3-traceid", "x-b3-parentspanid", "b3"],
             ),
         ]
     )
