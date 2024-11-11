@@ -649,6 +649,7 @@ class HogCompileResponse(BaseModel):
         extra="forbid",
     )
     bytecode: list
+    locals: list
 
 
 class HogLanguage(StrEnum):
@@ -4907,53 +4908,6 @@ class WebOverviewQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
-class AIActionsNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: Optional[str] = None
-    event: Optional[str] = Field(default=None, description="The event or `null` for all events.")
-    fixedProperties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = None
-    kind: Literal["EventsNode"] = "EventsNode"
-    math: Optional[
-        Union[
-            BaseMathType,
-            FunnelMathType,
-            PropertyMathType,
-            CountPerActorMathType,
-            Literal["unique_group"],
-            Literal["hogql"],
-        ]
-    ] = None
-    math_group_type_index: Optional[MathGroupTypeIndex] = None
-    math_property: Optional[str] = None
-    math_property_type: Optional[str] = None
-    name: Optional[str] = None
-    orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = None
-    response: Optional[dict[str, Any]] = None
-
-
 class AIEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5130,7 +5084,7 @@ class ExperimentalAITrendsQuery(BaseModel):
         ]
     ] = Field(default=[], description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Union[AIEventsNode, AIActionsNode]] = Field(..., description="Events and actions to include")
+    series: list[AIEventsNode] = Field(..., description="Events and actions to include")
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
@@ -6104,7 +6058,7 @@ class FunnelsActorsQuery(BaseModel):
             " negative for dropped of persons."
         ),
     )
-    funnelStepBreakdown: Optional[Union[str, float, list[Union[str, float]]]] = Field(
+    funnelStepBreakdown: Optional[Union[int, str, float, list[Union[int, str, float]]]] = Field(
         default=None,
         description=(
             "The breakdown value for which to get persons for. This is an array for person and event properties, a"

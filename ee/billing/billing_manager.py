@@ -138,7 +138,7 @@ class BillingManager:
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         try:
-            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))  # type: ignore
 
             first_owner_membership = (
                 OrganizationMembership.objects.filter(organization=organization, level=15)
@@ -157,7 +157,7 @@ class BillingManager:
             )
 
             org_users = list(
-                organization.members.values(
+                organization.members.values(  # type: ignore
                     "email",
                     "distinct_id",
                     "organization_membership__level",
@@ -377,6 +377,26 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def activate_trial(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/trials/activate",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def cancel_trial(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/trials/cancel",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
 
     def authorize(self, organization: Organization):
         res = requests.post(

@@ -110,6 +110,80 @@ describe('Feature Flags', () => {
         cy.get('.Toastify').contains('Undo').should('be.visible')
     })
 
+    it('Search feature flags', () => {
+        // Create a flag with a unique searchable name
+        const searchableFlagName = 'searchable-flag-' + Math.floor(Math.random() * 10000000)
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-key]').click().type(searchableFlagName).should('have.value', searchableFlagName)
+        cy.get('[data-attr=rollout-percentage]').clear().type('0')
+        cy.get('[data-attr=save-feature-flag]').first().click()
+        cy.wait(100)
+        cy.clickNavMenu('featureflags')
+
+        // create a flag with a name that should not show up in search results
+        const nonSearchableFlagName = 'never-shows-up-' + Math.floor(Math.random() * 10000000)
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-key]')
+            .click()
+            .type(nonSearchableFlagName)
+            .should('have.value', nonSearchableFlagName)
+        cy.get('[data-attr=rollout-percentage]').clear().type('0')
+        cy.get('[data-attr=save-feature-flag]').first().click()
+        cy.wait(100)
+        cy.clickNavMenu('featureflags')
+
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+        const searchTerm = searchableFlagName.substring(8, 20)
+        cy.get('[data-attr=feature-flag-search]').focus().type(searchTerm).should('have.value', searchTerm)
+        cy.get('[data-attr=feature-flag-table]').should('contain', searchableFlagName)
+        cy.get('[data-attr=feature-flag-table]').should('not.contain', nonSearchableFlagName)
+        cy.url().should('include', `search=${searchTerm}`)
+        cy.reload()
+        cy.get('[data-attr=feature-flag-search]').should('have.value', searchTerm)
+    })
+
+    it('Filter and sort feature flags', () => {
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+
+        cy.get('[data-attr=feature-flag-select-type').click()
+        cy.get('[data-attr=feature-flag-select-type-option-multiple-variants]').click()
+        cy.url().should('include', 'type=multivariant')
+
+        // Make sure filtered empty state is shown
+        cy.get('[data-attr=feature-flag-empty-state-filtered]').should('exist')
+
+        // Create a disabled flag
+        const disabledPrefixFlagName = `disabled-${name}`
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-key]')
+            .click()
+            .type(disabledPrefixFlagName)
+            .should('have.value', disabledPrefixFlagName)
+        cy.get('[data-attr=feature-flag-enabled-checkbox]').click()
+        cy.get('[data-attr=rollout-percentage]').clear().type('0').should('have.value', '0')
+        cy.get('[data-attr=save-feature-flag]').first().click()
+        cy.wait(100)
+        cy.clickNavMenu('featureflags')
+
+        cy.get('[data-attr=feature-flag-select-status').click()
+        cy.get('[data-attr=feature-flag-select-status-disabled]').click()
+        cy.get('[data-attr=feature-flag-table]').should('contain', disabledPrefixFlagName)
+        cy.url().should('include', 'active=false')
+
+        // Make sure the filters are stil active after a page reload
+        cy.reload()
+        cy.get('[data-attr=feature-flag-select-status]').should('contain', 'Disabled')
+
+        // Disable filters and sort by status to ensure a disabled flag is at the top of the list
+        cy.get('[data-attr=feature-flag-select-status').click()
+        cy.get('[data-attr=feature-flag-select-status-all]').click()
+
+        // Click on the status column to sort by status
+        cy.get('[data-attr=feature-flag-table]').contains('Status').click()
+        // Make sure the first tr in the tbody of the feature-flag-table is a disabled flag
+        cy.get(`[data-row-key=${disabledPrefixFlagName}]`).parent().first().contains('Disabled')
+    })
+
     it('Move between property types smoothly, and support relative dates', () => {
         // ensure unique names to avoid clashes
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')

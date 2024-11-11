@@ -486,6 +486,7 @@ export interface SessionRecordingAIConfig {
 }
 
 export interface ProjectType extends ProjectBasicType {
+    product_description: string | null
     created_at: string
 }
 
@@ -621,13 +622,14 @@ export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
+export type ExperimentIdType = number | 'new' | 'web'
 /* sync with posthog-js */
 export interface ToolbarParams {
     apiURL?: string
-    jsURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
     actionId?: number
+    experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
     source?: ToolbarSource
     toolbarVersion?: ToolbarVersion
@@ -1618,6 +1620,10 @@ export interface BillingTierType {
     up_to: number | null
 }
 
+export interface BillingTrialType {
+    length: number
+}
+
 export interface BillingProductV2Type {
     type: string
     usage_key: string | null
@@ -1650,6 +1656,7 @@ export interface BillingProductV2Type {
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
+    trial?: BillingTrialType
 }
 
 export interface BillingProductV2AddonType {
@@ -1680,6 +1687,7 @@ export interface BillingProductV2AddonType {
     features: BillingFeatureType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
+    trial?: BillingTrialType
 }
 export interface BillingType {
     customer_id: string
@@ -1707,6 +1715,12 @@ export interface BillingType {
     discount_percent?: number
     discount_amount_usd?: string
     amount_off_expires_at?: Dayjs
+    trial?: {
+        type: 'autosubscribe' | 'standard'
+        status: 'active' | 'expired' | 'cancelled' | 'converted'
+        target: 'paid' | 'teams' | 'enterprise'
+        expires_at: string
+    }
 }
 
 export interface BillingPlanType {
@@ -2178,7 +2192,8 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
-export type BreakdownKeyType = string | number | (string | number)[] | null
+// eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
 /**
  * Legacy breakdown.
@@ -3253,8 +3268,9 @@ export interface ExperimentMetric {
 }
 
 export interface Experiment {
-    id: number | 'new'
+    id: ExperimentIdType
     name: string
+    type?: string
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
@@ -4045,6 +4061,7 @@ export const externalDataSources = [
     'Salesforce',
     'Vitally',
     'BigQuery',
+    'Chargebee',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4396,7 +4413,6 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    ExperimentFeatureFlag = 'experiment-feature-flag',
 }
 
 export interface SourceFieldOauthConfig {

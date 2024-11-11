@@ -1,11 +1,12 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
 use sourcemap::{SourceMap, Token};
 
 use crate::{
     error::{Error, JsResolveErr, ResolutionError},
+    frames::Frame,
     symbol_store::SymbolCatalog,
-    types::frames::Frame,
 };
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
@@ -42,10 +43,9 @@ impl RawJSFrame {
     where
         C: SymbolCatalog<Url, SourceMap>,
     {
-        let store = catalog.get();
         let url = self.source_url()?;
 
-        let sourcemap = store.fetch(team_id, url).await?;
+        let sourcemap = catalog.lookup(team_id, url).await?;
         let Some(token) = sourcemap.lookup_token(self.line, self.column) else {
             return Err(
                 JsResolveErr::TokenNotFound(self.fn_name.clone(), self.line, self.column).into(),
@@ -101,6 +101,20 @@ impl RawJSFrame {
         Url::parse(&source_url[..useful])
             .map_err(|_| JsResolveErr::InvalidSourceUrl(source_url.to_string()))
     }
+
+    pub fn frame_id(&self) -> String {
+        let mut hasher = Sha512::new();
+        hasher.update(self.fn_name.as_bytes());
+        hasher.update(self.line.to_string().as_bytes());
+        hasher.update(self.column.to_string().as_bytes());
+        hasher.update(
+            self.source_url
+                .as_ref()
+                .unwrap_or(&"".to_string())
+                .as_bytes(),
+        );
+        format!("{:x}", hasher.finalize())
+    }
 }
 
 impl From<(&RawJSFrame, Token<'_>)> for Frame {
@@ -127,7 +141,7 @@ impl From<(&RawJSFrame, JsResolveErr)> for Frame {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(raw_frame.line),
             column: Some(raw_frame.column),
-            source: raw_frame.source_url.clone(),
+            source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
             in_app: raw_frame.in_app,
             resolved_name: None,
             lang: "javascript".to_string(),

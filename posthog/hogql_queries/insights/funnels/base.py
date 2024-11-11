@@ -634,6 +634,7 @@ class FunnelBase(ABC):
             ],
             select_from=ast.JoinExpr(table=select_query),
             group_by=[ast.Field(chain=["final_prop"])],
+            limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
 
     def _get_steps_conditions(self, length: int) -> ast.Expr:

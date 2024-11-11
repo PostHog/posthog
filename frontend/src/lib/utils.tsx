@@ -62,6 +62,10 @@ export const humanizeBytes = (fileSizeInBytes: number | null): string => {
     return convertedBytes.toFixed(2) + ' ' + byteUnits[i]
 }
 
+export function toSentenceCase(str: string): string {
+    return str.replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
     if (!obj) {
         return ''
