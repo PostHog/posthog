@@ -4,7 +4,6 @@ import { actions, kea, listeners, path, props, propsChanged, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { editor, Uri } from 'monaco-editor'
-import { Editor } from 'react-email-editor'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -14,8 +13,8 @@ import type { multitabEditorLogicType } from './multitabEditorLogicType'
 
 export interface MultitabEditorLogicProps {
     key: string
-    monaco?: Monaco
-    editor?: Editor
+    monaco?: Monaco | null
+    editor?: editor.IStandaloneCodeEditor | null
 }
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
@@ -87,7 +86,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
-                const model = props.monaco.editor.createModel('', props.language, uri)
+                const model = props.monaco.editor.createModel('', 'hogQL', uri)
                 props.editor?.setModel(model)
                 actions.selectTab(uri)
 
@@ -162,8 +161,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.setTabs(newModels)
 
                 if (activeModelUri) {
-                    const uri = props.monaco.Uri.parse(activeModelUri)
-                    const activeModel = props.monaco.editor
+                    const uri = props.monaco?.Uri.parse(activeModelUri)
+                    const activeModel = props.monaco?.editor
                         .getModels()
                         .find((model: editor.ITextModel) => model.uri.path === uri.path)
                     activeModel && props.editor?.setModel(activeModel)
