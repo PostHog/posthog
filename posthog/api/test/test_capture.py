@@ -1756,6 +1756,15 @@ class TestCapture(BaseTest):
                 ["x-highlight-request"],
             ),
             ("DateDome", ["x-datadome-clientid"]),
+            (
+                "zipkin",
+                [
+                    "x-b3-sampled",
+                    "x-b3-spanid",
+                    "x-b3-traceid",
+                    "x-b3-parentspanid",
+                ],
+            ),
         ]
     )
     def test_cors_allows_tracing_headers(self, _: str, path: str, headers: list[str]) -> None:
