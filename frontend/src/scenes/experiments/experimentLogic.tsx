@@ -455,9 +455,6 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentType: async ({ type }) => {
             actions.setExperiment({ type: type })
         },
-        setExperimentFeatureFlagKeyFromName: async () => {
-            actions.setExperiment({ feature_flag_key: values.dynamicFeatureFlagKey })
-        },
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
             const aggregationGroupTypeIndex = values.experiment.parameters?.aggregation_group_type_index

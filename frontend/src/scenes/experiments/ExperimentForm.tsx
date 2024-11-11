@@ -21,7 +21,6 @@ const ExperimentFormFields = (): JSX.Element => {
         addExperimentGroup,
         removeExperimentGroup,
         setExperiment,
-        setExperimentFeatureFlagKeyFromName,
         setNewExperimentInsight,
         createExperiment,
         setExperimentType,
@@ -51,7 +50,9 @@ const ExperimentFormFields = (): JSX.Element => {
                                             ? "Use '" + dynamicFeatureFlagKey + "' as the feature flag key."
                                             : 'Fill out the experiment name first.'
                                     }
-                                    onClick={setExperimentFeatureFlagKeyFromName}
+                                    onClick={() => {
+                                        setExperiment({ feature_flag_key: dynamicFeatureFlagKey })
+                                    }}
                                 >
                                     <IconMagicWand className="mr-1" /> Generate
                                 </LemonButton>
