@@ -1,10 +1,21 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonTable } from '@posthog/lemon-ui'
+import {
+    IconInfo,
+    IconSparkles,
+    IconThumbsDown,
+    IconThumbsDownFilled,
+    IconThumbsUp,
+    IconThumbsUpFilled,
+} from '@posthog/icons'
+import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
@@ -577,15 +588,19 @@ export function OpenTextViz({
                 <></>
             ) : (
                 <>
-                    <Tooltip title="See all Open Text responses in the Events table at the bottom.">
-                        <div className="inline-flex gap-1">
-                            <div className="font-semibold text-muted-alt">Open text</div>
-                            <LemonDivider vertical className="my-1 mx-1" />
-                            <div className="font-semibold text-muted-alt">random selection</div>
-                            <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
-                        </div>
-                    </Tooltip>
+                    <div className="flex flex-row justify-between items-center">
+                        <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                            <div className="inline-flex gap-1">
+                                <div className="font-semibold text-muted-alt">Open text</div>
+                                <LemonDivider vertical className="my-1 mx-1" />
+                                <div className="font-semibold text-muted-alt">random selection</div>
+                                <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
+                            </div>
+                        </Tooltip>
+                        <ResponseSummariesButton questionIndex={questionIndex} />
+                    </div>
                     <div className="text-xl font-bold mb-4">{question.question}</div>
+                    <ResponseSummariesDisplay />
                     <div className="mt-4 mb-8 masonry-container">
                         {surveyOpenTextResults[questionIndex].events.map((event, i) => {
                             const personProp = {
@@ -613,6 +628,90 @@ export function OpenTextViz({
                         })}
                     </div>
                 </>
+            )}
+        </div>
+    )
+}
+
+function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
+    const { summarize } = useActions(surveyLogic)
+    const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
+
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
+            <LemonButton
+                type="secondary"
+                data-attr="summarize-survey"
+                onClick={() => summarize({ questionIndex })}
+                disabledReason={
+                    responseSummaryLoading ? 'Let me think...' : responseSummary ? 'already summarized' : undefined
+                }
+                icon={<IconSparkles />}
+            >
+                {responseSummaryLoading ? (
+                    <>
+                        Let me think...
+                        <Spinner />
+                    </>
+                ) : (
+                    <>Summarize responses</>
+                )}
+            </LemonButton>
+        </FlaggedFeature>
+    )
+}
+
+function ResponseSummariesDisplay(): JSX.Element {
+    const { survey, responseSummary } = useValues(surveyLogic)
+
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
+            {responseSummary ? (
+                <>
+                    <h1>Responses summary</h1>
+                    <LemonMarkdown>{responseSummary.content}</LemonMarkdown>
+                    <LemonDivider dashed={true} />
+                    <ResponseSummaryFeedback surveyId={survey.id} />
+                </>
+            ) : null}
+        </FlaggedFeature>
+    )
+}
+
+function ResponseSummaryFeedback({ surveyId }: { surveyId: string }): JSX.Element {
+    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
+
+    function submitRating(newRating: 'good' | 'bad'): void {
+        if (rating) {
+            return // Already rated
+        }
+        setRating(newRating)
+        posthog.capture('chat rating', {
+            survey_id: surveyId,
+            answer_rating: rating,
+        })
+    }
+
+    return (
+        <div className="flex items-center justify-end">
+            {rating === null ? <>Summaries are generated by AI. What did you think?</> : null}
+            {rating !== 'bad' && (
+                <LemonButton
+                    icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                    type="tertiary"
+                    size="small"
+                    tooltip="Good summary"
+                    onClick={() => submitRating('good')}
+                />
+            )}
+            {rating !== 'good' && (
+                <LemonButton
+                    icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                    type="tertiary"
+                    size="small"
+                    tooltip="Bad summary"
+                    onClick={() => submitRating('bad')}
+                />
             )}
         </div>
     )

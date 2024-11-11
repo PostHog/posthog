@@ -16,7 +16,7 @@ pub fn generate_fingerprint(exception: &[Exception]) -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::types::{frames::Frame, Stacktrace};
+    use crate::{frames::Frame, types::Stacktrace};
 
     use super::*;
 

@@ -14,14 +14,14 @@ use crate::{
     },
 };
 
-use super::SymbolProvider;
+use super::{Fetcher, Parser};
 
 pub struct SourcemapProvider {
     pub client: reqwest::Client,
 }
 
 impl SourcemapProvider {
-    pub fn new(config: &Config) -> Result<Self, Error> {
+    pub fn new(config: &Config) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
         let mut client = reqwest::Client::builder().timeout(timeout);
 
@@ -31,23 +31,28 @@ impl SourcemapProvider {
             warn!("Internal IPs are allowed, this is a security risk");
         }
 
-        let client = client.build()?;
+        let client = client.build().unwrap();
 
-        Ok(Self { client })
+        Self { client }
     }
 }
 
 #[async_trait]
-impl SymbolProvider for SourcemapProvider {
+impl Fetcher for SourcemapProvider {
     type Ref = Url;
-    type Set = SourceMap;
-    async fn fetch(&self, _: i32, r: Url) -> Result<Arc<SourceMap>, Error> {
+    type Fetched = Vec<u8>;
+    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Error> {
         let sourcemap_url = find_sourcemap_url(&self.client, r).await?;
-        let data = fetch_source_map(&self.client, sourcemap_url).await?;
+        Ok(fetch_source_map(&self.client, sourcemap_url).await?)
+    }
+}
 
-        Ok(Arc::new(
-            SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?,
-        ))
+#[async_trait]
+impl Parser for SourcemapProvider {
+    type Source = Vec<u8>;
+    type Set = SourceMap;
+    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
+        Ok(SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?)
     }
 }
 
@@ -56,7 +61,9 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
 
     // If this request fails, we cannot resolve the frame, and do not hand this error to the frames
     // failure-case handling - it just didn't work. We should tell the user about it, somehow, though.
-    let res = client.get(start).send().await?;
+    let res = client.get(start).send().await.map_err(JsResolveErr::from)?;
+
+    res.error_for_status_ref().map_err(JsResolveErr::from)?;
 
     // we use the final URL of the response in the relative case, to account for any redirects
     let mut final_url = res.url().clone();
@@ -93,7 +100,7 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
 
     // Grab the body as text, and split it into lines
     metrics::counter!(SOURCE_REF_BODY_FETCHES).increment(1);
-    let body = res.text().await?; // Transport error, unresolvable
+    let body = res.text().await.map_err(JsResolveErr::from)?;
     let lines = body.lines().rev(); // Our needle tends to be at the bottom of the haystack
     for line in lines {
         if line.starts_with("//# sourceMappingURL=") {
@@ -121,8 +128,9 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
 
 async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<Vec<u8>, Error> {
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
-    let res = client.get(url).send().await?;
-    let bytes = res.bytes().await?;
+    let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
+    res.error_for_status_ref().map_err(JsResolveErr::from)?;
+    let bytes = res.bytes().await.map_err(JsResolveErr::from)?;
     Ok(bytes.to_vec())
 }
 
@@ -189,7 +197,7 @@ mod test {
         let mut config = Config::init_with_defaults().unwrap();
         // Needed because we're using mockserver, so hitting localhost
         config.allow_internal_ips = true;
-        let store = SourcemapProvider::new(&config).unwrap();
+        let store = SourcemapProvider::new(&config);
 
         let start_url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
 

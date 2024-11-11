@@ -2,6 +2,7 @@ pub mod app_context;
 pub mod config;
 pub mod error;
 pub mod fingerprinting;
+pub mod frames;
 pub mod langs;
 pub mod metric_consts;
 pub mod symbol_store;

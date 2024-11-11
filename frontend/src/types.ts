@@ -626,7 +626,6 @@ export type ExperimentIdType = number | 'new' | 'web'
 /* sync with posthog-js */
 export interface ToolbarParams {
     apiURL?: string
-    jsURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
     actionId?: number
@@ -2193,7 +2192,8 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
-export type BreakdownKeyType = string | number | (string | number)[] | null
+// eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
 /**
  * Legacy breakdown.
@@ -4413,7 +4413,6 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    ExperimentFeatureFlag = 'experiment-feature-flag',
 }
 
 export interface SourceFieldOauthConfig {

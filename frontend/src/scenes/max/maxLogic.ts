@@ -142,7 +142,11 @@ export const maxLogic = kea<maxLogicType>([
                 // Randomize order, except in Storybook where we want to keep the order consistent for snapshots
                 shuffle(allSuggestionsWithoutCurrentlyVisible)
             }
-            actions.setVisibleSuggestions(allSuggestionsWithoutCurrentlyVisible.slice(0, 3))
+            actions.setVisibleSuggestions(
+                // We show 3 suggestions, and put the longest one last, so that the suggestions _as a whole_
+                // look pleasant when the 3rd is wrapped to the next line (character count is imperfect but okay)
+                allSuggestionsWithoutCurrentlyVisible.slice(0, 3).sort((a, b) => a.length - b.length)
+            )
         },
         askMax: async ({ prompt }) => {
             actions.addMessage({ type: AssistantMessageType.Human, content: prompt })
