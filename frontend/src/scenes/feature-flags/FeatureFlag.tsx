@@ -653,11 +653,15 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     ]
 
     if (featureFlag.deleted) {
-        return <LemonBanner type="error">This feature flag has been deleted</LemonBanner>
+        return (
+            <div data-attr="feature-flag-usage-deleted-banner">
+                <LemonBanner type="error">This feature flag has been deleted</LemonBanner>
+            </div>
+        )
     }
 
     return (
-        <div>
+        <div data-attr="feature-flag-usage-container">
             {dashboard ? (
                 <>
                     {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
