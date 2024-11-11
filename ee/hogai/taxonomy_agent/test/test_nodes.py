@@ -123,7 +123,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         node = self._get_node()
         self.assertEqual(
             node._events_prompt,
-            "<list of available events for filtering>\nall events\ndistinctevent\n</list of available events for filtering>",
+            "<defined_events><event><name>All Events</name><description>All events. This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
         )
 
     def test_agent_preserves_low_count_events_for_smaller_teams(self):
@@ -171,6 +171,14 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("Thought.\nAction: abc", action.log)
             self.assertIn("action", action.tool_input)
             self.assertIn("action_input", action.tool_input)
+
+    def test_node_outputs_all_events_prompt(self):
+        node = self._get_node()
+        self.assertIn("All Events", node._events_prompt)
+        self.assertIn(
+            "<event><name>All Events</name><description>All events. This is a wildcard that matches all events.</description></event>",
+            node._events_prompt,
+        )
 
 
 @override_settings(IN_UNIT_TESTING=True)

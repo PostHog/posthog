@@ -76,7 +76,7 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
 
 CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     "events": {
-        "": {
+        "All Events": {
             "label": "All events",
             "description": "This is a wildcard that matches all events.",
         },
