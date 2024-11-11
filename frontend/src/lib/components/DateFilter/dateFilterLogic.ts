@@ -6,7 +6,7 @@ import {
     SELECT_FIXED_VALUE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateFilterToText, dateStringToDayJs, formatDate, formatDateRange, isDate } from 'lib/utils'
+import { dateFilterToText, dateStringToDayJs, formatDate, formatDateRange, formatDateTime, isDate } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
@@ -103,6 +103,15 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                         (option.values[1] ?? null) === (dateTo ?? null)
                 ),
         ],
+        dateFromHasTimePrecision: [
+            (s) => [s.dateFrom],
+            (dateFrom) => {
+                if (dateFrom) {
+                    return dayjs(dateFrom).format('HH:mm:ss') !== '00:00:00'
+                }
+                return false
+            },
+        ],
         label: [
             (s) => [
                 s.dateFrom,
@@ -113,12 +122,25 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 s.dateOptions,
                 (_, p) => p.isFixedDateMode,
                 (_, p) => p.placeholder,
+                s.dateFromHasTimePrecision,
             ],
-            (dateFrom, dateTo, isFixedRange, isDateToNow, isFixedDate, dateOptions, isFixedDateMode, placeholder) =>
+            (
+                dateFrom,
+                dateTo,
+                isFixedRange,
+                isDateToNow,
+                isFixedDate,
+                dateOptions,
+                isFixedDateMode,
+                placeholder,
+                dateFromHasTimePrecision
+            ) =>
                 isFixedRange
                     ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
-                    ? `${formatDate(dayjs(dateFrom))} to now`
+                    ? `${
+                          dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
+                      } to now`
                     : isFixedDate
                     ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
                     : dateFilterToText(
@@ -136,7 +158,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         applyRange: () => {
             if (values.rangeDateFrom) {
                 actions.setDate(
-                    dayjs(values.rangeDateFrom).format('YYYY-MM-DD'),
+                    dayjs(values.rangeDateFrom).format(props.allowTimePrecision ? 'YYYY-MM-DDTHH:mm:ss' : 'YYYY-MM-DD'),
                     // Treat as naive time. Project timezone will be applied on backend.
                     values.rangeDateTo ? dayjs(values.rangeDateTo).format('YYYY-MM-DDTHH:mm:ss') : null
                 )
