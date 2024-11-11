@@ -1049,6 +1049,11 @@ class TestSurvey(APIBaseTest):
                     "iteration_start_dates": [],
                     "current_iteration": None,
                     "current_iteration_start_date": None,
+                    "response_sampling_start_date": None,
+                    "response_sampling_interval_type": "week",
+                    "response_sampling_interval": None,
+                    "response_sampling_limit": None,
+                    "response_sampling_daily_limits": None,
                 }
             ],
         }

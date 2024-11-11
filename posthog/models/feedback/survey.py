@@ -193,7 +193,6 @@ class Survey(UUIDModel):
     actions = models.ManyToManyField(Action)
 
 
-@receiver(pre_save, sender=Survey)
 def update_response_sampling_limits(sender, instance, **kwargs):
     if (
         instance.response_sampling_interval_type is None
@@ -243,6 +242,11 @@ def update_response_sampling_limits(sender, instance, **kwargs):
 
 
 @receiver(pre_save, sender=Survey)
+def pre_save_survey(sender, instance, *args, **kwargs):
+    update_survey_iterations(sender, instance)
+    update_response_sampling_limits(sender, instance)
+
+
 def update_survey_iterations(sender, instance, *args, **kwargs):
     iteration_count = 0 if instance.iteration_count is None else instance.iteration_count
     iteration_frequency_dates = 0 if instance.iteration_frequency_days is None else instance.iteration_frequency_days
