@@ -13,6 +13,7 @@ import {
     PageHeaderCustom,
     ResultsHeader,
 } from './components'
+import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
@@ -63,6 +64,7 @@ const VariantsTab = (): JSX.Element => {
         <div className="space-y-8">
             <ReleaseConditionsTable />
             <DistributionTable />
+            <CumulativeExposuresChart />
         </div>
     )
 }
