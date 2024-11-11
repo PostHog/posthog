@@ -137,6 +137,8 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-search]').focus().type(searchTerm).should('have.value', searchTerm)
         cy.get('[data-attr=feature-flag-table]').should('contain', searchableFlagName)
         cy.get('[data-attr=feature-flag-table]').should('not.contain', nonSearchableFlagName)
+
+        // Ensure search term persists after page reload
         cy.url().should('include', `search=${searchTerm}`)
         cy.reload()
         cy.get('[data-attr=feature-flag-search]').should('have.value', searchTerm)
@@ -182,6 +184,50 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-table]').contains('Status').click()
         // Make sure the first tr in the tbody of the feature-flag-table is a disabled flag
         cy.get(`[data-row-key=${disabledPrefixFlagName}]`).parent().first().contains('Disabled')
+    })
+
+    it('Enablle and disable feature flags from list', () => {
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+
+        cy.get('[data-attr=feature-flag-select-type').click()
+        cy.get('[data-attr=feature-flag-select-type-option-multiple-variants]').click()
+        cy.url().should('include', 'type=multivariant')
+
+        // Make sure filtered empty state is shown
+        cy.get('[data-attr=feature-flag-empty-state-filtered]').should('exist')
+
+        // Create an enabled flag
+        const togglablePrefixFlagName = `to-toggle-${name}`
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-key]')
+            .click()
+            .type(togglablePrefixFlagName)
+            .should('have.value', togglablePrefixFlagName)
+        cy.get('[data-attr=rollout-percentage]').clear().type('0').should('have.value', '0')
+        cy.get('[data-attr=save-feature-flag]').first().click()
+        cy.wait(100)
+        cy.clickNavMenu('featureflags')
+
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+        cy.get('[data-attr=feature-flag-search]')
+            .focus()
+            .type(togglablePrefixFlagName)
+            .should('have.value', togglablePrefixFlagName)
+        cy.get('[data-attr=feature-flag-table]').should('contain', togglablePrefixFlagName)
+
+        // Disable the flag from the list
+        cy.get(`[data-row-key=${togglablePrefixFlagName}]`).get('[data-attr=more-button]').click()
+        cy.get(`[data-attr=feature-flag-${togglablePrefixFlagName}-switch]`).click()
+        cy.get('.LemonModal__layout').should('contain', 'Disable this flag?').contains('Confirm').click()
+        cy.wait(100)
+        cy.get(`[data-row-key=${togglablePrefixFlagName}]`).should('contain', 'DISABLED')
+
+        // Enable the flag from the list
+        cy.get(`[data-row-key=${togglablePrefixFlagName}]`).get('[data-attr=more-button]').click()
+        cy.get(`[data-attr=feature-flag-${togglablePrefixFlagName}-switch]`).click()
+        cy.get('.LemonModal__layout').should('contain', 'Enable this flag?').contains('Confirm').click()
+        cy.wait(100)
+        cy.get(`[data-row-key=${togglablePrefixFlagName}]`).should('contain', 'ENABLED')
     })
 
     it('Move between property types smoothly, and support relative dates', () => {
