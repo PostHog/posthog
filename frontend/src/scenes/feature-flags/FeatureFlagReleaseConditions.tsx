@@ -19,7 +19,13 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import {
+    capitalizeFirstLetter,
+    dateFilterToText,
+    dateStringToComponents,
+    humanFriendlyNumber,
+    isEmptyObject,
+} from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -330,6 +336,12 @@ export function FeatureFlagReleaseConditions({
                                     ) {
                                         return `(${humanFriendlyNumber(
                                             Math.floor((affectedUserCount * (group.rollout_percentage ?? 100)) / 100)
+                                        )} / ${humanFriendlyNumber(totalUsers)})`
+                                    }
+                                    // Render the percentage of total users even when no property conditions are set
+                                    if (totalUsers && isEmptyObject(group.properties)) {
+                                        return `(${humanFriendlyNumber(
+                                            Math.floor((totalUsers * (group.rollout_percentage ?? 100)) / 100)
                                         )} / ${humanFriendlyNumber(totalUsers)})`
                                     }
                                     return ''
