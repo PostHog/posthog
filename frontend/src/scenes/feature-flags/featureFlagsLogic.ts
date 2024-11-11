@@ -145,9 +145,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         shouldShowEmptyState: [
             (s) => [s.featureFlagsLoading, s.featureFlags, s.usingFilters],
             (featureFlagsLoading, featureFlags, usingFilters): boolean => {
-                return Boolean(
-                    !featureFlagsLoading && featureFlags.results && featureFlags.results?.length <= 0 && !usingFilters
-                )
+                return !featureFlagsLoading && featureFlags.results.length <= 0 && !usingFilters
             },
         ],
         pagination: [
