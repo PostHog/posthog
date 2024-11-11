@@ -37,9 +37,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
 
     with HeartbeaterSync(factor=30, logger=logger):
-        # The start of a thread in the heartbeater may be intefering with the
-        # Django connection and thus we wanna make sure any old connections
-        # get cleaned up before we continue
         close_old_connections()
 
         model = ExternalDataJob.objects.prefetch_related(
