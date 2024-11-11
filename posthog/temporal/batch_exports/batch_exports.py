@@ -27,6 +27,7 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run,
 )
+from posthog.settings.base_variables import TEST
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
@@ -929,7 +930,7 @@ async def execute_batch_export_insert_activity(
     finish_inputs: FinishBatchExportRunInputs,
     interval: str,
     heartbeat_timeout_seconds: int | None = 120,
-    maximum_attempts: int = 15,
+    maximum_attempts: int = 0,
     initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
@@ -952,11 +953,13 @@ async def execute_batch_export_insert_activity(
     """
     get_export_started_metric().add(1)
 
+    if TEST:
+        maximum_attempts = 1
+
     if interval == "hour":
         start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
-        maximum_attempts = 0
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}

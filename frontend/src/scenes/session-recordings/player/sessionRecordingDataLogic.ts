@@ -222,8 +222,22 @@ export const parseEncodedSnapshots = async (
             return []
         }
         try {
-            const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
-            const snapshotData = isRecordingSnapshot(snapshotLine) ? [snapshotLine] : snapshotLine['data']
+            let snapshotLine: { windowId: string } | EncodedRecordingSnapshot
+            if (typeof l === 'string') {
+                // is loaded from blob or realtime storage
+                snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
+            } else {
+                // is loaded from file export
+                snapshotLine = l
+            }
+            let snapshotData: ({ windowId: string } | EncodedRecordingSnapshot)[]
+            if (isRecordingSnapshot(snapshotLine)) {
+                // is loaded from file export
+                snapshotData = [snapshotLine]
+            } else {
+                // is loaded from blob or realtime storage
+                snapshotData = snapshotLine['data']
+            }
 
             if (!isMobileSnapshots) {
                 isMobileSnapshots = hasAnyWireframes(snapshotData)

@@ -43,6 +43,7 @@ export enum Scene {
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
     DataWarehouse = 'DataWarehouse',
+    SQLEditor = 'SQLEditor',
     DataModel = 'DataModel',
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseTable = 'DataWarehouseTable',
@@ -130,7 +131,7 @@ export interface SceneConfig {
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-canvas' | 'app-container' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-canvas' | 'app-container' | 'app-raw-no-header' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */
