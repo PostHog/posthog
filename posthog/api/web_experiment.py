@@ -188,7 +188,7 @@ def web_experiments(request: Request):
         result = WebExperimentsAPISerializer(
             WebExperiment.objects.filter(team_id=team.id)
             .exclude(archived=True)
-            .exclude("end_date__isnull", False)
+            .exclude(end_date__isnull=False)
             .select_related("feature_flag"),
             many=True,
         ).data
