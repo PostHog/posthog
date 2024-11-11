@@ -19,7 +19,7 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]

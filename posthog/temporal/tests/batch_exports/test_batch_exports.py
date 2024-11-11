@@ -1,20 +1,23 @@
+import asyncio
 import datetime as dt
 import json
 import operator
 from random import randint
-import asyncio
 
+import pyarrow as pa
 import pytest
 from django.test import override_settings
-import pyarrow as pa
 
 from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.batch_exports.batch_exports import (
+    RecordBatchProducerError,
+    RecordBatchQueue,
+    TaskNotDoneError,
     get_data_interval,
     iter_model_records,
     iter_records,
+    raise_on_produce_task_failure,
     start_produce_batch_export_record_batches,
-    RecordBatchQueue,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
@@ -410,12 +413,12 @@ def test_get_data_interval(interval, data_interval_end, expected):
     assert result == expected
 
 
-async def get_record_batch_from_queue(queue, done_event):
-    while not queue.empty() or not done_event.is_set():
+async def get_record_batch_from_queue(queue, produce_task):
+    while not queue.empty() or not produce_task.done():
         try:
             record_batch = queue.get_nowait()
         except asyncio.QueueEmpty:
-            if done_event.is_set():
+            if produce_task.done():
                 break
             else:
                 await asyncio.sleep(0.1)
@@ -423,6 +426,18 @@ async def get_record_batch_from_queue(queue, done_event):
 
         return record_batch
     return None
+
+
+async def get_all_record_batches_from_queue(queue, produce_task):
+    records = []
+    while not queue.empty() or not produce_task.done():
+        record_batch = await get_record_batch_from_queue(queue, produce_task)
+        if record_batch is None:
+            break
+
+        for record in record_batch.to_pylist():
+            records.append(record)
+    return records
 
 
 async def test_start_produce_batch_export_record_batches_uses_extra_query_parameters(clickhouse_client):
@@ -443,7 +458,7 @@ async def test_start_produce_batch_export_record_batches_uses_extra_query_parame
         properties={"$browser": "Chrome", "$os": "Mac OS X", "custom": 3},
     )
 
-    queue, done_event, _ = start_produce_batch_export_record_batches(
+    queue, produce_task = start_produce_batch_export_record_batches(
         client=clickhouse_client,
         team_id=team_id,
         is_backfill=False,
@@ -456,14 +471,7 @@ async def test_start_produce_batch_export_record_batches_uses_extra_query_parame
         extra_query_parameters={"hogql_val_0": "custom"},
     )
 
-    records = []
-    while not queue.empty() or not done_event.is_set():
-        record_batch = await get_record_batch_from_queue(queue, done_event)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
+    records = await get_all_record_batches_from_queue(queue, produce_task)
 
     for expected, record in zip(events, records):
         if expected["properties"] is None:
@@ -490,7 +498,7 @@ async def test_start_produce_batch_export_record_batches_can_flatten_properties(
         properties={"$browser": "Chrome", "$os": "Mac OS X", "custom-property": 3},
     )
 
-    queue, done_event, _ = start_produce_batch_export_record_batches(
+    queue, produce_task = start_produce_batch_export_record_batches(
         client=clickhouse_client,
         team_id=team_id,
         is_backfill=False,
@@ -506,14 +514,7 @@ async def test_start_produce_batch_export_record_batches_can_flatten_properties(
         extra_query_parameters={"hogql_val_0": "custom"},
     )
 
-    records = []
-    while not queue.empty() or not done_event.is_set():
-        record_batch = await get_record_batch_from_queue(queue, done_event)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
+    records = await get_all_record_batches_from_queue(queue, produce_task)
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
     all_record = sorted(records, key=operator.itemgetter("event"))
@@ -554,7 +555,7 @@ async def test_start_produce_batch_export_record_batches_with_single_field_and_a
         properties={"$browser": "Chrome", "$os": "Mac OS X"},
     )
 
-    queue, done_event, _ = start_produce_batch_export_record_batches(
+    queue, produce_task = start_produce_batch_export_record_batches(
         client=clickhouse_client,
         team_id=team_id,
         is_backfill=False,
@@ -565,14 +566,7 @@ async def test_start_produce_batch_export_record_batches_with_single_field_and_a
         extra_query_parameters={},
     )
 
-    records = []
-    while not queue.empty() or not done_event.is_set():
-        record_batch = await get_record_batch_from_queue(queue, done_event)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
+    records = await get_all_record_batches_from_queue(queue, produce_task)
 
     all_expected = sorted(events, key=operator.itemgetter(field["expression"]))
     all_record = sorted(records, key=operator.itemgetter(field["alias"]))
@@ -616,7 +610,7 @@ async def test_start_produce_batch_export_record_batches_ignores_timestamp_predi
         inserted_at=inserted_at,
     )
 
-    queue, done_event, _ = start_produce_batch_export_record_batches(
+    queue, produce_task = start_produce_batch_export_record_batches(
         client=clickhouse_client,
         team_id=team_id,
         is_backfill=False,
@@ -625,19 +619,12 @@ async def test_start_produce_batch_export_record_batches_ignores_timestamp_predi
         interval_end=data_interval_end.isoformat(),
     )
 
-    records = []
-    while not queue.empty() or not done_event.is_set():
-        record_batch = await get_record_batch_from_queue(queue, done_event)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
+    records = await get_all_record_batches_from_queue(queue, produce_task)
 
     assert len(records) == 0
 
     with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
-        queue, done_event, _ = start_produce_batch_export_record_batches(
+        queue, produce_task = start_produce_batch_export_record_batches(
             client=clickhouse_client,
             team_id=team_id,
             is_backfill=False,
@@ -646,14 +633,7 @@ async def test_start_produce_batch_export_record_batches_ignores_timestamp_predi
             interval_end=data_interval_end.isoformat(),
         )
 
-        records = []
-        while not queue.empty() or not done_event.is_set():
-            record_batch = await get_record_batch_from_queue(queue, done_event)
-            if record_batch is None:
-                break
-
-            for record in record_batch.to_pylist():
-                records.append(record)
+        records = await get_all_record_batches_from_queue(queue, produce_task)
 
     assert_records_match_events(records, events)
 
@@ -679,7 +659,7 @@ async def test_start_produce_batch_export_record_batches_can_include_events(clic
     # Include the latter half of events.
     include_events = (event["event"] for event in events[5000:])
 
-    queue, done_event, _ = start_produce_batch_export_record_batches(
+    queue, produce_task = start_produce_batch_export_record_batches(
         client=clickhouse_client,
         team_id=team_id,
         is_backfill=False,
@@ -689,14 +669,7 @@ async def test_start_produce_batch_export_record_batches_can_include_events(clic
         include_events=include_events,
     )
 
-    records = []
-    while not queue.empty() or not done_event.is_set():
-        record_batch = await get_record_batch_from_queue(queue, done_event)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
+    records = await get_all_record_batches_from_queue(queue, produce_task)
 
     assert_records_match_events(records, events[5000:])
 
@@ -722,7 +695,7 @@ async def test_start_produce_batch_export_record_batches_can_exclude_events(clic
     # Exclude the latter half of events.
     exclude_events = (event["event"] for event in events[5000:])
 
-    queue, done_event, _ = start_produce_batch_export_record_batches(
+    queue, produce_task = start_produce_batch_export_record_batches(
         client=clickhouse_client,
         team_id=team_id,
         is_backfill=False,
@@ -732,14 +705,7 @@ async def test_start_produce_batch_export_record_batches_can_exclude_events(clic
         exclude_events=exclude_events,
     )
 
-    records = []
-    while not queue.empty() or not done_event.is_set():
-        record_batch = await get_record_batch_from_queue(queue, done_event)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
+    records = await get_all_record_batches_from_queue(queue, produce_task)
 
     assert_records_match_events(records, events[:5000])
 
@@ -762,7 +728,7 @@ async def test_start_produce_batch_export_record_batches_handles_duplicates(clic
         person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
     )
 
-    queue, done_event, _ = start_produce_batch_export_record_batches(
+    queue, produce_task = start_produce_batch_export_record_batches(
         client=clickhouse_client,
         team_id=team_id,
         is_backfill=False,
@@ -771,14 +737,7 @@ async def test_start_produce_batch_export_record_batches_handles_duplicates(clic
         interval_end=data_interval_end.isoformat(),
     )
 
-    records = []
-    while not queue.empty() or not done_event.is_set():
-        record_batch = await get_record_batch_from_queue(queue, done_event)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
+    records = await get_all_record_batches_from_queue(queue, produce_task)
 
     assert_records_match_events(records, events)
 
@@ -832,3 +791,45 @@ async def test_record_batch_queue_sets_schema():
 
     schema = await queue.get_schema()
     assert schema == record_batch.schema
+
+
+async def test_raise_on_produce_task_failure_raises_record_batch_producer_error():
+    """Test a `RecordBatchProducerError` is raised with the right cause."""
+    cause = ValueError("Oh no!")
+
+    async def fake_produce_task():
+        raise cause
+
+    task = asyncio.create_task(fake_produce_task())
+    await asyncio.wait([task])
+
+    with pytest.raises(RecordBatchProducerError) as exc_info:
+        await raise_on_produce_task_failure(task)
+
+    assert exc_info.type == RecordBatchProducerError
+    assert exc_info.value.__cause__ == cause
+
+
+async def test_raise_on_produce_task_failure_raises_task_not_done():
+    """Test a `TaskNotDoneError` is raised if we don't let the task start."""
+    cause = ValueError("Oh no!")
+
+    async def fake_produce_task():
+        raise cause
+
+    task = asyncio.create_task(fake_produce_task())
+
+    with pytest.raises(TaskNotDoneError):
+        await raise_on_produce_task_failure(task)
+
+
+async def test_raise_on_produce_task_failure_does_not_raise():
+    """Test nothing is raised if task finished succesfully."""
+
+    async def fake_produce_task():
+        return True
+
+    task = asyncio.create_task(fake_produce_task())
+    await asyncio.wait([task])
+
+    await raise_on_produce_task_failure(task)

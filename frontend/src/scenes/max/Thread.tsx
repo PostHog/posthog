@@ -1,30 +1,47 @@
-import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
+import {
+    IconThumbsDown,
+    IconThumbsDownFilled,
+    IconThumbsUp,
+    IconThumbsUpFilled,
+    IconWarning,
+    IconX,
+} from '@posthog/icons'
+import { LemonButton, LemonInput, LemonRow, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
-import React, { useRef, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
+import {
+    AssistantMessageType,
+    HumanMessage,
+    InsightVizNode,
+    NodeKind,
+    TrendsQuery,
+    VisualizationMessage,
+} from '~/queries/schema'
 
-import { maxLogic, ThreadMessage, TrendGenerationResult } from './maxLogic'
+import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { isFailureMessage, isHumanMessage, isVisualizationMessage } from './utils'
 
 export function Thread(): JSX.Element | null {
     const { thread, threadLoading } = useValues(maxLogic)
+    const { retryLastMessage } = useActions(maxLogic)
 
     return (
-        <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow m-4">
+        <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
             {thread.map((message, index) => {
-                if (message.role === 'user' || typeof message.content === 'string') {
+                if (isHumanMessage(message)) {
                     return (
                         <Message
                             key={index}
-                            role={message.role}
+                            type="human"
                             className={message.status === 'error' ? 'border-danger' : undefined}
                         >
                             {message.content || <i>No text</i>}
@@ -32,16 +49,46 @@ export function Thread(): JSX.Element | null {
                     )
                 }
 
-                return (
-                    <Answer
-                        key={index}
-                        message={message as ThreadMessage & { content: TrendGenerationResult }}
-                        previousMessage={thread[index - 1]}
-                    />
-                )
+                if (isVisualizationMessage(message)) {
+                    return (
+                        <Answer
+                            key={index}
+                            message={message}
+                            status={message.status}
+                            previousMessage={thread[index - 1]}
+                        />
+                    )
+                }
+
+                if (isFailureMessage(message)) {
+                    return (
+                        <Message
+                            key={index}
+                            type="ai"
+                            className="border-danger"
+                            action={
+                                index === thread.length - 1 && (
+                                    <LemonButton
+                                        icon={<IconRefresh />}
+                                        size="small"
+                                        className="mt-2"
+                                        type="secondary"
+                                        onClick={() => retryLastMessage()}
+                                    >
+                                        Try again
+                                    </LemonButton>
+                                )
+                            }
+                        >
+                            {message.content || <i>Max has failed to generate an answer. Please try again.</i>}
+                        </Message>
+                    )
+                }
+
+                return null
             })}
             {threadLoading && (
-                <Message role="assistant" className="w-fit select-none">
+                <Message type="ai" className="w-fit select-none">
                     <div className="flex items-center gap-2">
                         Let me think…
                         <Spinner className="text-xl" />
@@ -54,9 +101,9 @@ export function Thread(): JSX.Element | null {
 
 const Message = React.forwardRef<
     HTMLDivElement,
-    React.PropsWithChildren<{ role: 'user' | 'assistant'; className?: string }>
->(function Message({ role, children, className }, ref): JSX.Element {
-    if (role === 'user') {
+    React.PropsWithChildren<{ type: 'human' | 'ai'; className?: string; action?: React.ReactNode }>
+>(function Message({ type, children, className, action }, ref): JSX.Element {
+    if (type === AssistantMessageType.Human) {
         return (
             <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
                 {children}
@@ -65,39 +112,60 @@ const Message = React.forwardRef<
     }
 
     return (
-        <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
-            {children}
+        <div>
+            <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
+                {children}
+            </div>
+            {action}
         </div>
     )
 })
 
 function Answer({
     message,
+    status,
     previousMessage,
 }: {
-    message: ThreadMessage & { content: TrendGenerationResult }
+    message: VisualizationMessage
+    status?: MessageStatus
     previousMessage: ThreadMessage
 }): JSX.Element {
-    const query: InsightVizNode = {
-        kind: NodeKind.InsightVizNode,
-        source: message.content?.answer as InsightQueryNode,
-        showHeader: true,
-    }
+    const query = useMemo<InsightVizNode | null>(() => {
+        if (message.answer) {
+            return {
+                kind: NodeKind.InsightVizNode,
+                source: message.answer as TrendsQuery,
+                showHeader: true,
+            }
+        }
+
+        return null
+    }, [message])
 
     return (
         <>
-            {message.content?.reasoning_steps && (
-                <Message role={message.role}>
+            {message.reasoning_steps && (
+                <Message
+                    type="ai"
+                    action={
+                        status === 'error' && (
+                            <LemonRow icon={<IconWarning />} status="warning" size="small">
+                                Max is generating this answer one more time because the previous attempt has failed.
+                            </LemonRow>
+                        )
+                    }
+                    className={status === 'error' ? 'border-warning' : undefined}
+                >
                     <ul className="list-disc ml-4">
-                        {message.content.reasoning_steps.map((step, index) => (
+                        {message.reasoning_steps.map((step, index) => (
                             <li key={index}>{step}</li>
                         ))}
                     </ul>
                 </Message>
             )}
-            {message.status === 'completed' && message.content?.answer && (
+            {status === 'completed' && query && (
                 <>
-                    <Message role={message.role}>
+                    <Message type="ai">
                         <div className="h-96 flex">
                             <Query query={query} readOnly embedded />
                         </div>
@@ -118,7 +186,9 @@ function Answer({
                             </div>
                         </div>
                     </Message>
-                    <AnswerActions message={message} previousMessage={previousMessage} />
+                    {isHumanMessage(previousMessage) && (
+                        <AnswerActions message={message} previousMessage={previousMessage} />
+                    )}
                 </>
             )}
         </>
@@ -129,8 +199,8 @@ function AnswerActions({
     message,
     previousMessage,
 }: {
-    message: ThreadMessage & { content: TrendGenerationResult }
-    previousMessage: ThreadMessage
+    message: VisualizationMessage
+    previousMessage: HumanMessage
 }): JSX.Element {
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
@@ -144,7 +214,7 @@ function AnswerActions({
         setRating(newRating)
         posthog.capture('chat rating', {
             question: previousMessage.content,
-            answer: message.content,
+            answer: JSON.stringify(message.answer),
             answer_rating: rating,
         })
         if (newRating === 'bad') {
@@ -158,7 +228,7 @@ function AnswerActions({
         }
         posthog.capture('chat feedback', {
             question: previousMessage.content,
-            answer: message.content,
+            answer: JSON.stringify(message.answer),
             feedback,
         })
         setFeedbackInputStatus('submitted')
@@ -188,7 +258,7 @@ function AnswerActions({
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <Message
-                    role="assistant"
+                    type="ai"
                     ref={(el) => {
                         if (el && !hasScrolledFeedbackInputIntoView.current) {
                             // When the feedback input is first rendered, scroll it into view

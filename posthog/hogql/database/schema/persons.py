@@ -1,10 +1,12 @@
 from typing import cast, Optional, Self
+from posthog.hogql.parser import parse_select
 import posthoganalytics
 
 from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql import ast
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -56,10 +58,46 @@ def select_from_persons_table(
                 version = PersonsArgMaxVersion.V2
                 break
 
-    if version == PersonsArgMaxVersion.V2:
-        from posthog.hogql import ast
-        from posthog.hogql.parser import parse_select
+    and_conditions = []
 
+    if filter is not None:
+        and_conditions.append(filter)
+
+    # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
+    if (
+        node.select_from
+        and node.select_from.type
+        and hasattr(node.select_from.type, "table")
+        and node.select_from.type.table
+        and isinstance(node.select_from.type.table, PersonsTable)
+    ):
+        extractor = WhereClauseExtractor(context)
+        extractor.add_local_tables(join_or_table)
+        where = extractor.get_inner_where(node)
+        if where:
+            select = argmax_select(
+                table_name="raw_persons",
+                select_fields=join_or_table.fields_accessed,
+                group_fields=["id"],
+                argmax_field="version",
+                deleted_field="is_deleted",
+                timestamp_field_to_clamp="created_at",
+            )
+            inner_select = cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
+                SELECT id FROM raw_persons as where_optimization
+                """
+                ),
+            )
+            inner_select.where = where
+            select.where = ast.CompareOperation(
+                left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
+            )
+            return select
+
+    if version == PersonsArgMaxVersion.V2:
         select = cast(
             ast.SelectQuery,
             parse_select(

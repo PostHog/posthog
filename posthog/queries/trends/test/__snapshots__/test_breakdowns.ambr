@@ -7,7 +7,7 @@
     (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
             count(DISTINCT e."$session_id") as count
      FROM events e
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -50,7 +50,7 @@
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37, '[66.25,98.37]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 1000.01, '[98.37,1000.01]', '["",""]') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -73,7 +73,7 @@
     (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
             count(*) as count
      FROM events e
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -116,7 +116,7 @@
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37, '[66.25,98.37]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 1000.01, '[98.37,1000.01]', '["",""]') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -142,11 +142,11 @@
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
      FROM events
      WHERE "$session_id" != ''
-       AND team_id = 2
+       AND team_id = 99999
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
      GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -193,11 +193,11 @@
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE "$session_id" != ''
-                AND team_id = 2
+                AND team_id = 99999
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
               GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND (sessions.session_duration > 30.0)
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
@@ -223,11 +223,11 @@
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
      FROM events
      WHERE "$session_id" != ''
-       AND team_id = 2
+       AND team_id = 99999
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
      GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -274,11 +274,11 @@
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE "$session_id" != ''
-                AND team_id = 2
+                AND team_id = 99999
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
               GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
@@ -306,11 +306,11 @@
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE "$session_id" != ''
-          AND team_id = 2
+          AND team_id = 99999
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -331,11 +331,11 @@
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
      FROM events
      WHERE "$session_id" != ''
-       AND team_id = 2
+       AND team_id = 99999
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
      GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
-  WHERE e.team_id = 2
+  WHERE e.team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -357,11 +357,11 @@
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE "$session_id" != ''
-          AND team_id = 2
+          AND team_id = 99999
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -410,11 +410,11 @@
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE "$session_id" != ''
-                AND team_id = 2
+                AND team_id = 99999
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
               GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
@@ -441,11 +441,11 @@
             dateDiff('second', min(timestamp), max(timestamp)) as session_duration
      FROM events
      WHERE "$session_id" != ''
-       AND team_id = 2
+       AND team_id = 99999
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
      GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -491,11 +491,11 @@
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE "$session_id" != ''
-                AND team_id = 2
+                AND team_id = 99999
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
               GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -522,11 +522,11 @@
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
         WHERE "$session_id" != ''
-          AND team_id = 2
+          AND team_id = 99999
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -574,11 +574,11 @@
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE "$session_id" != ''
-                AND team_id = 2
+                AND team_id = 99999
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
               GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -601,7 +601,7 @@
     (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) AS value,
             count(*) as count
      FROM events e
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND event = 'watched movie'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -640,7 +640,7 @@
                             multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) >= nan
                                     AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) < nan, '[nan,nan]', '["",""]') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -661,7 +661,7 @@
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -702,7 +702,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 9007199254740991]), ([9007199254740990, 19, 9007199254740991]), 9007199254740991) as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -722,7 +722,7 @@
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -763,7 +763,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -784,7 +784,7 @@
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -825,7 +825,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -846,7 +846,7 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -887,7 +887,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -907,7 +907,7 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -948,7 +948,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -969,7 +969,7 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event = 'watched movie'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
@@ -1010,7 +1010,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
-           WHERE e.team_id = 2
+           WHERE e.team_id = 99999
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')

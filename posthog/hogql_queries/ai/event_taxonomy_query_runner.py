@@ -49,7 +49,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             modifiers=self.modifiers,
         )
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         query = parse_select(
             """
                 SELECT

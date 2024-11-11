@@ -27,7 +27,7 @@ class ActorStrategy:
         raise NotImplementedError()
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return {}
+        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         raise NotImplementedError()
@@ -87,9 +87,6 @@ class PersonStrategy(ActorStrategy):
         }
 
         return person_uuid_to_person
-
-    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         return ["person", "id", "created_at", "person.$delete"]

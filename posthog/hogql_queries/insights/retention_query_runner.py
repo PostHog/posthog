@@ -316,7 +316,7 @@ class RetentionQueryRunner(QueryRunner):
 
         return inner_query
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
             if self.query.retentionFilter.cumulative:
                 actor_query = parse_select(

@@ -13,10 +13,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC')
@@ -37,10 +37,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
@@ -76,7 +76,7 @@
   
   SELECT DISTINCT person_id
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND distinct_id = 'person2'
   '''
 # ---
@@ -94,10 +94,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-12-10 00:00:00', 'UTC')
@@ -119,10 +119,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-12-10 00:00:00', 'UTC')
@@ -168,10 +168,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$some_event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC')
@@ -192,10 +192,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND ((event = 'sign up'))
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
@@ -240,17 +240,17 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         INNER JOIN
           (SELECT id,
                   argMax(properties, version) as person_props
            FROM person
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY id
            HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC')
@@ -271,17 +271,17 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         INNER JOIN
           (SELECT id,
                   argMax(properties, version) as person_props
            FROM person
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY id
            HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND ((event = '$pageview'
                 AND (has(['person1@test.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '')))))
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
@@ -327,10 +327,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC')
@@ -351,10 +351,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
@@ -399,10 +399,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'US/Pacific')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'US/Pacific')
@@ -423,10 +423,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'US/Pacific')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'US/Pacific') ) SELECT DISTINCT breakdown_values,
@@ -471,10 +471,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -495,10 +495,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
@@ -543,10 +543,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-08 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
@@ -567,10 +567,10 @@
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
-           WHERE team_id = 2
+           WHERE team_id = 99999
            GROUP BY distinct_id
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-08 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,

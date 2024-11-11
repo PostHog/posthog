@@ -315,7 +315,9 @@ class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_events_and_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
         create_group(
             team_id=self.team.pk,
             group_type_index=0,
@@ -670,7 +672,9 @@ class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     )
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         for i in range(10):
             create_group(
@@ -872,7 +876,9 @@ class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups_person_on_events(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
 
         for i in range(10):
             create_group(
@@ -1726,7 +1732,9 @@ class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_event_properties_and_groups(self):
         # same test as test_funnel_correlation_with_event_properties but with events attached to groups
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=1
+        )
 
         for i in range(10):
             create_group(

@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -27,7 +28,15 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema'
+import {
+    CachedExperimentFunnelsQueryResponse,
+    CachedExperimentTrendsQueryResponse,
+    ExperimentTrendsQuery,
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema'
 import { isFunnelsQuery } from '~/queries/utils'
 import {
     ActionFilter as ActionFilterType,
@@ -54,13 +63,16 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
+import { holdoutsLogic } from './holdoutsLogic'
 import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
     name: '',
+    type: 'product',
     feature_flag_key: '',
     filters: {},
+    metrics: [],
     parameters: {
         feature_flag_variants: [
             { key: 'control', rollout_percentage: 50 },
@@ -71,6 +83,7 @@ const NEW_EXPERIMENT: Experiment = {
     created_at: null,
     created_by: null,
     updated_at: null,
+    holdout_id: null,
 }
 
 export interface ExperimentLogicProps {
@@ -112,6 +125,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['insightDataLoading as goalInsightDataLoading'],
             featureFlagLogic,
             ['featureFlags'],
+            holdoutsLogic,
+            ['holdouts'],
         ],
         actions: [
             experimentsLogic,
@@ -145,6 +160,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        setExperimentType: (type?: string) => ({ type }),
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -170,9 +186,12 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentCollectionGoalModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
-        setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
-        moveToNextFormStep: true,
+        openDistributionModal: true,
+        closeDistributionModal: true,
+        openReleaseConditionsModal: true,
+        closeReleaseConditionsModal: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
+        setTabKey: (tabKey: string) => ({ tabKey }),
     }),
     reducers({
         experiment: [
@@ -316,6 +335,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeShipVariantModal: () => false,
             },
         ],
+        isDistributionModalOpen: [
+            false,
+            {
+                openDistributionModal: () => true,
+                closeDistributionModal: () => false,
+            },
+        ],
+        isReleaseConditionsModalOpen: [
+            false,
+            {
+                openReleaseConditionsModal: () => true,
+                closeReleaseConditionsModal: () => false,
+            },
+        ],
         experimentValuesChangedLocally: [
             false,
             {
@@ -324,16 +357,26 @@ export const experimentLogic = kea<experimentLogicType>([
                 updateExperiment: () => false,
             },
         ],
-        currentFormStep: [
-            0,
+        tabKey: [
+            'results',
             {
-                setCurrentFormStep: (_, { stepIndex }) => stepIndex,
+                setTabKey: (_, { tabKey }) => tabKey,
             },
         ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+
+            actions.touchExperimentField('name')
+            actions.touchExperimentField('feature_flag_key')
+            values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
+                actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
+            )
+
+            if (hasFormErrors(values.experimentErrors)) {
+                return
+            }
 
             // Minimum Detectable Effect is calculated based on a loaded insight
             // Terminate if the insight did not manage to load in time
@@ -407,6 +450,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 })
             }
+        },
+        setExperimentType: async ({ type }) => {
+            actions.setExperiment({ type: type })
         },
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
@@ -483,8 +529,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
-
-            actions.setNewExperimentInsight(experiment?.filters)
 
             if (experiment?.start_date) {
                 actions.loadExperimentResults()
@@ -594,7 +638,7 @@ export const experimentLogic = kea<experimentLogicType>([
             if (values.changingGoalMetric) {
                 actions.loadExperimentResults()
             }
-            if (values.changingSecondaryMetrics) {
+            if (values.changingSecondaryMetrics && values.experiment?.start_date) {
                 actions.loadSecondaryMetricResults()
             }
             if (values.experiment?.start_date) {
@@ -678,20 +722,6 @@ export const experimentLogic = kea<experimentLogicType>([
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
         },
-        moveToNextFormStep: async () => {
-            const { currentFormStep } = values
-            if (currentFormStep === 0) {
-                actions.touchExperimentField('name')
-                actions.touchExperimentField('feature_flag_key')
-                values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
-                    actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
-                )
-            }
-
-            if (!hasFormErrors(values.experimentErrors)) {
-                actions.setCurrentFormStep(currentFormStep + 1)
-            }
-        },
         createExposureCohortSuccess: ({ exposureCohort }) => {
             if (exposureCohort && exposureCohort.id !== 'new') {
                 cohortsModel.actions.cohortCreated(exposureCohort)
@@ -763,10 +793,36 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         },
         experimentResults: [
-            null as ExperimentResults['result'] | null,
+            null as
+                | ExperimentResults['result']
+                | CachedExperimentTrendsQueryResponse
+                | CachedExperimentFunnelsQueryResponse
+                | null,
             {
-                loadExperimentResults: async (refresh?: boolean) => {
+                loadExperimentResults: async (
+                    refresh?: boolean
+                ): Promise<
+                    | ExperimentResults['result']
+                    | CachedExperimentTrendsQueryResponse
+                    | CachedExperimentFunnelsQueryResponse
+                    | null
+                > => {
                     try {
+                        if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            const query = values.experiment.metrics[0].query
+
+                            const response: ExperimentResults = await api.create(
+                                `api/projects/${values.currentTeamId}/query`,
+                                { query }
+                            )
+
+                            return {
+                                ...response,
+                                fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                last_refresh: response.last_refresh || '',
+                            } as unknown as CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse
+                        }
+
                         const refreshParam = refresh ? '?refresh=true' : ''
                         const response: ExperimentResults = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results${refreshParam}`
@@ -787,9 +843,42 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            null as SecondaryMetricResults[] | null,
+            null as
+                | SecondaryMetricResults[]
+                | (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
+                | null,
             {
-                loadSecondaryMetricResults: async (refresh?: boolean) => {
+                loadSecondaryMetricResults: async (
+                    refresh?: boolean
+                ): Promise<
+                    | SecondaryMetricResults[]
+                    | (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
+                    | null
+                > => {
+                    if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                        const secondaryMetrics =
+                            values.experiment?.metrics?.filter((metric) => metric.type === 'secondary') || []
+
+                        return (await Promise.all(
+                            secondaryMetrics.map(async (metric) => {
+                                try {
+                                    const response: ExperimentResults = await api.create(
+                                        `api/projects/${values.currentTeamId}/query`,
+                                        { query: metric.query }
+                                    )
+
+                                    return {
+                                        ...response,
+                                        fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                        last_refresh: response.last_refresh || '',
+                                    }
+                                } catch (error) {
+                                    return {}
+                                }
+                            })
+                        )) as unknown as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
+                    }
+
                     const refreshParam = refresh ? '&refresh=true' : ''
 
                     return await Promise.all(
@@ -806,6 +895,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                         last_refresh: secResults.last_refresh,
                                     }
                                 }
+
                                 return {
                                     ...secResults.result,
                                     fakeInsightId: Math.random().toString(36).substring(2, 15),
@@ -823,7 +913,7 @@ export const experimentLogic = kea<experimentLogicType>([
             null as CohortType | null,
             {
                 createExposureCohort: async () => {
-                    if (props.experimentId && props.experimentId !== 'new') {
+                    if (props.experimentId && props.experimentId !== 'new' && props.experimentId !== 'web') {
                         return (await api.experiments.createExposureCohort(props.experimentId)).cohort
                     }
                     return null
@@ -858,8 +948,13 @@ export const experimentLogic = kea<experimentLogicType>([
             (experimentId): Experiment['id'] => experimentId,
         ],
         experimentInsightType: [
-            (s) => [s.experiment],
-            (experiment): InsightType => {
+            (s) => [s.experiment, s.featureFlags],
+            (experiment, featureFlags): InsightType => {
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    const query = experiment?.metrics?.[0]?.query
+                    return query?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
+                }
+
                 return experiment?.filters?.insight || InsightType.FUNNELS
             },
         ],
@@ -905,31 +1000,40 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         experimentMathAggregationForTrends: [
-            () => [],
-            () =>
-                (filters?: FilterType): PropertyMathType | CountPerActorMathType | undefined => {
-                    // Find out if we're using count per actor math aggregates averages per user
-                    const userMathValue = (
-                        [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
-                    ).filter((entity) =>
-                        Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
-                    )[0]?.math
+            (s) => [s.experiment, s.featureFlags],
+            (experiment, featureFlags) => (): PropertyMathType | CountPerActorMathType | undefined => {
+                let entities: { math?: string }[] = []
 
-                    // alternatively, if we're using property math
-                    // remove 'sum' property math from the list of math types
-                    // since we can handle that as a regular case
-                    const targetValues = Object.values(PropertyMathType).filter(
-                        (value) => value !== PropertyMathType.Sum
-                    )
-                    // sync with the backend at https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/trend_experiment_result.py#L44
-                    // the function uses_math_aggregation_by_user_or_property_value
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    const query = experiment?.metrics?.[0]?.query as ExperimentTrendsQuery
+                    if (!query) {
+                        return undefined
+                    }
+                    entities = query.count_query?.series || []
+                } else {
+                    const filters = experiment?.filters
+                    if (!filters) {
+                        return undefined
+                    }
+                    entities = [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
+                }
 
-                    const propertyMathValue = (
-                        [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
-                    ).filter((entity) => targetValues.includes(entity?.math as PropertyMathType))[0]?.math
+                // Find out if we're using count per actor math aggregates averages per user
+                const userMathValue = entities.filter((entity) =>
+                    Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
+                )[0]?.math
 
-                    return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
-                },
+                // alternatively, if we're using property math
+                // remove 'sum' property math from the list of math types
+                // since we can handle that as a regular case
+                const targetValues = Object.values(PropertyMathType).filter((value) => value !== PropertyMathType.Sum)
+
+                const propertyMathValue = entities.filter((entity) =>
+                    targetValues.includes(entity?.math as PropertyMathType)
+                )[0]?.math
+
+                return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
+            },
         ],
         minimumDetectableEffect: [
             (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
@@ -1122,7 +1226,14 @@ export const experimentLogic = kea<experimentLogicType>([
         conversionRateForVariant: [
             () => [],
             () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variantKey: string): number | null => {
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null,
+                    variantKey: string
+                ): number | null => {
                     if (!experimentResults || !experimentResults.insight) {
                         return null
                     }
@@ -1140,34 +1251,47 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         getIndexForVariant: [
-            () => [],
-            () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
-                    // TODO: Would be nice for every secondary metric to have the same colour for variants
-                    const insightType = experimentResults?.filters?.insight
-                    let result: number | null = null
+            (s) => [s.experimentInsightType],
+            (experimentInsightType) =>
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
+                    variant: string
+                ): number | null => {
                     // Ensures we get the right index from results, so the UI can
                     // display the right colour for the variant
                     if (!experimentResults || !experimentResults.insight) {
                         return null
                     }
+
                     let index = -1
-                    if (insightType === InsightType.FUNNELS) {
+                    if (experimentInsightType === InsightType.FUNNELS) {
                         // Funnel Insight is displayed in order of decreasing count
-                        index = ([...experimentResults.insight] as FunnelStep[][])
-                            .sort((a, b) => b[0]?.count - a[0]?.count)
-                            .findIndex(
-                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
-                            )
+                        index = (Array.isArray(experimentResults.insight) ? [...experimentResults.insight] : [])
+                            .sort((a, b) => {
+                                const aCount = (a && Array.isArray(a) && a[0]?.count) || 0
+                                const bCount = (b && Array.isArray(b) && b[0]?.count) || 0
+                                return bCount - aCount
+                            })
+                            .findIndex((variantFunnel) => {
+                                if (!Array.isArray(variantFunnel) || !variantFunnel[0]?.breakdown_value) {
+                                    return false
+                                }
+                                const breakdownValue = variantFunnel[0].breakdown_value
+                                return Array.isArray(breakdownValue) && breakdownValue[0] === variant
+                            })
                     } else {
                         index = (experimentResults.insight as TrendResult[]).findIndex(
                             (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
                         )
                     }
-                    result = index === -1 ? null : index
+                    const result = index === -1 ? null : index
 
-                    if (result !== null && insightType === InsightType.FUNNELS) {
-                        result++
+                    if (result !== null && experimentInsightType === InsightType.FUNNELS) {
+                        return result + 1
                     }
                     return result
                 },
@@ -1175,10 +1299,16 @@ export const experimentLogic = kea<experimentLogicType>([
         countDataForVariant: [
             (s) => [s.experimentMathAggregationForTrends],
             (experimentMathAggregationForTrends) =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
-                    const usingMathAggregationType = experimentMathAggregationForTrends(
-                        experimentResults?.filters || {}
-                    )
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
+                    variant: string,
+                    type: 'primary' | 'secondary' = 'primary'
+                ): number | null => {
+                    const usingMathAggregationType = type === 'primary' ? experimentMathAggregationForTrends() : false
                     if (!experimentResults || !experimentResults.insight) {
                         return null
                     }
@@ -1219,7 +1349,14 @@ export const experimentLogic = kea<experimentLogicType>([
         exposureCountDataForVariant: [
             () => [],
             () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
+                    variant: string
+                ): number | null => {
                     if (!experimentResults || !experimentResults.variants) {
                         return null
                     }
@@ -1237,14 +1374,21 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         getHighestProbabilityVariant: [
             () => [],
-            () => (results: ExperimentResults['result'] | null) => {
-                if (results && results.probability) {
-                    const maxValue = Math.max(...Object.values(results.probability))
-                    return Object.keys(results.probability).find(
-                        (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
-                    )
-                }
-            },
+            () =>
+                (
+                    results:
+                        | ExperimentResults['result']
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null
+                ) => {
+                    if (results && results.probability) {
+                        const maxValue = Math.max(...Object.values(results.probability))
+                        return Object.keys(results.probability).find(
+                            (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
+                        )
+                    }
+                },
         ],
         sortedExperimentResultVariants: [
             (s) => [s.experimentResults, s.experiment],
@@ -1299,15 +1443,31 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         tabularSecondaryMetricResults: [
-            (s) => [s.experiment, s.secondaryMetricResults],
-            (experiment, secondaryMetricResults): TabularSecondaryMetricResults[] => {
+            (s) => [s.experiment, s.secondaryMetricResults, s.conversionRateForVariant, s.countDataForVariant],
+            (
+                experiment,
+                secondaryMetricResults,
+                conversionRateForVariant,
+                countDataForVariant
+            ): TabularSecondaryMetricResults[] => {
+                if (!secondaryMetricResults) {
+                    return []
+                }
+
                 const variantsWithResults: TabularSecondaryMetricResults[] = []
                 experiment?.parameters?.feature_flag_variants?.forEach((variant) => {
                     const metricResults: SecondaryMetricResult[] = []
                     experiment?.secondary_metrics?.forEach((metric, idx) => {
+                        let result
+                        if (metric.filters.insight === InsightType.FUNNELS) {
+                            result = conversionRateForVariant(secondaryMetricResults?.[idx], variant.key)
+                        } else {
+                            result = countDataForVariant(secondaryMetricResults?.[idx], variant.key, 'secondary')
+                        }
+
                         metricResults.push({
                             insightType: metric.filters.insight || InsightType.TRENDS,
-                            result: secondaryMetricResults?.[idx]?.result?.[variant.key],
+                            result: result || undefined,
                         })
                     })
 
@@ -1383,6 +1543,17 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
+        hasGoalSet: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                const filters = experiment?.filters
+                return !!(
+                    (filters?.actions && filters.actions.length > 0) ||
+                    (filters?.events && filters.events.length > 0) ||
+                    (filters?.data_warehouse && filters.data_warehouse.length > 0)
+                )
+            },
+        ],
     }),
     forms(({ actions }) => ({
         experiment: {
@@ -1412,7 +1583,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.resetExperiment()
-                    actions.setNewExperimentInsight()
                 }
 
                 if (parsedId !== 'new' && parsedId === values.experimentId) {

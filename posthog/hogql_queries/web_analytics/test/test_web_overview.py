@@ -2,7 +2,6 @@ from typing import Optional
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
-from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
@@ -72,7 +71,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         date_from: str,
         date_to: str,
-        session_table_version: SessionTableVersion = SessionTableVersion.V1,
+        session_table_version: SessionTableVersion = SessionTableVersion.V2,
         compare: bool = True,
         limit_context: Optional[LimitContext] = None,
         filter_test_accounts: Optional[bool] = False,
@@ -97,19 +96,16 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_no_crash_when_no_data(self, session_table_version: SessionTableVersion):
+    def test_no_crash_when_no_data(self):
         results = self._run_web_overview_query(
             "2023-12-08",
             "2023-12-15",
-            session_table_version=session_table_version,
         ).results
         assert [item.key for item in results] == ["visitors", "views", "sessions", "session duration", "bounce rate"]
 
         results = self._run_web_overview_query(
             "2023-12-08",
             "2023-12-15",
-            session_table_version=session_table_version,
             includeLCPScore=True,
         ).results
         assert [item.key for item in results] == [
@@ -132,9 +128,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-        results = self._run_web_overview_query(
-            "2023-12-08", "2023-12-15", session_table_version=session_table_version, action=action
-        ).results
+        results = self._run_web_overview_query("2023-12-08", "2023-12-15", action=action).results
 
         assert [item.key for item in results] == [
             "visitors",
@@ -143,8 +137,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "conversion rate",
         ]
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_increase_in_users(self, session_table_version: SessionTableVersion):
+    def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
         s2 = str(uuid7("2023-12-11"))
@@ -159,7 +152,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_overview_query(
             "2023-12-08",
             "2023-12-15",
-            session_table_version=session_table_version,
         ).results
 
         visitors = results[0]
@@ -192,8 +184,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_all_time(self, session_table_version: SessionTableVersion):
+    def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
         s2 = str(uuid7("2023-12-11"))
@@ -208,7 +199,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             compare=False,
-            session_table_version=session_table_version,
         ).results
 
         visitors = results[0]
@@ -241,15 +231,12 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_filter_test_accounts(self, session_table_version: SessionTableVersion):
+    def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", s1), ("2023-12-03", s1)])])
 
-        results = self._run_web_overview_query(
-            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=True
-        ).results
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", filter_test_accounts=True).results
 
         visitors = results[0]
         self.assertEqual(0, visitors.value)
@@ -267,21 +254,17 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("bounce rate", bounce.key)
         self.assertEqual(None, bounce.value)
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_dont_filter_test_accounts(self, session_table_version: SessionTableVersion):
+    def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", s1), ("2023-12-03", s1)])])
 
-        results = self._run_web_overview_query(
-            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=False
-        ).results
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
         visitors = results[0]
         self.assertEqual(1, visitors.value)
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_correctly_counts_pageviews_in_long_running_session(self, session_table_version: SessionTableVersion):
+    def test_correctly_counts_pageviews_in_long_running_session(self):
         # this test is important when using the v1 sessions table as the raw sessions table will have 3 entries, one per day
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -293,7 +276,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_overview_query(
             "2023-12-01",
             "2023-12-03",
-            session_table_version=session_table_version,
         ).results
 
         visitors = results[0]

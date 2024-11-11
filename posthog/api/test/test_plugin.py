@@ -371,35 +371,36 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 403)
             self.assertEqual(mock_sync_from_plugin_archive.call_count, 2)  # Not extracted on auth failure
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_plugin_auth(self, mock_get, mock_reload):
-        repo_url = "https://github.com/PostHog/helloworldplugin"
-        response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
-        self.assertEqual(response.status_code, 201)
+        with freeze_time("2021-08-25T22:09:14.252Z"):
+            repo_url = "https://github.com/PostHog/helloworldplugin"
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
+            self.assertEqual(response.status_code, 201)
 
-        plugin_id = response.json()["id"]
+        with freeze_time("2021-08-25T22:09:14.253Z"):
+            plugin_id = response.json()["id"]
 
-        api_url = "/api/organizations/@current/plugins/{}".format(response.json()["id"])
+            api_url = "/api/organizations/@current/plugins/{}".format(response.json()["id"])
 
-        for level in (
-            Organization.PluginsAccessLevel.NONE,
-            Organization.PluginsAccessLevel.CONFIG,
-        ):
-            self.organization.plugins_access_level = level
+            for level in (
+                Organization.PluginsAccessLevel.NONE,
+                Organization.PluginsAccessLevel.CONFIG,
+            ):
+                self.organization.plugins_access_level = level
+                self.organization.save()
+                response = self.client.delete(api_url)
+                self.assertEqual(response.status_code, 403)
+
+            self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
             self.organization.save()
             response = self.client.delete(api_url)
-            self.assertEqual(response.status_code, 403)
-
-        self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
-        self.organization.save()
-        response = self.client.delete(api_url)
         self.assertEqual(response.status_code, 204)
         self.assert_plugin_activity(
             [
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "installed",
-                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "activity": "uninstalled",
+                    "created_at": "2021-08-25T22:09:14.253000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),
                     "detail": {
@@ -412,7 +413,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 },
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "uninstalled",
+                    "activity": "installed",
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Plugin",
                     "item_id": str(plugin_id),

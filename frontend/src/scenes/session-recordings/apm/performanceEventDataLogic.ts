@@ -4,8 +4,8 @@ import {
     initiatorToAssetTypeMapping,
     itemSizeInfo,
 } from 'scenes/session-recordings/apm/performance-event-utils'
+import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
@@ -106,7 +106,7 @@ export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
     connect((props: PerformanceEventDataLogicProps) => ({
         actions: [],
         values: [
-            playerSettingsLogic,
+            miniFiltersLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             ['sessionPlayerData', 'webVitalsEvents'],

@@ -28,7 +28,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.outer_select
 
     def calculate(self):

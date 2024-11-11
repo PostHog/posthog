@@ -19,6 +19,8 @@ import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 
 const DEFAULT_DURATION = 14
 
+export const MAX_SECONDARY_METRICS = 10
+
 export interface SecondaryMetricsProps {
     onMetricsChange: (metrics: SecondaryExperimentMetric[]) => void
     initialMetrics: SecondaryExperimentMetric[]

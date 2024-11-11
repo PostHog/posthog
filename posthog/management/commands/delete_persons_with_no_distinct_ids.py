@@ -8,7 +8,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--team-id", default=None, type=int, help="Team ID to migrate from (on this instance)")
-        parser.add_argument("--dry_run", type=bool, default=True, help="Dry run, rather than actually deleting")
+        parser.add_argument("--dry_run", action="store_false", help="Dry run mode (no changes will be made)")
 
     def handle(self, **options):
         team_id = options["team_id"]

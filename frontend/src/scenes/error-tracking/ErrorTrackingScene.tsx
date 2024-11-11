@@ -58,7 +58,6 @@ export function ErrorTrackingScene(): JSX.Element {
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
-        alwaysRefresh: true,
     }
 
     return (
