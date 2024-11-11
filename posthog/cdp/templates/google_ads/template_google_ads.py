@@ -20,7 +20,7 @@ let body := {
     'conversions': [
         {
             'gclid': inputs.gclid,
-            'conversion_action': f'customers/{replaceAll(inputs.customerId, '-', '')}/conversionActions/{replaceAll(inputs.conversionActionId, 'AW-', '')}',
+            'conversion_action': f'customers/{replaceAll(inputs.customerId, '-', '')}/conversionActions/{inputs.conversionActionId}',
             'conversion_date_time': inputs.conversionDateTime
         }
     ],
