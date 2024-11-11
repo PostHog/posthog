@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from django.utils.timezone import now
 
@@ -11,18 +12,19 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
         return
     # Get today's date in UTC
     today_date = now().date()
+    today_entry = None
+    response_sampling_daily_limits = json.loads(survey.response_sampling_daily_limits)
 
-    # Find today's rollout percentage from the schedule
-    today_entry = next(
-        (entry for entry in survey.rollout_schedule if datetime.fromisoformat(entry["date"]).date() == today_date), None
-    )
+    for entry in response_sampling_daily_limits:
+        if datetime.fromisoformat(entry.get("date")).date() == today_date:
+            today_entry = entry
 
     total_response_count = _get_survey_responses_count(survey.id)
-    if total_response_count < today_entry["daily_response_limit"]:
-        # Update the targeting_feature_flag's rollout percentage
-        targeting_flag = survey.targeting_flag
-        targeting_flag.rollout_percentage = today_entry["rollout_percentage"]
-        targeting_flag.save()
+    if total_response_count < today_entry.get("daily_response_limit", 0) and survey.internal_response_sampling_flag:
+        # Update the internal_response_sampling_flag's rollout percentage
+        internal_response_sampling_flag = survey.internal_response_sampling_flag
+        internal_response_sampling_flag.rollout_percentage = today_entry["rollout_percentage"]
+        internal_response_sampling_flag.save()
 
 
 def _get_survey_responses_count(survey_id: int) -> int:
@@ -44,8 +46,8 @@ def _get_survey_responses_count(survey_id: int) -> int:
 
 def update_survey_adaptive_sampling() -> None:
     surveys_with_adaptive_sampling = Survey.objects.filter(
-        start_date__isnull=False, end_date__isnull=True, response_sampling_daily_limits__is_null=False
-    ).only("id", "iteration_count", "response_sampling_daily_limits")
+        start_date__isnull=False, end_date__isnull=True, response_sampling_daily_limits__isnull=False
+    ).only("id", "response_sampling_daily_limits")
 
     for survey in list(surveys_with_adaptive_sampling):
         _update_survey_adaptive_sampling(survey)

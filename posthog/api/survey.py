@@ -353,6 +353,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
+        self._add_internal_response_sampling_filters(instance)
 
         team = Team.objects.get(id=self.context["team_id"])
         log_activity(
@@ -504,7 +505,29 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
+        self._add_internal_response_sampling_filters(instance)
         return instance
+
+    def _add_internal_response_sampling_filters(self, instance: Survey):
+        if instance.response_sampling_daily_limits is None:
+            return
+        if instance.internal_response_sampling_flag is not None:
+            return
+
+        sampling_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [],
+                }
+            ]
+        }
+
+        instance.internal_response_sampling_flag = self._create_or_update_targeting_flag(
+            None, sampling_filters, instance.name, bool(instance.start_date), flag_name_suffix="-sampling"
+        )
+        instance.save()
 
     def _associate_actions(self, instance: Survey, conditions):
         if conditions is None:
