@@ -91,7 +91,7 @@ describe('Feature Flags', () => {
         })
     })
 
-    it('Delete feature flag', () => {
+    it('Delete and restore feature flag', () => {
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').focus().type(name).should('have.value', name)
@@ -108,6 +108,22 @@ describe('Feature Flags', () => {
         cy.get('[data-attr="more-button"]').click()
         cy.get('[data-attr=delete-feature-flag]').click()
         cy.get('.Toastify').contains('Undo').should('be.visible')
+
+        // make sure the flag is deleted from list as expected
+        cy.get('[data-attr=feature-flag-table]').should('not.contain', name)
+
+        // navigate back to the deleted flag to make sure the edit button is disabled
+        cy.go('back')
+        cy.get('button[data-attr="edit-feature-flag"]').should('have.attr', 'aria-disabled', 'true')
+
+        // undo the deletion
+        cy.get('[data-attr="more-button"]').click()
+        cy.get('button[data-attr="restore-feature-flag"]').should('have.text', 'Restore feature flag')
+        cy.get('button[data-attr="restore-feature-flag"]').click()
+
+        // refresh page and make sure the flag is restored as expected
+        cy.reload()
+        cy.get('button[data-attr="edit-feature-flag"]').should('not.have.attr', 'aria-disabled', 'true')
     })
 
     it('Search feature flags', () => {
