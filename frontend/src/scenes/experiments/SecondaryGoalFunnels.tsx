@@ -17,12 +17,10 @@ import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types
 import { experimentLogic, MetricInsightId } from './experimentLogic'
 import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './MetricSelector'
 
-/////////////////////////////// TODO
-
 export function SecondaryGoalFunnels(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setFunnelsSecondaryMetric } = useActions(experimentLogic)
+    const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const currentMetric = experiment.metrics_secondary[0] as ExperimentFunnelsQuery
 
@@ -46,9 +44,10 @@ export function SecondaryGoalFunnels(): JSX.Element {
                             MathAvailability.None
                         )
 
-                        setFunnelsSecondaryMetric({
+                        setFunnelsMetric({
                             metricIdx: 0,
                             series,
+                            isSecondary: true,
                         })
                     } else {
                         if (actions?.length) {
@@ -120,9 +119,10 @@ export function SecondaryGoalFunnels(): JSX.Element {
                         )
                     })()}
                     onChange={(value) => {
-                        setFunnelsSecondaryMetric({
+                        setFunnelsMetric({
                             metricIdx: 0,
                             funnelAggregateByHogQL: value,
+                            isSecondary: true,
                         })
                     }}
                 />
@@ -144,9 +144,10 @@ export function SecondaryGoalFunnels(): JSX.Element {
                     onFunnelWindowIntervalChange={(funnelWindowInterval) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsSecondaryMetric({
+                            setFunnelsMetric({
                                 metricIdx: 0,
                                 funnelWindowInterval: funnelWindowInterval,
+                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
@@ -160,9 +161,10 @@ export function SecondaryGoalFunnels(): JSX.Element {
                     onFunnelWindowIntervalUnitChange={(funnelWindowIntervalUnit) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsSecondaryMetric({
+                            setFunnelsMetric({
                                 metricIdx: 0,
                                 funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
+                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
@@ -204,12 +206,13 @@ export function SecondaryGoalFunnels(): JSX.Element {
                         const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsSecondaryMetric({
+                            setFunnelsMetric({
                                 metricIdx: 0,
                                 breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
                                 breakdownAttributionValue: breakdownAttributionValue
                                     ? parseInt(breakdownAttributionValue)
                                     : undefined,
+                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
@@ -248,9 +251,10 @@ export function SecondaryGoalFunnels(): JSX.Element {
                     onChange={(checked: boolean) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setFunnelsSecondaryMetric({
+                            setFunnelsMetric({
                                 metricIdx: 0,
                                 filterTestAccounts: checked,
+                                isSecondary: true,
                             })
                         } else {
                             setExperiment({

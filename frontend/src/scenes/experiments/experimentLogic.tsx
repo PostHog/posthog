@@ -202,11 +202,13 @@ export const experimentLogic = kea<experimentLogicType>([
             metricIdx,
             series,
             filterTestAccounts,
+            isSecondary = false,
         }: {
             metricIdx: number
             series?: any[]
             filterTestAccounts?: boolean
-        }) => ({ metricIdx, series, filterTestAccounts }),
+            isSecondary?: boolean
+        }) => ({ metricIdx, series, filterTestAccounts, isSecondary }),
         setTrendsExposureMetric: ({
             metricIdx,
             series,
@@ -226,6 +228,7 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelWindowIntervalUnit,
             aggregation_group_type_index,
             funnelAggregateByHogQL,
+            isSecondary = false,
         }: {
             metricIdx: number
             series?: any[]
@@ -236,6 +239,7 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelWindowIntervalUnit?: string
             aggregation_group_type_index?: number
             funnelAggregateByHogQL?: string
+            isSecondary?: boolean
         }) => ({
             metricIdx,
             series,
@@ -246,37 +250,7 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelWindowIntervalUnit,
             aggregation_group_type_index,
             funnelAggregateByHogQL,
-        }),
-        setFunnelsSecondaryMetric: ({
-            metricIdx,
-            series,
-            filterTestAccounts,
-            breakdownAttributionType,
-            breakdownAttributionValue,
-            funnelWindowInterval,
-            funnelWindowIntervalUnit,
-            aggregation_group_type_index,
-            funnelAggregateByHogQL,
-        }: {
-            metricIdx: number
-            series?: any[]
-            filterTestAccounts?: boolean
-            breakdownAttributionType?: BreakdownAttributionType
-            breakdownAttributionValue?: number
-            funnelWindowInterval?: number
-            funnelWindowIntervalUnit?: string
-            aggregation_group_type_index?: number
-            funnelAggregateByHogQL?: string
-        }) => ({
-            metricIdx,
-            series,
-            filterTestAccounts,
-            breakdownAttributionType,
-            breakdownAttributionValue,
-            funnelWindowInterval,
-            funnelWindowIntervalUnit,
-            aggregation_group_type_index,
-            funnelAggregateByHogQL,
+            isSecondary,
         }),
         setTabKey: (tabKey: string) => ({ tabKey }),
     }),
@@ -285,15 +259,6 @@ export const experimentLogic = kea<experimentLogicType>([
             { ...NEW_EXPERIMENT } as Experiment,
             {
                 setExperiment: (state, { experiment }) => {
-                    // if (experiment.filters) {
-                    //     return { ...state, ...experiment, filters: experiment.filters }
-                    // }
-
-                    // // assuming setExperiment isn't called with new filters & parameters at the same time
-                    // if (experiment.parameters) {
-                    //     const newParameters = { ...state?.parameters, ...experiment.parameters }
-                    //     return { ...state, ...experiment, parameters: newParameters }
-                    // }
                     return { ...state, ...experiment }
                 },
                 addExperimentGroup: (state) => {
@@ -345,8 +310,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 },
-                setTrendsMetric: (state, { metricIdx, series, filterTestAccounts }) => {
-                    const metrics = [...(state?.metrics || [])]
+                setTrendsMetric: (state, { metricIdx, series, filterTestAccounts, isSecondary }) => {
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
                     const metric = metrics[metricIdx]
 
                     metrics[metricIdx] = {
@@ -360,7 +326,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     return {
                         ...state,
-                        metrics,
+                        [metricsKey]: metrics,
                     }
                 },
                 setTrendsExposureMetric: (state, { metricIdx, series, filterTestAccounts }) => {
@@ -393,9 +359,11 @@ export const experimentLogic = kea<experimentLogicType>([
                         funnelWindowIntervalUnit,
                         aggregation_group_type_index,
                         funnelAggregateByHogQL,
+                        isSecondary,
                     }
                 ) => {
-                    const metrics = [...(state?.metrics || [])]
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
                     const metric = metrics[metricIdx]
 
                     metrics[metricIdx] = {
@@ -418,47 +386,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     return {
                         ...state,
-                        metrics,
-                    }
-                },
-                setFunnelsSecondaryMetric: (
-                    state,
-                    {
-                        metricIdx,
-                        series,
-                        filterTestAccounts,
-                        breakdownAttributionType,
-                        breakdownAttributionValue,
-                        funnelWindowInterval,
-                        funnelWindowIntervalUnit,
-                        aggregation_group_type_index,
-                        funnelAggregateByHogQL,
-                    }
-                ) => {
-                    const metrics_secondary = [...(state?.metrics_secondary || [])]
-                    const metric = metrics_secondary[metricIdx]
-
-                    metrics_secondary[metricIdx] = {
-                        ...metric,
-                        funnels_query: {
-                            ...(metric as ExperimentFunnelsQuery).funnels_query,
-                            ...(series && { series }),
-                            ...(filterTestAccounts !== undefined && { filterTestAccounts }),
-                            ...(aggregation_group_type_index !== undefined && { aggregation_group_type_index }),
-                            funnelsFilter: {
-                                ...(metric as ExperimentFunnelsQuery).funnels_query.funnelsFilter,
-                                ...(breakdownAttributionType && { breakdownAttributionType }),
-                                ...(breakdownAttributionValue !== undefined && { breakdownAttributionValue }),
-                                ...(funnelWindowInterval !== undefined && { funnelWindowInterval }),
-                                ...(funnelWindowIntervalUnit && { funnelWindowIntervalUnit }),
-                                ...(funnelAggregateByHogQL !== undefined && { funnelAggregateByHogQL }),
-                            },
-                        },
-                    } as ExperimentFunnelsQuery
-
-                    return {
-                        ...state,
-                        metrics_secondary,
+                        [metricsKey]: metrics,
                     }
                 },
             },

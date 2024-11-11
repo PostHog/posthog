@@ -15,8 +15,6 @@ import { FilterType } from '~/types'
 
 import { experimentLogic, MetricInsightId } from './experimentLogic'
 
-/////////////////////////////// TODO
-
 export function SecondaryGoalTrends(): JSX.Element {
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
     const { setExperiment, setTrendsMetric } = useActions(experimentLogic)
@@ -48,6 +46,7 @@ export function SecondaryGoalTrends(): JSX.Element {
                         setTrendsMetric({
                             metricIdx: 0,
                             series,
+                            isSecondary: true,
                         })
                     } else {
                         if (actions?.length) {
@@ -117,6 +116,7 @@ export function SecondaryGoalTrends(): JSX.Element {
                             setTrendsMetric({
                                 metricIdx: 0,
                                 filterTestAccounts: checked,
+                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
