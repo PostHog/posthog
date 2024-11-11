@@ -2380,6 +2380,11 @@ class TestSurveyResponseSampling(APIBaseTest):
         survey = Survey.objects.get(id=response_data["id"])
         assert survey.response_sampling_daily_limits is None
 
+    def test_can_create_targeting_flag_if_does_not_exist(self):
+        survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
+        assert survey.response_sampling_daily_limits is not None
+        assert survey.targeting_flag is not None
+
 
 class TestSurveysRecurringIterations(APIBaseTest):
     def _create_recurring_survey(self) -> Survey:
