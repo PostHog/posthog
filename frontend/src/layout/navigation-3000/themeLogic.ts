@@ -31,21 +31,21 @@ export const THEMES: CustomThemeType = {
         baseTheme: 'light',
         styles: '',
         primaryColors: ['#008282', '#C3C3C3', '#02007F'],
-        disabled: true,
+        disabled: false,
     },
     'fisher-price': {
         title: 'Fisher Price',
         baseTheme: 'light',
         styles: '',
         primaryColors: ['red', 'green', 'blue'],
-        disabled: true,
+        disabled: false,
     },
     usa: {
         title: 'USA',
         baseTheme: 'light',
         styles: '',
         primaryColors: ['#0A3161', '#FFFFFF', '#B31942'],
-        disabled: true,
+        disabled: false,
     },
 }
 
