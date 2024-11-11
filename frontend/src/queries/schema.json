@@ -2940,6 +2940,9 @@
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
+                "seriesBreakdownColumn": {
+                    "type": ["string", "null"]
+                },
                 "stackBars100": {
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
