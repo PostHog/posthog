@@ -1,5 +1,4 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
@@ -57,22 +56,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setTotalUsers: (count: number) => ({ count }),
         calculateBlastRadius: true,
     }),
-    loaders(({ values }) => ({
-        totalUsers: {
-            __default: null as number | null,
-            loadTotalUsers: async () => {
-                const response = await api.create(
-                    `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
-                    {
-                        condition: { properties: {} },
-                        group_type_index: values.filters?.aggregation_group_type_index ?? null,
-                    }
-                )
-
-                return response.total_users
-            },
-        },
-    })),
     reducers(({ props }) => ({
         filters: [
             props.filters,
@@ -200,9 +183,20 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setAffectedUsers(index, undefined)
 
                 const properties = condition.properties
-                if (!properties || properties?.length === 0 || properties.some(isEmptyProperty)) {
-                    // don't compute for full rollouts or empty conditions
+                if (!properties || properties.some(isEmptyProperty)) {
+                    // don't compute for incomplete conditions
                     usersAffected.push(Promise.resolve({ users_affected: -1, total_users: -1 }))
+                } else if (properties?.length === 0) {
+                    // Request total users for empty condition sets
+                    const responsePromise = api.create(
+                        `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
+                        {
+                            condition: { properties: {} },
+                            group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                        }
+                    )
+
+                    usersAffected.push(responsePromise)
                 } else {
                     const responsePromise = api.create(
                         `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
@@ -335,6 +329,5 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         if (!props.readOnly) {
             actions.calculateBlastRadius()
         }
-        actions.loadTotalUsers()
     }),
 ])
