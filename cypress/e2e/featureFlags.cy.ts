@@ -80,7 +80,7 @@ describe('Feature Flags', () => {
             .should('have.value', name + '-updated')
         cy.get('[data-attr=rollout-percentage]').type('{selectall}50').should('have.value', '50')
         cy.get('[data-attr=save-feature-flag]').first().click()
-        cy.wait(100)
+        cy.get('[data-attr=toast-close-button]').click()
         cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
 
@@ -117,7 +117,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-key]').click().type(searchableFlagName).should('have.value', searchableFlagName)
         cy.get('[data-attr=rollout-percentage]').clear().type('0')
         cy.get('[data-attr=save-feature-flag]').first().click()
-        cy.wait(100)
+        cy.get('[data-attr=toast-close-button]').click()
         cy.clickNavMenu('featureflags')
 
         // create a flag with a name that should not show up in search results
@@ -129,7 +129,7 @@ describe('Feature Flags', () => {
             .should('have.value', nonSearchableFlagName)
         cy.get('[data-attr=rollout-percentage]').clear().type('0')
         cy.get('[data-attr=save-feature-flag]').first().click()
-        cy.wait(100)
+        cy.get('[data-attr=toast-close-button]').click()
         cy.clickNavMenu('featureflags')
 
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
@@ -164,7 +164,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-enabled-checkbox]').click()
         cy.get('[data-attr=rollout-percentage]').clear().type('0').should('have.value', '0')
         cy.get('[data-attr=save-feature-flag]').first().click()
-        cy.wait(100)
+        cy.get('[data-attr=toast-close-button]').click()
         cy.clickNavMenu('featureflags')
 
         cy.get('[data-attr=feature-flag-select-status').click()
@@ -186,7 +186,7 @@ describe('Feature Flags', () => {
         cy.get(`[data-row-key=${disabledPrefixFlagName}]`).parent().first().contains('Disabled')
     })
 
-    it('Enablle and disable feature flags from list', () => {
+    it('Enable and disable feature flags from list', () => {
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
 
         cy.get('[data-attr=feature-flag-select-type').click()
@@ -205,7 +205,7 @@ describe('Feature Flags', () => {
             .should('have.value', togglablePrefixFlagName)
         cy.get('[data-attr=rollout-percentage]').clear().type('0').should('have.value', '0')
         cy.get('[data-attr=save-feature-flag]').first().click()
-        cy.wait(100)
+        cy.get('[data-attr=toast-close-button]').click()
         cy.clickNavMenu('featureflags')
 
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
@@ -219,15 +219,13 @@ describe('Feature Flags', () => {
         cy.get(`[data-row-key=${togglablePrefixFlagName}]`).get('[data-attr=more-button]').click()
         cy.get(`[data-attr=feature-flag-${togglablePrefixFlagName}-switch]`).click()
         cy.get('.LemonModal__layout').should('contain', 'Disable this flag?').contains('Confirm').click()
-        cy.wait(100)
-        cy.get(`[data-row-key=${togglablePrefixFlagName}]`).should('contain', 'DISABLED')
+        cy.get(`[data-row-key=${togglablePrefixFlagName}]`).should('contain', 'Disabled')
 
         // Enable the flag from the list
         cy.get(`[data-row-key=${togglablePrefixFlagName}]`).get('[data-attr=more-button]').click()
         cy.get(`[data-attr=feature-flag-${togglablePrefixFlagName}-switch]`).click()
         cy.get('.LemonModal__layout').should('contain', 'Enable this flag?').contains('Confirm').click()
-        cy.wait(100)
-        cy.get(`[data-row-key=${togglablePrefixFlagName}]`).should('contain', 'ENABLED')
+        cy.get(`[data-row-key=${togglablePrefixFlagName}]`).should('contain', 'Enabled')
     })
 
     it('Move between property types smoothly, and support relative dates', () => {
