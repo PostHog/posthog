@@ -12,7 +12,7 @@ import { PrimaryGoalTrends } from '../PrimaryGoalTrends'
 import { PrimaryGoalTrendsExposure } from '../PrimaryGoalTrendsExposure'
 
 export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Element {
-    const experimentInsightType = filters?.insight || InsightType.TRENDS
+    const metricType = filters?.insight || InsightType.TRENDS
 
     return (
         <>
@@ -21,7 +21,7 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                 .map((event: ActionFilterType, idx: number) => (
                     <div key={idx} className="mb-2">
                         <div className="flex mb-1">
-                            {experimentInsightType === InsightType.FUNNELS && (
+                            {metricType === InsightType.FUNNELS && (
                                 <div
                                     className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
                                     // eslint-disable-next-line react/forbid-dom-props
@@ -33,7 +33,7 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                             <b>
                                 <InsightLabel
                                     action={event}
-                                    showCountedByTag={experimentInsightType === InsightType.TRENDS}
+                                    showCountedByTag={metricType === InsightType.TRENDS}
                                     hideIcon
                                     showEventName
                                 />
@@ -95,7 +95,7 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
         experiment,
         isExperimentGoalModalOpen,
         experimentLoading,
-        experimentInsightType,
+        getMetricType,
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
     } = useValues(experimentLogic({ experimentId }))
@@ -104,8 +104,9 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
     const experimentFiltersLength =
         (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
 
-    const isInsightLoading =
-        experimentInsightType === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
+    const metricType = getMetricType(0)
+
+    const isInsightLoading = metricType === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
 
     return (
         <LemonModal
@@ -121,7 +122,7 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                     <LemonButton
                         disabledReason={
                             (isInsightLoading && 'The insight needs to be loaded before saving the goal.') ||
-                            (experimentInsightType === InsightType.FUNNELS &&
+                            (metricType === InsightType.FUNNELS &&
                                 experimentFiltersLength < 2 &&
                                 'The experiment needs at least two funnel steps.')
                         }
@@ -138,7 +139,7 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                 </div>
             }
         >
-            {experimentInsightType === InsightType.TRENDS ? <PrimaryGoalTrends /> : <PrimaryGoalFunnels />}
+            {metricType === InsightType.TRENDS ? <PrimaryGoalTrends /> : <PrimaryGoalFunnels />}
         </LemonModal>
     )
 }
@@ -186,9 +187,10 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
 }
 
 export function Goal(): JSX.Element {
-    const { experiment, experimentId, experimentInsightType, experimentMathAggregationForTrends, hasGoalSet } =
+    const { experiment, experimentId, getMetricType, experimentMathAggregationForTrends, hasGoalSet } =
         useValues(experimentLogic)
     const { openExperimentGoalModal } = useActions(experimentLogic({ experimentId }))
+    const metricType = getMetricType(0)
 
     return (
         <div>
@@ -199,8 +201,8 @@ export function Goal(): JSX.Element {
                         title={
                             <>
                                 {' '}
-                                This <b>{experimentInsightType === InsightType.FUNNELS ? 'funnel' : 'trend'}</b>{' '}
-                                {experimentInsightType === InsightType.FUNNELS
+                                This <b>{metricType === InsightType.FUNNELS ? 'funnel' : 'trend'}</b>{' '}
+                                {metricType === InsightType.FUNNELS
                                     ? 'experiment measures conversion at each stage.'
                                     : 'experiment tracks the count of a single metric.'}
                             </>
@@ -229,14 +231,14 @@ export function Goal(): JSX.Element {
                 <div className="inline-flex space-x-6">
                     <div>
                         <div className="card-secondary mb-2 mt-2">
-                            {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
+                            {metricType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                         </div>
                         <MetricDisplay filters={experiment.filters} />
                         <LemonButton size="xsmall" type="secondary" onClick={openExperimentGoalModal}>
                             Change goal
                         </LemonButton>
                     </div>
-                    {experimentInsightType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
+                    {metricType === InsightType.TRENDS && !experimentMathAggregationForTrends() && (
                         <>
                             <LemonDivider className="" vertical />
                             <div className="">

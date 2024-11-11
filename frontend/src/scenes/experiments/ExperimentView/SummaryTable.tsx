@@ -33,13 +33,14 @@ export function SummaryTable(): JSX.Element {
         experiment,
         experimentResults,
         tabularExperimentResults,
-        experimentInsightType,
+        getMetricType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
         countDataForVariant,
         getHighestProbabilityVariant,
     } = useValues(experimentLogic)
+    const metricType = getMetricType(0)
 
     if (!experimentResults) {
         return <></>
@@ -61,7 +62,7 @@ export function SummaryTable(): JSX.Element {
         },
     ]
 
-    if (experimentInsightType === InsightType.TRENDS) {
+    if (metricType === InsightType.TRENDS) {
         columns.push({
             key: 'counts',
             title: (
@@ -189,7 +190,7 @@ export function SummaryTable(): JSX.Element {
         })
     }
 
-    if (experimentInsightType === InsightType.FUNNELS) {
+    if (metricType === InsightType.FUNNELS) {
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',

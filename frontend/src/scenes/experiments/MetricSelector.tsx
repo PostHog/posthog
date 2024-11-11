@@ -237,7 +237,7 @@ export function FunnelAttributionSelect({
 
 export function InsightTestAccountFilter(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, experimentInsightType, featureFlags } = useValues(experimentLogic)
+    const { experiment, getMetricType, featureFlags } = useValues(experimentLogic)
     const { setExperiment, setTrendsMetric, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     return (
@@ -255,7 +255,7 @@ export function InsightTestAccountFilter(): JSX.Element | null {
             onChange={(checked: boolean) => {
                 // :FLAG: CLEAN UP AFTER MIGRATION
                 if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    if (experimentInsightType === InsightType.FUNNELS) {
+                    if (getMetricType(0) === InsightType.FUNNELS) {
                         setFunnelsMetric({
                             metricIdx: 0,
                             filterTestAccounts: checked,

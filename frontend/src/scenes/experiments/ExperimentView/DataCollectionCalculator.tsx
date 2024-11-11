@@ -108,7 +108,7 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 }
 
 export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { experimentInsightType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
+    const { getMetricType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
         experimentLogic({ experimentId })
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
@@ -121,7 +121,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
 
     let sliderMaxValue = 0
-    if (experimentInsightType === InsightType.FUNNELS) {
+    if (getMetricType(0) === InsightType.FUNNELS) {
         if (100 - funnelConversionRate < 50) {
             sliderMaxValue = 100 - funnelConversionRate
         } else {
@@ -204,7 +204,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         The calculations are based on the events received in the last 14 days. This event count may
                         differ from what was considered in earlier estimates.
                     </LemonBanner>
-                    {experimentInsightType === InsightType.TRENDS ? (
+                    {getMetricType(0) === InsightType.TRENDS ? (
                         <TrendCalculation experimentId={experimentId} />
                     ) : (
                         <FunnelCalculation experimentId={experimentId} />

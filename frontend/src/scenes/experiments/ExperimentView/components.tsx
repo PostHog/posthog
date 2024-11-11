@@ -691,7 +691,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
 export function ActionBanner(): JSX.Element {
     const {
         experiment,
-        experimentInsightType,
+        getMetricType,
         experimentResults,
         experimentLoading,
         experimentResultsLoading,
@@ -708,6 +708,9 @@ export function ActionBanner(): JSX.Element {
     const { archiveExperiment } = useActions(experimentLogic)
 
     const { aggregationLabel } = useValues(groupsModel)
+
+    const metricType = getMetricType(0)
+
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
             ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
@@ -766,7 +769,7 @@ export function ActionBanner(): JSX.Element {
         // Results insignificant, but a large enough sample/running time has been achieved
         // Further collection unlikely to change the result -> recommmend cutting the losses
         if (
-            experimentInsightType === InsightType.FUNNELS &&
+            metricType === InsightType.FUNNELS &&
             funnelResultsPersonsTotal > Math.max(recommendedSampleSize, 500) &&
             dayjs().diff(experiment.start_date, 'day') > 2 // at least 2 days running
         ) {
@@ -778,7 +781,7 @@ export function ActionBanner(): JSX.Element {
                 </LemonBanner>
             )
         }
-        if (experimentInsightType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
+        if (metricType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
             return (
                 <LemonBanner type="warning" className="mt-4">
                     Your experiment has been running long enough, but the results are still inconclusive. Continuing the
@@ -807,7 +810,7 @@ export function ActionBanner(): JSX.Element {
 
         // Win probability only slightly over 0.9 and the recommended sample/time just met -> proceed with caution
         if (
-            experimentInsightType === InsightType.FUNNELS &&
+            metricType === InsightType.FUNNELS &&
             funnelResultsPersonsTotal < recommendedSampleSize + 50 &&
             winProbability < 0.93
         ) {
@@ -821,7 +824,7 @@ export function ActionBanner(): JSX.Element {
         }
 
         if (
-            experimentInsightType === InsightType.TRENDS &&
+            metricType === InsightType.TRENDS &&
             actualRunningTime < recommendedRunningTime + 2 &&
             winProbability < 0.93
         ) {
