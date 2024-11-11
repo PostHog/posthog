@@ -13,7 +13,6 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
             "oauth": {
                 "access_token": "oauth-1234",
             },
-            "developerToken": "developer-token1234",
             "customerId": "123-123-1234",
             "conversionActionId": "123456789",
             "gclid": "89y4thuergnjkd34oihroh3uhg39uwhgt9",
@@ -33,7 +32,6 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
                     "headers": {
                         "Authorization": "Bearer oauth-1234",
                         "Content-Type": "application/json",
-                        "developer-token": "developer-token1234",
                     },
                     "body": {
                         "conversions": [

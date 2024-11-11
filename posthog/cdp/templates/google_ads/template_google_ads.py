@@ -39,8 +39,7 @@ let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(in
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',
-        'Content-Type': 'application/json',
-        'developer-token': inputs.developerToken
+        'Content-Type': 'application/json'
     },
     'body': body
 })
@@ -78,14 +77,6 @@ if (res.status >= 400) {
             "required_field": "customerId",
             "label": "Conversion action",
             "description": "The Conversion action associated with this conversion.",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "developerToken",
-            "type": "string",
-            "label": "Developer token",
-            "description": "This should be a 22-character long alphanumeric string. Check out this page on how to obtain such a token: https://developers.google.com/google-ads/api/docs/get-started/dev-token",
             "secret": False,
             "required": True,
         },
