@@ -35,9 +35,9 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Tre
                         math: BaseMathType.UniqueUsers,
                     },
                 ],
-                breakdownFilter: exposureName
+                breakdownFilter: !exposureName
                     ? {
-                          breakdown: exposureName,
+                          breakdown: `$feature/${experiment.feature_flag_key}`,
                           breakdown_type: 'event',
                       }
                     : undefined,
