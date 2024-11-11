@@ -27,6 +27,7 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run,
 )
+from posthog.settings.base_variables import TEST
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
@@ -951,6 +952,9 @@ async def execute_batch_export_insert_activity(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     get_export_started_metric().add(1)
+
+    if TEST:
+        maximum_attempts = 1
 
     if interval == "hour":
         start_to_close_timeout = dt.timedelta(hours=1)
