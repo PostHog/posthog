@@ -1017,10 +1017,46 @@ export interface AssistantTrendsEventsNode
     properties?: AssistantPropertyFilter[]
 }
 
-export type AssistantTrendsBreakdownFilter = Pick<
-    BreakdownFilter,
-    'breakdowns' | 'breakdown_limit' | 'breakdown_histogram_bin_count' | 'breakdown_hide_other_aggregation'
->
+export interface AssistantBaseMultipleBreakdownFilter {
+    /**
+     * Property name from the plan to break down by.
+     */
+    property: string
+}
+
+export interface AssistantGroupMultipleBreakdownFilter extends AssistantBaseMultipleBreakdownFilter {
+    type: 'group'
+    /**
+     * Index of the group type from the group mapping.
+     */
+    group_type_index?: integer | null
+}
+
+export type AssistantEventMultipleBreakdownFilterType = Exclude<MultipleBreakdownType, 'group'>
+
+export interface AssistantGenericMultipleBreakdownFilter extends AssistantBaseMultipleBreakdownFilter {
+    type: AssistantEventMultipleBreakdownFilterType
+}
+
+export type AssistantMultipleBreakdownFilter =
+    | AssistantGroupMultipleBreakdownFilter
+    | AssistantGenericMultipleBreakdownFilter
+
+export interface AssistantBreakdownFilter {
+    /**
+     * How many distinct values to show.
+     * @default 25
+     */
+    breakdown_limit?: integer
+}
+
+export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter {
+    /**
+     * Use this field to define breakdowns.
+     * @maxLength 3
+     */
+    breakdowns: AssistantMultipleBreakdownFilter[]
+}
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.TrendsQuery
@@ -1126,7 +1162,7 @@ export interface AssistantFunnelsFilter {
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
 
-export interface AssistantFunnelsBreakdownFilter {
+export interface AssistantFunnelsBreakdownFilter extends AssistantBreakdownFilter {
     /**
      * Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.
      * @default event
@@ -1137,19 +1173,9 @@ export interface AssistantFunnelsBreakdownFilter {
      */
     breakdown: string
     /**
-     * How many distinct values to show.
-     * @default 25
-     */
-    breakdown_limit?: integer
-    /**
      * If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.
      */
     breakdown_group_type_index?: integer | null
-    /**
-     * Number of bins to show in the histogram. Only applicable for the numeric properties.
-     * @default 10
-     */
-    breakdown_histogram_bin_count?: integer
 }
 
 export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {

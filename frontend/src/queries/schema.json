@@ -508,6 +508,17 @@
             "enum": ["exact", "is_not"],
             "type": "string"
         },
+        "AssistantBaseMultipleBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "property": {
+                    "description": "Property name from the plan to break down by.",
+                    "type": "string"
+                }
+            },
+            "required": ["property"],
+            "type": "object"
+        },
         "AssistantBasePropertyFilter": {
             "anyOf": [
                 {
@@ -520,6 +531,17 @@
                     "$ref": "#/definitions/AssistantSetPropertyFilter"
                 }
             ]
+        },
+        "AssistantBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown_limit": {
+                    "default": 25,
+                    "description": "How many distinct values to show.",
+                    "type": "integer"
+                }
+            },
+            "type": "object"
         },
         "AssistantDateTimePropertyFilter": {
             "additionalProperties": false,
@@ -537,6 +559,10 @@
         },
         "AssistantDateTimePropertyFilterOperator": {
             "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+            "type": "string"
+        },
+        "AssistantEventMultipleBreakdownFilterType": {
+            "enum": ["person", "event", "session", "hogql"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -560,11 +586,6 @@
                         }
                     ],
                     "description": "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping."
-                },
-                "breakdown_histogram_bin_count": {
-                    "default": 10,
-                    "description": "Number of bins to show in the histogram. Only applicable for the numeric properties.",
-                    "type": "integer"
                 },
                 "breakdown_limit": {
                     "default": 25,
@@ -759,6 +780,20 @@
             "enum": ["ack", "generation_error"],
             "type": "string"
         },
+        "AssistantGenericMultipleBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "property": {
+                    "description": "Property name from the plan to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/AssistantEventMultipleBreakdownFilterType"
+                }
+            },
+            "required": ["property", "type"],
+            "type": "object"
+        },
         "AssistantGenericPropertyFilter": {
             "anyOf": [
                 {
@@ -852,6 +887,32 @@
                     "type": "object"
                 }
             ]
+        },
+        "AssistantGroupMultipleBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Index of the group type from the group mapping."
+                },
+                "property": {
+                    "description": "Property name from the plan to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "group",
+                    "type": "string"
+                }
+            },
+            "required": ["property", "type"],
+            "type": "object"
         },
         "AssistantGroupPropertyFilter": {
             "anyOf": [
@@ -1008,6 +1069,16 @@
             "enum": ["human", "ai", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
         },
+        "AssistantMultipleBreakdownFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantGroupMultipleBreakdownFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantGenericMultipleBreakdownFilter"
+                }
+            ]
+        },
         "AssistantPropertyFilter": {
             "anyOf": [
                 {
@@ -1065,23 +1136,21 @@
         "AssistantTrendsBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
-                "breakdown_hide_other_aggregation": {
-                    "type": ["boolean", "null"]
-                },
-                "breakdown_histogram_bin_count": {
-                    "type": "integer"
-                },
                 "breakdown_limit": {
+                    "default": 25,
+                    "description": "How many distinct values to show.",
                     "type": "integer"
                 },
                 "breakdowns": {
+                    "description": "Use this field to define breakdowns.",
                     "items": {
-                        "$ref": "#/definitions/Breakdown"
+                        "$ref": "#/definitions/AssistantMultipleBreakdownFilter"
                     },
                     "maxLength": 3,
                     "type": "array"
                 }
             },
+            "required": ["breakdowns"],
             "type": "object"
         },
         "AssistantTrendsEventsNode": {

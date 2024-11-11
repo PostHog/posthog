@@ -68,10 +68,31 @@ class AssistantArrayPropertyFilterOperator(StrEnum):
     IS_NOT = "is_not"
 
 
+class AssistantBaseMultipleBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name from the plan to break down by.")
+
+
+class AssistantBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
+
+
 class AssistantDateTimePropertyFilterOperator(StrEnum):
     IS_DATE_EXACT = "is_date_exact"
     IS_DATE_BEFORE = "is_date_before"
     IS_DATE_AFTER = "is_date_after"
+
+
+class AssistantEventMultipleBreakdownFilterType(StrEnum):
+    PERSON = "person"
+    EVENT = "event"
+    SESSION = "session"
+    HOGQL = "hogql"
 
 
 class AssistantEventType(StrEnum):
@@ -99,6 +120,14 @@ class AssistantFunnelsExclusionEventsNode(BaseModel):
 class AssistantGenerationStatusType(StrEnum):
     ACK = "ack"
     GENERATION_ERROR = "generation_error"
+
+
+class AssistantGenericMultipleBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name from the plan to break down by.")
+    type: AssistantEventMultipleBreakdownFilterType
 
 
 class Type(StrEnum):
@@ -134,6 +163,15 @@ class AssistantGenericPropertyFilter3(BaseModel):
     operator: AssistantDateTimePropertyFilterOperator
     type: Type
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
+class AssistantGroupMultipleBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: Optional[int] = Field(default=None, description="Index of the group type from the group mapping.")
+    property: str = Field(..., description="Property name from the plan to break down by.")
+    type: Literal["group"] = "group"
 
 
 class AssistantGroupPropertyFilter2(BaseModel):
@@ -192,6 +230,16 @@ class AssistantSingleValuePropertyFilterOperator(StrEnum):
     NOT_ICONTAINS = "not_icontains"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
+
+
+class AssistantTrendsBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
+    breakdowns: list[Union[AssistantGroupMultipleBreakdownFilter, AssistantGenericMultipleBreakdownFilter]] = Field(
+        ..., description="Use this field to define breakdowns.", max_length=3
+    )
 
 
 class AssistantTrendsMath(StrEnum):
@@ -1842,9 +1890,6 @@ class AssistantFunnelsBreakdownFilter(BaseModel):
         description=(
             "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping."
         ),
-    )
-    breakdown_histogram_bin_count: Optional[int] = Field(
-        default=10, description="Number of bins to show in the histogram. Only applicable for the numeric properties."
     )
     breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
     breakdown_type: Optional[AssistantFunnelsBreakdownType] = Field(
@@ -4528,16 +4573,6 @@ class AssistantInsightsQueryBase(BaseModel):
         ]
     ] = Field(default=[], description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-
-
-class AssistantTrendsBreakdownFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_histogram_bin_count: Optional[int] = None
-    breakdown_limit: Optional[int] = None
-    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
 
 
 class AssistantTrendsEventsNode(BaseModel):
