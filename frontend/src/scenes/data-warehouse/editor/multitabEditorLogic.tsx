@@ -12,7 +12,7 @@ import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 
-interface MultitabEditorLogicProps {
+export interface MultitabEditorLogicProps {
     key: string
     monaco?: Monaco
     editor?: Editor
