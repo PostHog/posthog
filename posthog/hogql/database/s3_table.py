@@ -47,8 +47,8 @@ def build_function_call(
         expr = f"s3({escaped_url}"
 
         if access_key and access_secret:
-            escaped_access_key = add_param(access_key, True)
-            escaped_access_secret = add_param(access_secret, True)
+            escaped_access_key = add_param(access_key)
+            escaped_access_secret = add_param(access_secret)
 
             expr += f", {escaped_access_key}, {escaped_access_secret}"
 
@@ -68,8 +68,8 @@ def build_function_call(
         expr = f"deltaLake({escaped_url}"
 
         if access_key and access_secret:
-            escaped_access_key = add_param(access_key, True)
-            escaped_access_secret = add_param(access_secret, True)
+            escaped_access_key = add_param(access_key)
+            escaped_access_secret = add_param(access_secret)
 
             expr += f", {escaped_access_key}, {escaped_access_secret}"
 
@@ -95,8 +95,8 @@ def build_function_call(
         if not access_key or not access_secret:
             raise ExposedHogQLError("Azure blob storage has no access key or secret")
 
-        escaped_access_key = add_param(access_key, True)
-        escaped_access_secret = add_param(access_secret, True)
+        escaped_access_key = add_param(access_key)
+        escaped_access_secret = add_param(access_secret)
         escaped_format = add_param(format, False)
 
         expr = f"azureBlobStorage({storage_account_url}, {container}, {blob_path}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, 'auto'"
@@ -116,8 +116,8 @@ def build_function_call(
     expr = f"s3({escaped_url}"
 
     if access_key and access_secret:
-        escaped_access_key = add_param(access_key, True)
-        escaped_access_secret = add_param(access_secret, True)
+        escaped_access_key = add_param(access_key)
+        escaped_access_secret = add_param(access_secret)
 
         expr += f", {escaped_access_key}, {escaped_access_secret}"
 
