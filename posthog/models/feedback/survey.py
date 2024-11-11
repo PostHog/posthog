@@ -195,6 +195,14 @@ class Survey(UUIDModel):
 
 @receiver(pre_save, sender=Survey)
 def update_response_sampling_limits(sender, instance, **kwargs):
+    if (
+        instance.response_sampling_interval_type is None
+        or instance.response_sampling_limit == 0
+        or instance.response_sampling_start_date is None
+    ):
+        instance.response_sampling_daily_limits = None
+        return
+
     # Calculate the total number of days in the interval
     if instance.response_sampling_interval_type == "day":
         total_days = instance.response_sampling_interval

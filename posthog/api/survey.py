@@ -313,14 +313,19 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     }
                 )
 
-        response_sampling_interval = data.get("response_sampling_interval")
+        response_sampling_interval = data.get("response_sampling_interval", 0)
         if response_sampling_interval is not None and response_sampling_interval <= 0:
             raise serializers.ValidationError(
                 {"response_sampling_interval": "Response sampling interval must be greater than 0."}
             )
 
-        response_sampling_limit = data.get("response_sampling_limit")
-        if response_sampling_limit > 0 and response_sampling_interval > 0 and response_sampling_start_date is None:
+        response_sampling_limit = data.get("response_sampling_limit", 0)
+        if (
+            response_sampling_limit is not None
+            and response_sampling_limit > 0
+            and response_sampling_interval > 0
+            and response_sampling_start_date is None
+        ):
             raise serializers.ValidationError(
                 {
                     "response_sampling_start_date": "Response sampling start date should be set if response_sampling_start_date is not zero."

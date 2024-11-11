@@ -2340,8 +2340,6 @@ class TestSurveyResponseSampling(APIBaseTest):
         )
 
         response_data = response.json()
-        # assert response_data["iteration_start_dates"] is None
-        # assert response_data["current_iteration"] is None
         survey = Survey.objects.get(id=response_data["id"])
         return survey
 
@@ -2353,6 +2351,29 @@ class TestSurveyResponseSampling(APIBaseTest):
         for day, entry in enumerate(schedule):
             self.assertEqual(entry["daily_response_limit"], 50 * (day + 1))
             self.assertEqual(entry["rollout_percentage"], 10 * (day + 1))
+
+    def test_can_remove_adaptive_response_sampling(self):
+        survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
+        assert survey.response_sampling_daily_limits is not None
+        schedule = json.loads(survey.response_sampling_daily_limits)
+        self.assertEqual(len(schedule), 10)
+        for day, entry in enumerate(schedule):
+            self.assertEqual(entry["daily_response_limit"], 50 * (day + 1))
+            self.assertEqual(entry["rollout_percentage"], 10 * (day + 1))
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "response_sampling_interval_type": None,
+                "response_sampling_interval": None,
+                "response_sampling_limit": None,
+                "response_sampling_start_date": None,
+            },
+        )
+        response_data = response.json()
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey.response_sampling_daily_limits is None
 
 
 class TestSurveysRecurringIterations(APIBaseTest):
