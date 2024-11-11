@@ -16,6 +16,7 @@ pub struct ErrorTrackingStackFrame {
     pub symbol_set_id: Option<Uuid>,
     pub contents: Frame,
     pub resolved: bool,
+    pub context: Option<String>,
 }
 
 impl ErrorTrackingStackFrame {
@@ -25,6 +26,7 @@ impl ErrorTrackingStackFrame {
         symbol_set_id: Option<Uuid>,
         contents: Frame,
         resolved: bool,
+        context: Option<String>,
     ) -> Self {
         Self {
             raw_id,
@@ -33,6 +35,7 @@ impl ErrorTrackingStackFrame {
             contents,
             resolved,
             created_at: Utc::now(),
+            context,
         }
     }
 
@@ -42,13 +45,14 @@ impl ErrorTrackingStackFrame {
     {
         sqlx::query!(
             r#"
-            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved, id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved, id, context)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (raw_id, team_id) DO UPDATE SET
                 created_at = $3,
                 symbol_set_id = $4,
                 contents = $5,
-                resolved = $6
+                resolved = $6,
+                context = $8
             "#,
             self.raw_id,
             self.team_id,
@@ -56,7 +60,8 @@ impl ErrorTrackingStackFrame {
             self.symbol_set_id,
             serde_json::to_value(&self.contents)?,
             self.resolved,
-            Uuid::now_v7()
+            Uuid::now_v7(),
+            self.context
         ).execute(e).await?;
         Ok(())
     }
@@ -72,11 +77,12 @@ impl ErrorTrackingStackFrame {
             symbol_set_id: Option<Uuid>,
             contents: Value,
             resolved: bool,
+            context: Option<String>,
         }
         let res = sqlx::query_as!(
             Returned,
             r#"
-            SELECT raw_id, team_id, created_at, symbol_set_id, contents, resolved
+            SELECT raw_id, team_id, created_at, symbol_set_id, contents, resolved, context
             FROM posthog_errortrackingstackframe
             WHERE raw_id = $1 AND team_id = $2
             "#,
@@ -90,13 +96,21 @@ impl ErrorTrackingStackFrame {
             return Ok(None);
         };
 
+        // We don't serialise frame contexts on the Frame itself, but save it on the frame record,
+        // and so when we load a frame record we need to patch back up the context onto the frame,
+        // since we dropped it when we serialised the frame during saving.
+
+        let mut frame: Frame = serde_json::from_value(found.contents)?;
+        frame.context = found.context.clone();
+
         Ok(Some(Self {
             raw_id: found.raw_id,
             team_id: found.team_id,
             created_at: found.created_at,
             symbol_set_id: found.symbol_set_id,
-            contents: serde_json::from_value(found.contents)?,
+            contents: frame,
             resolved: found.resolved,
+            context: found.context,
         }))
     }
 }

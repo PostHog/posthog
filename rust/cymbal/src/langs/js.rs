@@ -1,3 +1,5 @@
+use std::cmp::min;
+
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
@@ -131,6 +133,7 @@ impl From<(&RawJSFrame, Token<'_>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+            context: get_context(&token),
         }
     }
 }
@@ -147,7 +150,32 @@ impl From<(&RawJSFrame, JsResolveErr)> for Frame {
             lang: "javascript".to_string(),
             resolved: false,
             resolve_failure: Some(err.to_string()),
+            context: None,
         }
+    }
+}
+
+fn get_context(token: &Token) -> Option<String> {
+    let sv = token.get_source_view()?;
+
+    let token_line = token.get_src_line();
+    let start_line = token_line.saturating_sub(5);
+    let end_line = min(token_line.saturating_add(5) as usize, sv.line_count()) as u32;
+
+    // Rough guess on capacity here
+    let mut context = String::with_capacity(((end_line - start_line) * 100) as usize);
+
+    for line in start_line..end_line {
+        if let Some(l) = sv.get_line(line) {
+            context.push_str(l);
+            context.push('\n');
+        }
+    }
+
+    if !context.is_empty() {
+        Some(context)
+    } else {
+        None
     }
 }
 
