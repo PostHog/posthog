@@ -988,6 +988,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment created', {
                 name: experiment.name,
                 id: experiment.id,
+                type: experiment.type,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,

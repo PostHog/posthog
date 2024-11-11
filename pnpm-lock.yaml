@@ -284,8 +284,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.181.0
-    version: 1.181.0
+    specifier: 1.182.0
+    version: 1.182.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -313,6 +313,9 @@ dependencies:
   react-color:
     specifier: ^2.19.3
     version: 2.19.3(react@18.2.0)
+  react-data-grid:
+    specifier: 7.0.0-beta.47
+    version: 7.0.0-beta.47(react-dom@18.2.0)(react@18.2.0)
   react-dom:
     specifier: ^18.2.0
     version: 18.2.0(react@18.2.0)
@@ -7086,7 +7089,7 @@ packages:
       '@storybook/csf': 0.1.11
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.20
-      '@types/qs': 6.9.16
+      '@types/qs': 6.9.17
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
@@ -8533,8 +8536,8 @@ packages:
     resolution: {integrity: sha512-bZcOkJ6uWrL0Qb2NAWKa7TBU+mJHPzhx9jjLL1KHF+XpzEcR7EXHvjbHlGtR/IsP1vyPrehuS6XqkmaePy//mg==}
     dev: false
 
-  /@types/qs@6.9.16:
-    resolution: {integrity: sha512-7i+zxXdPD0T4cKDuxCUXJ4wHcsJLwENa6Z3dCu8cfCK743OGy5Nu1RmAGqDPsoTDINVEcdXKRvR/zre+P2Ku1A==}
+  /@types/qs@6.9.17:
+    resolution: {integrity: sha512-rX4/bPcfmvxHDv0XjfJELTTr+iB+tn032nPILqHm5wbthUUUuVtNGGqzhya9XUxjTP8Fpr0qYgSZZKxGY++svQ==}
     dev: true
 
   /@types/query-selector-shadow-dom@1.0.0:
@@ -10410,6 +10413,11 @@ packages:
 
   /clsx@1.2.1:
     resolution: {integrity: sha512-EcR6r5a8bj6pu3ycsa/E/cKVGuTgZJZdsyUYHOksG/UHIiKfjxzRxYJpyVBwYaQeOvghal9fcc4PidlgzugAQg==}
+    engines: {node: '>=6'}
+    dev: false
+
+  /clsx@2.1.1:
+    resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
     dev: false
 
@@ -17781,8 +17789,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.181.0:
-    resolution: {integrity: sha512-bI+J+f4E8x4JwbGtG6LReQv1Xvss01F6cs7UDlvffHySpVhNq4ptkNjV88B92IVEsrCtNYhy/TjFnGxk6RN0Qw==}
+  /posthog-js@1.182.0:
+    resolution: {integrity: sha512-XdA/gER/KC8l8N8juSJZdYAwkQ9AIcmDojBmtd0kEhXAVCNNK4c4B1PUYVdyUTQLomN2WKgdoAsCjSZmHb0c6g==}
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
@@ -18320,6 +18328,17 @@ packages:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
     dev: true
+
+  /react-data-grid@7.0.0-beta.47(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-28kjsmwQGD/9RXYC50zn5Zv/SQMhBBoSvG5seq0fM8XXi9TZ0zr9Z5T3YJqLwcEtoNzTOq3y0njkmdujGkIwQQ==}
+    peerDependencies:
+      react: ^18.0 || ^19.0
+      react-dom: ^18.0 || ^19.0
+    dependencies:
+      clsx: 2.1.1
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+    dev: false
 
   /react-docgen-typescript@2.2.2(typescript@4.9.5):
     resolution: {integrity: sha512-tvg2ZtOpOi6QDwsb3GZhOjDkkX0h8Z2gipvTg6OVMUyoYoURhEiRNePT8NZItTVCDh39JJHnLdfCOkzoLbFnTg==}
