@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,11 +9,12 @@ import { QueryBasedInsightModel } from '~/types'
 
 import { areAlertsSupportedForInsight } from './insightAlertsLogic'
 
-export interface AlertsButtonProps {
+export type AlertsButtonProps = LemonButtonProps & {
     insight: Partial<QueryBasedInsightModel>
+    text: string
 }
 
-export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
+export function AlertsButton({ insight, text, ...props }: AlertsButtonProps): JSX.Element {
     const { push } = useActions(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const showAlerts = featureFlags[FEATURE_FLAGS.ALERTS]
@@ -26,14 +27,14 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
         <LemonButton
             data-attr="manage-alerts-button"
             onClick={() => push(urls.insightAlerts(insight.short_id!))}
-            fullWidth
             disabledReason={
                 !areAlertsSupportedForInsight(insight.query)
                     ? 'Insights are only available for trends without breakdowns. Change the insight representation to add alerts.'
                     : undefined
             }
+            {...props}
         >
-            Manage alerts
+            {text}
         </LemonButton>
     )
 }

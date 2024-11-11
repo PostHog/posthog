@@ -1,3 +1,4 @@
+import { IconBell } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
@@ -142,6 +143,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 </>
             )}
             <PageHeader
+                maxWidthCaption
                 buttons={
                     <div className="flex justify-between items-center gap-2">
                         <More
@@ -206,7 +208,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     ]}
                                                 />
                                             ) : null}
-                                            <AlertsButton insight={insight} />
                                             <LemonDivider />
                                         </>
                                     )}
@@ -419,11 +420,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 staticOnly
                             />
                         ) : null}
-                        <UserActivityIndicator
-                            at={insight.last_modified_at}
-                            by={insight.last_modified_by}
-                            className="mt-2"
-                        />
+                        <div className="flex items-center justify-between">
+                            <UserActivityIndicator
+                                at={insight.last_modified_at}
+                                by={insight.last_modified_by}
+                                className="mt-2"
+                            />
+                            {insightMode === ItemMode.View && (
+                                <AlertsButton insight={insight} type="secondary" icon={<IconBell />} text="Alerts" />
+                            )}
+                        </div>
                     </>
                 }
                 tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
