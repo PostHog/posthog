@@ -1,4 +1,4 @@
-use aws_config::Region;
+use aws_config::{BehaviorVersion, Region};
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer, kafka_producer::create_kafka_producer,
     kafka_producer::KafkaContext,
@@ -62,6 +62,7 @@ impl AppContext {
             .region(Region::new(config.object_storage_region.clone()))
             .endpoint_url(&config.object_storage_endpoint)
             .credentials_provider(aws_credentials)
+            .behavior_version(BehaviorVersion::latest())
             .build();
         let s3_client = aws_sdk_s3::Client::from_conf(aws_conf);
         let s3_client = S3Client::new(s3_client);
