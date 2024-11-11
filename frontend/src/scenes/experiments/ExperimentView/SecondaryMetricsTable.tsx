@@ -224,6 +224,12 @@ export function SecondaryMetricsTable({
                         },
                     },
                     {
+                        title: 'Credible interval (95%)',
+                        render: function Key(): JSX.Element {
+                            return <div>—</div>
+                        },
+                    },
+                    {
                         title: 'Win probability',
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
@@ -253,6 +259,12 @@ export function SecondaryMetricsTable({
                                 return <>—</>
                             }
                             return <div>{`${conversionRate.toFixed(2)}%`}</div>
+                        },
+                    },
+                    {
+                        title: 'Credible interval (95%)',
+                        render: function Key(): JSX.Element {
+                            return <div>—</div>
                         },
                     },
                     {
