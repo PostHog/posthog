@@ -16,6 +16,13 @@ describe('Feature Flags', () => {
         cy.visit('/feature_flags')
     })
 
+    it('Display product introduction when no feature flags exist', () => {
+        // ensure unique names to avoid clashes
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.contains('Create your first feature flag').should('exist')
+    })
+
     it('Create feature flag', () => {
         // ensure unique names to avoid clashes
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
