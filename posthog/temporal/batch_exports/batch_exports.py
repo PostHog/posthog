@@ -929,7 +929,7 @@ async def execute_batch_export_insert_activity(
     finish_inputs: FinishBatchExportRunInputs,
     interval: str,
     heartbeat_timeout_seconds: int | None = 120,
-    maximum_attempts: int = 15,
+    maximum_attempts: int = 0,
     initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
@@ -956,7 +956,6 @@ async def execute_batch_export_insert_activity(
         start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
-        maximum_attempts = 0
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
