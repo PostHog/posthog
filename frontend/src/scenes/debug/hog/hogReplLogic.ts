@@ -1,4 +1,4 @@
-import { newHogCallable, newHogClosure, printHogStringOutput, VMState } from '@posthog/hogvm'
+import { newHogCallable, newHogClosure, VMState } from '@posthog/hogvm'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -10,7 +10,7 @@ import type { hogReplLogicType } from './hogReplLogicType'
 export interface ReplChunk {
     code: string
     result?: string
-    print?: string
+    print?: any[][]
     error?: string
     bytecode?: any[]
     locals?: any[]
@@ -23,7 +23,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
     actions({
         runCode: (code: string) => ({ code }),
         setResult: (index: number, result?: string, error?: string) => ({ index, result, error }),
-        print: (index: number, line?: string) => ({ index, line }),
+        print: (index: number, line: any[]) => ({ index, line }),
         setBytecode: (index: number, bytecode: any[], locals: any[]) => ({ index, bytecode, locals }),
         setVMState: (index: number, state: any) => ({ index, state }),
         setCurrentCode: (code: string) => ({ code }),
@@ -46,7 +46,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
                     state.map((chunk, i) => (i === index ? { ...chunk, bytecode, locals } : chunk)),
                 print: (state, { index, line }) =>
                     state.map((chunk, i) =>
-                        i === index ? { ...chunk, print: (chunk.print ? chunk.print + '\n' : '') + line } : chunk
+                        i === index ? { ...chunk, print: [...(chunk.print ?? []), line] } : chunk
                     ),
                 setVMState: (state, { index, state: vmState }) =>
                     state.map((chunk, i) => (i === index ? { ...chunk, state: vmState } : chunk)),
@@ -148,7 +148,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
                     repl: true,
                     functions: {
                         print: (...args: any[]) => {
-                            actions.print(index, args.map((arg) => printHogStringOutput(arg)).join(' '))
+                            actions.print(index, args)
                         },
                     },
                 })
@@ -160,7 +160,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
                         : (result.state?.stack?.length ?? 0) > 0
                         ? result.state?.stack?.[result.state.stack.length - 1]
                         : 'null'
-                actions.setResult(index, printHogStringOutput(response))
+                actions.setResult(index, response)
                 actions.setVMState(index, result.state)
             } catch (error: any) {
                 // Handle errors
@@ -174,12 +174,26 @@ export const hogReplLogic = kea<hogReplLogicType>([
         },
     })),
     actionToUrl(({ values }) => {
-        const fn = (): [string, undefined, Record<string, any>, { replace: true }] | undefined => {
+        const fn = (): [string, undefined, Record<string, any> | undefined, { replace: true }] | undefined => {
             if (values.replChunks.length > 0) {
-                const code = [...values.replChunks.map((chunk) => chunk.code), values.currentCode]
-                    .filter((a) => !!a)
-                    .join('\n')
-                return [urls.debugHog(), undefined, { code }, { replace: true }]
+                // Chrome has a 2MB limit for the HASH params, set ours at 1MB
+                const replChunksLength = JSON.stringify(values.replChunks).length
+                if (replChunksLength > 1024 * 1024) {
+                    // Try with just the code
+                    const newCode = values.replChunks.map((chunk) => chunk.code).join('\n')
+                    if (newCode.length > 1024 * 1024) {
+                        // Still not enough, abort
+                        return [urls.debugHog(), undefined, undefined, { replace: true }]
+                    }
+                    return [urls.debugHog(), undefined, { code: newCode }, { replace: true }]
+                }
+
+                return [
+                    urls.debugHog(),
+                    undefined,
+                    { repl: values.replChunks, code: values.currentCode },
+                    { replace: true },
+                ]
             }
         }
 
@@ -194,8 +208,9 @@ export const hogReplLogic = kea<hogReplLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.debugHog()]: (_, __, { code }) => {
-            if (code && !values.currentCode && values.replChunks.length === 0) {
+        [urls.debugHog()]: (_, __, { repl, code }) => {
+            if ((repl || code) && !values.currentCode && values.replChunks.length === 0) {
+                actions.setReplChunks(repl)
                 actions.setCurrentCode(code)
             }
         },

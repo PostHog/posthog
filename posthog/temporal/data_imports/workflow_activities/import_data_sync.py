@@ -1,3 +1,5 @@
+import dataclasses
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -5,13 +7,12 @@ from django.db.models import Prefetch, F
 
 from temporalio import activity
 
+from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.data_imports.pipelines.bigquery import delete_table
 
-from posthog.temporal.data_imports.pipelines.pipeline import PipelineInputs
-from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync
+from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync, PipelineInputs
 from posthog.temporal.data_imports.util import is_posthog_team
-from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
@@ -20,6 +21,14 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+
+
+@dataclasses.dataclass
+class ImportDataActivityInputs:
+    team_id: int
+    schema_id: uuid.UUID
+    source_id: uuid.UUID
+    run_id: str
 
 
 @activity.defn
@@ -53,7 +62,60 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         endpoints = [schema.name]
 
         source = None
-        if model.pipeline.source_type in [
+        if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
+            from posthog.temporal.data_imports.pipelines.stripe import stripe_source
+
+            stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
+            account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
+            if not stripe_secret_key:
+                raise ValueError(f"Stripe secret key not found for job {model.id}")
+
+            source = stripe_source(
+                api_key=stripe_secret_key,
+                account_id=account_id,
+                endpoint=schema.name,
+                team_id=inputs.team_id,
+                job_id=inputs.run_id,
+                is_incremental=schema.is_incremental,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+            )
+        elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
+            from posthog.temporal.data_imports.pipelines.hubspot import hubspot
+            from posthog.temporal.data_imports.pipelines.hubspot.auth import (
+                hubspot_refresh_access_token,
+            )
+
+            hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
+            refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
+            if not refresh_token:
+                raise ValueError(f"Hubspot refresh token not found for job {model.id}")
+
+            if not hubspot_access_code:
+                hubspot_access_code = hubspot_refresh_access_token(refresh_token)
+
+            source = hubspot(
+                api_key=hubspot_access_code,
+                refresh_token=refresh_token,
+                endpoints=tuple(endpoints),
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+            )
+        elif model.pipeline.source_type in [
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
@@ -148,6 +210,134 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 schema=schema,
                 reset_pipeline=reset_pipeline,
             )
+        elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
+            if is_posthog_team(inputs.team_id):
+                from posthog.temporal.data_imports.pipelines.sql_database_v2 import (
+                    snowflake_source,
+                )
+            else:
+                from posthog.temporal.data_imports.pipelines.sql_database import (
+                    snowflake_source,
+                )
+
+            account_id = model.pipeline.job_inputs.get("account_id")
+            user = model.pipeline.job_inputs.get("user")
+            password = model.pipeline.job_inputs.get("password")
+            database = model.pipeline.job_inputs.get("database")
+            warehouse = model.pipeline.job_inputs.get("warehouse")
+            sf_schema = model.pipeline.job_inputs.get("schema")
+            role = model.pipeline.job_inputs.get("role")
+
+            source = snowflake_source(
+                account_id=account_id,
+                user=user,
+                password=password,
+                database=database,
+                schema=sf_schema,
+                warehouse=warehouse,
+                role=role,
+                table_names=endpoints,
+                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.is_incremental
+                else None,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+            )
+        elif model.pipeline.source_type == ExternalDataSource.Type.SALESFORCE:
+            from posthog.temporal.data_imports.pipelines.salesforce import (
+                salesforce_source,
+            )
+            from posthog.temporal.data_imports.pipelines.salesforce.auth import (
+                salesforce_refresh_access_token,
+            )
+
+            salesforce_integration_id = model.pipeline.job_inputs.get("salesforce_integration_id", None)
+
+            if not salesforce_integration_id:
+                raise ValueError(f"Salesforce integration not found for job {model.id}")
+
+            integration = Integration.objects.get(id=salesforce_integration_id, team_id=inputs.team_id)
+            salesforce_refresh_token = integration.refresh_token
+
+            if not salesforce_refresh_token:
+                raise ValueError(f"Salesforce refresh token not found for job {model.id}")
+
+            salesforce_access_token = integration.access_token
+
+            if not salesforce_access_token:
+                salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token)
+
+            salesforce_instance_url = integration.config.get("instance_url")
+
+            source = salesforce_source(
+                instance_url=salesforce_instance_url,
+                access_token=salesforce_access_token,
+                refresh_token=salesforce_refresh_token,
+                endpoint=schema.name,
+                team_id=inputs.team_id,
+                job_id=inputs.run_id,
+                is_incremental=schema.is_incremental,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+            )
+
+        elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
+            from posthog.temporal.data_imports.pipelines.zendesk import zendesk_source
+
+            source = zendesk_source(
+                subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
+                api_key=model.pipeline.job_inputs.get("zendesk_api_key"),
+                email_address=model.pipeline.job_inputs.get("zendesk_email_address"),
+                endpoint=schema.name,
+                team_id=inputs.team_id,
+                job_id=inputs.run_id,
+                is_incremental=schema.is_incremental,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+            )
+        elif model.pipeline.source_type == ExternalDataSource.Type.VITALLY:
+            from posthog.temporal.data_imports.pipelines.vitally import vitally_source
+
+            source = vitally_source(
+                secret_token=model.pipeline.job_inputs.get("secret_token"),
+                region=model.pipeline.job_inputs.get("region"),
+                subdomain=model.pipeline.job_inputs.get("subdomain"),
+                endpoint=schema.name,
+                team_id=inputs.team_id,
+                job_id=inputs.run_id,
+                is_incremental=schema.is_incremental,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+            )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
             from posthog.temporal.data_imports.pipelines.sql_database_v2 import bigquery_source
 
@@ -198,6 +388,28 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     token_uri=token_uri,
                 )
                 logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+        elif model.pipeline.source_type == ExternalDataSource.Type.CHARGEBEE:
+            from posthog.temporal.data_imports.pipelines.chargebee import (
+                chargebee_source,
+            )
+
+            source = chargebee_source(
+                api_key=model.pipeline.job_inputs.get("api_key"),
+                site_name=model.pipeline.job_inputs.get("site_name"),
+                endpoint=schema.name,
+                team_id=inputs.team_id,
+                job_id=inputs.run_id,
+                is_incremental=schema.is_incremental,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+            )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

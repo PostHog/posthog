@@ -73,6 +73,8 @@ class ErrorTrackingStackFrame(UUIDModel):
     symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.CASCADE, null=True)
     contents = models.JSONField(null=False, blank=False)
     resolved = models.BooleanField(null=False, blank=False)
+    # The context around the frame, +/- a few lines, if we can get it
+    context = models.TextField(null=True, blank=True)
 
     class Meta:
         indexes = [

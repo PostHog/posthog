@@ -14,7 +14,7 @@ use cymbal::{
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -83,7 +83,7 @@ async fn main() -> Result<(), Error> {
         offset.store().unwrap();
 
         if event.event != "$exception" {
-            error!("event of type {}", event.event);
+            warn!("event of type {}", event.event);
             continue;
         }
 
@@ -96,13 +96,17 @@ async fn main() -> Result<(), Error> {
             Ok(r) => r,
             Err(err) => {
                 metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
-                error!("Error parsing properties: {:?}", err);
+                error!(
+                    "Error parsing properties: {:?} from properties {:?}",
+                    err, properties
+                );
                 continue;
             }
         };
 
         let Some(mut exception_list) = properties.exception_list else {
             // Known issue that $exception_list didn't exist on old clients
+            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
             continue;
         };
 
@@ -155,6 +159,6 @@ async fn main() -> Result<(), Error> {
         let _fingerprint = fingerprinting::generate_fingerprint(&exception_list);
 
         metrics::counter!(STACK_PROCESSED).increment(1);
-        whole_loop.label("had_frame", "true").fin();
+        whole_loop.label("finished", "true").fin();
     }
 }

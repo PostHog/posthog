@@ -263,3 +263,9 @@ class TestBytecode(BaseTest):
             create_bytecode(parse_program("let a:=1"), in_repl=True).bytecode,
             [_H, HOGQL_BYTECODE_VERSION, op.INTEGER, 1],
         )
+
+    def test_bytecode_hogqlx(self):
+        self.assertEqual(
+            execute_hog("<Sparkline data={[1,2,3]} />", team=self.team).result,
+            {"__hx_tag": "Sparkline", "data": [1, 2, 3]},
+        )
