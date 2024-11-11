@@ -41,11 +41,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             (s) => [s.props],
             (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
         ],
-        jsURL: [
-            (s) => [s.props, s.apiURL],
-            (props: ToolbarProps, apiUrl) =>
-                `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
-        ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),

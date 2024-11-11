@@ -149,7 +149,9 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                                 void deleteWithUndo({
                                                     endpoint: `projects/${currentTeamId}/feature_flags`,
                                                     object: { name: featureFlag.key, id: featureFlag.id },
-                                                    callback: actions.loadFeatureFlags,
+                                                    callback: () => {
+                                                        actions.loadFeatureFlags()
+                                                    },
                                                 })
                                             },
                                             disabledReason: !featureFlag.can_edit
@@ -179,7 +181,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                 if (searchTerm) {
                     return fuse.search(searchTerm).map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return featureFlags.map((featureFlag) => [featureFlag, null])
+                return featureFlags.results.map((featureFlag) => [featureFlag, null])
             },
         ],
     })),

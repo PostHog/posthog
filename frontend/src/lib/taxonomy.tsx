@@ -168,27 +168,27 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
-            description: 'When a user opens the app either for the first time or from the foreground.',
+            description: 'When a user opens the mobile app either for the first time or from the foreground.',
         },
         'Application Backgrounded': {
             label: 'Application Backgrounded',
-            description: 'When a user puts the app in the background.',
+            description: 'When a user puts the mobile app in the background.',
         },
         'Application Updated': {
             label: 'Application Updated',
-            description: 'When a user upgrades the app.',
+            description: 'When a user upgrades mobile the app.',
         },
         'Application Installed': {
             label: 'Application Installed',
-            description: 'When a user installs the app.',
+            description: 'When a user installs mobile the app.',
         },
         'Application Became Active': {
             label: 'Application Became Active',
-            description: 'When a user puts the app in the foreground.',
+            description: 'When a user puts the mobile app in the foreground.',
         },
         'Deep Link Opened': {
             label: 'Deep Link Opened',
-            description: 'When a user opens the app via a deep link.',
+            description: 'When a user opens the mobile app via a deep link.',
         },
     },
     elements: {
@@ -1413,8 +1413,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINI
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
 
-CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = {}
-
 for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)) {
     if (PERSON_PROPERTIES_ADAPTED_FROM_EVENT.has(key) || key.startsWith('$geoip_')) {
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = {
@@ -1445,7 +1443,6 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
-            examples: 'examples' in value ? value.examples : undefined,
         }
     }
 }

@@ -11,6 +11,11 @@ from posthog.schema import (
     TeamTaxonomyQueryResponse,
 )
 
+try:
+    from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+except ImportError:
+    CORE_FILTER_DEFINITIONS_BY_GROUP = {}
+
 
 class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     """
@@ -37,6 +42,9 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
 
         results: list[TeamTaxonomyItem] = []
         for event, count in response.results:
+            if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(event):
+                if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
+                    continue  # Skip irrelevant events
             results.append(TeamTaxonomyItem(event=event, count=count))
 
         return TeamTaxonomyQueryResponse(

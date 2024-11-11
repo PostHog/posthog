@@ -63,7 +63,6 @@ from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerification
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_js_url
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -517,9 +516,6 @@ def redirect_to_site(request):
         "apiURL": request.build_absolute_uri("/")[:-1],
         "dataAttributes": team.data_attributes,
     }
-
-    if get_js_url(request):
-        params["jsURL"] = get_js_url(request)
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True

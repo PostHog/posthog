@@ -32,14 +32,9 @@ impl RawFrame {
         res
     }
 
-    pub fn needs_symbols(&self) -> bool {
-        // For now, we only support JS, so this is always true
-        true
-    }
-
-    pub fn symbol_set_ref(&self) -> String {
+    pub fn symbol_set_ref(&self) -> Option<String> {
         let RawFrame::JavaScript(raw) = self;
-        raw.source_url().map(String::from).unwrap_or_default()
+        raw.source_url().map(String::from).ok()
     }
 
     pub fn frame_id(&self) -> String {
@@ -60,6 +55,11 @@ pub struct Frame {
     pub lang: String,                    // The language of the frame. Always known (I guess?)
     pub resolved: bool,                  // Did we manage to resolve the frame?
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
+    // The lines of code surrounding the frame ptr, if known. We skip serialising this because
+    // it should never go in clickhouse / be queried over, but we do store it in PG for
+    // use in the frontend
+    #[serde(skip)]
+    pub context: Option<String>,
 }
 
 impl Frame {

@@ -16,7 +16,7 @@ from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import FeatureFlag, GroupTypeMapping, User
+from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.early_access_feature import EarlyAccessFeature
@@ -3772,6 +3772,54 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = flags_list.json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
+
+    def test_get_flags_with_active_and_created_by_id_filters(self):
+        another_user = User.objects.create(email="foo@bar.com")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_button")
+        FeatureFlag.objects.create(team=self.team, created_by=another_user, key="orange_button", active=False)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_button", active=False)
+
+        filtered_flags_list = self.client.get(
+            f"/api/projects/@current/feature_flags?created_by_id={self.user.id}&active=false"
+        )
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "green_button"
+
+    def test_get_flags_with_type_filters(self):
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, name="Experiment 1", feature_flag_id=self.feature_flag.id
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="purple_button",
+            filters={"multivariate": {"variants": [{"foo": "bar"}]}},
+        )
+
+        filtered_flags_list_boolean = self.client.get(f"/api/projects/@current/feature_flags?type=boolean")
+        response = filtered_flags_list_boolean.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == self.feature_flag.key
+
+        filtered_flags_list_multivariant = self.client.get(f"/api/projects/@current/feature_flags?type=multivariant")
+        response = filtered_flags_list_multivariant.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "purple_button"
+
+        filtered_flags_list_experiment = self.client.get(f"/api/projects/@current/feature_flags?type=experiment")
+        response = filtered_flags_list_experiment.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == self.feature_flag.key
+
+    def test_get_flags_with_search(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_search_term_button", active=False)
+
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=true&search=search_term")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "blue_search_term_button"
 
     def test_flag_is_cached_on_create_and_update(self):
         # Ensure empty feature flag list

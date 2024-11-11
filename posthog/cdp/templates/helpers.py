@@ -16,7 +16,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "print", "postHogCapture"})
+        self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "postHogCapture"})
 
         self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))  # noqa: T201
         # Side effect - log the fetch call and return  with sensible output

@@ -6,9 +6,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "0511_grouptypemapping_project_backfill"),
-    ]
+    dependencies = [("posthog", "0514_errortrackingstackframe_context")]
 
     operations = [
         migrations.SeparateDatabaseAndState(

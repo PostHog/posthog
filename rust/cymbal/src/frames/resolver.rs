@@ -35,10 +35,6 @@ impl Resolver {
             return Ok(result.contents);
         }
 
-        if !frame.needs_symbols() {
-            return frame.resolve(team_id, catalog).await;
-        }
-
         if let Some(result) =
             ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id()).await?
         {
@@ -48,7 +44,11 @@ impl Resolver {
 
         let resolved = frame.resolve(team_id, catalog).await?;
 
-        let set = SymbolSetRecord::load(pool, team_id, &frame.symbol_set_ref()).await?;
+        let set = if let Some(set_ref) = frame.symbol_set_ref() {
+            SymbolSetRecord::load(pool, team_id, &set_ref).await?
+        } else {
+            None
+        };
 
         let record = ErrorTrackingStackFrame::new(
             frame.frame_id(),
@@ -56,6 +56,7 @@ impl Resolver {
             set.map(|s| s.id),
             resolved.clone(),
             resolved.resolved,
+            resolved.context.clone(),
         );
 
         record.save(pool).await?;
@@ -94,7 +95,7 @@ mod test {
         S: FnOnce(&Config, S3Client) -> S3Client,
     {
         let mut config = Config::init_with_defaults().unwrap();
-        config.ss_bucket = "test-bucket".to_string();
+        config.object_storage_bucket = "test-bucket".to_string();
         config.ss_prefix = "test-prefix".to_string();
         config.allow_internal_ips = true; // Gonna be hitting the sourcemap mocks
 
@@ -119,7 +120,7 @@ mod test {
             smp,
             pool,
             client,
-            config.ss_bucket.clone(),
+            config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
 
@@ -165,7 +166,7 @@ mod test {
         client
             .expect_put()
             .with(
-                predicate::eq(config.ss_bucket.clone()),
+                predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
                 predicate::eq(Vec::from(MAP)),
             )
@@ -175,7 +176,7 @@ mod test {
         client
             .expect_get()
             .with(
-                predicate::eq(config.ss_bucket.clone()),
+                predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
             .returning(|_, _| Ok(Vec::from(MAP)))
@@ -212,7 +213,7 @@ mod test {
 
         // get the symbol set
         let set_ref = frame.symbol_set_ref();
-        let set = SymbolSetRecord::load(&pool, 0, &set_ref)
+        let set = SymbolSetRecord::load(&pool, 0, &set_ref.unwrap())
             .await
             .unwrap()
             .unwrap();

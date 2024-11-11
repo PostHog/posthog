@@ -649,6 +649,7 @@ class HogCompileResponse(BaseModel):
         extra="forbid",
     )
     bytecode: list
+    locals: list
 
 
 class HogLanguage(StrEnum):
@@ -2395,6 +2396,7 @@ class ChartSettings(BaseModel):
     goalLines: Optional[list[GoalLine]] = None
     leftYAxisSettings: Optional[YAxisSettings] = None
     rightYAxisSettings: Optional[YAxisSettings] = None
+    seriesBreakdownColumn: Optional[str] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
@@ -6057,7 +6059,7 @@ class FunnelsActorsQuery(BaseModel):
             " negative for dropped of persons."
         ),
     )
-    funnelStepBreakdown: Optional[Union[str, float, list[Union[str, float]]]] = Field(
+    funnelStepBreakdown: Optional[Union[int, str, float, list[Union[int, str, float]]]] = Field(
         default=None,
         description=(
             "The breakdown value for which to get persons for. This is an array for person and event properties, a"
