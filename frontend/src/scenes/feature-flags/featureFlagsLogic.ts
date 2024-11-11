@@ -75,7 +75,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
             updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
                 const response = await api.update(`api/projects/${values.currentTeamId}/feature_flags/${id}`, payload)
-                return [...values.featureFlags.results].map((flag) => (flag.id === response.id ? response : flag))
+                const updatedFlags = [...values.featureFlags.results].map((flag) =>
+                    flag.id === response.id ? response : flag
+                )
+                return { ...values.featureFlags, results: updatedFlags }
             },
         },
     })),
@@ -142,7 +145,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         shouldShowEmptyState: [
             (s) => [s.featureFlagsLoading, s.featureFlags, s.usingFilters],
             (featureFlagsLoading, featureFlags, usingFilters): boolean => {
-                return !featureFlagsLoading && featureFlags.results.length <= 0 && !usingFilters
+                return Boolean(
+                    !featureFlagsLoading && featureFlags.results && featureFlags.results?.length <= 0 && !usingFilters
+                )
             },
         ],
         pagination: [
