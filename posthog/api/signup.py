@@ -418,21 +418,21 @@ def process_social_invite_signup(
             )
 
     if user:
-        invite.validate(user=None, email=email)
+        invite.validate(user=user, email=email)
         invite.use(user, prevalidated=True)
+        return user
     else:
         invite.validate(user=None, email=email)
 
         try:
-            user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
+            _user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
+            invite.use(_user, prevalidated=True)
         except Exception as e:
             capture_exception(e)
             message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
             raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
-        invite.use(user, prevalidated=True)
-
-    return user
+        return _user
 
 
 def process_social_domain_jit_provisioning_signup(
