@@ -46,6 +46,7 @@ from posthog.schema import (
     HogQLFilters,
     HogQLQuery,
     InsightNodeKind,
+    InsightVizNode,
     NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -514,6 +515,37 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
+
+    def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "query": {
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "select * from events",
+                    },
+                },
+            }
+        )
+
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]},
+            }
+        )
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "query": InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+            }
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=TRENDS")
+
+        self.assertEqual(len(response.json()["results"]), 2)
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(

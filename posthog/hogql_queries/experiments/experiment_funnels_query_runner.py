@@ -37,6 +37,9 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
+        if self.experiment.holdout:
+            self.variants.append(f"holdout-{self.experiment.holdout.id}")
+
         self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(
             query=self.prepared_funnels_query, team=self.team, timings=self.timings, limit_context=self.limit_context

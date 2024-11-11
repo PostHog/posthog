@@ -169,7 +169,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     }),
     listeners(({ props, values, actions }) => ({
         addModel: () => {
-            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const queries = values.allModels.map((model) => {
                     return {
                         query:
@@ -182,7 +182,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             }
         },
         removeModel: () => {
-            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const queries = values.allModels.map((model) => {
                     return {
                         query:
@@ -200,7 +200,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 props.editor?.setModel(model)
             }
 
-            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const path = modelName.path.split('/').pop()
                 path && props.multitab && actions.setLocalState(activemodelStateKey(props.key), path)
             }
@@ -225,7 +225,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         },
         updateState: async (_, breakpoint) => {
             await breakpoint(100)
-            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] || values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]) {
                 const queries = values.allModels.map((model) => {
                     return {
                         query:
