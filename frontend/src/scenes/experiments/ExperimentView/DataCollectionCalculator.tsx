@@ -9,9 +9,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentIdType, InsightType } from '~/types'
 
-import { EXPERIMENT_INSIGHT_ID } from '../constants'
+import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-
 interface ExperimentCalculatorProps {
     experimentId: ExperimentIdType
 }
@@ -113,15 +112,20 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
+    const metricType = getMetricType(0)
+
     // :KLUDGE: need these to mount the Query component to load the insight */
-    const insightLogicInstance = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID, syncWithUrl: false })
+    const insightLogicInstance = insightLogic({
+        dashboardItemId: metricType === InsightType.FUNNELS ? MetricInsightId.Funnels : MetricInsightId.Trends,
+        syncWithUrl: false,
+    })
     const { insightProps } = useValues(insightLogicInstance)
     const { query } = useValues(insightDataLogic(insightProps))
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
 
     let sliderMaxValue = 0
-    if (getMetricType(0) === InsightType.FUNNELS) {
+    if (metricType === InsightType.FUNNELS) {
         if (100 - funnelConversionRate < 50) {
             sliderMaxValue = 100 - funnelConversionRate
         } else {

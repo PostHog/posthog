@@ -13,8 +13,8 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
 import { FilterType } from '~/types'
 
-import { experimentLogic, MetricInsightId } from './experimentLogic'
-
+import { MetricInsightId } from './constants'
+import { experimentLogic } from './experimentLogic'
 export function PrimaryGoalTrends(): JSX.Element {
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
     const { setExperiment, setTrendsMetric } = useActions(experimentLogic)

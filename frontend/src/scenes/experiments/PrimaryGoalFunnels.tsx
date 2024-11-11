@@ -14,9 +14,9 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
 import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types'
 
-import { experimentLogic, MetricInsightId } from './experimentLogic'
+import { MetricInsightId } from './constants'
+import { experimentLogic } from './experimentLogic'
 import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './MetricSelector'
-
 export function PrimaryGoalFunnels(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)

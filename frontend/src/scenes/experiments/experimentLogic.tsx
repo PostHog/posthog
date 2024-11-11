@@ -59,7 +59,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
@@ -105,14 +105,6 @@ export interface ExperimentResultCalculationError {
     statusCode: number
 }
 
-export enum MetricInsightId {
-    Trends = 'new-experiment-trends-metric',
-    TrendsExposure = 'new-experiment-trends-exposure',
-    Funnels = 'new-experiment-funnels-metric',
-    SecondaryTrends = 'new-experiment-secondary-trends',
-    SecondaryFunnels = 'new-experiment-secondary-funnels',
-}
-
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -125,14 +117,15 @@ export const experimentLogic = kea<experimentLogicType>([
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             sceneLogic,
             ['activeScene'],
-            funnelDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
-            ['results as funnelResults', 'conversionMetrics'],
-            trendsDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
-            ['results as trendResults'],
             featureFlagLogic,
             ['featureFlags'],
             holdoutsLogic,
             ['holdouts'],
+            // Hook the insight state to get the results for the sample size estimation
+            funnelDataLogic({ dashboardItemId: MetricInsightId.Funnels }),
+            ['results as funnelResults', 'conversionMetrics'],
+            trendsDataLogic({ dashboardItemId: MetricInsightId.Trends }),
+            ['results as trendResults'],
             // Hook into the loading state of the metric insight
             insightDataLogic({ dashboardItemId: MetricInsightId.Trends }),
             ['insightDataLoading as trendMetricInsightLoading'],
