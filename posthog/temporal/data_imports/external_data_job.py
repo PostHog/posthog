@@ -2,6 +2,7 @@ import dataclasses
 import datetime as dt
 import json
 
+from django.db import close_old_connections
 import posthoganalytics
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -68,6 +69,8 @@ class UpdateExternalDataJobStatusInputs:
 @activity.defn
 def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+
+    close_old_connections()
 
     if inputs.job_id is None:
         job: ExternalDataJob | None = (

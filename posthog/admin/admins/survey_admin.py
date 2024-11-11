@@ -34,6 +34,7 @@ class SurveyAdmin(admin.ModelAdmin):
             form.base_fields[field].required = False
         return form
 
+    @admin.display(description="Team")
     def team_link(self, experiment: Experiment):
         return format_html(
             '<a href="/admin/posthog/team/{}/change/">{}</a>',
