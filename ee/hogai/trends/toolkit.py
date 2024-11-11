@@ -59,24 +59,6 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
 
 def generate_trends_schema() -> dict:
     schema = AssistantTrendsQuery.model_json_schema()
-
-    # Patch `numeric` types
-    schema["$defs"]["MathGroupTypeIndex"]["type"] = "number"
-    property_filters = (
-        "EventPropertyFilter",
-        "PersonPropertyFilter",
-        "SessionPropertyFilter",
-        "FeaturePropertyFilter",
-        "GroupPropertyFilter",
-    )
-
-    # Clean up the property filters
-    for key in property_filters:
-        property_schema = schema["$defs"][key]
-        property_schema["properties"]["key"]["description"] = (
-            f"Use one of the properties the user has provided in the plan."
-        )
-
     return {
         "name": "output_insight_schema",
         "description": "Outputs the JSON schema of a funnel insight",

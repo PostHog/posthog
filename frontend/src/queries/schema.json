@@ -486,6 +486,59 @@
                 }
             ]
         },
+        "AssistantArrayPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                    "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                },
+                "value": {
+                    "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantArrayPropertyFilterOperator": {
+            "enum": ["exact", "is_not"],
+            "type": "string"
+        },
+        "AssistantBasePropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantStringNumberOrBooleanPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantDateTimePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantSetPropertyFilter"
+                }
+            ]
+        },
+        "AssistantDateTimePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
+                },
+                "value": {
+                    "description": "Value must be a date in ISO 8601 format.",
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantDateTimePropertyFilterOperator": {
+            "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+            "type": "string"
+        },
         "AssistantEventType": {
             "enum": ["status", "message"],
             "type": "string"
@@ -706,6 +759,210 @@
             "enum": ["ack", "generation_error"],
             "type": "string"
         },
+        "AssistantGenericPropertyFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                            "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                        },
+                        "type": {
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                            "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                        },
+                        "type": {
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
+                        },
+                        "type": {
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Value must be a date in ISO 8601 format.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSetPropertyFilterOperator",
+                            "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+                        },
+                        "type": {
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type"],
+                    "type": "object"
+                }
+            ]
+        },
+        "AssistantGroupPropertyFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "description": "Index of the group type from the group mapping.",
+                            "type": "integer"
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                            "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "description": "Index of the group type from the group mapping.",
+                            "type": "integer"
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                            "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "description": "Index of the group type from the group mapping.",
+                            "type": "integer"
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Value must be a date in ISO 8601 format.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "description": "Index of the group type from the group mapping.",
+                            "type": "integer"
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSetPropertyFilterOperator",
+                            "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type"],
+                    "type": "object"
+                }
+            ]
+        },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
             "properties": {
@@ -754,19 +1011,54 @@
         "AssistantPropertyFilter": {
             "anyOf": [
                 {
-                    "$ref": "#/definitions/EventPropertyFilter"
+                    "$ref": "#/definitions/AssistantGenericPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/PersonPropertyFilter"
+                    "$ref": "#/definitions/AssistantGroupPropertyFilter"
+                }
+            ]
+        },
+        "AssistantSetPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantSetPropertyFilterOperator",
+                    "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+                }
+            },
+            "required": ["operator"],
+            "type": "object"
+        },
+        "AssistantSetPropertyFilterOperator": {
+            "enum": ["is_set", "is_not_set"],
+            "type": "string"
+        },
+        "AssistantSingleValuePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                    "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                },
+                "value": {
+                    "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantSingleValuePropertyFilterOperator": {
+            "enum": ["icontains", "not_icontains", "regex", "not_regex"],
+            "type": "string"
+        },
+        "AssistantStringNumberOrBooleanPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantSingleValuePropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/SessionPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/GroupPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/FeaturePropertyFilter"
+                    "$ref": "#/definitions/AssistantArrayPropertyFilter"
                 }
             ]
         },

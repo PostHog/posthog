@@ -12,13 +12,11 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
-    FeaturePropertyFilter,
     FilterLogicalOperator,
     FilterType,
     FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
-    GroupPropertyFilter,
     HogQLMathType,
     InsightShortId,
     InsightType,
@@ -28,8 +26,10 @@ import {
     LogEntryPropertyFilter,
     PathsFilterType,
     PersonPropertyFilter,
+    PropertyFilterType,
     PropertyGroupFilter,
     PropertyMathType,
+    PropertyOperator,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -905,12 +905,93 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
 }
 
-export type AssistantPropertyFilter =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | SessionPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
+export type AssistantArrayPropertyFilterOperator = PropertyOperator.Exact | PropertyOperator.IsNot
+export interface AssistantArrayPropertyFilter {
+    /**
+     * `exact` - exact match of any of the values.
+     * `is_not` - does not match any of the values.
+     */
+    operator: AssistantArrayPropertyFilterOperator
+    /**
+     * Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".
+     */
+    value: string[]
+}
+
+export type AssistantSetPropertyFilterOperator = PropertyOperator.IsSet | PropertyOperator.IsNotSet
+
+export interface AssistantSetPropertyFilter {
+    /**
+     * `is_set` - the property has any value.
+     * `is_not_set` - the property doesn't have a value or wasn't collected.
+     */
+    operator: AssistantSetPropertyFilterOperator
+}
+
+export type AssistantSingleValuePropertyFilterOperator =
+    | PropertyOperator.IContains
+    | PropertyOperator.NotIContains
+    | PropertyOperator.Regex
+    | PropertyOperator.NotRegex
+
+export interface AssistantSingleValuePropertyFilter {
+    /**
+     * `icontains` - case insensitive contains.
+     * `not_icontains` - case insensitive does not contain.
+     * `regex` - matches the regex pattern.
+     * `not_regex` - does not match the regex pattern.
+     */
+    operator: AssistantSingleValuePropertyFilterOperator
+    /**
+     * Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against.
+     * Otherwise, the value must be a substring that will be matched against the property value.
+     */
+    value: string
+}
+
+export type AssistantStringNumberOrBooleanPropertyFilter =
+    | AssistantSingleValuePropertyFilter
+    | AssistantArrayPropertyFilter
+
+export type AssistantDateTimePropertyFilterOperator =
+    | PropertyOperator.IsDateExact
+    | PropertyOperator.IsDateBefore
+    | PropertyOperator.IsDateAfter
+
+export interface AssistantDateTimePropertyFilter {
+    operator: AssistantDateTimePropertyFilterOperator
+    /**
+     * Value must be a date in ISO 8601 format.
+     */
+    value: string
+}
+
+export type AssistantBasePropertyFilter =
+    | AssistantStringNumberOrBooleanPropertyFilter
+    | AssistantDateTimePropertyFilter
+    | AssistantSetPropertyFilter
+
+export type AssistantGenericPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session | PropertyFilterType.Feature
+    /**
+     * Use one of the properties the user has provided in the plan.
+     */
+    key: string
+}
+
+export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Group
+    /**
+     * Use one of the properties the user has provided in the plan.
+     */
+    key: string
+    /**
+     * Index of the group type from the group mapping.
+     */
+    group_type_index: integer
+}
+
+export type AssistantPropertyFilter = AssistantGenericPropertyFilter | AssistantGroupPropertyFilter
 
 export interface AssistantInsightsQueryBase {
     /** Date range for the query */

@@ -63,6 +63,17 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AssistantArrayPropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+
+
+class AssistantDateTimePropertyFilterOperator(StrEnum):
+    IS_DATE_EXACT = "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before"
+    IS_DATE_AFTER = "is_date_after"
+
+
 class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
@@ -90,6 +101,71 @@ class AssistantGenerationStatusType(StrEnum):
     GENERATION_ERROR = "generation_error"
 
 
+class Type(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+    FEATURE = "feature"
+
+
+class AssistantGenericPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    type: Type
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantGenericPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantDateTimePropertyFilterOperator
+    type: Type
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
+class AssistantGroupPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    type: Literal["group"] = "group"
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantGroupPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantDateTimePropertyFilterOperator
+    type: Literal["group"] = "group"
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -104,6 +180,18 @@ class AssistantMessageType(StrEnum):
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
+
+
+class AssistantSetPropertyFilterOperator(StrEnum):
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+class AssistantSingleValuePropertyFilterOperator(StrEnum):
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
 
 
 class AssistantTrendsMath(StrEnum):
@@ -339,7 +427,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(StrEnum):
+class Type4(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -1720,6 +1808,30 @@ class AlertCondition(BaseModel):
     type: AlertConditionType
 
 
+class AssistantArrayPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantDateTimePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantDateTimePropertyFilterOperator
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
 class AssistantFunnelsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1821,6 +1933,118 @@ class AssistantGenerationStatusEvent(BaseModel):
         extra="forbid",
     )
     type: AssistantGenerationStatusType
+
+
+class AssistantGenericPropertyFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
+            " matches the regex pattern. `not_regex` - does not match the regex pattern."
+        ),
+    )
+    type: Type
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
+            " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
+            " matched against the property value."
+        ),
+    )
+
+
+class AssistantGenericPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
+            " collected."
+        ),
+    )
+    type: Type
+
+
+class AssistantGroupPropertyFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
+            " matches the regex pattern. `not_regex` - does not match the regex pattern."
+        ),
+    )
+    type: Literal["group"] = "group"
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
+            " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
+            " matched against the property value."
+        ),
+    )
+
+
+class AssistantGroupPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
+            " collected."
+        ),
+    )
+    type: Literal["group"] = "group"
+
+
+class AssistantSetPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
+            " collected."
+        ),
+    )
+
+
+class AssistantSingleValuePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
+            " matches the regex pattern. `not_regex` - does not match the regex pattern."
+        ),
+    )
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
+            " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
+            " matched against the property value."
+        ),
+    )
 
 
 class AutocompleteCompletionItem(BaseModel):
@@ -2778,7 +3002,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type
+    type: Type4
 
 
 class ElementPropertyFilter(BaseModel):
@@ -4175,6 +4399,137 @@ class AnyResponseType(
     ]
 
 
+class AssistantBasePropertyFilter(
+    RootModel[
+        Union[
+            AssistantDateTimePropertyFilter,
+            AssistantSetPropertyFilter,
+            Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
+        ]
+    ]
+):
+    root: Union[
+        AssistantDateTimePropertyFilter,
+        AssistantSetPropertyFilter,
+        Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
+    ]
+
+
+class AssistantFunnelsEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = Field(
+        default=None, description="Optional custom name for the event if it is needed to be renamed."
+    )
+    event: str = Field(..., description="Name of the event.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: Optional[AssistantTrendsMath] = Field(
+        default=None,
+        description=(
+            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
+            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
+            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
+            " specified filters for the first time."
+        ),
+    )
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = None
+    response: Optional[dict[str, Any]] = None
+
+
+class AssistantFunnelsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None,
+        description=(
+            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
+            " provided."
+        ),
+    )
+    breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
+        default=None, description="Breakdown the chart by a property"
+    )
+    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    funnelsFilter: Optional[AssistantFunnelsFilter] = Field(
+        default=None, description="Properties specific to the funnels insight"
+    )
+    interval: Optional[IntervalType] = Field(
+        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+    )
+    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    series: list[AssistantFunnelsEventsNode] = Field(..., description="Events to include")
+
+
+class AssistantInsightsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
 class AssistantTrendsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4210,11 +4565,18 @@ class AssistantTrendsEventsNode(BaseModel):
     properties: Optional[
         list[
             Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
             ]
         ]
     ] = None
@@ -4241,11 +4603,18 @@ class AssistantTrendsQuery(BaseModel):
     properties: Optional[
         list[
             Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
             ]
         ]
     ] = Field(default=[], description="Property filters for all series")
@@ -5086,6 +5455,16 @@ class TeamTaxonomyQuery(BaseModel):
     response: Optional[TeamTaxonomyQueryResponse] = None
 
 
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
+    plan: Optional[str] = None
+    reasoning_steps: Optional[list[str]] = None
+    type: Literal["ai/viz"] = "ai/viz"
+
+
 class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5169,100 +5548,6 @@ class ActionsNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
-
-
-class AssistantFunnelsEventsNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: Optional[str] = Field(
-        default=None, description="Optional custom name for the event if it is needed to be renamed."
-    )
-    event: str = Field(..., description="Name of the event.")
-    kind: Literal["EventsNode"] = "EventsNode"
-    math: Optional[AssistantTrendsMath] = Field(
-        default=None,
-        description=(
-            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
-            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
-            " specified filters for the first time."
-        ),
-    )
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = None
-    response: Optional[dict[str, Any]] = None
-
-
-class AssistantFunnelsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: Optional[int] = Field(
-        default=None,
-        description=(
-            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
-            " provided."
-        ),
-    )
-    breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
-        default=None, description="Breakdown the chart by a property"
-    )
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    funnelsFilter: Optional[AssistantFunnelsFilter] = Field(
-        default=None, description="Properties specific to the funnels insight"
-    )
-    interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
-    )
-    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = Field(default=[], description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[AssistantFunnelsEventsNode] = Field(..., description="Events to include")
-
-
-class AssistantInsightsQueryBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = Field(default=[], description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
 class DataVisualizationNode(BaseModel):
@@ -5437,6 +5722,12 @@ class RetentionQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
+class RootAssistantMessage(
+    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
+):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+
+
 class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5533,16 +5824,6 @@ class TrendsQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
-
-
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
-    plan: Optional[str] = None
-    reasoning_steps: Optional[list[str]] = None
-    type: Literal["ai/viz"] = "ai/viz"
 
 
 class CachedExperimentTrendsQueryResponse(BaseModel):
@@ -6151,12 +6432,6 @@ class QueryResponseAlternative(
         QueryResponseAlternative40,
         QueryResponseAlternative41,
     ]
-
-
-class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
-):
-    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
