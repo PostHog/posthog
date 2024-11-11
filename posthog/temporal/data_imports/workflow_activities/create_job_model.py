@@ -1,6 +1,7 @@
 import dataclasses
 import uuid
 
+from django.db import close_old_connections
 from temporalio import activity
 
 # TODO: remove dependency
@@ -24,6 +25,8 @@ def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
 ) -> tuple[str, bool, str]:
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+
+    close_old_connections()
 
     try:
         job = ExternalDataJob.objects.create(
