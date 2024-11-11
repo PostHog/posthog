@@ -17,7 +17,6 @@ from posthog.queries.util import (
 )
 from posthog.utils import (
     DEFAULT_DATE_FROM_DAYS,
-    relative_date_parse,
     relative_date_parse_with_delta_mapping,
 )
 
@@ -76,10 +75,15 @@ class QueryDateRange:
     @property
     def date_from_param(self) -> datetime:
         date_from: datetime
+        delta_mapping = None
+        is_str_date_from = False
         if self._filter._date_from == "all":
             date_from = self.get_earliest_timestamp()
         elif isinstance(self._filter._date_from, str):
-            date_from = relative_date_parse(self._filter._date_from, self._team.timezone_info)
+            is_str_date_from = True
+            date_from, delta_mapping, _ = relative_date_parse_with_delta_mapping(
+                self._filter._date_from, self._team.timezone_info
+            )
         elif isinstance(self._filter._date_from, datetime):
             date_from = self._localize_to_team(self._filter._date_from)
         else:
@@ -87,7 +91,14 @@ class QueryDateRange:
                 days=DEFAULT_DATE_FROM_DAYS
             )
 
-        if not self.is_hourly(self._filter._date_from) and not self._filter.use_explicit_dates:
+        # TRICKY: When we're passed an absolute string datetime, we don't want to replace the time with 00:00:00.
+        # Only when its relative do we want to do that.
+        is_relative = delta_mapping is not None
+        if (
+            not self.is_hourly(self._filter._date_from)
+            and not self._filter.use_explicit_dates
+            and (not is_str_date_from or is_relative)
+        ):
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         # For legacy insights, if filtering by days (e.g. -7d), clamp to the start of the day
