@@ -90,7 +90,7 @@ class PropertyGroupManager:
     def get_alter_create_statements(
         self, table: TableName, column: ColumnName, group_name: PropertyGroupName
     ) -> Iterable[str]:
-        # TODO: This needs to account for the map alias column if it doesn't already exist.
+        yield f"ALTER TABLE {table} ON CLISTER {self.__cluster} ADD COLUMN IF NOT EXISTS {self.__get_property_map_alias_definition(column)}"
         yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD COLUMN IF NOT EXISTS {self.__get_property_group_column_definition(table, column, group_name)}"
         for index_definition in self.__get_property_group_index_definitions(table, column, group_name):
             yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD INDEX IF NOT EXISTS {index_definition}"
