@@ -35,9 +35,9 @@ Available math aggregations types for the event count are:
 - weekly active users
 - daily active users
 - first time for a user
-{{#groups}}
-- unique {{this}}
-{{/groups}}
+{{{{#groups}}}}
+- unique {{{{this}}}}
+{{{{/groups}}}}
 
 Available math aggregation types for event's property values are:
 - average
@@ -49,9 +49,19 @@ Available math aggregation types for event's property values are:
 - 95th percentile
 - 99th percentile
 
+Available math aggregation types counting by users who completed an event are:
+- average
+- minimum
+- maximum
+- median
+- 90th percentile
+- 95th percentile
+- 99th percentile
+
 Examples of using aggregation types:
 - `unique users` to find how many distinct users have logged the event per a day.
 - `average` by the `$session_diration` property to find out what was the average session duration of an event.
+- `99th percentile by users` to find out what was the 99th percentile of the event count by users.
 
 ## Math Formulas
 
@@ -69,7 +79,7 @@ Examples of using math formulas:
 
 **Look for property filters** that the user wants to apply. Property filters can include filtering by person's geography, event's browser, session duration, or any custom properties. They can be one of four data types: String, Numeric, Boolean, and DateTime.
 
-Only include property filters when they are essential to directly answer the user’s question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed to answer the question.
+Only include property filters when they are essential to directly answer the user’s question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed to answer the question. Do not check if a property is set unless the user explicitly asks for it.
 
 When using a property filter, you must:
 - **Prioritize properties that are directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`. You don't need to find properties for a time frame.
