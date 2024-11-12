@@ -1,19 +1,21 @@
 import { useValues } from 'kea'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
+import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType, Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 
-const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<TrendsQuery> => {
+const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<InsightQueryNode> => {
     const experimentInsightType = experiment.filters?.insight || InsightType.TRENDS
 
     // Trends Experiment
     if (experimentInsightType === InsightType.TRENDS) {
-        const exposureName = experiment.parameters?.custom_exposure_filter?.events?.[0]?.name
-        const eventName = exposureName ?? '$feature_flag_called'
+        if (experiment.parameters?.custom_exposure_filter) {
+            return queryFromFilters(experiment.parameters.custom_exposure_filter)
+        }
         return {
             kind: NodeKind.InsightVizNode,
             source: {
@@ -31,16 +33,14 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Tre
                 series: [
                     {
                         kind: NodeKind.EventsNode,
-                        event: eventName,
+                        event: '$feature_flag_called',
                         math: BaseMathType.UniqueUsers,
                     },
                 ],
-                breakdownFilter: !exposureName
-                    ? {
-                          breakdown: `$feature/${experiment.feature_flag_key}`,
-                          breakdown_type: 'event',
-                      }
-                    : undefined,
+                breakdownFilter: {
+                    breakdown: `$feature/${experiment.feature_flag_key}`,
+                    breakdown_type: 'event',
+                },
             },
         }
     }
