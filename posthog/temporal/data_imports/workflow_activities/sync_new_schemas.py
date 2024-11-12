@@ -1,5 +1,6 @@
 import dataclasses
 
+from django.db import close_old_connections
 from temporalio import activity
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
@@ -22,6 +23,7 @@ class SyncNewSchemasActivityInputs:
 @activity.defn
 def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    close_old_connections()
 
     logger.info("Syncing new -> old schemas")
 

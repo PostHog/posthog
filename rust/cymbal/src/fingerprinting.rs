@@ -42,6 +42,7 @@ mod test {
                 resolved: true,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
             Frame {
                 mangled_name: "bar".to_string(),
@@ -53,6 +54,7 @@ mod test {
                 resolved: true,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
             Frame {
                 mangled_name: "xyz".to_string(),
@@ -64,6 +66,7 @@ mod test {
                 resolved: true,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
             Frame {
                 mangled_name: "<anonymous>".to_string(),
@@ -75,6 +78,7 @@ mod test {
                 resolved: true,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
         ];
 
@@ -111,6 +115,7 @@ mod test {
                 resolved: true,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
             Frame {
                 mangled_name: "bar".to_string(),
@@ -122,6 +127,7 @@ mod test {
                 resolved: true,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
         ];
 
@@ -135,6 +141,7 @@ mod test {
             resolved: false,
             resolve_failure: None,
             lang: "javascript".to_string(),
+            context: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {
@@ -177,6 +184,7 @@ mod test {
                 resolved: false,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
             Frame {
                 mangled_name: "bar".to_string(),
@@ -188,6 +196,7 @@ mod test {
                 resolved: false,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
             Frame {
                 mangled_name: "xyz".to_string(),
@@ -199,6 +208,7 @@ mod test {
                 resolved: false,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                context: None,
             },
         ];
 
@@ -235,6 +245,7 @@ mod test {
             resolved: false,
             resolve_failure: None,
             lang: "javascript".to_string(),
+            context: None,
         }];
 
         let non_app_frame = Frame {
@@ -247,6 +258,7 @@ mod test {
             resolved: false,
             resolve_failure: None,
             lang: "javascript".to_string(),
+            context: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {

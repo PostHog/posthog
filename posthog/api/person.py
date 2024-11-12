@@ -1,5 +1,4 @@
 import json
-from posthog.clickhouse.client.connection import Workload
 from posthog.models.person.missing_person import MissingPerson
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
@@ -307,7 +306,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             filter=filter,
             query_type="person_list",
             team_id=team.pk,
-            workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+            # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_paginated_result]
         serialized_actors = get_serialized_people(team, actor_ids)

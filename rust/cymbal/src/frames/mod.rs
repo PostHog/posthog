@@ -55,6 +55,11 @@ pub struct Frame {
     pub lang: String,                    // The language of the frame. Always known (I guess?)
     pub resolved: bool,                  // Did we manage to resolve the frame?
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
+    // The lines of code surrounding the frame ptr, if known. We skip serialising this because
+    // it should never go in clickhouse / be queried over, but we do store it in PG for
+    // use in the frontend
+    #[serde(skip)]
+    pub context: Option<String>,
 }
 
 impl Frame {
