@@ -38,6 +38,7 @@ from .google_cloud_storage.template_google_cloud_storage import (
     TemplateGoogleCloudStorageMigrator,
 )
 from .airtable.template_airtable import template as airtable
+from .tiktok_ads.template_tiktok_ads import template as tiktok_ads
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
 
 HOG_FUNCTION_TEMPLATES = [
@@ -78,6 +79,7 @@ HOG_FUNCTION_TEMPLATES = [
     salesforce_create,
     salesforce_update,
     sendgrid,
+    tiktok_ads,
     zapier,
     zendesk,
 ]

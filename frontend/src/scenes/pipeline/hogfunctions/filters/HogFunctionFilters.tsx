@@ -13,6 +13,7 @@ import { NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { HogFunctionMappings } from './HogFunctionMappings'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
     if (!filters) {
@@ -76,7 +77,8 @@ export function HogFunctionFilters(): JSX.Element {
 
     return (
         <div className="border bg-bg-light rounded p-3 space-y-2">
-            <LemonField name="filters" label="Filters">
+            <HogFunctionMappings />
+            <LemonField name="filters" label="Global filters" help="These filters apply across all mappings">
                 {({ value, onChange }) => (
                     <>
                         <TestAccountFilterSwitch
