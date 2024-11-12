@@ -299,4 +299,27 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=taxonomic-operator]').contains('= equals').click({ force: true })
         cy.get('.operator-value-option').contains('> after').should('not.exist')
     })
+
+    it('Renders flags in FlagSelector', () => {
+        // Create flag name
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-key]').click().type(`{moveToEnd}${name}`).should('have.value', name)
+        cy.get('[data-attr=rollout-percentage]').clear().type('50').should('have.value', '50')
+
+        // save the feature flag
+        cy.get('[data-attr=save-feature-flag]').first().click()
+
+        // go to surveys page to check if the flag is rendered in the FlagSelector
+        cy.reload()
+        cy.clickNavMenu('surveys')
+        cy.get('[data-attr="new-survey"]').click()
+        cy.get('[data-attr="new-blank-survey"]').click()
+
+        cy.get('[data-attr="survey-display-conditions"]').click()
+        cy.get('[data-attr="survey-display-conditions-select"]').click()
+        cy.get('[data-attr="survey-display-conditions-select-users"]').click()
+        cy.get('[data-attr="survey-display-conditions-linked-flag"]').contains('Select flag').click()
+        cy.get('.Popover__box').should('contain', name)
+    })
 })
