@@ -12,10 +12,9 @@ interface PageHeaderProps {
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
     delimited?: boolean
     notebookProps?: Pick<DraggableToNotebookProps, 'href' | 'node' | 'properties'>
-    maxWidthCaption?: boolean
 }
 
-export function PageHeader({ caption, buttons, tabbedPage, maxWidthCaption }: PageHeaderProps): JSX.Element | null {
+export function PageHeader({ caption, buttons, tabbedPage }: PageHeaderProps): JSX.Element | null {
     const { actionsContainer } = useValues(breadcrumbsLogic)
 
     return (
@@ -27,11 +26,7 @@ export function PageHeader({ caption, buttons, tabbedPage, maxWidthCaption }: Pa
                     actionsContainer
                 )}
 
-            {caption && (
-                <div className={clsx('page-caption', tabbedPage && 'tabbed', maxWidthCaption && 'max-w-full')}>
-                    {caption}
-                </div>
-            )}
+            {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
         </>
     )
 }

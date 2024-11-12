@@ -1,4 +1,3 @@
-import { IconBell } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
@@ -143,7 +142,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 </>
             )}
             <PageHeader
-                maxWidthCaption
                 buttons={
                     <div className="flex justify-between items-center gap-2">
                         <More
@@ -347,6 +345,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <>
+                                <AlertsButton
+                                    insight={insight}
+                                    insightLogicProps={insightLogicProps}
+                                    type="secondary"
+                                    text="Alerts"
+                                />
                                 <NotebookSelectButton
                                     resource={{
                                         type: NotebookNodeType.Query,
@@ -420,16 +424,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 staticOnly
                             />
                         ) : null}
-                        <div className="flex items-center justify-between">
-                            <UserActivityIndicator
-                                at={insight.last_modified_at}
-                                by={insight.last_modified_by}
-                                className="mt-2"
-                            />
-                            {insightMode === ItemMode.View && (
-                                <AlertsButton insight={insight} type="secondary" icon={<IconBell />} text="Alerts" />
-                            )}
-                        </div>
+                        <UserActivityIndicator
+                            at={insight.last_modified_at}
+                            by={insight.last_modified_by}
+                            className="mt-2"
+                        />
                     </>
                 }
                 tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
