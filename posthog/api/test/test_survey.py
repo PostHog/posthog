@@ -1047,7 +1047,10 @@ class TestSurvey(APIBaseTest):
                     "feature_flag_keys": [
                         {"key": "linked_flag_key", "value": None},
                         {"key": "targeting_flag_key", "value": None},
-                        {"key": "internal_targeting_flag_key", "value": survey.internal_targeting_flag.key},
+                        {
+                            "key": "internal_targeting_flag_key",
+                            "value": survey.internal_targeting_flag.key if survey.internal_targeting_flag else None,
+                        },
                         {"key": "internal_response_sampling_flag_key", "value": None},
                     ],
                     "iteration_count": None,
