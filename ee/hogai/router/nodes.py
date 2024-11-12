@@ -7,9 +7,9 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from ee.hogai.router.prompts import (
-    router_insight_description_prompt,
-    router_system_prompt,
-    router_user_prompt,
+    ROUTER_INSIGHT_DESCRIPTION_PROMPT,
+    ROUTER_SYSTEM_PROMPT,
+    ROUTER_USER_PROMPT,
 )
 from ee.hogai.utils import AssistantNode, AssistantState
 from posthog.schema import HumanMessage, RouterMessage
@@ -18,14 +18,14 @@ RouteName = Literal["trends", "funnel"]
 
 
 class RouterOutput(BaseModel):
-    visualization_type: Literal["trends", "funnel"] = Field(..., description=router_insight_description_prompt)
+    visualization_type: Literal["trends", "funnel"] = Field(..., description=ROUTER_INSIGHT_DESCRIPTION_PROMPT)
 
 
 class RouterNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", router_system_prompt),
+                ("system", ROUTER_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         ) + self._construct_messages(state)
@@ -50,7 +50,7 @@ class RouterNode(AssistantNode):
         for message in state["messages"]:
             if isinstance(message, HumanMessage):
                 history += ChatPromptTemplate.from_messages(
-                    [("user", router_user_prompt.strip())], template_format="mustache"
+                    [("user", ROUTER_USER_PROMPT.strip())], template_format="mustache"
                 ).format_messages(question=message.content)
             elif isinstance(message, RouterMessage):
                 history += [

@@ -2,7 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.funnels.prompts import funnel_system_prompt, react_system_prompt
+from ee.hogai.funnels.prompts import FUNNEL_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
 from ee.hogai.funnels.toolkit import FUNNEL_SCHEMA, FunnelsTaxonomyAgentToolkit
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
@@ -16,7 +16,7 @@ class FunnelPlannerNode(TaxonomyAgentPlannerNode):
         toolkit = FunnelsTaxonomyAgentToolkit(self._team)
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", react_system_prompt),
+                ("system", REACT_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
@@ -39,7 +39,7 @@ class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", funnel_system_prompt),
+                ("system", FUNNEL_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )

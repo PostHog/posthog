@@ -15,12 +15,12 @@ from ee.hogai.schema_generator.parsers import (
     parse_pydantic_structured_output,
 )
 from ee.hogai.schema_generator.prompts import (
-    failover_output_prompt,
-    failover_prompt,
-    group_mapping_prompt,
-    new_plan_prompt,
-    plan_prompt,
-    question_prompt,
+    FAILOVER_OUTPUT_PROMPT,
+    FAILOVER_PROMPT,
+    GROUP_MAPPING_PROMPT,
+    NEW_PLAN_PROMPT,
+    PLAN_PROMPT,
+    QUESTION_PROMPT,
 )
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation
@@ -130,7 +130,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[T]):
             return []
 
         conversation: list[BaseMessage] = [
-            HumanMessagePromptTemplate.from_template(group_mapping_prompt, template_format="mustache").format(
+            HumanMessagePromptTemplate.from_template(GROUP_MAPPING_PROMPT, template_format="mustache").format(
                 group_mapping=self._group_mapping_prompt
             )
         ]
@@ -142,7 +142,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[T]):
             if ai_message:
                 conversation.append(
                     HumanMessagePromptTemplate.from_template(
-                        plan_prompt if first_ai_message else new_plan_prompt,
+                        PLAN_PROMPT if first_ai_message else NEW_PLAN_PROMPT,
                         template_format="mustache",
                     ).format(plan=ai_message.plan or "")
                 )
@@ -150,14 +150,14 @@ class SchemaGeneratorNode(AssistantNode, Generic[T]):
             elif generated_plan:
                 conversation.append(
                     HumanMessagePromptTemplate.from_template(
-                        plan_prompt if first_ai_message else new_plan_prompt,
+                        PLAN_PROMPT if first_ai_message else NEW_PLAN_PROMPT,
                         template_format="mustache",
                     ).format(plan=generated_plan)
                 )
 
             if human_message:
                 conversation.append(
-                    HumanMessagePromptTemplate.from_template(question_prompt, template_format="mustache").format(
+                    HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
                         question=human_message.content
                     )
                 )
@@ -169,7 +169,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[T]):
 
         if validation_error_message:
             conversation.append(
-                HumanMessagePromptTemplate.from_template(failover_prompt, template_format="mustache").format(
+                HumanMessagePromptTemplate.from_template(FAILOVER_PROMPT, template_format="mustache").format(
                     validation_error_message=validation_error_message
                 )
             )
@@ -189,7 +189,7 @@ class SchemaGeneratorToolsNode(AssistantNode):
 
         action, _ = intermediate_steps[-1]
         prompt = (
-            ChatPromptTemplate.from_template(failover_output_prompt, template_format="mustache")
+            ChatPromptTemplate.from_template(FAILOVER_OUTPUT_PROMPT, template_format="mustache")
             .format_messages(output=action.tool_input, exception_message=action.log)[0]
             .content
         )

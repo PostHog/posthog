@@ -6,7 +6,7 @@ from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGenerator
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
 from ee.hogai.trends.prompts import (
-    react_system_prompt,
+    REACT_SYSTEM_PROMPT,
     trends_system_prompt,
 )
 from ee.hogai.trends.toolkit import TRENDS_SCHEMA, TrendsTaxonomyAgentToolkit
@@ -19,7 +19,7 @@ class TrendsPlannerNode(TaxonomyAgentPlannerNode):
         toolkit = TrendsTaxonomyAgentToolkit(self._team)
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", react_system_prompt),
+                ("system", REACT_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
