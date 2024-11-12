@@ -114,6 +114,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.HogQLExpression,
                     TaxonomicFilterGroupType.DataWarehouseProperties,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,

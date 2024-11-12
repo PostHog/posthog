@@ -116,6 +116,7 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.HogQLExpression,
                     TaxonomicFilterGroupType.DataWarehouseProperties,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,

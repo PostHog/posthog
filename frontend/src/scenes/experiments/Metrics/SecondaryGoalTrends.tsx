@@ -110,6 +110,7 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.HogQLExpression,
                     TaxonomicFilterGroupType.DataWarehouseProperties,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
