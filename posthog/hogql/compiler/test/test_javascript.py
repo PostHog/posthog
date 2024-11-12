@@ -6,32 +6,32 @@ from posthog.test.base import BaseTest
 
 class TestJavaScript(BaseTest):
     def test_javascript_create(self):
-        self.assertEqual(to_js_expr("1 + 2"), "(1 + 2)")
-        self.assertEqual(to_js_expr("1 and 2"), "(1 && 2)")
-        self.assertEqual(to_js_expr("1 or 2"), "(1 || 2)")
-        self.assertEqual(to_js_expr("1 or (2 and 1) or 2"), "(1 || (2 && 1) || 2)")
-        self.assertEqual(to_js_expr("(1 or 2) and (1 or 2)"), "((1 || 2) && (1 || 2))")
-        self.assertEqual(to_js_expr("not true"), "(!true)")
-        self.assertEqual(to_js_expr("true"), "true")
-        self.assertEqual(to_js_expr("false"), "false")
-        self.assertEqual(to_js_expr("null"), "null")
-        self.assertEqual(to_js_expr("3.14"), "3.14")
-        self.assertEqual(to_js_expr("properties.bla"), "properties.bla")
-        self.assertEqual(to_js_expr("concat('arg', 'another')"), '(String("arg") + String("another"))')
-        self.assertEqual(to_js_expr("ifNull(properties.email, false)"), "(properties.email ?? false)")
-        self.assertEqual(to_js_expr("1 = 2"), "(1 == 2)")
-        self.assertEqual(to_js_expr("1 == 2"), "(1 == 2)")
-        self.assertEqual(to_js_expr("1 != 2"), "(1 != 2)")
-        self.assertEqual(to_js_expr("1 < 2"), "(1 < 2)")
-        self.assertEqual(to_js_expr("1 <= 2"), "(1 <= 2)")
-        self.assertEqual(to_js_expr("1 > 2"), "(1 > 2)")
-        self.assertEqual(to_js_expr("1 >= 2"), "(1 >= 2)")
-        self.assertEqual(to_js_expr("1 in 2"), "(2.includes(1))")
-        self.assertEqual(to_js_expr("1 not in 2"), "(!2.includes(1))")
-        self.assertEqual(to_js_expr("match('test', 'e.*')"), 'match("test", "e.*")')
-        self.assertEqual(to_js_expr("not('test')"), '(!"test")')
-        self.assertEqual(to_js_expr("or('test', 'test2')"), '("test" || "test2")')
-        self.assertEqual(to_js_expr("and('test', 'test2')"), '("test" && "test2")')
+        assert to_js_expr("1 + 2") == "(1 + 2)"
+        assert to_js_expr("1 and 2") == "(1 && 2)"
+        assert to_js_expr("1 or 2") == "(1 || 2)"
+        assert to_js_expr("1 or (2 and 1) or 2") == "(1 || (2 && 1) || 2)"
+        assert to_js_expr("(1 or 2) and (1 or 2)") == "((1 || 2) && (1 || 2))"
+        assert to_js_expr("not true") == "(!true)"
+        assert to_js_expr("true") == "true"
+        assert to_js_expr("false") == "false"
+        assert to_js_expr("null") == "null"
+        assert to_js_expr("3.14") == "3.14"
+        assert to_js_expr("properties.bla") == "properties.bla"
+        assert to_js_expr("concat('arg', 'another')"), '(String("arg") + String("another"))'
+        assert to_js_expr("ifNull(properties.email, false)") == "(properties.email ?? false)"
+        assert to_js_expr("1 = 2") == "(1 == 2)"
+        assert to_js_expr("1 == 2") == "(1 == 2)"
+        assert to_js_expr("1 != 2") == "(1 != 2)"
+        assert to_js_expr("1 < 2") == "(1 < 2)"
+        assert to_js_expr("1 <= 2") == "(1 <= 2)"
+        assert to_js_expr("1 > 2") == "(1 > 2)"
+        assert to_js_expr("1 >= 2") == "(1 >= 2)"
+        assert to_js_expr("1 in 2") == "(2.includes(1))"
+        assert to_js_expr("1 not in 2") == "(!2.includes(1))"
+        assert to_js_expr("match('test', 'e.*')") == 'match("test", "e.*")'
+        assert to_js_expr("not('test')") == '(!"test")'
+        assert to_js_expr("or('test', 'test2')") == '("test" || "test2")'
+        assert to_js_expr("and('test', 'test2')") == '("test" && "test2")'
 
     def test_javascript_create_not_implemented_error(self):
         with self.assertRaises(NotImplementedError) as e:
