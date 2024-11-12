@@ -168,7 +168,7 @@ fun getPropValueType(propValue) {
 
 fun getPropValueTypeDefinition(name, propValue) {
     let propType := typeof(propValue)
-    if (propType == 'string' and match(propValue, '^[\\d]{4}-[\\d]{2}-[\\d]{2}T[\\d]{2}:[\\d]{2}:[\\d]{2}.[\\d]{3}Z$')) {
+    if (propType == 'string' and match(propValue, '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{3}Z$')) {
         return {
             'name': name,
             'label': name,
