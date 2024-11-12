@@ -2,6 +2,7 @@ import '../Experiment.scss'
 
 import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
@@ -64,7 +65,9 @@ const VariantsTab = (): JSX.Element => {
         <div className="space-y-8">
             <ReleaseConditionsTable />
             <DistributionTable />
-            <CumulativeExposuresChart />
+            <PostHogFeature flag="experiments-cumulative-exposures-chart" match="test">
+                <CumulativeExposuresChart />
+            </PostHogFeature>
         </div>
     )
 }
