@@ -190,7 +190,7 @@ export const experimentLogic = kea<experimentLogicType>([
         closeDistributionModal: true,
         openReleaseConditionsModal: true,
         closeReleaseConditionsModal: true,
-        updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, Record<string, string>>) => ({
+        updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
         setTabKey: (tabKey: string) => ({ tabKey }),
