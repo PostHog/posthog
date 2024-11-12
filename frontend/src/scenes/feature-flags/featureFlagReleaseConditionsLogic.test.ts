@@ -230,7 +230,7 @@ describe('the feature flag release conditions logic', () => {
                 })
                 .toNotHaveDispatchedActions(['setTotalUsers'])
 
-            // // update newly added condition set
+            // update newly added condition set
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(1, 20, [
                     {
@@ -324,11 +324,10 @@ describe('the feature flag release conditions logic', () => {
         })
 
         describe('API calls', () => {
-            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
+            beforeEach(() => {
                 jest.spyOn(api, 'create')
 
                 logic?.unmount()
-
                 logic = featureFlagReleaseConditionsLogic({
                     id: '12345',
                     filters: generateFeatureFlagFilters([
@@ -360,7 +359,9 @@ describe('the feature flag release conditions logic', () => {
                     ]),
                 })
                 logic.mount()
+            })
 
+            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
                 await expectLogic(logic)
                     .toDispatchActions([
                         'setAffectedUsers',
