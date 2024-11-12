@@ -100,7 +100,7 @@ export const HeatmapsSettings = ({
                 }
             >
                 <div className="flex gap-2 justify-between items-center">
-                    <LemonSegmentedButton
+                    <LemonSelect
                         onChange={(e) => patchHeatmapFilters({ type: e })}
                         value={heatmapFilters.type ?? undefined}
                         options={[
