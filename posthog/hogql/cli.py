@@ -2,7 +2,7 @@ import sys
 import json
 
 from hogvm.python.execute import execute_bytecode
-from .bytecode import create_bytecode, parse_program
+from posthog.hogql.compiler.bytecode import create_bytecode, parse_program
 
 modifiers = [arg for arg in sys.argv if arg.startswith("-")]
 args = [arg for arg in sys.argv if arg != "" and not arg.startswith("-")]
