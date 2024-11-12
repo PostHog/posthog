@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
+import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
-import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType, Experiment, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -102,8 +102,12 @@ export function CumulativeExposuresChart(): JSX.Element {
                 <h2 className="font-semibold text-lg">Cumulative exposures</h2>
             </div>
             {experiment.start_date ? (
-                <Query
-                    query={getCumulativeExposuresQuery(experiment)}
+                <InsightViz
+                    query={{
+                        ...getCumulativeExposuresQuery(experiment),
+                        showTable: true,
+                    }}
+                    setQuery={() => {}}
                     readOnly
                     context={{
                         emptyStateHeading: 'No exposures to show yet',
