@@ -64,6 +64,12 @@ def is_state_update(update: list[Any]) -> TypeGuard[tuple[Literal["updates"], As
     return len(update) == 2 and update[0] == "values"
 
 
+VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
+    AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
+    AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
+}
+
+
 class Assistant:
     _team: Team
     _graph: StateGraph
@@ -167,10 +173,6 @@ class Assistant:
 
         chunks = AIMessageChunk(content="")
         state: AssistantState = {"messages": messages, "intermediate_steps": None, "plan": None}
-        visualization_nodes: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
-            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-        }
 
         generator = assistant_graph.stream(
             state,
@@ -193,21 +195,19 @@ class Assistant:
 
                 if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
                     yield state_update[AssistantNodeName.ROUTER]["messages"][0]
-                elif state_update.keys() & visualization_nodes.keys():
+                elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
                     # Reset chunks when schema validation fails.
                     chunks = AIMessageChunk(content="")
 
-                    for node_name in visualization_nodes.keys():
-                        if node_name not in state_update:
-                            continue
-                        if "messages" in state_update[node_name]:
-                            yield state_update[node_name]["messages"][0]
-                        elif state_update[node_name].get("intermediate_steps", []):
-                            yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+                    node_name = intersected_nodes.pop()
+                    if "messages" in state_update[node_name]:
+                        yield state_update[node_name]["messages"][0]
+                    elif state_update[node_name].get("intermediate_steps", []):
+                        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
 
             elif is_message_update(update):
                 langchain_message, langgraph_state = update[1]
-                for node_name, viz_node in visualization_nodes.items():
+                for node_name, viz_node in VISUALIZATION_NODES.items():
                     if langgraph_state["langgraph_node"] == node_name and isinstance(langchain_message, AIMessageChunk):
                         chunks += langchain_message  # type: ignore
                         parsed_message = viz_node.parse_output(chunks.tool_calls[0]["args"])

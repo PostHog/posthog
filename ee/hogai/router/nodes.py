@@ -41,7 +41,9 @@ class RouterNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o-mini", temperature=0, streaming=True).with_structured_output(RouterOutput)
+        return ChatOpenAI(model="gpt-4o-mini", temperature=0, disable_streaming=True).with_structured_output(
+            RouterOutput
+        )
 
     def _reconstruct_conversation(self, state: AssistantState):
         history: list[BaseMessage] = []
