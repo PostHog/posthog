@@ -6,7 +6,10 @@ from enum import StrEnum
 from typing import Annotated, Any, Optional, TypedDict, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import HumanMessage as LangchainHumanMessage, merge_message_runs
+from langchain_core.messages import (
+    HumanMessage as LangchainHumanMessage,
+    merge_message_runs,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field

@@ -42,9 +42,7 @@ class TestRouterNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_reconstructs_conversation(self):
         node = RouterNode(self.team)
         state: Any = {"messages": [HumanMessage(content="generate trends")]}
-        self.assertEqual(
-            node._reconstruct_conversation(state), [LangchainHumanMessage(content="Question: generate trends")]
-        )
+        self.assertEqual(node._construct_messages(state), [LangchainHumanMessage(content="Question: generate trends")])
         state = {
             "messages": [
                 HumanMessage(content="generate trends"),
@@ -53,6 +51,6 @@ class TestRouterNode(ClickhouseTestMixin, APIBaseTest):
             ]
         }
         self.assertEqual(
-            node._reconstruct_conversation(state),
+            node._construct_messages(state),
             [LangchainHumanMessage(content="Question: generate trends"), LangchainAIMessage(content="trends")],
         )
