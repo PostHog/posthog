@@ -164,14 +164,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     const uri = props.monaco?.Uri.parse(activeModelUri)
                     const activeModel = props.monaco?.editor
                         .getModels()
-                        .find((model: editor.ITextModel) => model.uri.path === uri.path)
+                        .find((model: editor.ITextModel) => model.uri.path === uri?.path)
                     activeModel && props.editor?.setModel(activeModel)
                     const val = activeModel?.getValue()
                     if (val) {
                         actions.setQueryInput(val)
                         actions.runQuery()
                     }
-                    actions.selectTab(uri)
+                    uri && actions.selectTab(uri)
                 } else if (newModels.length) {
                     actions.selectTab(newModels[0])
                 }
