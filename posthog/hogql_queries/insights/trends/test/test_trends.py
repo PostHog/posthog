@@ -2173,9 +2173,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         self.assertEqual(response[1]["label"], "sign up")
-        self.assertEqual(response[1]["labels"][3], "1-Jan-2020")
+        self.assertEqual(response[1]["labels"][3], "24-Dec-2019")
         self.assertEqual(response[1]["data"][3], 1.0)
-        self.assertEqual(response[1]["labels"][4], "2-Jan-2020")
+        self.assertEqual(response[1]["labels"][4], "25-Dec-2019")
         self.assertEqual(response[1]["data"][4], 0.0)
 
         with freeze_time("2020-01-04T13:00:01Z"):
