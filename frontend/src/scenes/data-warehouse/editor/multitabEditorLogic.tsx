@@ -29,8 +29,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         runQuery: (queryOverride?: string) => ({ queryOverride }),
         setActiveQuery: (query: string) => ({ query }),
         setTabs: (tabs: Uri[]) => ({ tabs }),
+        addTab: (tab: Uri) => ({ tab }),
         createTab: () => null,
         deleteTab: (tab: Uri) => ({ tab }),
+        removeTab: (tab: Uri) => ({ tab }),
         selectTab: (tab: Uri) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
         initialize: true,
@@ -88,14 +90,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
                 const model = props.monaco.editor.createModel('', 'hogQL', uri)
                 props.editor?.setModel(model)
+                actions.addTab(uri)
                 actions.selectTab(uri)
 
                 const queries = values.allTabs.map((tab) => {
                     return {
-                        query: props.monaco?.editor.getModel(tab)?.getValue() || {
-                            kind: NodeKind.HogQLQuery,
-                            query: '',
-                        },
+                        query: props.monaco?.editor.getModel(tab)?.getValue() || '',
                         path: tab.path.split('/').pop(),
                     }
                 })
@@ -121,12 +121,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.selectTab(nextModel)
                 }
                 model?.dispose()
+                actions.removeTab(tabToRemove)
                 const queries = values.allTabs.map((tab) => {
                     return {
-                        query: props.monaco?.editor.getModel(tab)?.getValue() || {
-                            kind: NodeKind.HogQLQuery,
-                            query: '',
-                        },
+                        query: props.monaco?.editor.getModel(tab)?.getValue() || '',
                         path: tab.path.split('/').pop(),
                     }
                 })
@@ -190,10 +188,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             await breakpoint(100)
             const queries = values.allTabs.map((model) => {
                 return {
-                    query: props.monaco?.editor.getModel(model)?.getValue() || {
-                        kind: NodeKind.HogQLQuery,
-                        query: '',
-                    },
+                    query: props.monaco?.editor.getModel(model)?.getValue() || '',
                     path: model.path.split('/').pop(),
                 }
             })
