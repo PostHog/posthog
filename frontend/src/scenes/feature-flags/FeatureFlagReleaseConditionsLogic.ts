@@ -164,7 +164,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setTotalUsers(response.total_users)
         },
         addConditionSet: () => {
-            actions.setAffectedUsers(values.filters.groups.length - 1, values.totalUsers ?? undefined)
+            actions.setAffectedUsers(values.filters.groups.length - 1, values.totalUsers || -1)
         },
         removeConditionSet: ({ index }) => {
             const previousLength = Object.keys(values.affectedUsers).length

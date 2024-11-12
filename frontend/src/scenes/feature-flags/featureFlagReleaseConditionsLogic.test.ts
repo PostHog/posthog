@@ -128,6 +128,7 @@ describe('the feature flag release conditions logic', () => {
                     .mockReturnValueOnce(Promise.resolve({ users_affected: 140, total_users: 2000 }))
                     .mockReturnValueOnce(Promise.resolve({ users_affected: 240, total_users: 2002 }))
                     .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 2000 }))
+                    .mockReturnValueOnce(Promise.resolve({ users_affected: 750, total_users: 2001 }))
 
                 logic.mount()
             })
@@ -138,23 +139,23 @@ describe('the feature flag release conditions logic', () => {
                 })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: -1, 1: undefined, 2: undefined, 3: undefined },
+                    affectedUsers: { 0: 140, 1: undefined, 2: undefined, 3: undefined },
                     totalUsers: null,
                 })
                 .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: -1, 1: 140 },
-                    totalUsers: 2000,
-                })
-                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
-                .toMatchValues({
-                    affectedUsers: { 0: -1, 1: 140, 2: 240 },
+                    affectedUsers: { 0: 140, 1: 240 },
                     totalUsers: 2002,
                 })
                 .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: -1, 1: 140, 2: 240, 3: 500 },
+                    affectedUsers: { 0: 140, 1: 240, 2: 500 },
                     totalUsers: 2000,
+                })
+                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
+                .toMatchValues({
+                    affectedUsers: { 0: 140, 1: 240, 2: 500, 3: 750 },
+                    totalUsers: 2001,
                 })
         })
 
@@ -163,25 +164,23 @@ describe('the feature flag release conditions logic', () => {
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 140, total_users: 2000 }))
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 240, total_users: 2000 }))
 
-            await expectLogic(logic, () => {
-                logic.actions.updateConditionSet(0, 20, [
-                    {
-                        key: 'aloha',
-                        type: PropertyFilterType.Person,
-                        operator: PropertyOperator.Exact,
-                        value: null,
-                    },
-                ])
-            })
+            logic.actions.updateConditionSet(0, 20, [
+                {
+                    key: 'aloha',
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.Exact,
+                    value: null,
+                },
+            ])
+            await expectLogic(logic)
                 // first call is to clear the affected users on mount
                 // second call is to set the affected users for mount logic conditions
                 // third call is to set the affected users for the updateConditionSet action
-                .toDispatchActions(['setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers'])
+                .toDispatchActions(['setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers', 'setTotalUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: undefined },
-                    totalUsers: null,
+                    affectedUsers: { 0: 140 },
+                    totalUsers: 2000,
                 })
-                .toNotHaveDispatchedActions(['setTotalUsers'])
 
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(0, 20, [
