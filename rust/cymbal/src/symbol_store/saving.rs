@@ -8,8 +8,8 @@ use uuid::Uuid;
 use crate::{
     error::{Error, FrameError, UnhandledError},
     metric_consts::{
-        SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SYMBOL_SET_FETCH_RETRY,
-        SYMBOL_SET_SAVED,
+        SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SAVE_SYMBOL_SET,
+        SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
 };
 
@@ -71,6 +71,7 @@ impl<F> Saving<F> {
         set_ref: String,
         data: Vec<u8>,
     ) -> Result<String, UnhandledError> {
+        let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
         // Generate a new opaque key, appending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
 
@@ -85,6 +86,7 @@ impl<F> Saving<F> {
 
         self.s3_client.put(&self.bucket, &key, data).await?;
         record.save(&self.pool).await?;
+        start.label("outcome", "success").fin();
         Ok(key)
     }
 
@@ -94,7 +96,8 @@ impl<F> Saving<F> {
         set_ref: String,
         reason: &FrameError,
     ) -> Result<(), UnhandledError> {
-        SymbolSetRecord {
+        let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "false");
+        let res = SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
             set_ref,
@@ -103,7 +106,9 @@ impl<F> Saving<F> {
             created_at: Utc::now(),
         }
         .save(&self.pool)
-        .await
+        .await?;
+        start.label("outcome", "success").fin();
+        Ok(res)
     }
 
     fn add_prefix(&self, key: String) -> String {
