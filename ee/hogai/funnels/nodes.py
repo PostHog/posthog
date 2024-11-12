@@ -2,21 +2,18 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
+from ee.hogai.funnels.prompts import funnel_system_prompt, react_system_prompt
+from ee.hogai.funnels.toolkit import FUNNEL_SCHEMA, FunnelsTaxonomyAgentToolkit
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
-from ee.hogai.trends.prompts import (
-    react_system_prompt,
-    trends_system_prompt,
-)
-from ee.hogai.trends.toolkit import TRENDS_SCHEMA, TrendsTaxonomyAgentToolkit
 from ee.hogai.utils import AssistantState
-from posthog.schema import AssistantTrendsQuery
+from posthog.schema import AssistantFunnelsQuery
 
 
-class TrendsPlannerNode(TaxonomyAgentPlannerNode):
+class FunnelPlannerNode(TaxonomyAgentPlannerNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        toolkit = TrendsTaxonomyAgentToolkit(self._team)
+        toolkit = FunnelsTaxonomyAgentToolkit(self._team)
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", react_system_prompt),
@@ -26,23 +23,23 @@ class TrendsPlannerNode(TaxonomyAgentPlannerNode):
         return super()._run(state, prompt, toolkit, config=config)
 
 
-class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
+class FunnelPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        toolkit = TrendsTaxonomyAgentToolkit(self._team)
+        toolkit = FunnelsTaxonomyAgentToolkit(self._team)
         return super()._run(state, toolkit, config=config)
 
 
-TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]
+FunnelsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantFunnelsQuery]
 
 
-class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
-    insight_name = "Trends"
-    output_model = TrendsSchemaGeneratorOutput
+class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
+    insight_name = "Funnels"
+    output_model = FunnelsSchemaGeneratorOutput
 
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", trends_system_prompt),
+                ("system", funnel_system_prompt),
             ],
             template_format="mustache",
         )
@@ -51,11 +48,11 @@ class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     @property
     def _model(self):
         return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True).with_structured_output(
-            TRENDS_SCHEMA,
+            FUNNEL_SCHEMA,
             method="function_calling",
             include_raw=False,
         )
 
 
-class TrendsGeneratorToolsNode(SchemaGeneratorToolsNode):
+class FunnelGeneratorToolsNode(SchemaGeneratorToolsNode):
     pass

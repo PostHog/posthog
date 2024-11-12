@@ -1,11 +1,9 @@
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from ee.hogai.utils import flatten_schema
-from posthog.schema import (
-    AssistantTrendsQuery,
-)
+from posthog.schema import AssistantFunnelsQuery
 
 
-class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
+class FunnelsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
     def _get_tools(self) -> list[ToolkitTool]:
         return [
             *self._default_tools,
@@ -17,9 +15,8 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
 
                     Answer in the following format:
                     ```
-                    Events:
-                    - event 1
-                        - math operation: total
+                    Sequence:
+                    1. event 1
                         - property filter 1:
                             - entity
                             - property name
@@ -27,8 +24,7 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                             - operator
                             - property value
                         - property filter 2... Repeat for each property filter.
-                    - event 2
-                        - math operation: average by `property name`.
+                    2. event 2
                         - property filter 1:
                             - entity
                             - property name
@@ -36,18 +32,19 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                             - operator
                             - property value
                         - property filter 2... Repeat for each property filter.
-                    - Repeat for each event.
+                    3. Repeat for each event...
 
-                    (if a formula is used)
-                    Formula:
-                    `A/B`, where `A` is the first event and `B` is the second event.
+                    (if exclusion steps are used)
+                    Exclusions:
+                    - exclusion 1
+                        - start index: 1
+                        - end index: 2
+                    - exclusion 2... Repeat for each exclusion...
 
                     (if a breakdown is used)
                     Breakdown by:
-                    - breakdown 1:
-                        - entity
-                        - property name
-                    - Repeat for each breakdown.
+                    - entity
+                    - property name
                     ```
 
                     Args:
@@ -57,11 +54,10 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
         ]
 
 
-def generate_trends_schema() -> dict:
-    schema = AssistantTrendsQuery.model_json_schema()
+def generate_funnel_schema() -> dict:
+    schema = AssistantFunnelsQuery.model_json_schema()
 
     # Patch `numeric` types
-    schema["$defs"]["MathGroupTypeIndex"]["type"] = "number"
     property_filters = (
         "EventPropertyFilter",
         "PersonPropertyFilter",
@@ -79,7 +75,7 @@ def generate_trends_schema() -> dict:
 
     return {
         "name": "output_insight_schema",
-        "description": "Outputs the JSON schema of a funnel insight",
+        "description": "Outputs the JSON schema of a product analytics insight",
         "parameters": {
             "type": "object",
             "properties": {
@@ -96,4 +92,4 @@ def generate_trends_schema() -> dict:
     }
 
 
-TRENDS_SCHEMA = generate_trends_schema()
+FUNNEL_SCHEMA = generate_funnel_schema()
