@@ -1,6 +1,6 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import signal
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
@@ -21,6 +21,8 @@ async def start_worker(
     server_root_ca_cert=None,
     client_cert=None,
     client_key=None,
+    max_concurrent_workflow_tasks=None,
+    max_concurrent_activities=None,
 ):
     runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address="0.0.0.0:%d" % metrics_port)))
     client = await connect(
@@ -40,8 +42,9 @@ async def start_worker(
         workflow_runner=UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=timedelta(minutes=5),
         interceptors=[SentryInterceptor()],
-        activity_executor=ThreadPoolExecutor(max_workers=50),
-        max_concurrent_activities=50,
+        activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+        max_concurrent_activities=max_concurrent_activities or 50,
+        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
     )
 
     # catch the TERM signal, and stop the worker gracefully
