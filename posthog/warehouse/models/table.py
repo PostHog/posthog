@@ -180,15 +180,18 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def get_count(self, safe_expose_ch_error=True) -> int:
         try:
+            placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
+                context=placeholder_context,
             )
 
             result = sync_execute(
                 f"SELECT count() FROM {s3_table_func}",
+                args=placeholder_context.values,
             )
         except Exception as err:
             capture_exception(err)
