@@ -4,12 +4,17 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
-import { BaseMathType, ChartDisplayType, Experiment, InsightType } from '~/types'
+import { BaseMathType, ChartDisplayType, Experiment, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 
 const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<InsightQueryNode> => {
     const experimentInsightType = experiment.filters?.insight || InsightType.TRENDS
+
+    const variants = experiment.parameters?.feature_flag_variants?.map((variant) => variant.key) || []
+    if (experiment.holdout) {
+        variants.push(`holdout-${experiment.holdout.id}`)
+    }
 
     // Trends Experiment
     if (experimentInsightType === InsightType.TRENDS) {
@@ -38,9 +43,23 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Ins
                     },
                 ],
                 breakdownFilter: {
-                    breakdown: `$feature/${experiment.feature_flag_key}`,
+                    breakdown: `$feature_flag_response`,
                     breakdown_type: 'event',
                 },
+                properties: [
+                    {
+                        key: `$feature_flag_response`,
+                        value: variants,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    {
+                        key: '$feature_flag',
+                        value: [experiment.feature_flag_key],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
             },
         }
     }
