@@ -929,6 +929,8 @@ export interface AssistantSetPropertyFilter {
 }
 
 export type AssistantSingleValuePropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.IsNot
     | PropertyOperator.IContains
     | PropertyOperator.NotIContains
     | PropertyOperator.Regex

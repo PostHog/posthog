@@ -264,6 +264,8 @@ class AssistantSetPropertyFilterOperator(StrEnum):
 
 
 class AssistantSingleValuePropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
     ICONTAINS = "icontains"
     NOT_ICONTAINS = "not_icontains"
     REGEX = "regex"

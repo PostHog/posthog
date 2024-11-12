@@ -1152,7 +1152,7 @@
             "type": "object"
         },
         "AssistantSingleValuePropertyFilterOperator": {
-            "enum": ["icontains", "not_icontains", "regex", "not_regex"],
+            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
             "type": "string"
         },
         "AssistantStringNumberOrBooleanPropertyFilter": {
