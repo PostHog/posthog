@@ -1,4 +1,4 @@
-react_format_prompt = """
+REACT_FORMAT_PROMPT = """
 You have access to the following tools:
 {{tools}}
 
@@ -35,42 +35,42 @@ Action:
 ```
 """.strip()
 
-react_format_reminder_prompt = """
+REACT_FORMAT_REMINDER_PROMPT = """
 Begin! Reminder that you must ALWAYS respond with a valid JSON blob of a single action. Use tools if necessary. Respond directly if appropriate. Format is Action:```$JSON_BLOB``` then Observation.
 """.strip()
 
-react_definitions_prompt = """
+REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
 {{events}}
 """
 
-react_scratchpad_prompt = """
+REACT_SCRATCHPAD_PROMPT = """
 Thought: {{agent_scratchpad}}
 """
 
-react_user_prompt = """
+REACT_USER_PROMPT = """
 Answer the following question as best you can.
 Question: What events, properties and/or property values should I use to answer this question "{{question}}"?
 """
 
-react_follow_up_prompt = """
+REACT_FOLLOW_UP_PROMPT = """
 Improve the previously generated plan based on the feedback: {{feedback}}
 """
 
-react_missing_action_prompt = """
+REACT_MISSING_ACTION_PROMPT = """
 Your previous answer didn't output the `Action:` block. You must always follow the format described in the system prompt.
 """
 
-react_missing_action_correction_prompt = """
+REACT_MISSING_ACTION_CORRECTION_PROMPT = """
 {{output}}
 Action: I didn't output the `Action:` block.
 """
 
-react_malformed_json_prompt = """
+REACT_MALFORMED_JSON_PROMPT = """
 Your previous answer had a malformed JSON. You must return a correct JSON response containing the `action` and `action_input` fields.
 """
 
-react_pydantic_validation_exception_prompt = """
+REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """
 The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
 
 <pydantic_exception>

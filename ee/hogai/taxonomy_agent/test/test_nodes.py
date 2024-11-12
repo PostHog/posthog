@@ -38,19 +38,19 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
                 prompt = ChatPromptTemplate.from_messages([("user", "test")])
                 toolkit = TestToolkit(self._team)
-                return super()._run(state, prompt, toolkit, config=config)
+                return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
         return Node(self.team)
 
     def test_agent_reconstructs_conversation(self):
         node = self._get_node()
-        history = node._reconstruct_conversation({"messages": [HumanMessage(content="Text")]})
+        history = node._construct_messages({"messages": [HumanMessage(content="Text")]})
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
         self.assertIn("Text", history[0].content)
         self.assertNotIn(f"{{question}}", history[0].content)
 
-        history = node._reconstruct_conversation(
+        history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -65,7 +65,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[1].type, "ai")
         self.assertEqual(history[1].content, "randomplan")
 
-        history = node._reconstruct_conversation(
+        history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -86,7 +86,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation_and_omits_unknown_messages(self):
         node = self._get_node()
-        history = node._reconstruct_conversation(
+        history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -101,7 +101,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation_with_failures(self):
         node = self._get_node()
-        history = node._reconstruct_conversation(
+        history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -179,7 +179,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         class Node(TaxonomyAgentPlannerToolsNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
                 toolkit = TestToolkit(self._team)
-                return super()._run(state, toolkit, config=config)
+                return super()._run_with_toolkit(state, toolkit, config=config)
 
         return Node(self.team)
 
