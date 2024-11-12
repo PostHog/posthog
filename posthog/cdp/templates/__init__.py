@@ -7,6 +7,7 @@ from .intercom.template_intercom import template as intercom, TemplateIntercomMi
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
 from .june.template_june import template as june
+from .tiktok.template_tiktok_ads import template as tiktok
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .discord.template_discord import template as discord
@@ -78,6 +79,7 @@ HOG_FUNCTION_TEMPLATES = [
     salesforce_create,
     salesforce_update,
     sendgrid,
+    tiktok,
     zapier,
     zendesk,
 ]
