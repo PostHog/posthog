@@ -1,5 +1,6 @@
 from typing import Literal, Optional, cast
 
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -272,13 +273,5 @@ class PropertySwapper(CloningVisitor):
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
-        try:
-            from ee.clickhouse.materialized_columns.columns import (
-                TablesWithMaterializedColumns,
-                get_materialized_columns,
-            )
-
-            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-            return materialized_columns.get((property_name, field_name), None)
-        except ModuleNotFoundError:
-            return None
+        materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
+        return materialized_columns.get((property_name, field_name), None)
