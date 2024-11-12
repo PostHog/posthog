@@ -116,10 +116,20 @@ describe('Feature Flags', () => {
         cy.go('back')
         cy.get('button[data-attr="edit-feature-flag"]').should('have.attr', 'aria-disabled', 'true')
 
+        // make sure the usage tab does not attempt to load
+        cy.get('.LemonTabs__tab-content').contains('Usage').click()
+        cy.get('[data-attr=feature-flag-usage-container]').should('not.exist')
+        cy.get('[data-attr=feature-flag-usage-deleted-banner]').should('exist')
+
         // undo the deletion
         cy.get('[data-attr="more-button"]').click()
         cy.get('button[data-attr="restore-feature-flag"]').should('have.text', 'Restore feature flag')
         cy.get('button[data-attr="restore-feature-flag"]').click()
+
+        // make sure the usage tab attempts to load
+        cy.get('.LemonTabs__tab-content').contains('Usage').click()
+        cy.get('[data-attr=feature-flag-usage-container]').should('exist')
+        cy.get('[data-attr=feature-flag-usage-deleted-banner]').should('not.exist')
 
         // refresh page and make sure the flag is restored as expected
         cy.reload()
