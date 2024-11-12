@@ -149,7 +149,9 @@ let eventSchema := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{i
 
 fun getPropValueType(propValue) {
     let propType := typeof(propValue)
-    if (propType == 'string') {
+    if (propType == 'string' and match(propValue, '^[\\d]{4}-[\\d]{2}-[\\d]{2}T[\\d]{2}:[\\d]{2}:[\\d]{2}.[\\d]{3}Z$')) {
+        return 'datetime'
+    } else if (propType == 'string') {
         return 'string'
     } else if (propType == 'integer') {
         return 'number'
@@ -166,7 +168,14 @@ fun getPropValueType(propValue) {
 
 fun getPropValueTypeDefinition(name, propValue) {
     let propType := typeof(propValue)
-    if (propType == 'string' or propType == 'object' or propType == 'array' or propType == 'tuple') {
+    if (propType == 'string' and match(propValue, '^[\\d]{4}-[\\d]{2}-[\\d]{2}T[\\d]{2}:[\\d]{2}:[\\d]{2}.[\\d]{3}Z$')) {
+        return {
+            'name': name,
+            'label': name,
+            'type': 'datetime',
+            'description': f'{name} - (created by PostHog)'
+        }
+    } else if (propType == 'string' or propType == 'object' or propType == 'array' or propType == 'tuple') {
         return {
             'name': name,
             'label': name,
