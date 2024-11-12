@@ -879,7 +879,7 @@
         <!-- Interval of flushing data. -->
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
         <!-- Maximal size in lines for the logs. When non-flushed logs amount reaches max_size, logs dumped to the disk. -->
-        <max_size_rows>1048576</max_size_rows>
+        <max_size_rows>8388608</max_size_rows>
         <!-- Pre-allocated size in lines for the logs. -->
         <reserved_size_rows>8192</reserved_size_rows>
         <!-- Lines amount threshold, reaching it launches flushing logs to the disk in background. -->
@@ -909,7 +909,7 @@
         <table>query_thread_log</table>
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-        <max_size_rows>1048576</max_size_rows>
+        <max_size_rows>8388608</max_size_rows>
         <reserved_size_rows>8192</reserved_size_rows>
         <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
         <flush_on_crash>false</flush_on_crash>

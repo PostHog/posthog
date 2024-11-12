@@ -96,7 +96,22 @@ class HogQLCohortQuery:
         # self.get_performed_event_condition()
         # property = self._outer_property_groups.values[0].values[0]
         # self.get_performed_event_condition(property)
+
         select_query = self._get_conditions()
+
+        ch = print_ast(
+            select_query,
+            HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
+            dialect="clickhouse",
+            pretty=True,
+        )
+        hogql = print_ast(
+            select_query,
+            HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
+            dialect="hogql",
+            pretty=True,
+        )
+
         return select_query
 
     def query_str(self, dialect: Literal["hogql", "clickhouse"]):
@@ -183,7 +198,13 @@ class HogQLCohortQuery:
 
         if prop.event_filters:
             filter = Filter(data={"properties": prop.event_filters}).property_groups
-            series[0].properties = filter
+            # TODO: this is testing - we need to figure out how to handle ORs here
+            if isinstance(filter, PropertyGroup):
+                if filter.type == PropertyOperatorType.OR:
+                    raise Exception("Don't support OR at the event level")
+                series[0].properties = filter.values
+            else:
+                series[0].properties = filter
 
         if prop.explicit_datetime:
             date_from = prop.explicit_datetime
