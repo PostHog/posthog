@@ -2,11 +2,18 @@ use aws_sdk_s3::primitives::ByteStreamError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Serde error: {0}")]
-    SerdeError(#[from] serde_json::Error),
+    #[error(transparent)]
+    UnhandledError(#[from] UnhandledError),
+    #[error(transparent)]
+    ResolutionError(#[from] FrameError),
+}
+
+#[derive(Debug, Error)]
+pub enum UnhandledError {
     #[error("Config error: {0}")]
     ConfigError(#[from] envconfig::Error),
     #[error("Kafka error: {0}")]
@@ -14,11 +21,11 @@ pub enum Error {
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
     #[error(transparent)]
-    ResolutionError(#[from] ResolutionError),
-    #[error(transparent)]
     S3Error(#[from] aws_sdk_s3::Error),
     #[error(transparent)]
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
+    #[error("Unhandled serde error: {0}")]
+    SerdeError(#[from] serde_json::Error),
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
@@ -28,7 +35,7 @@ pub enum Error {
 // some provider (e.g. we fail to look up a sourcemap), we can return the correct error in the future
 // without hitting their infra again (by storing it in PG).
 #[derive(Debug, Error, Serialize, Deserialize)]
-pub enum ResolutionError {
+pub enum FrameError {
     #[error(transparent)]
     JavaScript(#[from] JsResolveErr),
 }
@@ -75,9 +82,23 @@ pub enum JsResolveErr {
     RedirectError(String),
 }
 
+#[derive(Debug, Error)]
+pub enum EventError {
+    #[error("Wrong event type: {0} for event {1}")]
+    WrongEventType(String, Uuid),
+    #[error("No properties: {0}")]
+    NoProperties(Uuid),
+    #[error("Invalid properties: {0}, serde error: {1}")]
+    InvalidProperties(Uuid, String),
+    #[error("No exception list: {0}")]
+    NoExceptionList(Uuid),
+    #[error("Empty exception list: {0}")]
+    EmptyExceptionList(Uuid),
+}
+
 impl From<JsResolveErr> for Error {
     fn from(e: JsResolveErr) -> Self {
-        ResolutionError::JavaScript(e).into()
+        FrameError::JavaScript(e).into()
     }
 }
 

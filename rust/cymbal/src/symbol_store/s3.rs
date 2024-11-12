@@ -2,7 +2,7 @@ use aws_sdk_s3::{primitives::ByteStream, Client as S3Client, Error as S3Error};
 #[cfg(test)]
 use mockall::automock;
 
-use crate::error::Error;
+use crate::error::UnhandledError;
 
 // We wrap the s3 client to allow us to use mocks for testing. We only expose the functionality
 // we need.
@@ -19,7 +19,7 @@ impl S3Impl {
     }
 
     #[allow(dead_code)]
-    pub async fn get(&self, bucket: &str, key: &str) -> Result<Vec<u8>, Error> {
+    pub async fn get(&self, bucket: &str, key: &str) -> Result<Vec<u8>, UnhandledError> {
         let res = self.inner.get_object().bucket(bucket).key(key).send().await;
 
         if let Ok(res) = res {
@@ -33,7 +33,7 @@ impl S3Impl {
     }
 
     #[allow(dead_code)]
-    pub async fn put(&self, bucket: &str, key: &str, data: Vec<u8>) -> Result<(), Error> {
+    pub async fn put(&self, bucket: &str, key: &str, data: Vec<u8>) -> Result<(), UnhandledError> {
         self.inner
             .put_object()
             .bucket(bucket)

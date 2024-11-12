@@ -5,7 +5,13 @@ use sqlx::PgPool;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::error::{Error, ResolutionError};
+use crate::{
+    error::{Error, FrameError, UnhandledError},
+    metric_consts::{
+        SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SYMBOL_SET_FETCH_RETRY,
+        SYMBOL_SET_SAVED,
+    },
+};
 
 use super::{Fetcher, Parser, S3Client};
 
@@ -64,7 +70,7 @@ impl<F> Saving<F> {
         team_id: i32,
         set_ref: String,
         data: Vec<u8>,
-    ) -> Result<String, Error> {
+    ) -> Result<String, UnhandledError> {
         // Generate a new opaque key, appending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
 
@@ -86,8 +92,8 @@ impl<F> Saving<F> {
         &self,
         team_id: i32,
         set_ref: String,
-        reason: &ResolutionError,
-    ) -> Result<(), Error> {
+        reason: &FrameError,
+    ) -> Result<(), UnhandledError> {
         SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
@@ -119,6 +125,7 @@ where
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
             if let Some(storage_ptr) = record.storage_ptr {
                 let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
+                metrics::counter!(SAVED_SYMBOL_SET_LOADED).increment(1);
                 return Ok(Saveable {
                     data,
                     storage_ptr: Some(storage_ptr),
@@ -130,14 +137,17 @@ where
                 // with the stored error. We unwrap here because we should never store a "no set"
                 // row without also storing the error, and if we do, we want to panic, but we
                 // also want to log an error
+                metrics::counter!(SAVED_SYMBOL_SET_ERROR_RETURNED).increment(1);
                 if record.failure_reason.is_none() {
                     error!("Found a record with no data and no error: {:?}", record);
                     panic!("Found a record with no data and no error");
                 }
-                let error = serde_json::from_str(&record.failure_reason.unwrap())?;
+                let error = serde_json::from_str(&record.failure_reason.unwrap())
+                    .map_err(UnhandledError::from)?;
                 return Err(Error::ResolutionError(error));
             }
             // We last tried to get the symbol set more than a day ago, so we should try again
+            metrics::counter!(SYMBOL_SET_FETCH_RETRY).increment(1);
         }
 
         match self.inner.fetch(team_id, r).await {
@@ -153,7 +163,7 @@ where
                 self.save_no_data(team_id, set_ref, &e).await?;
                 return Err(Error::ResolutionError(e));
             }
-            Err(e) => Err(e), // If some non-resolution error occurred, we just bail out?
+            Err(e) => Err(e), // If some non-resolution error occurred, we just bail out
         }
     }
 }
@@ -187,7 +197,11 @@ where
 }
 
 impl SymbolSetRecord {
-    pub async fn load<'c, E>(e: E, team_id: i32, set_ref: &str) -> Result<Option<Self>, Error>
+    pub async fn load<'c, E>(
+        e: E,
+        team_id: i32,
+        set_ref: &str,
+    ) -> Result<Option<Self>, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
@@ -205,7 +219,7 @@ impl SymbolSetRecord {
         Ok(record)
     }
 
-    pub async fn save<'c, E>(&self, e: E) -> Result<(), Error>
+    pub async fn save<'c, E>(&self, e: E) -> Result<(), UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
@@ -222,6 +236,8 @@ impl SymbolSetRecord {
         )
         .execute(e)
         .await?;
+
+        metrics::counter!(SYMBOL_SET_SAVED).increment(1);
 
         Ok(())
     }
