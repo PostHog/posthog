@@ -81,7 +81,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         name: 'Experiments',
         breadcrumbsName: 'Experiments',
         icon: 'IconTestTube',
-        iconColor: 'salmon',
+        iconColor: 'rgb(182 42 217)',
         url: urls.experiments(),
         scene: Scene.Experiments,
     },
