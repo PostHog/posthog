@@ -28,7 +28,7 @@ export function VariantScreenshot({
             if (id && mediaIds.length < 5) {
                 const newMediaIds = [...mediaIds, id]
                 setMediaIds(newMediaIds)
-                
+
                 const updatedVariantImages = {
                     ...experiment.parameters?.variant_screenshot_media_ids,
                     [variantKey]: newMediaIds,
@@ -45,35 +45,41 @@ export function VariantScreenshot({
         },
     })
 
-    const handleImageLoad = (mediaId: string) => {
-        setLoadingImages(prev => ({ ...prev, [mediaId]: false }))
+    const handleImageLoad = (mediaId: string): void => {
+        setLoadingImages((prev) => ({ ...prev, [mediaId]: false }))
     }
 
-    const handleImageError = (mediaId: string) =>  {   
-        setLoadingImages(prev => ({ ...prev, [mediaId]: false }))
+    const handleImageError = (mediaId: string): void => {
+        setLoadingImages((prev) => ({ ...prev, [mediaId]: false }))
     }
 
-    const handleDelete = (indexToDelete: number) => {
+    const handleDelete = (indexToDelete: number): void => {
         const newMediaIds = mediaIds.filter((_, index) => index !== indexToDelete)
         setMediaIds(newMediaIds)
-        
+
         const updatedVariantImages = {
             ...experiment.parameters?.variant_screenshot_media_ids,
             [variantKey]: newMediaIds,
         }
-        
+
         updateExperimentVariantImages(updatedVariantImages)
     }
 
-    const getThumbnailWidth = () => {
+    const getThumbnailWidth = (): string => {
         const totalItems = mediaIds.length < 5 ? mediaIds.length + 1 : mediaIds.length
         switch (totalItems) {
-            case 1: return 'w-20'
-            case 2: return 'w-20'
-            case 3: return 'w-16'
-            case 4: return 'w-14'
-            case 5: return 'w-12'
-            default: return 'w-20'
+            case 1:
+                return 'w-20'
+            case 2:
+                return 'w-20'
+            case 3:
+                return 'w-16'
+            case 4:
+                return 'w-14'
+            case 5:
+                return 'w-12'
+            default:
+                return 'w-20'
         }
     }
 
@@ -85,11 +91,10 @@ export function VariantScreenshot({
                 {mediaIds.map((mediaId, index) => (
                     <div key={mediaId} className="relative">
                         <div className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
-                            <div 
-                                onClick={() => setSelectedImageIndex(index)} 
-                                className="cursor-zoom-in relative"
-                            >
-                                <div className={`relative flex overflow-hidden select-none ${widthClass} h-16 rounded before:absolute before:inset-0 before:border before:rounded`}>
+                            <div onClick={() => setSelectedImageIndex(index)} className="cursor-zoom-in relative">
+                                <div
+                                    className={`relative flex overflow-hidden select-none ${widthClass} h-16 rounded before:absolute before:inset-0 before:border before:rounded`}
+                                >
                                     {loadingImages[mediaId] && <LemonSkeleton className="absolute inset-0" />}
                                     <img
                                         className="w-full h-full object-cover"
@@ -116,7 +121,7 @@ export function VariantScreenshot({
                         </div>
                     </div>
                 ))}
-                
+
                 {mediaIds.length < 5 && (
                     <div className={`relative ${widthClass} h-16`}>
                         <LemonFileInput
@@ -151,9 +156,10 @@ export function VariantScreenshot({
             >
                 {selectedImageIndex !== null && mediaIds[selectedImageIndex] && (
                     <img
-                        src={mediaIds[selectedImageIndex]?.startsWith('data:') 
-                            ? mediaIds[selectedImageIndex] 
-                            : `/uploaded_media/${mediaIds[selectedImageIndex]}`
+                        src={
+                            mediaIds[selectedImageIndex]?.startsWith('data:')
+                                ? mediaIds[selectedImageIndex]
+                                : `/uploaded_media/${mediaIds[selectedImageIndex]}`
                         }
                         alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
                         className="max-w-full max-h-[80vh] overflow-auto"
@@ -164,4 +170,4 @@ export function VariantScreenshot({
     )
 }
 
-export default VariantScreenshot;
+export default VariantScreenshot
