@@ -1,3 +1,5 @@
+import { LemonInput } from '@posthog/lemon-ui'
+import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -24,6 +26,18 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
 
     return (
         <>
+            <div className="mb-4">
+                <LemonLabel>Name (optional)</LemonLabel>
+                <LemonInput
+                    value={currentMetric.name}
+                    onChange={(newName) => {
+                        setTrendsExposureMetric({
+                            metricIdx: 0,
+                            name: newName,
+                        })
+                    }}
+                />
+            </div>
             <ActionFilter
                 bordered
                 filters={(() => {

@@ -1,3 +1,5 @@
+import { LemonLabel } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -21,11 +23,23 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
     const { setExperiment, setTrendsMetric } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-
     const currentMetric = experiment.metrics_secondary[metricIdx] as ExperimentTrendsQuery
 
     return (
         <>
+            <div className="mb-4">
+                <LemonLabel>Name (optional)</LemonLabel>
+                <LemonInput
+                    value={currentMetric.name}
+                    onChange={(newName) => {
+                        setTrendsMetric({
+                            metricIdx: 0,
+                            name: newName,
+                            isSecondary: true,
+                        })
+                    }}
+                />
+            </div>
             <ActionFilter
                 bordered
                 filters={(() => {

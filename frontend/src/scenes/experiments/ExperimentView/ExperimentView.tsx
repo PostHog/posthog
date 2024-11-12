@@ -24,7 +24,6 @@ import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 const ResultsTab = (): JSX.Element => {
     const { experiment, experimentResults } = useValues(experimentLogic)
-    const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
 
     const hasResultsInsight = experimentResults && experimentResults.insight
 
@@ -48,12 +47,7 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            <SecondaryMetricsTable
-                experimentId={experiment.id}
-                onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
-                initialMetrics={experiment.secondary_metrics}
-                defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
-            />
+            <SecondaryMetricsTable experimentId={experiment.id} />
         </div>
     )
 }

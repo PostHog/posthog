@@ -193,26 +193,31 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
         setTrendsMetric: ({
             metricIdx,
+            name,
             series,
             filterTestAccounts,
             isSecondary = false,
         }: {
             metricIdx: number
+            name?: string
             series?: any[]
             filterTestAccounts?: boolean
             isSecondary?: boolean
-        }) => ({ metricIdx, series, filterTestAccounts, isSecondary }),
+        }) => ({ metricIdx, name, series, filterTestAccounts, isSecondary }),
         setTrendsExposureMetric: ({
             metricIdx,
+            name,
             series,
             filterTestAccounts,
         }: {
             metricIdx: number
+            name?: string
             series?: any[]
             filterTestAccounts?: boolean
-        }) => ({ metricIdx, series, filterTestAccounts }),
+        }) => ({ metricIdx, name, series, filterTestAccounts }),
         setFunnelsMetric: ({
             metricIdx,
+            name,
             series,
             filterTestAccounts,
             breakdownAttributionType,
@@ -224,6 +229,7 @@ export const experimentLogic = kea<experimentLogicType>([
             isSecondary = false,
         }: {
             metricIdx: number
+            name?: string
             series?: any[]
             filterTestAccounts?: boolean
             breakdownAttributionType?: BreakdownAttributionType
@@ -235,6 +241,7 @@ export const experimentLogic = kea<experimentLogicType>([
             isSecondary?: boolean
         }) => ({
             metricIdx,
+            name,
             series,
             filterTestAccounts,
             breakdownAttributionType,
@@ -303,13 +310,14 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 },
-                setTrendsMetric: (state, { metricIdx, series, filterTestAccounts, isSecondary }) => {
+                setTrendsMetric: (state, { metricIdx, name, series, filterTestAccounts, isSecondary }) => {
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
                     const metric = metrics[metricIdx]
 
                     metrics[metricIdx] = {
                         ...metric,
+                        ...(name !== undefined && { name }),
                         count_query: {
                             ...(metric as ExperimentTrendsQuery).count_query,
                             ...(series && { series }),
@@ -322,12 +330,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                setTrendsExposureMetric: (state, { metricIdx, series, filterTestAccounts }) => {
+                setTrendsExposureMetric: (state, { metricIdx, name, series, filterTestAccounts }) => {
                     const metrics = [...(state?.metrics || [])]
                     const metric = metrics[metricIdx]
 
                     metrics[metricIdx] = {
                         ...metric,
+                        ...(name !== undefined && { name }),
                         exposure_query: {
                             ...(metric as ExperimentTrendsQuery).exposure_query,
                             ...(series && { series }),
@@ -344,6 +353,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     state,
                     {
                         metricIdx,
+                        name,
                         series,
                         filterTestAccounts,
                         breakdownAttributionType,
@@ -361,6 +371,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     metrics[metricIdx] = {
                         ...metric,
+                        ...(name !== undefined && { name }),
                         funnels_query: {
                             ...(metric as ExperimentFunnelsQuery).funnels_query,
                             ...(series && { series }),

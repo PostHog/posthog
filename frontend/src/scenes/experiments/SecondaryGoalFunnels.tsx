@@ -1,3 +1,5 @@
+import { LemonLabel } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -27,6 +29,19 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
 
     return (
         <>
+            <div className="mb-4">
+                <LemonLabel>Name (optional)</LemonLabel>
+                <LemonInput
+                    value={currentMetric.name}
+                    onChange={(newName) => {
+                        setFunnelsMetric({
+                            metricIdx: 0,
+                            name: newName,
+                            isSecondary: true,
+                        })
+                    }}
+                />
+            </div>
             <ActionFilter
                 bordered
                 filters={(() => {

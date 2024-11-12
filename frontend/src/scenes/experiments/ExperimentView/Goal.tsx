@@ -1,12 +1,12 @@
 import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 
 import { ActionFilter as ActionFilterType, AnyPropertyFilter, Experiment, FilterType, InsightType } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
 import { PrimaryGoalFunnels } from '../PrimaryGoalFunnels'
 import { PrimaryGoalTrends } from '../PrimaryGoalTrends'
 import { PrimaryGoalTrendsExposure } from '../PrimaryGoalTrendsExposure'
@@ -99,12 +99,15 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
     } = useValues(experimentLogic({ experimentId }))
-    const { closeExperimentGoalModal, updateExperimentGoal } = useActions(experimentLogic({ experimentId }))
+    const { closeExperimentGoalModal, updateExperimentGoal, setExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
 
     const experimentFiltersLength =
         (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
 
-    const metricType = getMetricType(0)
+    const metricIdx = 0
+    const metricType = getMetricType(metricIdx)
 
     const isInsightLoading = metricType === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
 
@@ -139,6 +142,30 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                 </div>
             }
         >
+            <div className="flex items-center w-full gap-2 mb-4">
+                <span>Metric type</span>
+                <LemonSelect
+                    data-attr="metrics-selector"
+                    value={metricType}
+                    onChange={(newMetricType) => {
+                        const defaultMetric =
+                            newMetricType === InsightType.TRENDS ? getDefaultTrendsMetric() : getDefaultFunnelsMetric()
+
+                        setExperiment({
+                            ...experiment,
+                            metrics: [
+                                ...experiment.metrics.slice(0, metricIdx),
+                                defaultMetric,
+                                ...experiment.metrics.slice(metricIdx + 1),
+                            ],
+                        })
+                    }}
+                    options={[
+                        { value: InsightType.TRENDS, label: <b>Trends</b> },
+                        { value: InsightType.FUNNELS, label: <b>Funnels</b> },
+                    ]}
+                />
+            </div>
             {metricType === InsightType.TRENDS ? <PrimaryGoalTrends /> : <PrimaryGoalFunnels />}
         </LemonModal>
     )
