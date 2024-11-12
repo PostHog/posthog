@@ -692,6 +692,7 @@ export interface ChartSettings {
     rightYAxisSettings?: YAxisSettings
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
+    seriesBreakdownColumn?: string | null
 }
 
 export interface ConditionalFormattingRule {
@@ -1100,7 +1101,7 @@ export type PathsFilter = {
     /** @default 5 */
     stepLimit?: integer
     pathReplacements?: PathsFilterLegacy['path_replacements']
-    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
+    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters'] | null
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
 

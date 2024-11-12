@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { AxisSeries, AxisSeriesSettings, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { seriesBreakdownLogicType } from './seriesBreakdownLogicType'
@@ -48,8 +49,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     key((props) => props.key),
     props({ key: '' } as SeriesBreakdownLogicProps),
     connect({
-        actions: [dataVisualizationLogic, ['clearAxis']],
-        values: [dataVisualizationLogic, ['response', 'columns', 'selectedXAxis', 'selectedYAxis']],
+        actions: [dataVisualizationLogic, ['clearAxis', 'setQuery']],
+        values: [dataVisualizationLogic, ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis']],
     }),
     actions(({ values }) => ({
         addSeriesBreakdown: (columnName: string | null) => ({ columnName, response: values.response }),
@@ -228,5 +229,21 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 }
             },
         ],
+    }),
+    subscriptions(({ values, actions }) => ({
+        selectedSeriesBreakdownColumn: (value: string | null) => {
+            actions.setQuery({
+                ...values.query,
+                chartSettings: {
+                    ...(values.query.chartSettings ?? {}),
+                    seriesBreakdownColumn: value,
+                },
+            })
+        },
+    })),
+    afterMount(({ values, actions }) => {
+        if (values.query?.chartSettings?.seriesBreakdownColumn) {
+            actions.addSeriesBreakdown(values.query.chartSettings.seriesBreakdownColumn)
+        }
     }),
 ])

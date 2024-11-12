@@ -1002,6 +1002,16 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        dynamicFeatureFlagKey: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string => {
+                return experiment.name
+                    .toLowerCase()
+                    .replace(/[^A-Za-z0-9-_]+/g, '-')
+                    .replace(/-+$/, '')
+                    .replace(/^-+/, '')
+            },
+        ],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,

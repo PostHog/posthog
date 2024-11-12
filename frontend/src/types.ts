@@ -2356,7 +2356,7 @@ export interface PathsFilterType extends FilterType {
     /** @asType integer */
     step_limit?: number // Paths Step Limit
     path_replacements?: boolean
-    local_path_cleaning_filters?: PathCleaningFilter[]
+    local_path_cleaning_filters?: PathCleaningFilter[] | null
     /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
     /** @asType integer */

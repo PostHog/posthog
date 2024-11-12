@@ -1,6 +1,6 @@
 import './Experiment.scss'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -16,7 +16,7 @@ import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, featureFlags, groupTypes, aggregationLabel } = useValues(experimentLogic)
+    const { experiment, featureFlags, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
     const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
@@ -31,7 +31,27 @@ const ExperimentFormFields = (): JSX.Element => {
                     <LemonField
                         name="feature_flag_key"
                         label="Feature flag key"
-                        help="Each experiment is backed by a feature flag. You'll use this key in your code."
+                        help={
+                            <div className="flex items-center space-x-2">
+                                <span>
+                                    Each experiment is backed by a feature flag. You'll use this key in your&nbsp;code.
+                                </span>
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    tooltip={
+                                        dynamicFeatureFlagKey
+                                            ? "Use '" + dynamicFeatureFlagKey + "' as the feature flag key."
+                                            : 'Fill out the experiment name first.'
+                                    }
+                                    onClick={() => {
+                                        setExperiment({ feature_flag_key: dynamicFeatureFlagKey })
+                                    }}
+                                >
+                                    <IconMagicWand className="mr-1" /> Generate
+                                </LemonButton>
+                            </div>
+                        }
                     >
                         <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
                     </LemonField>
