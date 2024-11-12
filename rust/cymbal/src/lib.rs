@@ -85,7 +85,7 @@ fn get_props(event: &ClickHouseEvent) -> Result<ErrProps, EventError> {
 }
 
 fn take_exception_list(event_id: Uuid, props: &mut ErrProps) -> Result<Vec<Exception>, EventError> {
-    let Some(mut exception_list) = props.exception_list.as_mut() else {
+    let Some(exception_list) = props.exception_list.as_mut() else {
         return Err(EventError::NoExceptionList(event_id));
     };
 
@@ -93,7 +93,7 @@ fn take_exception_list(event_id: Uuid, props: &mut ErrProps) -> Result<Vec<Excep
         return Err(EventError::EmptyExceptionList(event_id));
     }
 
-    Ok(std::mem::take(&mut exception_list))
+    Ok(std::mem::take(exception_list))
 }
 
 async fn process_exception(
