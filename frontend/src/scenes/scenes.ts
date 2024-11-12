@@ -234,6 +234,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.SQLEditor]: {
+        projectBased: true,
+        name: 'SQL editor',
+        defaultDocsPath: '/docs/data-warehouse/setup',
+        layout: 'app-raw-no-header',
+    },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
         name: 'Data warehouse',
@@ -552,6 +558,7 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
+    [urls.sqlEditor()]: Scene.SQLEditor,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.DataManagement,

@@ -94,12 +94,8 @@ async fn main() -> Result<(), Error> {
 
         let properties: ErrProps = match serde_json::from_str(properties) {
             Ok(r) => r,
-            Err(err) => {
+            Err(_) => {
                 metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
-                error!(
-                    "Error parsing properties: {:?} from properties {:?}",
-                    err, properties
-                );
                 continue;
             }
         };
