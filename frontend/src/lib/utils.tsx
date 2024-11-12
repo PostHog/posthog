@@ -718,6 +718,23 @@ export function eventToDescription(
     return event.event
 }
 
+// $event_type to verb map
+const eventTypeToVerb: { [key: string]: string } = {
+    click: 'clicked',
+    change: 'typed something into',
+    submit: 'submitted',
+    touch: 'touched a',
+    value_changed: 'changed value in',
+    toggle: 'toggled',
+    menu_action: 'pressed menu',
+    swipe: 'swiped',
+    pinch: 'pinched',
+    pan: 'panned',
+    rotation: 'rotated',
+    long_press: 'long pressed',
+    scroll: 'scrolled in',
+}
+
 export function autoCaptureEventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
@@ -726,22 +743,7 @@ export function autoCaptureEventToDescription(
         return event.event
     }
 
-    const getVerb = (): string => {
-        if (event.properties.$event_type === 'click') {
-            return 'clicked'
-        }
-        if (event.properties.$event_type === 'change') {
-            return 'typed something into'
-        }
-        if (event.properties.$event_type === 'submit') {
-            return 'submitted'
-        }
-
-        if (event.properties.$event_type === 'touch') {
-            return 'pressed'
-        }
-        return 'interacted with'
-    }
+    const getVerb = (): string => eventTypeToVerb[event.properties.$event_type] || 'interacted with'
 
     const getTag = (): string => {
         if (event.elements?.[0]?.tag_name === 'a') {

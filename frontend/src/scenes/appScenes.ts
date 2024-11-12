@@ -40,6 +40,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
     [Scene.DataModel]: () => import('./data-model/DataModelScene'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
+    [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.DataWarehouseTable]: () => import('./data-warehouse/new/NewSourceWizard'),
     [Scene.DataWarehouseExternal]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehouseRedirect]: () => import('./data-warehouse/redirect/DataWarehouseRedirectScene'),
