@@ -1044,6 +1044,12 @@ class TestSurvey(APIBaseTest):
                     "start_date": None,
                     "end_date": None,
                     "responses_limit": None,
+                    "feature_flag_keys": [
+                        {"key": "linked_flag_key", "value": None},
+                        {"key": "targeting_flag_key", "value": None},
+                        {"key": "internal_targeting_flag_key", "value": survey.internal_targeting_flag.key},
+                        {"key": "internal_response_sampling_flag_key", "value": None},
+                    ],
                     "iteration_count": None,
                     "iteration_frequency_days": None,
                     "iteration_start_dates": [],

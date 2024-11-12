@@ -59,6 +59,21 @@ class SurveySerializer(serializers.ModelSerializer):
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
+    feature_flag_keys = serializers.SerializerMethodField()
+
+    def get_feature_flag_keys(self, survey: Survey) -> list:
+        return [
+            {"key": "linked_flag_key", "value": survey.linked_flag.key if survey.linked_flag else None},
+            {"key": "targeting_flag_key", "value": survey.targeting_flag.key if survey.targeting_flag else None},
+            {
+                "key": "internal_targeting_flag_key",
+                "value": survey.internal_targeting_flag.key if survey.internal_targeting_flag else None,
+            },
+            {
+                "key": "internal_response_sampling_flag_key",
+                "value": survey.internal_response_sampling_flag.key if survey.internal_response_sampling_flag else None,
+            },
+        ]
 
     class Meta:
         model = Survey
@@ -80,6 +95,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "feature_flag_keys",
             "iteration_count",
             "iteration_frequency_days",
             "iteration_start_dates",

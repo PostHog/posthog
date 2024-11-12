@@ -19,6 +19,9 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
         if datetime.fromisoformat(entry.get("date")).date() == today_date:
             today_entry = entry
 
+    if today_entry is None:
+        return
+
     total_response_count = _get_survey_responses_count(survey.id)
     if total_response_count < today_entry.get("daily_response_limit", 0) and survey.internal_response_sampling_flag:
         # Update the internal_response_sampling_flag's rollout percentage
