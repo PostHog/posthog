@@ -30,6 +30,16 @@ class PropertyGroupManager:
         self.__cluster = cluster
         self.__groups = groups
 
+    def __get_property_map_alias_name(self, column: ColumnName) -> str:
+        return f"{column}_map"
+
+    def __get_property_map_alias_definition(self, column: ColumnName) -> str:
+        return f"""
+            {self.__get_property_map_alias_name(column)}
+            Map(String, String)
+            ALIAS mapSort(CAST(JSONExtractKeysAndValues({column}, 'String'), 'Map(String, String)'))
+        """
+
     def __get_property_group_map_column_name(self, column: ColumnName, group_name: PropertyGroupName) -> str:
         return f"{column}_group_{group_name}"
 
@@ -50,9 +60,9 @@ class PropertyGroupManager:
         else:
             return f"""\
                 {column_definition}
-                MATERIALIZED mapSort(
-                    mapFilter((key, _) -> {group_definition.key_filter_expression},
-                    CAST(JSONExtractKeysAndValues({column}, 'String'), 'Map(String, String)'))
+                MATERIALIZED mapFilter(
+                    (key, _) -> {group_definition.key_filter_expression},
+                    {self.__get_property_map_alias_name(column)}
                 )
                 CODEC({group_definition.codec})
             """
@@ -70,6 +80,8 @@ class PropertyGroupManager:
 
     def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
         for column, groups in self.__groups[table].items():
+            # TODO: Ideally this would only be added to the schema if all groups are materialized.
+            yield self.__get_property_map_alias_definition(column)
             for group_name in groups:
                 yield self.__get_property_group_column_definition(table, column, group_name)
                 for index_definition in self.__get_property_group_index_definitions(table, column, group_name):
@@ -78,6 +90,7 @@ class PropertyGroupManager:
     def get_alter_create_statements(
         self, table: TableName, column: ColumnName, group_name: PropertyGroupName
     ) -> Iterable[str]:
+        # TODO: This needs to account for the map alias column if it doesn't already exist.
         yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD COLUMN IF NOT EXISTS {self.__get_property_group_column_definition(table, column, group_name)}"
         for index_definition in self.__get_property_group_index_definitions(table, column, group_name):
             yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD INDEX IF NOT EXISTS {index_definition}"
