@@ -17,53 +17,9 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Ins
     }
 
     // Trends Experiment
-    if (experimentInsightType === InsightType.TRENDS) {
-        if (experiment.parameters?.custom_exposure_filter) {
-            return queryFromFilters(experiment.parameters.custom_exposure_filter)
-        }
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                dateRange: {
-                    date_from: experiment.start_date,
-                    date_to: experiment.end_date,
-                },
-                interval: 'day',
-                trendsFilter: {
-                    display: ChartDisplayType.ActionsLineGraphCumulative,
-                    showLegend: true,
-                    smoothingIntervals: 1,
-                },
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: '$feature_flag_called',
-                        math: BaseMathType.UniqueUsers,
-                    },
-                ],
-                breakdownFilter: {
-                    breakdown: `$feature_flag_response`,
-                    breakdown_type: 'event',
-                },
-                properties: [
-                    {
-                        key: `$feature_flag_response`,
-                        value: variants,
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Event,
-                    },
-                    {
-                        key: '$feature_flag',
-                        value: [experiment.feature_flag_key],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Event,
-                    },
-                ],
-            },
-        }
+    if (experimentInsightType === InsightType.TRENDS && experiment.parameters?.custom_exposure_filter) {
+        return queryFromFilters(experiment.parameters.custom_exposure_filter)
     }
-    // Funnel Experiment
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -83,6 +39,14 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Ins
                     kind: NodeKind.EventsNode,
                     event: experiment.filters?.events?.[0]?.name,
                     math: BaseMathType.UniqueUsers,
+                    properties: [
+                        {
+                            key: `$feature/${experiment.feature_flag_key}`,
+                            value: variants,
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
                 },
             ],
             breakdownFilter: {
