@@ -161,24 +161,39 @@ describe('the feature flag release conditions logic', () => {
 
         it('updates when adding conditions to a flag', async () => {
             jest.spyOn(api, 'create')
-                .mockReturnValueOnce(Promise.resolve({ users_affected: 140, total_users: 2000 }))
-                .mockReturnValueOnce(Promise.resolve({ users_affected: 240, total_users: 2000 }))
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 124, total_users: 2000 }))
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 248, total_users: 2000 }))
+                .mockReturnValueOnce(Promise.resolve({ users_affected: 496, total_users: 2000 }))
 
-            logic.actions.updateConditionSet(0, 20, [
-                {
-                    key: 'aloha',
-                    type: PropertyFilterType.Person,
-                    operator: PropertyOperator.Exact,
-                    value: null,
-                },
-            ])
-            await expectLogic(logic)
+            logic?.unmount()
+            logic = featureFlagReleaseConditionsLogic({
+                id: '5678',
+                filters: generateFeatureFlagFilters([
+                    {
+                        properties: [],
+                        rollout_percentage: 50,
+                        variant: null,
+                    },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateConditionSet(0, 20, [
+                    {
+                        key: 'aloha',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: null,
+                    },
+                ])
+            })
                 // first call is to clear the affected users on mount
                 // second call is to set the affected users for mount logic conditions
                 // third call is to set the affected users for the updateConditionSet action
                 .toDispatchActions(['setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers', 'setTotalUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: 140 },
+                    affectedUsers: { 0: 124 },
                     totalUsers: 2000,
                 })
 
@@ -195,11 +210,11 @@ describe('the feature flag release conditions logic', () => {
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
                     affectedUsers: { 0: undefined },
-                    totalUsers: null,
+                    totalUsers: 2000,
                 })
                 .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: 140 },
+                    affectedUsers: { 0: 248 },
                     totalUsers: 2000,
                 })
 
@@ -209,12 +224,13 @@ describe('the feature flag release conditions logic', () => {
             })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: 140, 1: -1 },
+                    // expect the new empty condition set to initialize affected users to be same as total users
+                    affectedUsers: { 0: 248, 1: 2000 },
                     totalUsers: 2000,
                 })
                 .toNotHaveDispatchedActions(['setTotalUsers'])
 
-            // update newly added condition set
+            // // update newly added condition set
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(1, 20, [
                     {
@@ -227,7 +243,7 @@ describe('the feature flag release conditions logic', () => {
             })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: 140, 1: undefined },
+                    affectedUsers: { 0: 248, 1: undefined },
                     totalUsers: 2000,
                 })
                 .toNotHaveDispatchedActions(['setTotalUsers'])
@@ -245,12 +261,12 @@ describe('the feature flag release conditions logic', () => {
             })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: 140, 1: undefined },
+                    affectedUsers: { 0: 248, 1: undefined },
                     totalUsers: 2000,
                 })
                 .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: 140, 1: 240 },
+                    affectedUsers: { 0: 248, 1: 496 },
                     totalUsers: 2000,
                 })
 
@@ -260,11 +276,11 @@ describe('the feature flag release conditions logic', () => {
             })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: 240, 1: 240 },
+                    affectedUsers: { 0: 496, 1: 496 },
                 })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
-                    affectedUsers: { 0: 240, 1: undefined },
+                    affectedUsers: { 0: 496, 1: undefined },
                 })
         })
 
@@ -308,7 +324,7 @@ describe('the feature flag release conditions logic', () => {
         })
 
         describe('API calls', () => {
-            beforeEach(() => {
+            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
                 jest.spyOn(api, 'create')
 
                 logic?.unmount()
@@ -344,9 +360,7 @@ describe('the feature flag release conditions logic', () => {
                     ]),
                 })
                 logic.mount()
-            })
 
-            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
                 await expectLogic(logic)
                     .toDispatchActions([
                         'setAffectedUsers',
@@ -358,11 +372,11 @@ describe('the feature flag release conditions logic', () => {
                         'setTotalUsers',
                     ])
                     .toMatchValues({
-                        affectedUsers: { 0: -1, 1: 120, 2: 120 },
+                        affectedUsers: { 0: 120, 1: 120, 2: 120 },
                         totalUsers: 2000,
                     })
 
-                expect(api.create).toHaveBeenCalledTimes(2)
+                expect(api.create).toHaveBeenCalledTimes(4)
 
                 await expectLogic(logic, () => {
                     logic.actions.updateConditionSet(0, 20, undefined, undefined)
@@ -377,7 +391,7 @@ describe('the feature flag release conditions logic', () => {
                 }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
 
                 // no extra calls when changing rollout percentage
-                expect(api.create).toHaveBeenCalledTimes(2)
+                expect(api.create).toHaveBeenCalledTimes(4)
             })
         })
     })
