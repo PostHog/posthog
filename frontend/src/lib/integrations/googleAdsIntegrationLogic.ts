@@ -1,7 +1,6 @@
-import { actions, connect, kea, key, path, props } from 'kea'
+import { actions, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { GoogleAdsConversionActionType } from '~/types'
 
@@ -11,9 +10,6 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
     props({} as { id: number }),
     key((props) => props.id),
     path((key) => ['lib', 'integrations', 'googleAdsIntegrationLogic', key]),
-    connect({
-        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
-    }),
     actions({
         loadGoogleAdsConversionActions: (customerId: string) => customerId,
         loadGoogleAdsAccessibleAccounts: true,
