@@ -28,7 +28,7 @@ class RouterNode(AssistantNode):
                 ("system", router_system_prompt),
             ],
             template_format="mustache",
-        ) + self._reconstruct_conversation(state)
+        ) + self._construct_messages(state)
         chain = prompt | self._model
         output: RouterOutput = chain.invoke({}, config)
         return {"messages": [RouterMessage(content=output.visualization_type)]}
@@ -45,7 +45,7 @@ class RouterNode(AssistantNode):
             RouterOutput
         )
 
-    def _reconstruct_conversation(self, state: AssistantState):
+    def _construct_messages(self, state: AssistantState):
         history: list[BaseMessage] = []
         for message in state["messages"]:
             if isinstance(message, HumanMessage):

@@ -44,13 +44,13 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation(self):
         node = self._get_node()
-        history = node._reconstruct_conversation({"messages": [HumanMessage(content="Text")]})
+        history = node._construct_messages({"messages": [HumanMessage(content="Text")]})
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
         self.assertIn("Text", history[0].content)
         self.assertNotIn(f"{{question}}", history[0].content)
 
-        history = node._reconstruct_conversation(
+        history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -65,7 +65,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[1].type, "ai")
         self.assertEqual(history[1].content, "randomplan")
 
-        history = node._reconstruct_conversation(
+        history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -86,7 +86,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation_and_omits_unknown_messages(self):
         node = self._get_node()
-        history = node._reconstruct_conversation(
+        history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -101,7 +101,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation_with_failures(self):
         node = self._get_node()
-        history = node._reconstruct_conversation(
+        history = node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),

@@ -62,9 +62,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[T]):
         intermediate_steps = state.get("intermediate_steps") or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
-        generation_prompt = prompt + self._reconstruct_conversation(
-            state, validation_error_message=validation_error_message
-        )
+        generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
         merger = merge_message_runs()
         parser = parse_pydantic_structured_output(self.output_model)
 
@@ -119,7 +117,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[T]):
         )
         return ET.tostring(root, encoding="unicode")
 
-    def _reconstruct_conversation(
+    def _construct_messages(
         self, state: AssistantState, validation_error_message: Optional[str] = None
     ) -> list[BaseMessage]:
         """

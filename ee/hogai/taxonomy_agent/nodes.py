@@ -56,7 +56,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 ],
                 template_format="mustache",
             )
-            + self._reconstruct_conversation(state)
+            + self._construct_messages(state)
             + ChatPromptTemplate.from_messages(
                 [
                     ("user", react_scratchpad_prompt),
@@ -156,7 +156,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .values_list("group_type", flat=True)
         )
 
-    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
