@@ -19,7 +19,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 TestSchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 
 
-class TestGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
+class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     INSIGHT_NAME = "Test"
     OUTPUT_MODEL = SchemaGeneratorOutput[AssistantTrendsQuery]
     OUTPUT_SCHEMA = {}
@@ -39,8 +39,8 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.schema = AssistantTrendsQuery(series=[])
 
     def test_node_runs(self):
-        node = TestGeneratorNode(self.team)
-        with patch.object(TestGeneratorNode, "_model") as generator_model_mock:
+        node = DummyGeneratorNode(self.team)
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: TestSchema(reasoning_steps=["step"], answer=self.schema).model_dump()
             )
@@ -60,7 +60,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_agent_reconstructs_conversation(self):
-        node = TestGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team)
         history = node._construct_messages({"messages": [HumanMessage(content="Text")]})
         self.assertEqual(len(history), 2)
         self.assertEqual(history[0].type, "human")
@@ -82,7 +82,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Text", history[2].content)
 
-        node = TestGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             {
                 "messages": [
@@ -117,7 +117,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Follow Up", history[5].content)
 
     def test_agent_reconstructs_conversation_and_merges_messages(self):
-        node = TestGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             {
                 "messages": [HumanMessage(content="Te"), HumanMessage(content="xt")],
@@ -136,7 +136,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Te\nxt", history[2].content)
 
-        node = TestGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             {
                 "messages": [
@@ -172,8 +172,8 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Follow\nUp", history[5].content)
 
     def test_failover_with_incorrect_schema(self):
-        node = TestGeneratorNode(self.team)
-        with patch.object(TestGeneratorNode, "_model") as generator_model_mock:
+        node = DummyGeneratorNode(self.team)
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             schema = TestSchema(reasoning_steps=[], answer=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
             schema["answer"] = []
@@ -194,9 +194,9 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(new_state["intermediate_steps"]), 2)
 
     def test_node_leaves_failover(self):
-        node = TestGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team)
         with patch.object(
-            TestGeneratorNode,
+            DummyGeneratorNode,
             "_model",
             return_value=RunnableLambda(lambda _: TestSchema(reasoning_steps=[], answer=self.schema).model_dump()),
         ):
@@ -222,8 +222,8 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(new_state["intermediate_steps"])
 
     def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
-        node = TestGeneratorNode(self.team)
-        with patch.object(TestGeneratorNode, "_model") as generator_model_mock:
+        node = DummyGeneratorNode(self.team)
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             schema = TestSchema(reasoning_steps=[], answer=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
             schema["answer"] = []
@@ -245,7 +245,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
-        node = TestGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             {
                 "messages": [HumanMessage(content="Text")],
@@ -270,7 +270,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("uniqexception", history[3].content)
 
     def test_agent_reconstructs_conversation_with_failed_messages(self):
-        node = TestGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             {
                 "messages": [
@@ -294,7 +294,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Text", history[2].content)
 
     def test_router(self):
-        node = TestGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team)
         state = node.router({"messages": [], "intermediate_steps": None})
         self.assertEqual(state, "next")
         state = node.router(
