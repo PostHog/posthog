@@ -1,10 +1,10 @@
 import { IconFlag } from '@posthog/icons'
+import { LemonCollapse } from '@posthog/lemon-ui'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { EventType } from '~/types'
@@ -32,37 +32,38 @@ function parseToFrames(rawTrace: string): StackFrame[] {
 }
 
 function StackTrace({ rawTrace, showAllFrames }: { rawTrace: string; showAllFrames: boolean }): JSX.Element | null {
-    try {
-        const frames = parseToFrames(rawTrace)
-        return (
-            <>
-                {frames.length ? (
-                    frames.map((frame, index) => {
-                        const { filename, lineno, colno, function: functionName, context_line, in_app } = frame
+    const frames = parseToFrames(rawTrace)
 
-                        return showAllFrames || in_app ? (
-                            <TitledSnack
-                                key={index}
-                                title={functionName}
-                                value={
-                                    <>
-                                        {filename}:{lineno}:{colno}
-                                        {context_line ? `:${context_line}` : ''}
-                                    </>
-                                }
-                            />
-                        ) : null
-                    })
-                ) : (
-                    <LemonTag>Empty stack trace</LemonTag>
-                )}
-            </>
-        )
-    } catch (e: any) {
-        //very meta
-        posthog.capture('Cannot parse stack trace in Exception event', { tag: 'error-display-stack-trace', e })
-        return <LemonTag type="caution">Error parsing stack trace</LemonTag>
-    }
+    const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
+
+    const panels = displayFrames.map(({ filename, lineno, colno, function: functionName, context_line }, index) => ({
+        key: index,
+        header: (
+            <div className="flex flex-wrap space-x-0.5">
+                <span>{filename}</span>
+                {functionName ? (
+                    <div className="flex space-x-0.5">
+                        <span className="text-muted">in</span>
+                        <span>{functionName}</span>
+                    </div>
+                ) : null}
+                {lineno && colno ? (
+                    <div className="flex space-x-0.5">
+                        <span className="text-muted">at line</span>
+                        <span>
+                            {lineno}:{colno}
+                            {context_line ? `:${context_line}` : ''}
+                        </span>
+                    </div>
+                ) : null}
+            </div>
+        ),
+        content: index % 2 == 0 ? 'THis is a test' : null,
+    }))
+
+    console.log(panels)
+
+    return <LemonCollapse defaultActiveKeys={[0]} multiple panels={panels} size="xsmall" />
 }
 
 function ChainedStackTraces({ exceptionList }: { exceptionList: ExceptionTrace[] }): JSX.Element {
