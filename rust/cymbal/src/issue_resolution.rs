@@ -23,18 +23,14 @@ pub async fn resolve_issue_id(
     team_id: i32,
     fingerprint: &str,
 ) -> Result<Uuid, Error> {
-    create_issue(pool, team_id, fingerprint).await?;
+    let existing = load_issue_override(pool, team_id, fingerprint).await?;
 
-    // let existing = load_issue_override(pool, team_id, fingerprint.clone()).await?;
+    let issue_fingerprint = match existing {
+        Some(f) => f,
+        None => create_issue(pool, team_id, fingerprint).await?,
+    };
 
-    // let issue_fingerprint = match existing {
-    //     Some(f) => f,
-    //     None => create_issue(pool, team_id, fingerprint.clone()).await?,
-    // };
-
-    return Ok(Uuid::now_v7());
-
-    // Ok(issue_fingerprint.issue_id)
+    Ok(issue_fingerprint.issue_id)
 }
 
 pub async fn load_issue_override<'c, E>(
@@ -119,22 +115,30 @@ mod test {
             .unwrap();
 
         // Verify both records are created in Postgres
-        // let record = super::load_issue_override(&db, team_id, fingerprint.clone())
-        //     .await
-        //     .unwrap()
-        //     .unwrap();
+        let record = super::load_issue_override(&db, team_id, &fingerprint)
+            .await
+            .unwrap()
+            .unwrap();
 
-        // assert_eq!(record.fingerprint, fingerprint);
-        // assert_eq!(record.version, 0);
+        assert_eq!(record.fingerprint, fingerprint);
+        assert_eq!(record.version, 0);
 
-        // TODO: add the other model
+        super::resolve_issue_id(&db, team_id, &fingerprint)
+            .await
+            .unwrap();
 
-        // let result = super::resolve_issue_id(&db, team_id, &fingerprint)
-        //     .await
-        //     .unwrap();
+        let result = sqlx::query!(
+            r#"
+                SELECT COUNT(*)
+                FROM posthog_errortrackingissue
+            "#,
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
 
-        // assert_eq!(record.issue_id, result);
-
-        // TODO: make sure only one posthog_errortrackingissue was ever created
+        // Olly: don't understand why I need the Some here
+        // I'm just trying to assert that only one record exists
+        assert_eq!(result.count, Some(1))
     }
 }

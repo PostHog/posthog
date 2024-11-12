@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+use moka::ops::compute::Op;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{digest::Update, Sha512};
+use uuid::Uuid;
 
 use crate::frames::{Frame, RawFrame};
 
@@ -48,6 +50,8 @@ pub struct Exception {
 pub struct ErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
+    #[serde(rename = "$exception_issue_id")]
+    pub resolved_issue_id: Option<Uuid>,
     #[serde(flatten)] // A catch-all for all the properties we don't "care" about
     pub other: HashMap<String, Value>,
 }

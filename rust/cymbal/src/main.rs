@@ -9,7 +9,7 @@ use cymbal::{
     config::Config,
     error::Error,
     fingerprinting,
-    issue_resolution::resolve_issue,
+    issue_resolution::{resolve_issue, resolve_issue_id},
     issues::Issue,
     metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
     types::{ErrProps, Stacktrace},
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Error> {
             continue;
         };
 
-        let properties: ErrProps = match serde_json::from_str(properties) {
+        let mut properties: ErrProps = match serde_json::from_str(properties) {
             Ok(r) => r,
             Err(_) => {
                 metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
@@ -156,7 +156,14 @@ async fn main() -> Result<(), Error> {
 
         let fingerprint = fingerprinting::generate_fingerprint(&exception_list);
 
-        let _issue_id = resolve_issue_id(&context.pool, event.team_id, fingerprint);
+        let Ok(resolved_issue_id) =
+            resolve_issue_id(&context.pool, event.team_id, &fingerprint).await
+        else {
+            metrics::counter!(ERRORS, "cause" => "fingerprint_lookup_failed").increment(1);
+            continue;
+        };
+
+        properties.resolved_issue_id = Some(resolved_issue_id);
 
         metrics::counter!(STACK_PROCESSED).increment(1);
         whole_loop.label("finished", "true").fin();
