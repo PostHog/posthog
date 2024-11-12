@@ -48,7 +48,10 @@ pub struct Exception {
 pub struct ErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
-    #[serde(rename = "$exception_fingerprint")]
+    #[serde(
+        rename = "$exception_fingerprint",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub fingerprint: Option<String>, // We expect this not to exist when the event is received, and we populate it as part of processing
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info

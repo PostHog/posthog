@@ -97,7 +97,7 @@ impl<F> Saving<F> {
         reason: &FrameError,
     ) -> Result<(), UnhandledError> {
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "false");
-        let res = SymbolSetRecord {
+        SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
             set_ref,
@@ -108,7 +108,7 @@ impl<F> Saving<F> {
         .save(&self.pool)
         .await?;
         start.label("outcome", "success").fin();
-        Ok(res)
+        Ok(())
     }
 
     fn add_prefix(&self, key: String) -> String {
