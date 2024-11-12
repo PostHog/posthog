@@ -78,6 +78,8 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
     , {", ".join(property_groups.get_create_table_pieces("sharded_events"))}
+    , properties_all Map(String, String) MATERIALIZED CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)') COMMENT 'column_materializer::properties_all'
+    , person_properties_all Map(String, String) MATERIALIZED CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)') COMMENT 'column_materializer::person_properties_all'
 """
 
 EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
@@ -93,6 +95,8 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
     , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
     , {", ".join(property_groups.get_create_table_pieces("events"))}
+    , properties_all Map(String, String) COMMENT 'column_materializer::properties_all'
+    , person_properties_all Map(String, String) COMMENT 'column_materializer::person_properties_all'
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
