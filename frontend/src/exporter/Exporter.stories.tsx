@@ -49,7 +49,7 @@ TrendsLineInsightLegend.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
     legend: true,
 }
-TrendsLineInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
+TrendsLineInsightLegend.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsLineInsightDetailed: Story = Template.bind({})
 TrendsLineInsightDetailed.args = {

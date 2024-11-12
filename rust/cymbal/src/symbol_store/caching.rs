@@ -1,59 +1,54 @@
 use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
 use axum::async_trait;
-use sourcemap::SourceMap;
 use tokio::sync::Mutex;
 
 use crate::{
     error::Error,
-    metric_consts::{
-        STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_HITS, STORE_CACHE_MISSES,
-        STORE_CACHE_SIZE,
-    },
+    metric_consts::{STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS},
 };
 
-use super::SymbolProvider;
+use super::{saving::Saveable, Fetcher, Parser, Provider};
 
-pub struct CachingProvider<P> {
-    cache: Arc<Mutex<CacheInner>>,
-    provider: P,
+pub struct Caching<P> {
+    inner: P,
+    cache: Arc<Mutex<SymbolSetCache>>,
 }
 
-impl<P> CachingProvider<P> {
-    pub fn new(max_bytes: usize, provider: P, shared: Arc<Mutex<CacheInner>>) -> Self {
-        metrics::gauge!(STORE_CACHE_SIZE).set(max_bytes as f64);
-        Self {
-            cache: shared,
-            provider,
-        }
+impl<P> Caching<P> {
+    pub fn new(inner: P, cache: Arc<Mutex<SymbolSetCache>>) -> Self {
+        Self { inner, cache }
     }
 }
 
 #[async_trait]
-impl<P> SymbolProvider for CachingProvider<P>
+impl<P> Provider for Caching<P>
 where
-    P: SymbolProvider,
+    P: Fetcher + Parser<Source = P::Fetched>,
     P::Ref: ToString + Send,
-    P::Set: Cacheable,
+    P::Fetched: Countable + Send,
+    P::Set: Any + Send + Sync,
 {
     type Ref = P::Ref;
     type Set = P::Set;
 
-    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Error> {
-        let key = r.to_string();
+    async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Error> {
         let mut cache = self.cache.lock().await;
-        if let Some(res) = cache.get::<Self::Set>(&key) {
-            metrics::counter!(STORE_CACHE_HITS).increment(1);
-            return Ok(res);
+        let cache_key = format!("{}:{}", team_id, r.to_string());
+        if let Some(set) = cache.get(&cache_key) {
+            return Ok(set);
         }
-        let res = self.provider.fetch(team_id, r).await?;
-        cache.insert(key, res.clone(), res.bytes());
-        metrics::counter!(STORE_CACHE_MISSES).increment(1);
-        Ok(res)
+        let found = self.inner.fetch(team_id, r).await?;
+        let bytes = found.byte_count();
+        let parsed = self.inner.parse(found).await?;
+
+        let parsed = Arc::new(parsed);
+        cache.insert(cache_key, parsed.clone(), bytes);
+        Ok(parsed)
     }
 }
 
-pub struct CacheInner {
+pub struct SymbolSetCache {
     // We expect this cache to consist of few, but large, items.
     // TODO - handle cases where two CachedSymbolSets have identical keys but different types
     cached: HashMap<String, CachedSymbolSet>,
@@ -61,7 +56,7 @@ pub struct CacheInner {
     max_bytes: usize,
 }
 
-impl CacheInner {
+impl SymbolSetCache {
     pub fn new(max_bytes: usize) -> Self {
         Self {
             cached: HashMap::new(),
@@ -69,10 +64,8 @@ impl CacheInner {
             max_bytes,
         }
     }
-}
 
-impl CacheInner {
-    fn insert<T>(&mut self, key: String, value: Arc<T>, bytes: usize)
+    pub fn insert<T>(&mut self, key: String, value: Arc<T>, bytes: usize)
     where
         T: Any + Send + Sync,
     {
@@ -89,15 +82,12 @@ impl CacheInner {
         self.evict();
     }
 
-    fn get<T>(&mut self, key: &str) -> Option<Arc<T>>
+    pub fn get<T>(&mut self, key: &str) -> Option<Arc<T>>
     where
         T: Any + Send + Sync,
     {
-        let held = self.cached.get_mut(key).map(|v| {
-            v.last_used = Instant::now();
-            v
-        })?;
-
+        let held = self.cached.get_mut(key)?;
+        held.last_used = Instant::now();
         held.data.clone().downcast().ok()
     }
 
@@ -139,22 +129,18 @@ struct CachedSymbolSet {
     pub last_used: Instant,
 }
 
-pub trait Cacheable: Any + Send + Sync {
-    fn bytes(&self) -> usize;
+pub trait Countable {
+    fn byte_count(&self) -> usize;
 }
 
-impl Cacheable for Vec<u8> {
-    fn bytes(&self) -> usize {
+impl Countable for Vec<u8> {
+    fn byte_count(&self) -> usize {
         self.len()
     }
 }
 
-impl Cacheable for SourceMap {
-    fn bytes(&self) -> usize {
-        // This is an extremely expensive way to get the size of a sourcemap, but we're more-or-less ok with that,
-        // since we only call it when we add an item to the cache, which should be rare.
-        let mut data = vec![];
-        self.to_writer(&mut data).unwrap();
-        data.len()
+impl Countable for Saveable {
+    fn byte_count(&self) -> usize {
+        self.data.len()
     }
 }

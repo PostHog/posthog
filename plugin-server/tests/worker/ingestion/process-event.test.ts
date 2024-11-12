@@ -1,6 +1,8 @@
 import * as IORedis from 'ioredis'
+import { Consumer, Kafka, KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
 
+import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
 import { Hub, ISOTimestamp, Person, PreIngestionEvent } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
@@ -13,11 +15,12 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
 
 let hub: Hub
+let kafka: Kafka
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 
 beforeAll(async () => {
-    await resetKafka()
+    kafka = await resetKafka()
 })
 
 beforeEach(async () => {
@@ -45,14 +48,32 @@ describe('EventsProcessor#createEvent()', () => {
         eventUuid,
         timestamp,
         distinctId: 'my_id',
-        ip: '127.0.0.1',
         teamId: 2,
+        projectId: 1,
         event: '$pageview',
         properties: { event: 'property', $set: { foo: 'onEvent' } },
-        elementsList: [],
     }
 
+    let kafkaEvents: KafkaMessage[]
+    let kafkaEventsConsumer: Consumer
+
+    beforeAll(async () => {
+        kafkaEventsConsumer = kafka.consumer({ groupId: 'process-event-test' })
+        await kafkaEventsConsumer.subscribe({ topic: KAFKA_EVENTS_JSON })
+        await kafkaEventsConsumer.run({
+            eachMessage: ({ message }) => {
+                kafkaEvents.push(message)
+                return Promise.resolve()
+            },
+        })
+    })
+
+    afterAll(async () => {
+        await kafkaEventsConsumer.disconnect()
+    })
+
     beforeEach(async () => {
+        kafkaEvents = []
         person = await hub.db.createPerson(
             DateTime.fromISO(timestamp).toUTC(),
             { foo: 'onPerson', pprop: 5 },
@@ -72,9 +93,21 @@ describe('EventsProcessor#createEvent()', () => {
 
         await eventsProcessor.kafkaProducer.flush()
 
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
-        expect(events.length).toEqual(1)
-        expect(events[0]).toEqual(
+        // Waiting until we see the event in both Kafka nand ClickHouse
+        const chEvents = await delayUntilEventIngested(() => (kafkaEvents.length ? hub.db.fetchEvents() : []))
+        expect(kafkaEvents.length).toEqual(1)
+        expect(JSON.parse(kafkaEvents[0].value!.toString())).toEqual(
+            expect.objectContaining({
+                uuid: eventUuid,
+                event: '$pageview',
+                team_id: 2,
+                project_id: 1,
+                distinct_id: 'my_id',
+                person_id: personUuid,
+            })
+        )
+        expect(chEvents.length).toEqual(1)
+        expect(chEvents[0]).toEqual(
             expect.objectContaining({
                 uuid: eventUuid,
                 event: '$pageview',
@@ -198,15 +231,9 @@ describe('EventsProcessor#createEvent()', () => {
         const uuid = new UUIDT().toString()
         const nonExistingPerson: Person = {
             created_at: DateTime.fromISO(timestamp).toUTC(),
-            version: 0,
-            id: 0,
             team_id: 0,
             properties: { random: 'x' },
-            is_user_id: 0,
-            is_identified: false,
             uuid: uuid,
-            properties_last_updated_at: {},
-            properties_last_operation: {},
         }
         const processPerson = true
         eventsProcessor.createEvent(

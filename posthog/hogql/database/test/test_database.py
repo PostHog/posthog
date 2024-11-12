@@ -241,13 +241,17 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
     def test_database_group_type_mappings(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="test", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
+        )
         db = create_hogql_database(team_id=self.team.pk)
 
         assert db.events.fields["test"] == FieldTraverser(chain=["group_0"])
 
     def test_database_group_type_mappings_overwrite(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="event", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
+        )
         db = create_hogql_database(team_id=self.team.pk)
 
         assert db.events.fields["event"] == StringDatabaseField(name="event")

@@ -153,6 +153,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Rageclick',
             description: 'A user has rapidly and repeatedly clicked in a single place',
         },
+        $dead_click: {
+            label: 'Dead click',
+            description: 'A user has clicked on something that is probably not clickable',
+        },
         $exception: {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
@@ -164,27 +168,27 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
-            description: 'When a user opens the app either for the first time or from the foreground.',
+            description: 'When a user opens the mobile app either for the first time or from the foreground.',
         },
         'Application Backgrounded': {
             label: 'Application Backgrounded',
-            description: 'When a user puts the app in the background.',
+            description: 'When a user puts the mobile app in the background.',
         },
         'Application Updated': {
             label: 'Application Updated',
-            description: 'When a user upgrades the app.',
+            description: 'When a user upgrades mobile the app.',
         },
         'Application Installed': {
             label: 'Application Installed',
-            description: 'When a user installs the app.',
+            description: 'When a user installs mobile the app.',
         },
         'Application Became Active': {
             label: 'Application Became Active',
-            description: 'When a user puts the app in the foreground.',
+            description: 'When a user puts the mobile app in the foreground.',
         },
         'Deep Link Opened': {
             label: 'Deep Link Opened',
-            description: 'When a user opens the app via a deep link.',
+            description: 'When a user opens the mobile app via a deep link.',
         },
     },
     elements: {
@@ -1216,6 +1220,47 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Surveys Activated',
             description: 'The surveys that were activated for this event.',
         },
+        $dead_click_scroll_delay_ms: {
+            label: 'Dead click scroll delay in milliseconds',
+            description: 'The delay between a click and the next scroll event',
+        },
+        $dead_click_mutation_delay_ms: {
+            label: 'Dead click mutation delay in milliseconds',
+            description: 'The delay between a click and the next mutation event',
+        },
+        $dead_click_absolute_delay_ms: {
+            label: 'Dead click absolute delay in milliseconds',
+            description: 'The delay between a click and having seen no activity at all',
+        },
+        $dead_click_selection_changed_delay_ms: {
+            label: 'Dead click selection changed delay in milliseconds',
+            description: 'The delay between a click and the next text selection change event',
+        },
+        $dead_click_last_mutation_timestamp: {
+            label: 'Dead click last mutation timestamp',
+            description: 'debug signal time of the last mutation seen by dead click autocapture',
+        },
+        $dead_click_event_timestamp: {
+            label: 'Dead click event timestamp',
+            description: 'debug signal time of the event that triggered dead click autocapture',
+        },
+        $dead_click_scroll_timeout: {
+            label: 'Dead click scroll timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for a scroll event',
+        },
+        $dead_click_mutation_timeout: {
+            label: 'Dead click mutation timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for a mutation event',
+        },
+        $dead_click_absolute_timeout: {
+            label: 'Dead click absolute timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for any activity',
+        },
+        $dead_click_selection_changed_timeout: {
+            label: 'Dead click selection changed timeout',
+            description:
+                'whether the dead click autocapture passed the threshold for waiting for a text selection change event',
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
@@ -1368,8 +1413,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINI
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
 
-CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = {}
-
 for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)) {
     if (PERSON_PROPERTIES_ADAPTED_FROM_EVENT.has(key) || key.startsWith('$geoip_')) {
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = {
@@ -1400,7 +1443,6 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
-            examples: 'examples' in value ? value.examples : undefined,
         }
     }
 }
@@ -1492,6 +1534,25 @@ export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'slack_service_available',
     'commit_sha',
 ]
+
+export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
+    $pageview: ['$current_url', 'title', '$referrer'],
+    $pageleave: ['$current_url', 'title', '$referrer'],
+    $groupidentify: ['$group_type', '$group_key', '$group_set'],
+    $screen: ['$screen_name'],
+    $web_vitals: [
+        '$web_vitals_FCP_value',
+        '$web_vitals_CLS_value',
+        '$web_vitals_INP_value',
+        '$web_vitals_LCP_value',
+        '$web_vitals_FCP_event',
+        '$web_vitals_CLS_event',
+        '$web_vitals_INP_event',
+        '$web_vitals_LCP_event',
+    ],
+    $set: ['$set', '$set_once'],
+}
+export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
 export function isCoreFilter(key: string): boolean {

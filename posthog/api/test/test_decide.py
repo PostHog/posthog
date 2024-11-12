@@ -537,6 +537,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["heatmaps"], True)
 
+    def test_user_capture_dead_clicks_opt_in(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["captureDeadClicks"], False)
+
+        self._update_team({"capture_dead_clicks": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["captureDeadClicks"], True)
+
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
@@ -2196,7 +2206,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
         Person.objects.create(
             team=self.team,
             distinct_ids=["example_id"],
@@ -4584,9 +4596,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.setup_flags_in_db("replica", team, user, flags, persons)
 
         GroupTypeMapping.objects.db_manager("replica").create(
-            team=self.team, group_type="organization", group_type_index=0
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.db_manager("default").create(team=self.team, group_type="project", group_type_index=1)
+        GroupTypeMapping.objects.db_manager("default").create(
+            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
+        )
 
         Group.objects.db_manager("replica").create(
             team_id=self.team.pk,
@@ -4684,8 +4698,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
 
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         client = APIClient()
         client.force_login(self.user)

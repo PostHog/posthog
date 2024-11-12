@@ -176,6 +176,7 @@ export const FEATURE_FLAGS = {
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
+    SQL_EDITOR: 'sql-editor', // owner: @EDsCODE #team-data-warehouse
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
@@ -206,7 +207,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_REPLAY: 'web-analytics-replay', // owner: @robbie-c
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     EXPERIMENT_MAKE_DECISION: 'experiment-make-decision', // owner: @jurajmajerik #team-feature-success
-    PURCHASE_CREDITS: 'purchase-credits', // owner: @zach
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     WEB_ANALYTICS_CONVERSION_GOALS: 'web-analytics-conversion-goals', // owner: @robbie-c
     WEB_ANALYTICS_LAST_CLICK: 'web-analytics-last-click', // owner: @robbie-c
@@ -225,6 +225,11 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_HOLDOUTS: 'experiments-holdouts', // owner: @jurajmajerik #team-experiments
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
     SESSION_REPLAY_URL_BLOCKLIST: 'session-replay-url-blocklist', // owner: @richard-better #team-replay
+    BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
+    DEAD_CLICKS_AUTOCAPTURE: 'dead-clicks-autocapture', // owner: @pauldambra #team-replay
+    ONBOARDING_PRODUCT_MULTISELECT: 'onboarding-product-multiselect', // owner: @danielbachhuber #team-experiments
+    EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
+    AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: @pauldambra
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

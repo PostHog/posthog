@@ -42,6 +42,7 @@ import {
 import {
     Experiment,
     Experiment as ExperimentType,
+    ExperimentIdType,
     ExperimentResults,
     FilterType,
     InsightShortId,
@@ -56,7 +57,7 @@ export function VariantTag({
     experimentId,
     variantKey,
 }: {
-    experimentId: number | 'new'
+    experimentId: ExperimentIdType
     variantKey: string
 }): JSX.Element {
     const { experiment, experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
@@ -450,6 +451,7 @@ export function PageHeaderCustom(): JSX.Element {
         areResultsSignificant,
         isSingleVariantShipped,
         featureFlags,
+        hasGoalSet,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -472,6 +474,9 @@ export function PageHeaderCustom(): JSX.Element {
                                 type="primary"
                                 data-attr="launch-experiment"
                                 onClick={() => launchExperiment()}
+                                disabledReason={
+                                    !hasGoalSet ? 'Add the main goal before launching the experiment' : undefined
+                                }
                             >
                                 Launch
                             </LemonButton>
@@ -745,7 +750,8 @@ export function ActionBanner(): JSX.Element {
     if (!isExperimentRunning) {
         return (
             <LemonBanner type="info" className="mt-4">
-                Your experiment is in draft mode. You can edit your variants, adjust release conditions, and{' '}
+                Your experiment is in draft mode. You can set the goal, edit the variants, adjust release conditions,
+                and{' '}
                 <Link className="font-semibold" to="https://posthog.com/docs/experiments/testing-and-launching">
                     test your feature flag
                 </Link>
@@ -874,7 +880,7 @@ export function ActionBanner(): JSX.Element {
     return <></>
 }
 
-export const ResetButton = ({ experimentId }: { experimentId: number | 'new' }): JSX.Element => {
+export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element => {
     const { experiment } = useValues(experimentLogic({ experimentId }))
     const { resetRunningExperiment } = useActions(experimentLogic)
 

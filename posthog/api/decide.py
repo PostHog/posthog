@@ -222,6 +222,8 @@ def get_decide(request: HttpRequest):
             else:
                 response["featureFlags"] = {}
 
+            response["captureDeadClicks"] = True if team.capture_dead_clicks else False
+
             capture_network_timing = True if team.capture_performance_opt_in else False
             capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
             autocapture_web_vitals_allowed_metrics = None

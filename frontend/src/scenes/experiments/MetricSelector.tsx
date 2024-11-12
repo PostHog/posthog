@@ -133,6 +133,11 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                 sortable={isTrends ? undefined : true}
                 showNestedArrow={isTrends ? undefined : true}
                 showNumericalPropsOnly={isTrends}
+                actionsTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.DataWarehouse,
+                ]}
                 propertiesTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,

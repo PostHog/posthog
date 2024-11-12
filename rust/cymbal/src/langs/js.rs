@@ -1,11 +1,14 @@
+use std::cmp::min;
+
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
 use sourcemap::{SourceMap, Token};
 
 use crate::{
     error::{Error, JsResolveErr, ResolutionError},
+    frames::Frame,
     symbol_store::SymbolCatalog,
-    types::frames::Frame,
 };
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
@@ -42,10 +45,9 @@ impl RawJSFrame {
     where
         C: SymbolCatalog<Url, SourceMap>,
     {
-        let store = catalog.get();
         let url = self.source_url()?;
 
-        let sourcemap = store.fetch(team_id, url).await?;
+        let sourcemap = catalog.lookup(team_id, url).await?;
         let Some(token) = sourcemap.lookup_token(self.line, self.column) else {
             return Err(
                 JsResolveErr::TokenNotFound(self.fn_name.clone(), self.line, self.column).into(),
@@ -62,7 +64,7 @@ impl RawJSFrame {
         (self, e).into()
     }
 
-    fn source_url(&self) -> Result<Url, JsResolveErr> {
+    pub fn source_url(&self) -> Result<Url, JsResolveErr> {
         // We can't resolve a frame without a source ref, and are forced
         // to assume this frame is not minified
         let Some(source_url) = &self.source_url else {
@@ -101,6 +103,20 @@ impl RawJSFrame {
         Url::parse(&source_url[..useful])
             .map_err(|_| JsResolveErr::InvalidSourceUrl(source_url.to_string()))
     }
+
+    pub fn frame_id(&self) -> String {
+        let mut hasher = Sha512::new();
+        hasher.update(self.fn_name.as_bytes());
+        hasher.update(self.line.to_string().as_bytes());
+        hasher.update(self.column.to_string().as_bytes());
+        hasher.update(
+            self.source_url
+                .as_ref()
+                .unwrap_or(&"".to_string())
+                .as_bytes(),
+        );
+        format!("{:x}", hasher.finalize())
+    }
 }
 
 impl From<(&RawJSFrame, Token<'_>)> for Frame {
@@ -117,6 +133,7 @@ impl From<(&RawJSFrame, Token<'_>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+            context: get_context(&token),
         }
     }
 }
@@ -127,13 +144,38 @@ impl From<(&RawJSFrame, JsResolveErr)> for Frame {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(raw_frame.line),
             column: Some(raw_frame.column),
-            source: raw_frame.source_url.clone(),
+            source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
             in_app: raw_frame.in_app,
             resolved_name: None,
             lang: "javascript".to_string(),
             resolved: false,
             resolve_failure: Some(err.to_string()),
+            context: None,
         }
+    }
+}
+
+fn get_context(token: &Token) -> Option<String> {
+    let sv = token.get_source_view()?;
+
+    let token_line = token.get_src_line();
+    let start_line = token_line.saturating_sub(5);
+    let end_line = min(token_line.saturating_add(5) as usize, sv.line_count()) as u32;
+
+    // Rough guess on capacity here
+    let mut context = String::with_capacity(((end_line - start_line) * 100) as usize);
+
+    for line in start_line..end_line {
+        if let Some(l) = sv.get_line(line) {
+            context.push_str(l);
+            context.push('\n');
+        }
+    }
+
+    if !context.is_empty() {
+        Some(context)
+    } else {
+        None
     }
 }
 
