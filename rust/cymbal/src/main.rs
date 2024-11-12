@@ -156,7 +156,7 @@ async fn main() -> Result<(), Error> {
 
         let fingerprint = fingerprinting::generate_fingerprint(&exception_list);
 
-        let issue_id = resolve_issue(&context.pool, event.team_id, fingerprint);
+        let _issue_id = resolve_issue(&context.pool, event.team_id, &fingerprint);
 
         // let found = Issue::load(&db, event.team_id, fingerprint).await;
 

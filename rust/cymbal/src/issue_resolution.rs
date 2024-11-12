@@ -18,32 +18,25 @@ pub struct Issue {
     pub fingerprint: String,
 }
 
-pub async fn resolve_issue<'c>(
-    e: PgPool,
+pub async fn resolve_issue(
+    pool: &PgPool,
     team_id: i32,
-    fingerprint: String,
+    fingerprint: &String,
 ) -> Result<Uuid, Error> {
-    let found = get_existing_issue_override(e, team_id, fingerprint).await;
+    let existing = get_existing_issue_override(pool, team_id, fingerprint).await?;
 
-    // let Ok(found) = found else {
-    //     metrics::counter!(ERRORS, "cause" => "fingerprint_lookup_failed").increment(1);
-    //     continue;
-    // };
-
-    let fingerprint = create_error_tracking_issue(e, team_id, fingerprint).await?;
-
-    let _found = match found {
+    let issue_fingerprint = match existing {
         Some(f) => f,
-        None => create_error_tracking_issue(e, team_id, fingerprint).await?,
+        None => create_error_tracking_issue(pool, team_id, fingerprint).await?,
     };
 
-    _found.issue_id
+    Ok(issue_fingerprint.issue_id)
 }
 
 pub async fn get_existing_issue_override<'c, E>(
     executor: E,
     team_id: i32,
-    fingerprint: String,
+    fingerprint: &String,
 ) -> Result<Option<IssueFingerprintOverride>, Error>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -66,7 +59,7 @@ where
 pub async fn create_error_tracking_issue<'c, A>(
     connection: A,
     team_id: i32,
-    fingerprint: String,
+    fingerprint: &String,
 ) -> Result<IssueFingerprintOverride, Error>
 where
     A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
