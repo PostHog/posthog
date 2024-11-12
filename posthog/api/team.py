@@ -35,7 +35,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
@@ -57,7 +57,7 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        if request.method in CREATE_METHODS:
+        if view.action in CREATE_ACTIONS:
             try:
                 organization = get_organization_from_view(view)
             except ValueError:

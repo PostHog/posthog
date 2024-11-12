@@ -22,7 +22,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
-CREATE_METHODS = ["POST", "PUT"]
+CREATE_ACTIONS = ["create", "update"]
 
 
 def extract_organization(object: Model, view: View) -> Organization:

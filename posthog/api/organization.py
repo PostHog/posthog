@@ -21,7 +21,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     TimeSensitiveActionPermission,
@@ -40,7 +40,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         if (
             # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
             not is_cloud()
-            and request.method in CREATE_METHODS
+            and view.action in CREATE_ACTIONS
             and (
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
