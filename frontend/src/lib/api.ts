@@ -767,7 +767,7 @@ class ApiRequest {
     }
 
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('accessibleAccounts')
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
     }
 
     public integrationGoogleAdsConversionActions(
@@ -777,7 +777,7 @@ class ApiRequest {
     ): ApiRequest {
         return this.integrations(teamId)
             .addPathComponent(id)
-            .addPathComponent('conversionActions')
+            .addPathComponent('google_conversion_actions')
             .withQueryString({ customerId })
     }
 

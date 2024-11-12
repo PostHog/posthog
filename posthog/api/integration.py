@@ -101,7 +101,7 @@ class IntegrationViewSet(
 
         return Response({"channels": channels})
 
-    @action(methods=["GET"], detail=True, url_path="conversionActions")
+    @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
@@ -118,7 +118,7 @@ class IntegrationViewSet(
 
         return Response({"conversionActions": conversion_actions})
 
-    @action(methods=["GET"], detail=True, url_path="accessibleAccounts")
+    @action(methods=["GET"], detail=True, url_path="google_accessible_accounts")
     def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
