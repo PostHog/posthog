@@ -127,28 +127,28 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
                     </div>
                 </div>
+                {/* {supportPlans?.map((plan) => {
+                    // If they have an addon plan, only show the addon plan
+                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
+                    return (
+                        <React.Fragment key={`support-panel-${plan.plan_key}`}>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
+                                {plan.name}
+                                {currentPlan && (
+                                    <>
+                                        {' '}
+                                        <span className="font-normal opacity-60 text-sm">(your plan)</span>
+                                    </>
+                                )}
+                            </div>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
+                                // TODO(@zach): remove fallback after updated plans w/ support levels are shipped
+                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
+                            </div>
+                        </React.Fragment>
+                    )
+                })} */}
             </div>
-            {/* {supportPlans?.map((plan) => {
-                // If they have an addon plan, only show the addon plan
-                const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
-                return (
-                    <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                        <div className={currentPlan ? 'font-bold' : undefined}>
-                            {plan.name}
-                            {currentPlan && (
-                                <>
-                                    {' '}
-                                    <span className="font-normal opacity-60 text-sm">(your plan)</span>
-                                </>
-                            )}
-                        </div>
-                        <div className={currentPlan ? 'font-bold' : undefined}>
-                            // TODO(@zach): remove fallback after updated plans w/ support levels are shipped
-                            {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
-                        </div>
-                    </React.Fragment>
-                )
-            })} */}
         </Section>
     )
 }
