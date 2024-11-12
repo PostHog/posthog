@@ -1,3 +1,4 @@
+from django.db import close_old_connections
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -54,6 +55,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
 
 def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
     logger = bind_temporal_worker_logger_sync(team_id=team_id)
+    close_old_connections()
 
     job: ExternalDataJob = ExternalDataJob.objects.get(pk=run_id)
     last_successful_job: ExternalDataJob | None = (
