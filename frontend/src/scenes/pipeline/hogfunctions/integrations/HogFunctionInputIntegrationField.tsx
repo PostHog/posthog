@@ -41,25 +41,25 @@ export function HogFunctionInputIntegrationField({
 
     const integrationId = configuration.inputs?.[relatedSchemaIntegration.key]?.value
     const integration = integrations?.find((integration) => integration.id === integrationId)
-    let requiredFieldValue: string | undefined
+    let requiresFieldValue: string | undefined
 
-    if (schema.required_field) {
-        const requiredFieldSchema = configuration.inputs_schema?.find((input) => input.key === schema.required_field)
+    if (schema.requires_field) {
+        const requiresFieldSchema = configuration.inputs_schema?.find((input) => input.key === schema.requires_field)
 
-        if (!requiredFieldSchema) {
+        if (!requiresFieldSchema) {
             return (
                 <div className="text-danger">
-                    Bad configuration: required key {schema.required_field} not found in schema
+                    Bad configuration: required key {schema.requires_field} not found in schema
                 </div>
             )
         }
 
-        const requiredField = configuration.inputs?.[requiredFieldSchema.key]
-        requiredFieldValue = requiredField?.value
-        if (!requiredFieldValue) {
+        const requiresField = configuration.inputs?.[requiresFieldSchema.key]
+        requiresFieldValue = requiresField?.value
+        if (!requiresFieldValue) {
             return (
                 <div className="border border-dashed h-10 rounded p-2 text-muted-alt italic">
-                    Configure {requiredFieldSchema.label} to continue
+                    Configure {requiresFieldSchema.label} to continue
                 </div>
             )
         }
@@ -80,11 +80,11 @@ export function HogFunctionInputIntegrationField({
             />
         )
     }
-    if (schema.integration_field === 'google_ads_conversion_action' && requiredFieldValue) {
+    if (schema.integration_field === 'google_ads_conversion_action' && requiresFieldValue) {
         return (
             <GoogleAdsConversionActionPicker
                 value={value}
-                requiredFieldValue={requiredFieldValue}
+                requiresFieldValue={requiresFieldValue}
                 onChange={(x) => onChange?.(x?.split('|')[0])}
                 integration={integration}
             />

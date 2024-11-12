@@ -37,13 +37,13 @@ export type GoogleAdsPickerProps = {
     value?: string
     onChange?: (value: string | null) => void
     disabled?: boolean
-    requiredFieldValue?: string
+    requiresFieldValue?: string
 }
 
 export function GoogleAdsConversionActionPicker({
     onChange,
     value,
-    requiredFieldValue,
+    requiresFieldValue,
     integration,
     disabled,
 }: GoogleAdsPickerProps): JSX.Element {
@@ -65,8 +65,8 @@ export function GoogleAdsConversionActionPicker({
                 onFocus={() =>
                     !googleAdsConversionActions &&
                     !googleAdsConversionActionsLoading &&
-                    requiredFieldValue &&
-                    loadGoogleAdsConversionActions(requiredFieldValue)
+                    requiresFieldValue &&
+                    loadGoogleAdsConversionActions(requiresFieldValue)
                 }
                 disabled={disabled}
                 mode="single"

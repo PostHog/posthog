@@ -4527,7 +4527,7 @@ export type HogFunctionInputSchemaType = {
     integration?: string
     integration_key?: string
     integration_field?: string
-    required_field?: string
+    requires_field?: string
 }
 
 export type HogFunctionInputType = {

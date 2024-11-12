@@ -75,7 +75,7 @@ if (res.status >= 400) {
             "type": "integration_field",
             "integration_key": "oauth",
             "integration_field": "google_ads_conversion_action",
-            "required_field": "customerId",
+            "requires_field": "customerId",
             "label": "Conversion action",
             "description": "The Conversion action associated with this conversion.",
             "secret": False,

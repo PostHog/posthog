@@ -271,7 +271,7 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    required_field?: string
+    requires_field?: string
     integration_field?: string
 }
 
