@@ -29,7 +29,7 @@ export interface DateFilterProps {
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode) => React.ReactNode
     className?: string
-    onChange?: (fromDate: string | null, toDate: string | null) => void
+    onChange?: (fromDate: string | null, toDate: string | null, explicitDate?: boolean) => void
     disabled?: boolean
     disabledReason?: string
     dateOptions?: DateMappingOption[]
@@ -86,6 +86,7 @@ export function DateFilter({
         openFixedDate,
         close,
         setRangeDateFrom,
+        setExplicitDate,
         setRangeDateTo,
         setDate,
         applyRange,
@@ -116,6 +117,7 @@ export function DateFilter({
                 onChange={([from, to]) => {
                     setRangeDateFrom(from)
                     setRangeDateTo(to)
+                    setExplicitDate(false)
                     applyRange()
                 }}
                 onClose={open}
@@ -127,6 +129,7 @@ export function DateFilter({
                 onChange={(date) => {
                     setRangeDateFrom(date)
                     setRangeDateTo(null)
+                    setExplicitDate(!!(granularity === 'minute'))
                     applyRange()
                 }}
                 onClose={open}

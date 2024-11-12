@@ -23,13 +23,20 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         openFixedDate: true,
         close: true,
         applyRange: true,
-        setDate: (dateFrom: string | null, dateTo: string | null, keepPopoverOpen = false) => ({
+        setDate: (
+            dateFrom: string | null,
+            dateTo: string | null,
+            keepPopoverOpen = false,
+            explicitDate: boolean = false
+        ) => ({
             dateFrom,
             dateTo,
             keepPopoverOpen,
+            explicitDate,
         }),
         setRangeDateFrom: (range: Dayjs | null) => ({ range }),
         setRangeDateTo: (range: Dayjs | null) => ({ range }),
+        setExplicitDate: (explicitDate: boolean) => ({ explicitDate }),
     }),
     reducers(({ props }) => ({
         view: [
@@ -68,6 +75,16 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             {
                 setRangeDateTo: (_, { range }) => (range ? dayjs(range) : null),
                 setDate: (_, { dateTo }) => (dateTo ? dateStringToDayJs(dateTo) : null),
+            },
+        ],
+        explicitDate: [
+            !!(
+                props.dateFrom &&
+                (dayjs.isDayjs(props.dateFrom) || dayjs(props.dateFrom).format('HH:mm:ss') !== '00:00:00')
+            ),
+            {
+                setExplicitDate: (_, { explicitDate }) => explicitDate,
+                setDate: (_, { explicitDate }) => explicitDate,
             },
         ],
     })),
@@ -160,12 +177,14 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 actions.setDate(
                     dayjs(values.rangeDateFrom).format(props.allowTimePrecision ? 'YYYY-MM-DDTHH:mm:ss' : 'YYYY-MM-DD'),
                     // Treat as naive time. Project timezone will be applied on backend.
-                    values.rangeDateTo ? dayjs(values.rangeDateTo).format('YYYY-MM-DDTHH:mm:ss') : null
+                    values.rangeDateTo ? dayjs(values.rangeDateTo).format('YYYY-MM-DDTHH:mm:ss') : null,
+                    false,
+                    values.explicitDate || false
                 )
             }
         },
-        setDate: ({ dateFrom, dateTo }) => {
-            props.onChange?.(dateFrom, dateTo)
+        setDate: ({ dateFrom, dateTo, explicitDate }) => {
+            props.onChange?.(dateFrom, dateTo, explicitDate)
         },
     })),
 ])

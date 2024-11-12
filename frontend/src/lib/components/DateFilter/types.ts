@@ -11,7 +11,7 @@ export enum DateFilterView {
 
 export type DateFilterLogicProps = {
     key: string
-    onChange?: (fromDate: string | null, toDate: string | null) => void
+    onChange?: (fromDate: string | null, toDate: string | null, explicitDate?: boolean) => void
     dateFrom?: Dayjs | string | null
     dateTo?: Dayjs | string | null
     dateOptions?: DateMappingOption[]
