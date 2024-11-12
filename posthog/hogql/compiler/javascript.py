@@ -119,6 +119,41 @@ class JavaScriptCompiler(Visitor):
             return f"({right_code}.includes({left_code}))"
         elif op == ast.CompareOperationOp.NotIn:
             return f"(!{right_code}.includes({left_code}))"
+        elif op == ast.CompareOperationOp.Like:
+            # Escape special regex characters in pattern
+            pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
+            regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$")'
+            return f"({regex_code}).test({left_code})"
+        elif op == ast.CompareOperationOp.ILike:
+            pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
+            regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
+            return f"({regex_code}).test({left_code})"
+        elif op == ast.CompareOperationOp.NotLike:
+            pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
+            regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$")'
+            return f"!({regex_code}).test({left_code})"
+        elif op == ast.CompareOperationOp.NotILike:
+            pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
+            regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
+            return f"!({regex_code}).test({left_code})"
+        elif op == ast.CompareOperationOp.Regex:
+            return f"new RegExp({right_code}).test({left_code})"
+        elif op == ast.CompareOperationOp.IRegex:
+            return f'new RegExp({right_code}, "i").test({left_code})'
+        elif op == ast.CompareOperationOp.NotRegex:
+            return f"!new RegExp({right_code}).test({left_code})"
+        elif op == ast.CompareOperationOp.NotIRegex:
+            return f'!new RegExp({right_code}, "i").test({left_code})'
+        elif op == ast.CompareOperationOp.InCohort or op == ast.CompareOperationOp.NotInCohort:
+            cohort_name = ""
+            if isinstance(node.right, ast.Constant):
+                if isinstance(node.right.value, int):
+                    cohort_name = f" (cohort id={node.right.value})"
+                else:
+                    cohort_name = f" (cohort: {str(node.right.value)})"
+            raise QueryError(
+                f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
+            )
         else:
             raise QueryError(f"Unsupported comparison operator: {op}")
 
@@ -152,19 +187,35 @@ class JavaScriptCompiler(Visitor):
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         tuple_code = self.visit(node.tuple)
-        index = node.index
+        index_code = str(node.index)
+
+        # Adjust index for 1-based indexing and handle negative indices
+        adjusted_index = f"""(
+            ({index_code}) > 0
+                ? ({index_code} - 1)
+                : (({tuple_code}).length + ({index_code}))
+        )"""
+
         if node.nullish:
-            return f"({tuple_code}?.[{index}])"
+            return f"({tuple_code}?.[{adjusted_index.strip()}])"
         else:
-            return f"{tuple_code}[{index}]"
+            return f"{tuple_code}[{adjusted_index.strip()}]"
 
     def visit_array_access(self, node: ast.ArrayAccess):
         array_code = self.visit(node.array)
         property_code = self.visit(node.property)
+
+        # Adjust index for 1-based indexing and handle negative indices
+        adjusted_index = f"""(
+            ({property_code}) > 0
+                ? ({property_code} - 1)
+                : (({array_code}).length + ({property_code}))
+        )"""
+
         if node.nullish:
-            return f"({array_code}?.[{property_code}])"
+            return f"({array_code}?.[{adjusted_index.strip()}])"
         else:
-            return f"{array_code}[{property_code}]"
+            return f"{array_code}[{adjusted_index.strip()}]"
 
     def visit_constant(self, node: ast.Constant):
         value = node.value
@@ -230,6 +281,9 @@ class JavaScriptCompiler(Visitor):
         elif node.name == "toString":
             expr_code = self.visit(node.args[0])
             return f"String({expr_code})"
+        elif node.name == "toUUID":
+            expr_code = self.visit(node.args[0])
+            return f"String({expr_code})"
         elif node.name == "toInt":
             expr_code = self.visit(node.args[0])
             return f"parseInt({expr_code}, 10)"
@@ -241,10 +295,13 @@ class JavaScriptCompiler(Visitor):
             return f"({expr_code}).length"
         elif node.name == "empty":
             expr_code = self.visit(node.args[0])
-            return f"({expr_code} == null || {expr_code}.length === 0 || Object.keys({expr_code}).length === 0)"
+            return f"(({expr_code}) == null || ({expr_code}).length === 0 || Object.keys({expr_code}).length === 0)"
         elif node.name == "notEmpty":
             expr_code = self.visit(node.args[0])
-            return f"(!({expr_code} == null || {expr_code}.length === 0 || Object.keys({expr_code}).length === 0))"
+            return f"(!(({expr_code}) == null || ({expr_code}).length === 0 || Object.keys({expr_code}).length === 0))"
+        elif node.name == "tuple":
+            items_code = ", ".join([self.visit(arg) for arg in node.args])
+            return f"Object.assign([{items_code}], {{ __isHogTuple: true }})"
         elif node.name == "lower":
             expr_code = self.visit(node.args[0])
             return f"({expr_code}).toLowerCase()"
@@ -280,6 +337,9 @@ class JavaScriptCompiler(Visitor):
         elif node.name == "base64Decode":
             expr_code = self.visit(node.args[0])
             return f"atob({expr_code})"
+        elif node.name == "tryBase64Decode":
+            expr_code = self.visit(node.args[0])
+            return f"(function(s) {{ try {{ return atob(s); }} catch(e) {{ return ''; }} }})({expr_code})"
         elif node.name == "encodeURLComponent":
             expr_code = self.visit(node.args[0])
             return f"encodeURIComponent({expr_code})"
@@ -292,6 +352,27 @@ class JavaScriptCompiler(Visitor):
         elif node.name == "jsonStringify":
             expr_code = self.visit(node.args[0])
             return f"JSON.stringify({expr_code})"
+        elif node.name == "isValidJSON":
+            expr_code = self.visit(node.args[0])
+            return (
+                f"(function(s) {{ try {{ JSON.parse(s); return true; }} catch (e) {{ return false; }} }})({expr_code})"
+            )
+        elif node.name == "JSONHas":
+            obj_expr = self.visit(node.args[0])
+            path_exprs = [self.visit(arg) for arg in node.args[1:]]
+            # Build dynamic access
+            path_code = "".join([f"[{arg}]" for arg in path_exprs])
+            return f"(({obj_expr}{path_code}) !== undefined)"
+        elif node.name == "JSONLength":
+            obj_expr = self.visit(node.args[0])
+            path_exprs = [self.visit(arg) for arg in node.args[1:]]
+            path_code = "".join([f"[{arg}]" for arg in path_exprs])
+            return f"(Object.keys({obj_expr}{path_code} || {{}}).length)"
+        elif node.name == "JSONExtractBool":
+            obj_expr = self.visit(node.args[0])
+            path_exprs = [self.visit(arg) for arg in node.args[1:]]
+            path_code = "".join([f"[{arg}]" for arg in path_exprs])
+            return f"(!!({obj_expr}{path_code}))"
         elif node.name == "replaceOne":
             string_expr = self.visit(node.args[0])
             search_expr = self.visit(node.args[1])
@@ -316,6 +397,10 @@ class JavaScriptCompiler(Visitor):
             arr_expr = self.visit(node.args[0])
             elem_expr = self.visit(node.args[1])
             return f"({arr_expr}).includes({elem_expr})"
+        elif node.name == "indexOf":
+            arr_expr = self.visit(node.args[0])
+            elem_expr = self.visit(node.args[1])
+            return f"(({arr_expr}).indexOf({elem_expr}) + 1)"
         elif node.name == "arrayPushBack":
             arr_expr = self.visit(node.args[0])
             item_expr = self.visit(node.args[1])
@@ -336,16 +421,38 @@ class JavaScriptCompiler(Visitor):
         elif node.name == "arrayReverse":
             arr_expr = self.visit(node.args[0])
             return f"([...{arr_expr}].reverse())"
+        elif node.name == "arrayReverseSort":
+            arr_expr = self.visit(node.args[0])
+            return f"([...{arr_expr}].sort().reverse())"
         elif node.name == "arrayStringConcat":
             arr_expr = self.visit(node.args[0])
             separator_expr = self.visit(node.args[1]) if len(node.args) > 1 else '""'
             return f"({arr_expr}).join({separator_expr})"
+        elif node.name == "arrayCount":
+            arr_expr = self.visit(node.args[1])
+            func_expr = self.visit(node.args[0])
+            return f"({arr_expr}).filter({func_expr}).length"
+        elif node.name == "arrayExists":
+            arr_expr = self.visit(node.args[1])
+            func_expr = self.visit(node.args[0])
+            return f"({arr_expr}).some({func_expr})"
+        elif node.name == "arrayFilter":
+            arr_expr = self.visit(node.args[1])
+            func_expr = self.visit(node.args[0])
+            return f"({arr_expr}).filter({func_expr})"
+        elif node.name == "arrayMap":
+            arr_expr = self.visit(node.args[1])
+            func_expr = self.visit(node.args[0])
+            return f"({arr_expr}).map({func_expr})"
         elif node.name == "md5Hex":
             expr_code = self.visit(node.args[0])
             return f"md5({expr_code})"  # Assuming md5 function is available
         elif node.name == "sha256Hex":
             expr_code = self.visit(node.args[0])
             return f"sha256({expr_code})"  # Assuming sha256 function is available
+        elif node.name == "sha256HmacChainHex":
+            args_code = ", ".join([self.visit(arg) for arg in node.args])
+            return f"sha256HmacChainHex([{args_code}])"
         elif node.name == "position":
             str_expr = self.visit(node.args[0])
             substr_expr = self.visit(node.args[1])
@@ -357,11 +464,61 @@ class JavaScriptCompiler(Visitor):
         elif node.name == "print":
             args_code = ", ".join([self.visit(arg) for arg in node.args])
             return f"console.log({args_code})"
-
-        # Regular function calls
-        args = node.params if node.params is not None else node.args
-        args_code = ", ".join([self.visit(arg) for arg in args])
-        return f"{node.name}({args_code})"
+        elif node.name == "like":
+            str_expr = self.visit(node.args[0])
+            pattern_expr = self.visit(node.args[1])
+            regex_expr = f'new RegExp("^" + {pattern_expr}.replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")'
+            return f"({regex_expr}).test({str_expr})"
+        elif node.name == "ilike":
+            str_expr = self.visit(node.args[0])
+            pattern_expr = self.visit(node.args[1])
+            regex_expr = f'new RegExp("^" + {pattern_expr}.replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
+            return f"({regex_expr}).test({str_expr})"
+        elif node.name == "notLike":
+            str_expr = self.visit(node.args[0])
+            pattern_expr = self.visit(node.args[1])
+            regex_expr = f'new RegExp("^" + {pattern_expr}.replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")'
+            return f"!({regex_expr}).test({str_expr})"
+        elif node.name == "notILike":
+            str_expr = self.visit(node.args[0])
+            pattern_expr = self.visit(node.args[1])
+            regex_expr = f'new RegExp("^" + {pattern_expr}.replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
+            return f"!({regex_expr}).test({str_expr})"
+        elif node.name == "match":
+            str_expr = self.visit(node.args[0])
+            regex_expr = self.visit(node.args[1])
+            return f"new RegExp({regex_expr}).test({str_expr})"
+        elif node.name == "toUnixTimestamp":
+            input_expr = self.visit(node.args[0])
+            return f"(Date.parse({input_expr}) / 1000)"
+        elif node.name == "fromUnixTimestamp":
+            input_expr = self.visit(node.args[0])
+            return f"new Date({input_expr} * 1000)"
+        elif node.name == "toUnixTimestampMilli":
+            input_expr = self.visit(node.args[0])
+            return f"Date.parse({input_expr})"
+        elif node.name == "fromUnixTimestampMilli":
+            input_expr = self.visit(node.args[0])
+            return f"new Date({input_expr})"
+        elif node.name == "toDate":
+            input_expr = self.visit(node.args[0])
+            return f"new Date({input_expr})"
+        elif node.name == "toDateTime":
+            input_expr = self.visit(node.args[0])
+            return f"new Date({input_expr})"
+        elif node.name == "formatDateTime":
+            input_expr = self.visit(node.args[0])
+            format_expr = self.visit(node.args[1])
+            # Note: For proper date formatting, consider using a library like 'date-fns' or 'moment.js'
+            return f"formatDateTime({input_expr}, {format_expr})"  # Assuming formatDateTime is defined
+        elif node.name in ["HogError", "Error", "RetryError", "NotImplementedError"]:
+            message_expr = self.visit(node.args[0]) if len(node.args) > 0 else '"Error"'
+            return f"new Error({message_expr})"
+        else:
+            # Regular function calls
+            args = node.params if node.params is not None else node.args
+            args_code = ", ".join([self.visit(arg) for arg in args])
+            return f"{node.name}({args_code})"
 
     def visit_expr_call(self, node: ast.ExprCall):
         func_code = self.visit(node.expr)
