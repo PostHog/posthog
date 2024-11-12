@@ -30,19 +30,21 @@ class PropertyGroupManager:
         self.__cluster = cluster
         self.__groups = groups
 
-    def __get_map_column_name(self, column: ColumnName, group_name: PropertyGroupName) -> str:
+    def __get_property_group_map_column_name(self, column: ColumnName, group_name: PropertyGroupName) -> str:
         return f"{column}_group_{group_name}"
 
     def get_property_group_columns(self, table: TableName, column: ColumnName, property_key: str) -> Iterable[str]:
         if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(column)):
             for group_name, group_definition in column_groups.items():
                 if group_definition.contains(property_key):
-                    yield self.__get_map_column_name(column, group_name)
+                    yield self.__get_property_group_map_column_name(column, group_name)
 
-    def __get_column_definition(self, table: TableName, column: ColumnName, group_name: PropertyGroupName) -> str:
+    def __get_property_group_column_definition(
+        self, table: TableName, column: ColumnName, group_name: PropertyGroupName
+    ) -> str:
         group_definition = self.__groups[table][column][group_name]
-        map_column_name = self.__get_map_column_name(column, group_name)
-        column_definition = f"{map_column_name} Map(String, String)"
+        property_group_map_column_name = self.__get_property_group_map_column_name(column, group_name)
+        column_definition = f"{property_group_map_column_name} Map(String, String)"
         if not group_definition.is_materialized:
             return column_definition
         else:
@@ -55,29 +57,29 @@ class PropertyGroupManager:
                 CODEC({group_definition.codec})
             """
 
-    def __get_index_definitions(
+    def __get_property_group_index_definitions(
         self, table: TableName, column: ColumnName, group_name: PropertyGroupName
     ) -> Iterable[str]:
         group_definition = self.__groups[table][column][group_name]
         if not group_definition.is_materialized:
             return
 
-        map_column_name = self.__get_map_column_name(column, group_name)
+        map_column_name = self.__get_property_group_map_column_name(column, group_name)
         yield f"{map_column_name}_keys_bf mapKeys({map_column_name}) TYPE bloom_filter"
         yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
 
     def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
         for column, groups in self.__groups[table].items():
             for group_name in groups:
-                yield self.__get_column_definition(table, column, group_name)
-                for index_definition in self.__get_index_definitions(table, column, group_name):
+                yield self.__get_property_group_column_definition(table, column, group_name)
+                for index_definition in self.__get_property_group_index_definitions(table, column, group_name):
                     yield f"INDEX {index_definition}"
 
     def get_alter_create_statements(
         self, table: TableName, column: ColumnName, group_name: PropertyGroupName
     ) -> Iterable[str]:
-        yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD COLUMN IF NOT EXISTS {self.__get_column_definition(table, column, group_name)}"
-        for index_definition in self.__get_index_definitions(table, column, group_name):
+        yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD COLUMN IF NOT EXISTS {self.__get_property_group_column_definition(table, column, group_name)}"
+        for index_definition in self.__get_property_group_index_definitions(table, column, group_name):
             yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD INDEX IF NOT EXISTS {index_definition}"
 
 
