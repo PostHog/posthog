@@ -1261,6 +1261,53 @@ export const experimentLogic = kea<experimentLogicType>([
                     return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
                 },
         ],
+        credibleIntervalForVariant: [
+            (s) => [s.experimentInsightType],
+            (experimentInsightType) =>
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null,
+                    variantKey: string
+                ): [number, number] | null => {
+                    const credibleInterval = experimentResults?.credible_intervals?.[variantKey]
+                    if (!credibleInterval) {
+                        return null
+                    }
+
+                    if (experimentInsightType === InsightType.FUNNELS) {
+                        const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
+                            ({ key }) => key === 'control'
+                        ) as FunnelExperimentVariant
+                        const controlConversionRate =
+                            controlVariant.success_count / (controlVariant.success_count + controlVariant.failure_count)
+
+                        if (!controlConversionRate) {
+                            return null
+                        }
+
+                        // Calculate the percentage difference between the credible interval bounds of the variant and the control's conversion rate.
+                        // This represents the range in which the true percentage change relative to the control is likely to fall.
+                        const lowerBound = ((credibleInterval[0] - controlConversionRate) / controlConversionRate) * 100
+                        const upperBound = ((credibleInterval[1] - controlConversionRate) / controlConversionRate) * 100
+                        return [lowerBound, upperBound]
+                    }
+
+                    const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
+                        ({ key }) => key === 'control'
+                    ) as TrendExperimentVariant
+
+                    const controlMean = controlVariant.count / controlVariant.absolute_exposure
+
+                    // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
+                    // This represents the range in which the true percentage change relative to the control is likely to fall.
+                    const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
+                    const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
+                    return [lowerBound, upperBound]
+                },
+        ],
         getIndexForVariant: [
             (s) => [s.experimentInsightType],
             (experimentInsightType) =>

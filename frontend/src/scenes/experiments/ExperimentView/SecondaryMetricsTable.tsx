@@ -131,6 +131,7 @@ export function SecondaryMetricsTable({
         countDataForVariant,
         exposureCountDataForVariant,
         conversionRateForVariant,
+        credibleIntervalForVariant,
         experimentMathAggregationForTrends,
         getHighestProbabilityVariant,
     } = useValues(experimentLogic({ experimentId }))
@@ -225,8 +226,17 @@ export function SecondaryMetricsTable({
                     },
                     {
                         title: 'Credible interval (95%)',
-                        render: function Key(): JSX.Element {
-                            return <div>—</div>
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const credibleInterval = credibleIntervalForVariant(targetResults || null, item.variant)
+                            if (!credibleInterval) {
+                                return <>—</>
+                            }
+                            const [lowerBound, upperBound] = credibleInterval
+                            return (
+                                <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(
+                                    2
+                                )}%, ${upperBound > 0 ? '+' : ''}${upperBound.toFixed(2)}%]`}</div>
+                            )
                         },
                     },
                     {
@@ -263,8 +273,17 @@ export function SecondaryMetricsTable({
                     },
                     {
                         title: 'Credible interval (95%)',
-                        render: function Key(): JSX.Element {
-                            return <div>—</div>
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const credibleInterval = credibleIntervalForVariant(targetResults || null, item.variant)
+                            if (!credibleInterval) {
+                                return <>—</>
+                            }
+                            const [lowerBound, upperBound] = credibleInterval
+                            return (
+                                <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(
+                                    2
+                                )}%, ${upperBound > 0 ? '+' : ''}${upperBound.toFixed(2)}%]`}</div>
+                            )
                         },
                     },
                     {
