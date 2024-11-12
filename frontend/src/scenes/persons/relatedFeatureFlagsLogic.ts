@@ -88,7 +88,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             (selectors) => [selectors.relatedFeatureFlags, selectors.featureFlags],
             (relatedFlags, featureFlags): RelatedFeatureFlag[] => {
                 if (relatedFlags && featureFlags) {
-                    return featureFlags
+                    return featureFlags.results
                         .map((flag) => ({ ...relatedFlags[flag.key], ...flag }))
                         .filter((flag) => flag.evaluation !== undefined)
                 }

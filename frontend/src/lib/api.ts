@@ -2144,6 +2144,13 @@ const api = {
         async getResponsesCount(): Promise<{ [key: string]: number }> {
             return await new ApiRequest().surveysResponsesCount().get()
         },
+        async summarize_responses(surveyId: Survey['id'], questionIndex: number | undefined): Promise<any> {
+            let apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+            if (questionIndex !== undefined) {
+                apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
+            }
+            return await apiRequest.create()
+        },
     },
 
     dataWarehouseTables: {
