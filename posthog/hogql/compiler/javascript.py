@@ -1,4 +1,6 @@
 import dataclasses
+import json
+import re
 from enum import StrEnum
 from typing import Any, Optional
 
@@ -7,6 +9,63 @@ from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import Visitor
+
+_JS_GET_GLOBAL = "get_global"
+_JS_KEYWORDS = ["var", "let", "const", "function"]
+INLINED_JS_STL = {
+    "print": """
+const escapeCharsMap = { '\\b': '\\\\b', '\\f': '\\\\f', '\\r': '\\\\r', '\\n': '\\\\n', '\\t': '\\\\t', '\\0': '\\\\0', '\\v': '\\\\v', '\\\\': '\\\\\\\\' };
+const singlequoteEscapeCharsMap = { ...escapeCharsMap, "'": "\\\\'" };
+const backquoteEscapeCharsMap = { ...escapeCharsMap, '`': '\\\\`' };
+function escapeString(value) { return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; }
+function escapeIdentifier(identifier) {
+    if (typeof identifier === 'number') return identifier.toString();
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+    return `\\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\\``;
+}
+function isHogCallable(obj) { return obj && typeof obj === 'object' && '__hogCallable__' in obj && 'argCount' in obj && 'ip' in obj && 'upvalueCount' in obj; }
+function isHogClosure(obj) { return obj && typeof obj === 'object' && '__hogClosure__' in obj && 'callable' in obj && 'upvalues' in obj; }
+function isHogDate(obj) { return obj && typeof obj === 'object' && '__hogDate__' in obj && 'year' in obj && 'month' in obj && 'day' in obj; }
+function isHogDateTime(obj) { return obj && typeof obj === 'object' && '__hogDateTime__' in obj && 'dt' in obj && 'zone' in obj; }
+function isHogError(obj) { return obj && typeof obj === 'object' && '__hogError__' in obj && 'type' in obj && 'message' in obj; }
+function printHogValue(obj, marked = new Set()) {
+    if (typeof obj === 'object' && obj !== null && obj !== undefined) {
+        if (marked.has(obj) && !isHogDateTime(obj) && !isHogDate(obj) && !isHogError(obj) && !isHogClosure(obj) && !isHogCallable(obj)) {
+            return 'null';
+        }
+        marked.add(obj);
+        try {
+            if (Array.isArray(obj)) {
+                if (obj.__isHogTuple) {
+                    return obj.length < 2 ? `tuple(${obj.map((o) => printHogValue(o, marked)).join(', ')})` : `(${obj.map((o) => printHogValue(o, marked)).join(', ')})`;
+                }
+                return `[${obj.map((o) => printHogValue(o, marked)).join(', ')}]`;
+            }
+            if (isHogDateTime(obj)) {
+                const millis = String(obj.dt);
+                return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${escapeString(obj.zone)})`;
+            }
+            if (isHogDate(obj)) return `Date(${obj.year}, ${obj.month}, ${obj.day})`;
+            if (isHogError(obj)) {
+                return `${String(obj.type)}(${escapeString(obj.message)}${obj.payload ? `, ${printHogValue(obj.payload, marked)}` : ''})`;
+            }
+            if (isHogClosure(obj)) return printHogValue(obj.callable, marked);
+            if (isHogCallable(obj)) return `fn<${escapeIdentifier(obj.name ?? 'lambda')}(${printHogValue(obj.argCount)})>`;
+            if (obj instanceof Map) {
+                return `{${Array.from(obj.entries()).map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`).join(', ')}}`;
+            }
+            return `{${Object.entries(obj).map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`).join(', ')}}`;
+        } finally {
+            marked.delete(obj);
+        }
+    } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
+    else if (obj === null || obj === undefined) return 'null';
+    else if (typeof obj === 'string') return escapeString(obj);
+    return obj.toString();
+}
+function printHogStringOutput(obj) { return typeof obj === 'string' ? obj : printHogValue(obj); }
+"""
+}
 
 
 @dataclasses.dataclass
@@ -45,7 +104,21 @@ def create_javascript(
     supported_functions = supported_functions or set()
     compiler = JavaScriptCompiler(supported_functions, args, context, in_repl, locals)
     code = compiler.visit(expr)
+    code = f"{compiler.get_extra_code()}{code}"
     return CompiledJavaScript(code=code, locals=compiler.locals)
+
+
+def _as_block(node: ast.Statement) -> ast.Block:
+    if isinstance(node, ast.Block):
+        return node
+    return ast.Block(declarations=[node])
+
+
+def _sanitize_var_name(name: str) -> str:
+    if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name) and name not in _JS_KEYWORDS:
+        return name
+    else:
+        return f"[{json.dumps(name)}]"
 
 
 class JavaScriptCompiler(Visitor):
@@ -65,15 +138,20 @@ class JavaScriptCompiler(Visitor):
         self.args = args or []
         self.context = context or HogQLContext(team_id=None)
         self.indent_level = 0
+        self.inlined_stl = set()
 
         # Initialize locals with function arguments
         for arg in self.args:
             self._declare_local(arg)
 
+    def get_extra_code(self):
+        return "\n".join(INLINED_JS_STL.get(func, "") for func in self.inlined_stl)
+
     def _start_scope(self):
         self.scope_depth += 1
 
     def _end_scope(self):
+        self.locals = [local for local in self.locals if local.depth < self.scope_depth]
         self.scope_depth -= 1
 
     def _declare_local(self, name: str):
@@ -104,7 +182,8 @@ class JavaScriptCompiler(Visitor):
         op = node.op
 
         op_map = {
-            ast.CompareOperationOp.Eq: "==",
+            # TODO: check nulls
+            ast.CompareOperationOp.Eq: "===",
             ast.CompareOperationOp.NotEq: "!=",
             ast.CompareOperationOp.Gt: ">",
             ast.CompareOperationOp.GtEq: ">=",
@@ -120,30 +199,35 @@ class JavaScriptCompiler(Visitor):
         elif op == ast.CompareOperationOp.NotIn:
             return f"(!{right_code}.includes({left_code}))"
         elif op == ast.CompareOperationOp.Like:
+            # TODO: check what's happening here
             # Escape special regex characters in pattern
             pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
             regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$")'
             return f"({regex_code}).test({left_code})"
         elif op == ast.CompareOperationOp.ILike:
+            # TODO: check what's happening here
             pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
             regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
             return f"({regex_code}).test({left_code})"
         elif op == ast.CompareOperationOp.NotLike:
+            # TODO: check what's happening here
             pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
             regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$")'
             return f"!({regex_code}).test({left_code})"
         elif op == ast.CompareOperationOp.NotILike:
+            # TODO: check what's happening here
             pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
             regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
             return f"!({regex_code}).test({left_code})"
         elif op == ast.CompareOperationOp.Regex:
+            # TODO: re2?
             return f"new RegExp({right_code}).test({left_code})"
         elif op == ast.CompareOperationOp.IRegex:
             return f'new RegExp({right_code}, "i").test({left_code})'
         elif op == ast.CompareOperationOp.NotRegex:
-            return f"!new RegExp({right_code}).test({left_code})"
+            return f"!(new RegExp({right_code}).test({left_code}))"
         elif op == ast.CompareOperationOp.NotIRegex:
-            return f'!new RegExp({right_code}, "i").test({left_code})'
+            return f'!(new RegExp({right_code}, "i").test({left_code}))'
         elif op == ast.CompareOperationOp.InCohort or op == ast.CompareOperationOp.NotInCohort:
             cohort_name = ""
             if isinstance(node.right, ast.Constant):
@@ -171,31 +255,35 @@ class JavaScriptCompiler(Visitor):
         return f"({left_code} {op_str} {right_code})"
 
     def visit_field(self, node: ast.Field):
+        found_local = any(local.name == str(node.chain[0]) for local in self.locals)
         code_parts = []
-        for element in node.chain:
-            if isinstance(element, str):
-                if code_parts:
-                    code_parts.append("." + element)
-                else:
-                    code_parts.append(element)
-            elif isinstance(element, int):
+        for index, element in enumerate(node.chain):
+            if index == 0 and not found_local:
+                # TODO: make sure js_get_global is unique!
+                code_parts.append(f"{_JS_GET_GLOBAL}({json.dumps(element)})")
+                continue
+
+            if isinstance(element, int) and not isinstance(element, bool) and index > 0:
                 code_parts.append(f"[{element}]")
+            elif isinstance(element, str):
+                if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", element):
+                    if code_parts:
+                        code_parts.append("." + element)
+                    else:
+                        code_parts.append(element)
+                else:
+                    element = f"[{json.dumps(element)}]"
+                    code_parts.append(element)
             else:
-                raise QueryError(f"Unsupported field element type: {type(element)}")
+                raise QueryError(f"Unsupported element: {element} ({type(element)})")
+
         code = "".join(code_parts)
         return code
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         tuple_code = self.visit(node.tuple)
         index_code = str(node.index)
-
-        # Adjust index for 1-based indexing and handle negative indices
-        adjusted_index = f"""(
-            ({index_code}) > 0
-                ? ({index_code} - 1)
-                : (({tuple_code}).length + ({index_code}))
-        )"""
-
+        adjusted_index = f"(({index_code}) > 0 ? ({index_code} - 1) : (({tuple_code}).length + ({index_code})))"
         if node.nullish:
             return f"({tuple_code}?.[{adjusted_index.strip()}])"
         else:
@@ -204,13 +292,10 @@ class JavaScriptCompiler(Visitor):
     def visit_array_access(self, node: ast.ArrayAccess):
         array_code = self.visit(node.array)
         property_code = self.visit(node.property)
-
-        # Adjust index for 1-based indexing and handle negative indices
-        adjusted_index = f"""(
-            ({property_code}) > 0
-                ? ({property_code} - 1)
-                : (({array_code}).length + ({property_code}))
-        )"""
+        # TODO: this is used for strings and objects as well, we can't assume it's an array
+        adjusted_index = (
+            f"(({property_code}) > 0 ? ({property_code} - 1) : (({array_code}).length + ({property_code})))"
+        )
 
         if node.nullish:
             return f"({array_code}?.[{adjusted_index.strip()}])"
@@ -225,12 +310,8 @@ class JavaScriptCompiler(Visitor):
             return "false"
         elif value is None:
             return "null"
-        elif isinstance(value, int):
-            return str(value)
-        elif isinstance(value, float):
-            return str(value)
-        elif isinstance(value, str):
-            return '"' + value.replace('"', '\\"') + '"'
+        elif isinstance(value, int) or isinstance(value, float) or isinstance(value, str):
+            return json.dumps(value)
         else:
             raise QueryError(f"Constant type `{type(value)}` is not supported")
 
@@ -248,23 +329,19 @@ class JavaScriptCompiler(Visitor):
         if node.name == "if" and len(node.args) >= 2:
             condition_code = self.visit(node.args[0])
             then_code = self.visit(node.args[1])
-            else_code = self.visit(node.args[2]) if len(node.args) == 3 else "undefined"
+            else_code = self.visit(node.args[2]) if len(node.args) == 3 else "null"
             return f"({condition_code} ? {then_code} : {else_code})"
         if node.name == "multiIf" and len(node.args) >= 2:
             # Generate nested ternary operators
             def build_nested_if(args):
+                condition_code = self.visit(args[0])
+                then_code = self.visit(args[1])
                 if len(args) == 2:
-                    condition_code = self.visit(args[0])
-                    then_code = self.visit(args[1])
-                    return f"({condition_code} ? {then_code} : undefined)"
+                    return f"({condition_code} ? {then_code} : null)"
                 elif len(args) == 3:
-                    condition_code = self.visit(args[0])
-                    then_code = self.visit(args[1])
                     else_code = self.visit(args[2])
                     return f"({condition_code} ? {then_code} : {else_code})"
                 else:
-                    condition_code = self.visit(args[0])
-                    then_code = self.visit(args[1])
                     else_code = build_nested_if(args[2:])
                     return f"({condition_code} ? {then_code} : {else_code})"
 
@@ -280,10 +357,10 @@ class JavaScriptCompiler(Visitor):
             return f"({args_code})"
         elif node.name == "toString":
             expr_code = self.visit(node.args[0])
-            return f"String({expr_code})"
+            return f"printHogStringOutput({expr_code})"
         elif node.name == "toUUID":
             expr_code = self.visit(node.args[0])
-            return f"String({expr_code})"
+            return f"printHogStringOutput({expr_code})"
         elif node.name == "toInt":
             expr_code = self.visit(node.args[0])
             return f"parseInt({expr_code}, 10)"
@@ -462,7 +539,8 @@ class JavaScriptCompiler(Visitor):
             substr_expr = self.visit(node.args[1])
             return f"({str_expr}).toLowerCase().indexOf(({substr_expr}).toLowerCase()) + 1"
         elif node.name == "print":
-            args_code = ", ".join([self.visit(arg) for arg in node.args])
+            args_code = ", ".join([f"printHogStringOutput({self.visit(arg)})" for arg in node.args])
+            self.inlined_stl.add("print")
             return f"console.log({args_code})"
         elif node.name == "like":
             str_expr = self.visit(node.args[0])
@@ -553,66 +631,71 @@ class JavaScriptCompiler(Visitor):
 
     def visit_return_statement(self, node: ast.ReturnStatement):
         if node.expr:
-            expr_code = self.visit(node.expr)
-            return f"return {expr_code};"
+            return f"return {self.visit(node.expr)};"
         else:
-            return "return;"
+            return "return null;"
 
     def visit_throw_statement(self, node: ast.ThrowStatement):
-        expr_code = self.visit(node.expr)
-        return f"throw {expr_code};"
+        return f"throw {self.visit(node.expr)};"
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):
-        try_code = self.visit(node.try_stmt)
-        code = "try " + try_code
-        for catch in node.catches:
+        try_code = self.visit(_as_block(node.try_stmt))
+        code = "try " + try_code + " catch (__error) { "
+        for index, catch in enumerate(node.catches):
             catch_var = catch[0] or "e"
-            catch_type = catch[1]
-            catch_stmt = catch[2]
-            catch_code = self.visit(catch_stmt)
+            catch_type = str(catch[1])
+            catch_declarations = _as_block(catch[2])
+            catch_code = "".join(self._indent(self.visit(d)) for d in catch_declarations.declarations)
+            if index > 0:
+                code += " else "
             if catch_type and catch_type != "Error":
                 code += (
-                    f" catch ({catch_var}) {{\n"
-                    f'    if ({catch_var}.name === "{catch_type}") {{\n'
-                    f"{self._indent(catch_code)}\n"
-                    f"    }} else throw {catch_var};\n"
-                    f"}}"
+                    f"if (__error.name === {json.dumps(catch_type)}) {{ let {_sanitize_var_name(catch_var)} = __error;\n"
+                    f"{catch_code}\n"
+                    f"}}\n"
                 )
             else:
-                code += f" catch ({catch_var}) " + catch_code
+                f"if (true) {{ let {_sanitize_var_name(catch_var)} = __error;\n"
+                f"{catch_code}\n"
+                f"}}\n"
+        code += "}"
+
         if node.finally_stmt:
-            finally_code = self.visit(node.finally_stmt)
+            finally_code = self.visit(_as_block(node.finally_stmt))
             code += " finally " + finally_code
         return code
 
     def visit_if_statement(self, node: ast.IfStatement):
         expr_code = self.visit(node.expr)
-        then_code = self.visit(node.then)
+        then_code = self.visit(_as_block(node.then))
         code = f"if ({expr_code}) {then_code}"
         if node.else_:
-            else_code = self.visit(node.else_)
+            else_code = self.visit(_as_block(node.else_))
             code += f" else {else_code}"
         return code
 
     def visit_while_statement(self, node: ast.WhileStatement):
         expr_code = self.visit(node.expr)
-        body_code = self.visit(node.body)
+        body_code = self.visit(_as_block(node.body))
         return f"while ({expr_code}) {body_code}"
 
     def visit_for_statement(self, node: ast.ForStatement):
         init_code = self.visit(node.initializer) if node.initializer else ""
+        init_code = init_code[:-1] if init_code.endswith(";") else init_code
         condition_code = self.visit(node.condition) if node.condition else ""
+        condition_code = condition_code[:-1] if condition_code.endswith(";") else condition_code
         increment_code = self.visit(node.increment) if node.increment else ""
-        body_code = self.visit(node.body)
+        increment_code = increment_code[:-1] if increment_code.endswith(";") else increment_code
+        body_code = self.visit(_as_block(node.body))
         return f"for ({init_code}; {condition_code}; {increment_code}) {body_code}"
 
     def visit_for_in_statement(self, node: ast.ForInStatement):
         expr_code = self.visit(node.expr)
-        body_code = self.visit(node.body)
+        body_code = self.visit(_as_block(node.body))
         if node.keyVar and node.valueVar:
-            return f"for (let {node.keyVar} in {expr_code}) {{\n    let {node.valueVar} = {expr_code}[{node.keyVar}];\n{self._indent(body_code)}\n}}"
+            return f"for (let {_sanitize_var_name(node.keyVar)} in {expr_code}) {{\n    let {_sanitize_var_name(node.valueVar)} = {expr_code}[{_sanitize_var_name(node.keyVar)}];\n{self._indent(body_code)}\n}}"
         elif node.valueVar:
-            return f"for (let {node.valueVar} of {expr_code}) {body_code}"
+            return f"for (let {_sanitize_var_name(node.valueVar)} of {expr_code}) {body_code}"
         else:
             raise QueryError("ForInStatement requires at least a valueVar")
 
@@ -620,9 +703,9 @@ class JavaScriptCompiler(Visitor):
         self._declare_local(node.name)
         if node.expr:
             expr_code = self.visit(node.expr)
-            return f"let {node.name} = {expr_code};"
+            return f"let {_sanitize_var_name(node.name)} = {expr_code};"
         else:
-            return f"let {node.name};"
+            return f"let {_sanitize_var_name(node.name)};"
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):
         left_code = self.visit(node.left)
@@ -631,26 +714,34 @@ class JavaScriptCompiler(Visitor):
 
     def visit_function(self, node: ast.Function):
         self._declare_local(node.name)
-        params_code = ", ".join(node.params)
-        body_code = self.visit(node.body)
-        return f"function {node.name}({params_code}) {body_code}"
+        params_code = ", ".join(_sanitize_var_name(p) for p in node.params)
+        self._start_scope()
+        for arg in node.params:
+            self._declare_local(arg)
+        body_code = self.visit(_as_block(node.body))
+        self._end_scope()
+        return f"function {_sanitize_var_name(node.name)}({params_code}) {body_code}"
 
     def visit_lambda(self, node: ast.Lambda):
-        params_code = ", ".join(node.args)
+        params_code = ", ".join(_sanitize_var_name(p) for p in node.args)
+        self._start_scope()
+        for arg in node.args:
+            self._declare_local(arg)
         expr_code = self.visit(node.expr)
+        self._end_scope()
         return f"({params_code}) => {expr_code}"
 
     def visit_dict(self, node: ast.Dict):
         items_code = ", ".join([f"{self.visit(key)}: {self.visit(value)}" for key, value in node.items])
-        return f"{{ {items_code} }}"
+        return f"{{{items_code}}}"
 
     def visit_array(self, node: ast.Array):
         items_code = ", ".join([self.visit(expr) for expr in node.exprs])
-        return f"[ {items_code} ]"
+        return f"[{items_code}]"
 
     def visit_tuple(self, node: ast.Tuple):
         items_code = ", ".join([self.visit(expr) for expr in node.exprs])
-        return f"[ {items_code} ]"
+        return f"[{items_code}]"
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         # Assuming HogQLXTag corresponds to JSX-like syntax
@@ -663,12 +754,12 @@ class JavaScriptCompiler(Visitor):
             return self.visit(value)
         if isinstance(value, list):
             elems = ", ".join([self._visit_hogqlx_value(v) for v in value])
-            return f"[ {elems} ]"
+            return f"[{elems}]"
         if isinstance(value, dict):
             items = ", ".join(
                 [f"{self._visit_hogqlx_value(k)}: {self._visit_hogqlx_value(v)}" for k, v in value.items()]
             )
-            return f"{{ {items} }}"
+            return f"{{{items}}}"
         if isinstance(value, StrEnum):
             return '"' + str(value.value) + '"'
         if isinstance(value, int):
