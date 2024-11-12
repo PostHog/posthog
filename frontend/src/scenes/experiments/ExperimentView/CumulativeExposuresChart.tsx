@@ -106,14 +106,14 @@ export function CumulativeExposuresChart(): JSX.Element {
                     query={getCumulativeExposuresQuery(experiment)}
                     readOnly
                     context={{
-                        emptyStateHeading: 'No exposures to cumulate yet',
+                        emptyStateHeading: 'No exposures to show yet',
                         emptyStateDetail: 'Hold tight! The chart will appear once some events are processed.',
                     }}
                 />
             ) : (
                 <div className="border rounded bg-bg-light">
                     <InsightEmptyState
-                        heading="No exposures to cumulate yet"
+                        heading="No exposures to show yet"
                         detail="This chart will display once the experiment starts."
                     />
                 </div>
