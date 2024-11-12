@@ -11,7 +11,7 @@ from ee.hogai.router.prompts import (
     ROUTER_SYSTEM_PROMPT,
     ROUTER_USER_PROMPT,
 )
-from ee.hogai.utils import AssistantNode, AssistantState
+from ee.hogai.utils import AssistantState, AssistantNode
 from posthog.schema import HumanMessage, RouterMessage
 
 RouteName = Literal["trends", "funnel"]

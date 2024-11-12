@@ -1,6 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
@@ -23,21 +22,22 @@ class TrendsPlannerNode(TaxonomyAgentPlannerNode):
             ],
             template_format="mustache",
         )
-        return super()._run(state, prompt, toolkit, config=config)
+        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
 
 class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         toolkit = TrendsTaxonomyAgentToolkit(self._team)
-        return super()._run(state, toolkit, config=config)
+        return super()._run_with_toolkit(state, toolkit, config=config)
 
 
 TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]
 
 
 class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
-    insight_name = "Trends"
-    output_model = TrendsSchemaGeneratorOutput
+    INSIGHT_NAME = "Trends"
+    OUTPUT_MODEL = TrendsSchemaGeneratorOutput
+    OUTPUT_SCHEMA = TRENDS_SCHEMA
 
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
@@ -46,15 +46,7 @@ class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
             ],
             template_format="mustache",
         )
-        return super()._run(state, prompt, config=config)
-
-    @property
-    def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True).with_structured_output(
-            TRENDS_SCHEMA,
-            method="function_calling",
-            include_raw=False,
-        )
+        return super()._run_with_prompt(state, prompt, config=config)
 
 
 class TrendsGeneratorToolsNode(SchemaGeneratorToolsNode):

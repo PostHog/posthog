@@ -1,3 +1,4 @@
+from abc import ABC
 import itertools
 import xml.etree.ElementTree as ET
 from functools import cached_property
@@ -29,7 +30,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation, remove_line_breaks
+from ee.hogai.utils import AssistantState, AssistantNode, filter_visualization_conversation, remove_line_breaks
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -40,7 +41,7 @@ from posthog.schema import (
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
-    def _run(
+    def _run_with_prompt_and_toolkit(
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
@@ -199,8 +200,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         return format_log_to_str(actions)
 
 
-class TaxonomyAgentPlannerToolsNode(AssistantNode):
-    def _run(
+class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
+    def _run_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps") or []

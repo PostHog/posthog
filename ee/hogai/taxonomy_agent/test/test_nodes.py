@@ -38,7 +38,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
                 prompt = ChatPromptTemplate.from_messages([("user", "test")])
                 toolkit = TestToolkit(self._team)
-                return super()._run(state, prompt, toolkit, config=config)
+                return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
         return Node(self.team)
 
@@ -179,7 +179,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         class Node(TaxonomyAgentPlannerToolsNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
                 toolkit = TestToolkit(self._team)
-                return super()._run(state, toolkit, config=config)
+                return super()._run_with_toolkit(state, toolkit, config=config)
 
         return Node(self.team)
 

@@ -20,8 +20,9 @@ TestSchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 
 
 class TestGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
-    insight_name = "Test"
-    output_model = SchemaGeneratorOutput[AssistantTrendsQuery]
+    INSIGHT_NAME = "Test"
+    OUTPUT_MODEL = SchemaGeneratorOutput[AssistantTrendsQuery]
+    OUTPUT_SCHEMA = {}
 
     def run(self, state, config):
         prompt = ChatPromptTemplate.from_messages(
@@ -29,11 +30,7 @@ class TestGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
                 ("system", "system_prompt"),
             ],
         )
-        return super()._run(state, prompt, config=config)
-
-    @property
-    def _model(self):
-        pass
+        return super()._run_with_prompt(state, prompt, config=config)
 
 
 @override_settings(IN_UNIT_TESTING=True)

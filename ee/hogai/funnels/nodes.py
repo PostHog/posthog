@@ -1,6 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 
 from ee.hogai.funnels.prompts import FUNNEL_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
 from ee.hogai.funnels.toolkit import FUNNEL_SCHEMA, FunnelsTaxonomyAgentToolkit
@@ -20,21 +19,22 @@ class FunnelPlannerNode(TaxonomyAgentPlannerNode):
             ],
             template_format="mustache",
         )
-        return super()._run(state, prompt, toolkit, config=config)
+        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
 
 class FunnelPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         toolkit = FunnelsTaxonomyAgentToolkit(self._team)
-        return super()._run(state, toolkit, config=config)
+        return super()._run_with_toolkit(state, toolkit, config=config)
 
 
 FunnelsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantFunnelsQuery]
 
 
 class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
-    insight_name = "Funnels"
-    output_model = FunnelsSchemaGeneratorOutput
+    INSIGHT_NAME = "Funnels"
+    OUTPUT_MODEL = FunnelsSchemaGeneratorOutput
+    OUTPUT_SCHEMA = FUNNEL_SCHEMA
 
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
@@ -43,15 +43,7 @@ class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
             ],
             template_format="mustache",
         )
-        return super()._run(state, prompt, config=config)
-
-    @property
-    def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True).with_structured_output(
-            FUNNEL_SCHEMA,
-            method="function_calling",
-            include_raw=False,
-        )
+        return super()._run_with_prompt(state, prompt, config=config)
 
 
 class FunnelGeneratorToolsNode(SchemaGeneratorToolsNode):
