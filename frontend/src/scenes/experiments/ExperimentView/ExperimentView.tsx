@@ -6,6 +6,8 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
+import { PrimaryMetricModal } from '../Metrics/PrimaryMetricModal'
+import { PrimaryTrendsExposureModal } from '../Metrics/PrimaryTrendsExposureModal'
 import {
     ExperimentLoadingAnimation,
     LoadingState,
@@ -15,7 +17,7 @@ import {
 } from './components'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
-import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
+import { Goal } from './Goal'
 import { Info } from './Info'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
@@ -115,8 +117,8 @@ export function ExperimentView(): JSX.Element {
                                 />
                             </>
                         )}
-                        <ExperimentGoalModal experimentId={experimentId} />
-                        <ExperimentExposureModal experimentId={experimentId} />
+                        <PrimaryMetricModal experimentId={experimentId} />
+                        <PrimaryTrendsExposureModal experimentId={experimentId} />
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
                     </>

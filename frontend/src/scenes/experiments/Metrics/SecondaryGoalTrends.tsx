@@ -1,5 +1,5 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import { LemonLabel } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -12,17 +12,18 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
+import { ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
 import { FilterType } from '~/types'
 
-import { experimentLogic } from './experimentLogic'
+import { MetricInsightId } from '../constants'
+import { experimentLogic } from '../experimentLogic'
 
-export function PrimaryGoalTrendsExposure(): JSX.Element {
+export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.Element {
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setTrendsExposureMetric } = useActions(experimentLogic)
+    const { setExperiment, setTrendsMetric } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    const currentMetric = experiment.metrics[0] as ExperimentTrendsQuery
+    const currentMetric = experiment.metrics_secondary[metricIdx] as ExperimentTrendsQuery
 
     return (
         <>
@@ -31,9 +32,10 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                 <LemonInput
                     value={currentMetric.name}
                     onChange={(newName) => {
-                        setTrendsExposureMetric({
+                        setTrendsMetric({
                             metricIdx: 0,
                             name: newName,
+                            isSecondary: true,
                         })
                     }}
                 />
@@ -43,9 +45,9 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                 filters={(() => {
                     // :FLAG: CLEAN UP AFTER MIGRATION
                     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                        return queryNodeToFilter(currentMetric.exposure_query as InsightQueryNode)
+                        return queryNodeToFilter(currentMetric.count_query)
                     }
-                    return experiment.parameters.custom_exposure_filter as FilterType
+                    return experiment.filters
                 })()}
                 setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
                     // :FLAG: CLEAN UP AFTER MIGRATION
@@ -56,45 +58,37 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                             MathAvailability.All
                         )
 
-                        setTrendsExposureMetric({
+                        setTrendsMetric({
                             metricIdx: 0,
                             series,
+                            isSecondary: true,
                         })
                     } else {
                         if (actions?.length) {
                             setExperiment({
-                                parameters: {
-                                    ...experiment.parameters,
-                                    custom_exposure_filter: {
-                                        ...experiment.parameters.custom_exposure_filter,
-                                        actions,
-                                        events: undefined,
-                                        data_warehouse: undefined,
-                                    },
+                                filters: {
+                                    ...experiment.filters,
+                                    actions,
+                                    events: undefined,
+                                    data_warehouse: undefined,
                                 },
                             })
                         } else if (events?.length) {
                             setExperiment({
-                                parameters: {
-                                    ...experiment.parameters,
-                                    custom_exposure_filter: {
-                                        ...experiment.parameters.custom_exposure_filter,
-                                        events,
-                                        actions: undefined,
-                                        data_warehouse: undefined,
-                                    },
+                                filters: {
+                                    ...experiment.filters,
+                                    events,
+                                    actions: undefined,
+                                    data_warehouse: undefined,
                                 },
                             })
                         } else if (data_warehouse?.length) {
                             setExperiment({
-                                parameters: {
-                                    ...experiment.parameters,
-                                    custom_exposure_filter: {
-                                        ...experiment.parameters.custom_exposure_filter,
-                                        data_warehouse,
-                                        actions: undefined,
-                                        events: undefined,
-                                    },
+                                filters: {
+                                    ...experiment.filters,
+                                    data_warehouse,
+                                    actions: undefined,
+                                    events: undefined,
                                 },
                             })
                         }
@@ -126,28 +120,24 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                     checked={(() => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            const val = currentMetric.exposure_query?.filterTestAccounts
+                            const val = currentMetric.count_query?.filterTestAccounts
                             return hasFilters ? !!val : false
                         }
-                        return hasFilters
-                            ? !!(experiment.parameters.custom_exposure_filter as FilterType).filter_test_accounts
-                            : false
+                        return hasFilters ? !!experiment.filters.filter_test_accounts : false
                     })()}
                     onChange={(checked: boolean) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            setTrendsExposureMetric({
+                            setTrendsMetric({
                                 metricIdx: 0,
                                 filterTestAccounts: checked,
+                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
-                                parameters: {
-                                    ...experiment.parameters,
-                                    custom_exposure_filter: {
-                                        ...experiment.parameters.custom_exposure_filter,
-                                        filter_test_accounts: checked,
-                                    },
+                                filters: {
+                                    ...experiment.filters,
+                                    filter_test_accounts: checked,
                                 },
                             })
                         }
@@ -169,15 +159,20 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                         source: (() => {
                             // :FLAG: CLEAN UP AFTER MIGRATION
                             if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                return currentMetric.exposure_query
+                                return currentMetric.count_query
                             }
-                            return filtersToQueryNode(experiment.parameters.custom_exposure_filter as FilterType)
+                            return filtersToQueryNode(experiment.filters)
                         })(),
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,
                     }}
                     readOnly
+                    context={{
+                        insightProps: {
+                            dashboardItemId: MetricInsightId.Trends,
+                        },
+                    }}
                 />
             </div>
         </>

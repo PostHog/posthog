@@ -1,5 +1,5 @@
 import { IconInfo, IconPencil, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSelect, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,96 +9,17 @@ import { useState } from 'react'
 
 import { Experiment, InsightType } from '~/types'
 
-import {
-    experimentLogic,
-    getDefaultFunnelsMetric,
-    getDefaultTrendsMetric,
-    TabularSecondaryMetricResults,
-} from '../experimentLogic'
-import { SecondaryGoalFunnels } from '../SecondaryGoalFunnels'
-import { SecondaryGoalTrends } from '../SecondaryGoalTrends'
+import { experimentLogic, getDefaultFunnelsMetric, TabularSecondaryMetricResults } from '../experimentLogic'
+import { SecondaryMetricChartModal } from '../Metrics/SecondaryMetricChartModal'
+import { SecondaryMetricModal } from '../Metrics/SecondaryMetricModal'
 import { VariantTag } from './components'
 
 const MAX_SECONDARY_METRICS = 10
 
-export function SecondaryMetricsModal({
-    experimentId,
-    metricIdx,
-    isOpen,
-    onClose,
-}: {
-    experimentId: Experiment['id']
-    metricIdx: number
-    isOpen: boolean
-    onClose: () => void
-}): JSX.Element {
-    const { experiment, experimentLoading, getSecondaryMetricType } = useValues(experimentLogic({ experimentId }))
-    const { closeExperimentGoalModal, updateExperimentGoal, setExperiment } = useActions(
-        experimentLogic({ experimentId })
-    )
-    const metricType = getSecondaryMetricType(metricIdx)
-
-    return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={onClose}
-            width={1000}
-            title="Change secondary metric"
-            footer={
-                <div className="flex items-center gap-2">
-                    <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={closeExperimentGoalModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        form="edit-experiment-goal-form"
-                        onClick={() => {
-                            updateExperimentGoal(experiment.filters)
-                        }}
-                        type="primary"
-                        loading={experimentLoading}
-                        data-attr="create-annotation-submit"
-                    >
-                        Save
-                    </LemonButton>
-                </div>
-            }
-        >
-            <div className="flex items-center w-full gap-2 mb-4">
-                <span>Metric type</span>
-                <LemonSelect
-                    data-attr="metrics-selector"
-                    value={metricType}
-                    onChange={(newMetricType) => {
-                        const defaultMetric =
-                            newMetricType === InsightType.TRENDS ? getDefaultTrendsMetric() : getDefaultFunnelsMetric()
-
-                        setExperiment({
-                            ...experiment,
-                            metrics_secondary: [
-                                ...experiment.metrics_secondary.slice(0, metricIdx),
-                                defaultMetric,
-                                ...experiment.metrics_secondary.slice(metricIdx + 1),
-                            ],
-                        })
-                    }}
-                    options={[
-                        { value: InsightType.TRENDS, label: <b>Trends</b> },
-                        { value: InsightType.FUNNELS, label: <b>Funnels</b> },
-                    ]}
-                />
-            </div>
-            {metricType === InsightType.TRENDS ? (
-                <SecondaryGoalTrends metricIdx={metricIdx} />
-            ) : (
-                <SecondaryGoalFunnels metricIdx={metricIdx} />
-            )}
-        </LemonModal>
-    )
-}
-
 export function SecondaryMetricsTable({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const [isModalOpen, setIsModalOpen] = useState(false)
-    const [editingMetricIdx, setEditingMetricIdx] = useState<number | null>(null)
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+    const [isChartModalOpen, setIsChartModalOpen] = useState(false)
+    const [modalMetricIdx, setModalMetricIdx] = useState<number | null>(null)
 
     const {
         experimentResults,
@@ -116,14 +37,24 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
     } = useValues(experimentLogic({ experimentId }))
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
-    const openModalForMetric = (idx: number): void => {
-        setEditingMetricIdx(idx)
-        setIsModalOpen(true)
+    const openEditModal = (idx: number): void => {
+        setModalMetricIdx(idx)
+        setIsEditModalOpen(true)
     }
 
-    const closeModal = (): void => {
-        setIsModalOpen(false)
-        setEditingMetricIdx(null)
+    const closeEditModal = (): void => {
+        setIsEditModalOpen(false)
+        setModalMetricIdx(null)
+    }
+
+    const openChartModal = (idx: number): void => {
+        setModalMetricIdx(idx)
+        setIsChartModalOpen(true)
+    }
+
+    const closeChartModal = (): void => {
+        setIsChartModalOpen(false)
+        setModalMetricIdx(null)
     }
 
     // :FLAG: CLEAN UP AFTER MIGRATION
@@ -170,7 +101,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                 type="secondary"
                                 size="xsmall"
                                 icon={<IconAreaChart />}
-                                onClick={() => {}}
+                                onClick={() => openChartModal(idx)}
                                 disabledReason={
                                     targetResults && targetResults.insight
                                         ? undefined
@@ -182,7 +113,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                 type="secondary"
                                 size="xsmall"
                                 icon={<IconPencil />}
-                                onClick={() => openModalForMetric(idx)}
+                                onClick={() => openEditModal(idx)}
                             />
                         </div>
                     </div>
@@ -304,7 +235,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                                     getDefaultFunnelsMetric(),
                                                 ],
                                             })
-                                            openModalForMetric(experiment.metrics_secondary.length - 1)
+                                            openEditModal(experiment.metrics_secondary.length - 1)
                                         }}
                                         disabledReason={
                                             metrics.length >= MAX_SECONDARY_METRICS
@@ -343,7 +274,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                     setExperiment({
                                         metrics_secondary: [...experiment.metrics_secondary, getDefaultFunnelsMetric()],
                                     })
-                                    openModalForMetric(experiment.metrics_secondary.length - 1)
+                                    openEditModal(experiment.metrics_secondary.length - 1)
                                 }}
                             >
                                 Add metric
@@ -352,11 +283,17 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                     </div>
                 )}
             </div>
-            <SecondaryMetricsModal
-                metricIdx={editingMetricIdx ?? 0}
-                isOpen={isModalOpen}
-                onClose={closeModal}
+            <SecondaryMetricModal
+                metricIdx={modalMetricIdx ?? 0}
+                isOpen={isEditModalOpen}
+                onClose={closeEditModal}
                 experimentId={experimentId}
+            />
+            <SecondaryMetricChartModal
+                experimentId={experimentId}
+                metricIdx={modalMetricIdx ?? 0}
+                isOpen={isChartModalOpen}
+                onClose={closeChartModal}
             />
         </>
     )

@@ -1,15 +1,12 @@
 import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 
 import { ActionFilter as ActionFilterType, AnyPropertyFilter, Experiment, FilterType, InsightType } from '~/types'
 
-import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
-import { PrimaryGoalFunnels } from '../PrimaryGoalFunnels'
-import { PrimaryGoalTrends } from '../PrimaryGoalTrends'
-import { PrimaryGoalTrendsExposure } from '../PrimaryGoalTrendsExposure'
+import { experimentLogic } from '../experimentLogic'
 
 export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Element {
     const metricType = filters?.insight || InsightType.TRENDS
@@ -87,129 +84,6 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                 </span>
             </div>
         </>
-    )
-}
-
-export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const {
-        experiment,
-        isExperimentGoalModalOpen,
-        experimentLoading,
-        getMetricType,
-        trendMetricInsightLoading,
-        funnelMetricInsightLoading,
-    } = useValues(experimentLogic({ experimentId }))
-    const { closeExperimentGoalModal, updateExperimentGoal, setExperiment } = useActions(
-        experimentLogic({ experimentId })
-    )
-
-    const experimentFiltersLength =
-        (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
-
-    const metricIdx = 0
-    const metricType = getMetricType(metricIdx)
-
-    const isInsightLoading = metricType === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
-
-    return (
-        <LemonModal
-            isOpen={isExperimentGoalModalOpen}
-            onClose={closeExperimentGoalModal}
-            width={1000}
-            title="Change experiment goal"
-            footer={
-                <div className="flex items-center gap-2">
-                    <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={closeExperimentGoalModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        disabledReason={
-                            (isInsightLoading && 'The insight needs to be loaded before saving the goal.') ||
-                            (metricType === InsightType.FUNNELS &&
-                                experimentFiltersLength < 2 &&
-                                'The experiment needs at least two funnel steps.')
-                        }
-                        form="edit-experiment-goal-form"
-                        onClick={() => {
-                            updateExperimentGoal(experiment.filters)
-                        }}
-                        type="primary"
-                        loading={experimentLoading}
-                        data-attr="create-annotation-submit"
-                    >
-                        Save
-                    </LemonButton>
-                </div>
-            }
-        >
-            <div className="flex items-center w-full gap-2 mb-4">
-                <span>Metric type</span>
-                <LemonSelect
-                    data-attr="metrics-selector"
-                    value={metricType}
-                    onChange={(newMetricType) => {
-                        const defaultMetric =
-                            newMetricType === InsightType.TRENDS ? getDefaultTrendsMetric() : getDefaultFunnelsMetric()
-
-                        setExperiment({
-                            ...experiment,
-                            metrics: [
-                                ...experiment.metrics.slice(0, metricIdx),
-                                defaultMetric,
-                                ...experiment.metrics.slice(metricIdx + 1),
-                            ],
-                        })
-                    }}
-                    options={[
-                        { value: InsightType.TRENDS, label: <b>Trends</b> },
-                        { value: InsightType.FUNNELS, label: <b>Funnels</b> },
-                    ]}
-                />
-            </div>
-            {metricType === InsightType.TRENDS ? <PrimaryGoalTrends /> : <PrimaryGoalFunnels />}
-        </LemonModal>
-    )
-}
-
-export function ExperimentExposureModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, isExperimentExposureModalOpen, experimentLoading } = useValues(
-        experimentLogic({ experimentId })
-    )
-    const { closeExperimentExposureModal, updateExperimentExposure } = useActions(experimentLogic({ experimentId }))
-
-    return (
-        <LemonModal
-            isOpen={isExperimentExposureModalOpen}
-            onClose={closeExperimentExposureModal}
-            width={1000}
-            title="Change experiment exposure"
-            footer={
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        form="edit-experiment-exposure-form"
-                        type="secondary"
-                        onClick={closeExperimentExposureModal}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        form="edit-experiment-exposure-form"
-                        onClick={() => {
-                            if (experiment.parameters.custom_exposure_filter) {
-                                updateExperimentExposure(experiment.parameters.custom_exposure_filter)
-                            }
-                        }}
-                        type="primary"
-                        loading={experimentLoading}
-                        data-attr="create-annotation-submit"
-                    >
-                        Save
-                    </LemonButton>
-                </div>
-            }
-        >
-            <PrimaryGoalTrendsExposure />
-        </LemonModal>
     )
 }
 

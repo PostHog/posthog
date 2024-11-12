@@ -16,7 +16,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, InsightType, StepOrderValue } from '~/types'
 
-import { experimentLogic } from './experimentLogic'
+import { experimentLogic } from '../experimentLogic'
 
 export function FunnelAggregationSelect({
     value,

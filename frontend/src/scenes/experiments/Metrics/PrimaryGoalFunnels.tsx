@@ -16,16 +16,15 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
 import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types'
 
-import { MetricInsightId } from './constants'
-import { experimentLogic } from './experimentLogic'
+import { MetricInsightId } from '../constants'
+import { experimentLogic } from '../experimentLogic'
 import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './MetricSelector'
-
-export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.Element {
+export function PrimaryGoalFunnels(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
     const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    const currentMetric = experiment.metrics_secondary[metricIdx] as ExperimentFunnelsQuery
+    const currentMetric = experiment.metrics[0] as ExperimentFunnelsQuery
 
     return (
         <>
@@ -37,7 +36,6 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         setFunnelsMetric({
                             metricIdx: 0,
                             name: newName,
-                            isSecondary: true,
                         })
                     }}
                 />
@@ -63,7 +61,6 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         setFunnelsMetric({
                             metricIdx: 0,
                             series,
-                            isSecondary: true,
                         })
                     } else {
                         if (actions?.length) {
@@ -138,7 +135,6 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         setFunnelsMetric({
                             metricIdx: 0,
                             funnelAggregateByHogQL: value,
-                            isSecondary: true,
                         })
                     }}
                 />
@@ -163,7 +159,6 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             setFunnelsMetric({
                                 metricIdx: 0,
                                 funnelWindowInterval: funnelWindowInterval,
-                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
@@ -180,7 +175,6 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             setFunnelsMetric({
                                 metricIdx: 0,
                                 funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
-                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
@@ -228,7 +222,6 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                                 breakdownAttributionValue: breakdownAttributionValue
                                     ? parseInt(breakdownAttributionValue)
                                     : undefined,
-                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
@@ -270,7 +263,6 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             setFunnelsMetric({
                                 metricIdx: 0,
                                 filterTestAccounts: checked,
-                                isSecondary: true,
                             })
                         } else {
                             setExperiment({
