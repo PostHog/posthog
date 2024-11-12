@@ -511,7 +511,8 @@ export default function SurveyEdit(): JSX.Element {
                             : []),
                         {
                             key: SurveyEditSection.DisplayConditions,
-                            header: <div data-attr="survey-display-conditions">Display conditions</div>,
+                            header: 'Display conditions',
+                            dataAttr: 'survey-display-conditions',
                             content: (
                                 <LemonField.Pure>
                                     <LemonSelect
