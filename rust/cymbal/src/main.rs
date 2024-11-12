@@ -156,21 +156,7 @@ async fn main() -> Result<(), Error> {
 
         let fingerprint = fingerprinting::generate_fingerprint(&exception_list);
 
-        let _issue_id = resolve_issue(&context.pool, event.team_id, &fingerprint);
-
-        // let found = Issue::load(&db, event.team_id, fingerprint).await;
-
-        // let Ok(found) = found else {
-        //     metrics::counter!(ERRORS, "cause" => "fingerprint_lookup_failed").increment(1);
-        //     continue;
-        // };
-
-        // let _found = match found {
-        //     Some(f) => f,
-        //     None => {
-        //         db::create_error_tracking_issue(&context.pool, event.team_id, fingerprint).await?
-        //     }
-        // };
+        let _issue_id = resolve_issue_id(&context.pool, event.team_id, fingerprint);
 
         metrics::counter!(STACK_PROCESSED).increment(1);
         whole_loop.label("finished", "true").fin();

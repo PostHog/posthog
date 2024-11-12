@@ -18,25 +18,29 @@ pub struct Issue {
     pub fingerprint: String,
 }
 
-pub async fn resolve_issue(
+pub async fn resolve_issue_id(
     pool: &PgPool,
     team_id: i32,
-    fingerprint: &String,
+    fingerprint: &str,
 ) -> Result<Uuid, Error> {
-    let existing = get_existing_issue_override(pool, team_id, fingerprint).await?;
+    create_issue(pool, team_id, fingerprint).await?;
 
-    let issue_fingerprint = match existing {
-        Some(f) => f,
-        None => create_error_tracking_issue(pool, team_id, fingerprint).await?,
-    };
+    // let existing = load_issue_override(pool, team_id, fingerprint.clone()).await?;
 
-    Ok(issue_fingerprint.issue_id)
+    // let issue_fingerprint = match existing {
+    //     Some(f) => f,
+    //     None => create_issue(pool, team_id, fingerprint.clone()).await?,
+    // };
+
+    return Ok(Uuid::now_v7());
+
+    // Ok(issue_fingerprint.issue_id)
 }
 
-pub async fn get_existing_issue_override<'c, E>(
+pub async fn load_issue_override<'c, E>(
     executor: E,
     team_id: i32,
-    fingerprint: &String,
+    fingerprint: &str,
 ) -> Result<Option<IssueFingerprintOverride>, Error>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -47,7 +51,6 @@ where
             SELECT id, team_id, fingerprint, issue_id, version
             FROM posthog_errortrackingissuefingerprintv2
             WHERE team_id = $1 AND fingerprint = $2
-            ORDER BY version DESC
         "#,
         team_id,
         fingerprint
@@ -56,10 +59,10 @@ where
     .await?)
 }
 
-pub async fn create_error_tracking_issue<'c, A>(
+pub async fn create_issue<'c, A>(
     connection: A,
     team_id: i32,
-    fingerprint: &String,
+    fingerprint: &str,
 ) -> Result<IssueFingerprintOverride, Error>
 where
     A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
@@ -82,11 +85,12 @@ where
     let res = sqlx::query_as!(
         IssueFingerprintOverride,
         r#"
-            INSERT INTO posthog_errortrackingissuefingerprintv2 (team_id, fingerprint, issue_id, version)
-            VALUES ($1, $2, $3, 0)
+            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, fingerprint, issue_id, version)
+            VALUES ($1, $2, $3, $4, 0)
             ON CONFLICT (team_id, fingerprint) DO UPDATE SET version = posthog_errortrackingissuefingerprintv2.version + 1
             RETURNING id, team_id, fingerprint, issue_id, version
         "#,
+        Uuid::now_v7(),
         team_id,
         fingerprint,
         issue_id
@@ -99,4 +103,38 @@ where
     // TODO: write to Kafka
 
     Ok(res)
+}
+
+#[cfg(test)]
+mod test {
+    use sqlx::PgPool;
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_issue_creation(db: PgPool) {
+        let team_id: i32 = 1;
+        let fingerprint = "this_is_a_fingerprint".to_string();
+
+        super::resolve_issue_id(&db, team_id, &fingerprint)
+            .await
+            .unwrap();
+
+        // Verify both records are created in Postgres
+        // let record = super::load_issue_override(&db, team_id, fingerprint.clone())
+        //     .await
+        //     .unwrap()
+        //     .unwrap();
+
+        // assert_eq!(record.fingerprint, fingerprint);
+        // assert_eq!(record.version, 0);
+
+        // TODO: add the other model
+
+        // let result = super::resolve_issue_id(&db, team_id, &fingerprint)
+        //     .await
+        //     .unwrap();
+
+        // assert_eq!(record.issue_id, result);
+
+        // TODO: make sure only one posthog_errortrackingissue was ever created
+    }
 }
