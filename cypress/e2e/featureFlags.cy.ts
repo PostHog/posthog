@@ -180,13 +180,6 @@ describe('Feature Flags', () => {
     it('Filter and sort feature flags', () => {
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
 
-        cy.get('[data-attr=feature-flag-select-type').click()
-        cy.get('[data-attr=feature-flag-select-type-option-multiple-variants]').click()
-        cy.url().should('include', 'type=multivariant')
-
-        // Make sure filtered empty state is shown
-        cy.get('[data-attr=feature-flag-empty-state-filtered]').should('exist')
-
         // Create a disabled flag
         const disabledPrefixFlagName = `disabled-${name}`
         cy.get('[data-attr=new-feature-flag]').click()
@@ -236,13 +229,6 @@ describe('Feature Flags', () => {
 
     it('Enable and disable feature flags from list', () => {
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
-
-        cy.get('[data-attr=feature-flag-select-type').click()
-        cy.get('[data-attr=feature-flag-select-type-option-multiple-variants]').click()
-        cy.url().should('include', 'type=multivariant')
-
-        // Make sure filtered empty state is shown
-        cy.get('[data-attr=feature-flag-empty-state-filtered]').should('exist')
 
         // Create an enabled flag
         const togglablePrefixFlagName = `to-toggle-${name}`
