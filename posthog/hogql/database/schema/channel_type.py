@@ -197,6 +197,8 @@ def create_channel_type_expr(
     if custom_rules:
         if_args = []
         for rule in custom_rules:
+            if isinstance(rule, dict):
+                rule = CustomChannelRule(**rule)
             if_args.append(custom_rule_to_expr(rule, source_exprs))
             if_args.append(ast.Constant(value=rule.channel_type))
         if_args.append(ast.Constant(value=None))
