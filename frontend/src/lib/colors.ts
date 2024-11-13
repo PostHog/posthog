@@ -27,7 +27,22 @@ const dataColorVars = [
     'data-color-15',
 ] as const
 
-export type DataColorToken = `preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}`
+export type DataColorToken =
+    | 'preset-1'
+    | 'preset-2'
+    | 'preset-3'
+    | 'preset-4'
+    | 'preset-5'
+    | 'preset-6'
+    | 'preset-7'
+    | 'preset-8'
+    | 'preset-9'
+    | 'preset-10'
+    | 'preset-11'
+    | 'preset-12'
+    | 'preset-13'
+    | 'preset-14'
+    | 'preset-15'
 
 export type DataColorTheme = Record<DataColorToken, string>
 
