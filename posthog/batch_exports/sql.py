@@ -89,7 +89,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         SELECT
             distinct_id,
             MAX(version) AS version,
-            argMax(person_id, version) AS person_id,
+            argMax(person_id, version) AS person_id2,
             argMax(_timestamp, version) AS _timestamp
         FROM
             person_distinct_id2
@@ -98,7 +98,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
             person_id IN (SELECT id FROM all_new_persons)
         GROUP BY
             distinct_id
-    ) AS pd ON p.id = pd.person_id
+    ) AS pd ON p.id = pd.person_id2
     WHERE
         p.team_id = {{team_id:Int64}} AND
         (p.id, p.version) IN (SELECT id, version FROM all_new_persons)
