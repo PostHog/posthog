@@ -6,66 +6,13 @@ from typing import Any, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.compiler.javascript_stl import STL_FUNCTIONS, import_stl_functions
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import Visitor
 
 _JS_GET_GLOBAL = "get_global"
-_JS_KEYWORDS = ["var", "let", "const", "function"]
-INLINED_JS_STL = {
-    "print": """
-const escapeCharsMap = { '\\b': '\\\\b', '\\f': '\\\\f', '\\r': '\\\\r', '\\n': '\\\\n', '\\t': '\\\\t', '\\0': '\\\\0', '\\v': '\\\\v', '\\\\': '\\\\\\\\' };
-const singlequoteEscapeCharsMap = { ...escapeCharsMap, "'": "\\\\'" };
-const backquoteEscapeCharsMap = { ...escapeCharsMap, '`': '\\\\`' };
-function escapeString(value) { return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; }
-function escapeIdentifier(identifier) {
-    if (typeof identifier === 'number') return identifier.toString();
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
-    return `\\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\\``;
-}
-function isHogCallable(obj) { return obj && typeof obj === 'object' && '__hogCallable__' in obj && 'argCount' in obj && 'ip' in obj && 'upvalueCount' in obj; }
-function isHogClosure(obj) { return obj && typeof obj === 'object' && '__hogClosure__' in obj && 'callable' in obj && 'upvalues' in obj; }
-function isHogDate(obj) { return obj && typeof obj === 'object' && '__hogDate__' in obj && 'year' in obj && 'month' in obj && 'day' in obj; }
-function isHogDateTime(obj) { return obj && typeof obj === 'object' && '__hogDateTime__' in obj && 'dt' in obj && 'zone' in obj; }
-function isHogError(obj) { return obj && typeof obj === 'object' && '__hogError__' in obj && 'type' in obj && 'message' in obj; }
-function printHogValue(obj, marked = new Set()) {
-    if (typeof obj === 'object' && obj !== null && obj !== undefined) {
-        if (marked.has(obj) && !isHogDateTime(obj) && !isHogDate(obj) && !isHogError(obj) && !isHogClosure(obj) && !isHogCallable(obj)) {
-            return 'null';
-        }
-        marked.add(obj);
-        try {
-            if (Array.isArray(obj)) {
-                if (obj.__isHogTuple) {
-                    return obj.length < 2 ? `tuple(${obj.map((o) => printHogValue(o, marked)).join(', ')})` : `(${obj.map((o) => printHogValue(o, marked)).join(', ')})`;
-                }
-                return `[${obj.map((o) => printHogValue(o, marked)).join(', ')}]`;
-            }
-            if (isHogDateTime(obj)) {
-                const millis = String(obj.dt);
-                return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${escapeString(obj.zone)})`;
-            }
-            if (isHogDate(obj)) return `Date(${obj.year}, ${obj.month}, ${obj.day})`;
-            if (isHogError(obj)) {
-                return `${String(obj.type)}(${escapeString(obj.message)}${obj.payload ? `, ${printHogValue(obj.payload, marked)}` : ''})`;
-            }
-            if (isHogClosure(obj)) return printHogValue(obj.callable, marked);
-            if (isHogCallable(obj)) return `fn<${escapeIdentifier(obj.name ?? 'lambda')}(${printHogValue(obj.argCount)})>`;
-            if (obj instanceof Map) {
-                return `{${Array.from(obj.entries()).map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`).join(', ')}}`;
-            }
-            return `{${Object.entries(obj).map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`).join(', ')}}`;
-        } finally {
-            marked.delete(obj);
-        }
-    } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
-    else if (obj === null || obj === undefined) return 'null';
-    else if (typeof obj === 'string') return escapeString(obj);
-    return obj.toString();
-}
-function printHogStringOutput(obj) { return typeof obj === 'string' ? obj : printHogValue(obj); }
-"""
-}
+_JS_KEYWORDS = ["var", "let", "const", "function", "typeof"]
 
 
 @dataclasses.dataclass
@@ -104,7 +51,7 @@ def create_javascript(
     supported_functions = supported_functions or set()
     compiler = JavaScriptCompiler(supported_functions, args, context, in_repl, locals)
     code = compiler.visit(expr)
-    code = f"{compiler.get_extra_code()}{code}"
+    code = import_stl_functions(compiler.inlined_stl) + code
     return CompiledJavaScript(code=code, locals=compiler.locals)
 
 
@@ -115,7 +62,9 @@ def _as_block(node: ast.Statement) -> ast.Block:
 
 
 def _sanitize_var_name(name: str) -> str:
-    if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name) and name not in _JS_KEYWORDS:
+    if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
+        if name in _JS_KEYWORDS:
+            return f"__x_{name}"
         return name
     else:
         return f"[{json.dumps(name)}]"
@@ -144,9 +93,6 @@ class JavaScriptCompiler(Visitor):
         for arg in self.args:
             self._declare_local(arg)
 
-    def get_extra_code(self):
-        return "\n".join(INLINED_JS_STL.get(func, "") for func in self.inlined_stl)
-
     def _start_scope(self):
         self.scope_depth += 1
 
@@ -166,11 +112,11 @@ class JavaScriptCompiler(Visitor):
 
     def visit_and(self, node: ast.And):
         code = " && ".join([self.visit(expr) for expr in node.exprs])
-        return f"({code})"
+        return f"!!({code})"
 
     def visit_or(self, node: ast.Or):
         code = " || ".join([self.visit(expr) for expr in node.exprs])
-        return f"({code})"
+        return f"!!({code})"
 
     def visit_not(self, node: ast.Not):
         expr_code = self.visit(node.expr)
@@ -267,6 +213,7 @@ class JavaScriptCompiler(Visitor):
                 code_parts.append(f"[{element}]")
             elif isinstance(element, str):
                 if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", element):
+                    element = _sanitize_var_name(element)
                     if code_parts:
                         code_parts.append("." + element)
                     else:
@@ -352,246 +299,10 @@ class JavaScriptCompiler(Visitor):
             return f"({expr_code} ?? {if_null_code})"
 
         # Handle STL functions
-        if node.name == "concat":
-            args_code = " + ".join([f"String({self.visit(arg)})" for arg in node.args])
-            return f"({args_code})"
-        elif node.name == "toString":
-            expr_code = self.visit(node.args[0])
-            return f"printHogStringOutput({expr_code})"
-        elif node.name == "toUUID":
-            expr_code = self.visit(node.args[0])
-            return f"printHogStringOutput({expr_code})"
-        elif node.name == "toInt":
-            expr_code = self.visit(node.args[0])
-            return f"parseInt({expr_code}, 10)"
-        elif node.name == "toFloat":
-            expr_code = self.visit(node.args[0])
-            return f"parseFloat({expr_code})"
-        elif node.name == "length":
-            expr_code = self.visit(node.args[0])
-            return f"({expr_code}).length"
-        elif node.name == "empty":
-            expr_code = self.visit(node.args[0])
-            return f"(({expr_code}) == null || ({expr_code}).length === 0 || Object.keys({expr_code}).length === 0)"
-        elif node.name == "notEmpty":
-            expr_code = self.visit(node.args[0])
-            return f"(!(({expr_code}) == null || ({expr_code}).length === 0 || Object.keys({expr_code}).length === 0))"
-        elif node.name == "tuple":
-            items_code = ", ".join([self.visit(arg) for arg in node.args])
-            return f"Object.assign([{items_code}], {{ __isHogTuple: true }})"
-        elif node.name == "lower":
-            expr_code = self.visit(node.args[0])
-            return f"({expr_code}).toLowerCase()"
-        elif node.name == "upper":
-            expr_code = self.visit(node.args[0])
-            return f"({expr_code}).toUpperCase()"
-        elif node.name == "reverse":
-            expr_code = self.visit(node.args[0])
-            return f'([...({expr_code})].reverse().join(""))'
-        elif node.name == "trim":
-            expr_code = self.visit(node.args[0])
-            return f"({expr_code}).trim()"
-        elif node.name == "trimLeft":
-            expr_code = self.visit(node.args[0])
-            return f"({expr_code}).trimStart()"
-        elif node.name == "trimRight":
-            expr_code = self.visit(node.args[0])
-            return f"({expr_code}).trimEnd()"
-        elif node.name == "keys":
-            expr_code = self.visit(node.args[0])
-            return f"Object.keys({expr_code})"
-        elif node.name == "values":
-            expr_code = self.visit(node.args[0])
-            return f"Object.values({expr_code})"
-        elif node.name == "now":
-            return "Date.now()"
-        elif node.name == "typeof":
-            expr_code = self.visit(node.args[0])
-            return f"typeof {expr_code}"
-        elif node.name == "base64Encode":
-            expr_code = self.visit(node.args[0])
-            return f"btoa({expr_code})"
-        elif node.name == "base64Decode":
-            expr_code = self.visit(node.args[0])
-            return f"atob({expr_code})"
-        elif node.name == "tryBase64Decode":
-            expr_code = self.visit(node.args[0])
-            return f"(function(s) {{ try {{ return atob(s); }} catch(e) {{ return ''; }} }})({expr_code})"
-        elif node.name == "encodeURLComponent":
-            expr_code = self.visit(node.args[0])
-            return f"encodeURIComponent({expr_code})"
-        elif node.name == "decodeURLComponent":
-            expr_code = self.visit(node.args[0])
-            return f"decodeURIComponent({expr_code})"
-        elif node.name == "jsonParse":
-            expr_code = self.visit(node.args[0])
-            return f"JSON.parse({expr_code})"
-        elif node.name == "jsonStringify":
-            expr_code = self.visit(node.args[0])
-            return f"JSON.stringify({expr_code})"
-        elif node.name == "isValidJSON":
-            expr_code = self.visit(node.args[0])
-            return (
-                f"(function(s) {{ try {{ JSON.parse(s); return true; }} catch (e) {{ return false; }} }})({expr_code})"
-            )
-        elif node.name == "JSONHas":
-            obj_expr = self.visit(node.args[0])
-            path_exprs = [self.visit(arg) for arg in node.args[1:]]
-            # Build dynamic access
-            path_code = "".join([f"[{arg}]" for arg in path_exprs])
-            return f"(({obj_expr}{path_code}) !== undefined)"
-        elif node.name == "JSONLength":
-            obj_expr = self.visit(node.args[0])
-            path_exprs = [self.visit(arg) for arg in node.args[1:]]
-            path_code = "".join([f"[{arg}]" for arg in path_exprs])
-            return f"(Object.keys({obj_expr}{path_code} || {{}}).length)"
-        elif node.name == "JSONExtractBool":
-            obj_expr = self.visit(node.args[0])
-            path_exprs = [self.visit(arg) for arg in node.args[1:]]
-            path_code = "".join([f"[{arg}]" for arg in path_exprs])
-            return f"(!!({obj_expr}{path_code}))"
-        elif node.name == "replaceOne":
-            string_expr = self.visit(node.args[0])
-            search_expr = self.visit(node.args[1])
-            replace_expr = self.visit(node.args[2])
-            return f"({string_expr}).replace({search_expr}, {replace_expr})"
-        elif node.name == "replaceAll":
-            string_expr = self.visit(node.args[0])
-            search_expr = self.visit(node.args[1])
-            replace_expr = self.visit(node.args[2])
-            return f"({string_expr}).split({search_expr}).join({replace_expr})"
-        elif node.name == "splitByString":
-            separator_expr = self.visit(node.args[0])
-            string_expr = self.visit(node.args[1])
-            max_splits_expr = self.visit(node.args[2]) if len(node.args) > 2 else None
-            if max_splits_expr:
-                return f"({string_expr}).split({separator_expr}, {max_splits_expr})"
-            else:
-                return f"({string_expr}).split({separator_expr})"
-        elif node.name == "generateUUIDv4":
-            return "crypto.randomUUID()"
-        elif node.name == "has":
-            arr_expr = self.visit(node.args[0])
-            elem_expr = self.visit(node.args[1])
-            return f"({arr_expr}).includes({elem_expr})"
-        elif node.name == "indexOf":
-            arr_expr = self.visit(node.args[0])
-            elem_expr = self.visit(node.args[1])
-            return f"(({arr_expr}).indexOf({elem_expr}) + 1)"
-        elif node.name == "arrayPushBack":
-            arr_expr = self.visit(node.args[0])
-            item_expr = self.visit(node.args[1])
-            return f"([...{arr_expr}, {item_expr}])"
-        elif node.name == "arrayPushFront":
-            arr_expr = self.visit(node.args[0])
-            item_expr = self.visit(node.args[1])
-            return f"([{item_expr}, ...{arr_expr}])"
-        elif node.name == "arrayPopBack":
-            arr_expr = self.visit(node.args[0])
-            return f"({arr_expr}).slice(0, -1)"
-        elif node.name == "arrayPopFront":
-            arr_expr = self.visit(node.args[0])
-            return f"({arr_expr}).slice(1)"
-        elif node.name == "arraySort":
-            arr_expr = self.visit(node.args[0])
-            return f"([...{arr_expr}].sort())"
-        elif node.name == "arrayReverse":
-            arr_expr = self.visit(node.args[0])
-            return f"([...{arr_expr}].reverse())"
-        elif node.name == "arrayReverseSort":
-            arr_expr = self.visit(node.args[0])
-            return f"([...{arr_expr}].sort().reverse())"
-        elif node.name == "arrayStringConcat":
-            arr_expr = self.visit(node.args[0])
-            separator_expr = self.visit(node.args[1]) if len(node.args) > 1 else '""'
-            return f"({arr_expr}).join({separator_expr})"
-        elif node.name == "arrayCount":
-            arr_expr = self.visit(node.args[1])
-            func_expr = self.visit(node.args[0])
-            return f"({arr_expr}).filter({func_expr}).length"
-        elif node.name == "arrayExists":
-            arr_expr = self.visit(node.args[1])
-            func_expr = self.visit(node.args[0])
-            return f"({arr_expr}).some({func_expr})"
-        elif node.name == "arrayFilter":
-            arr_expr = self.visit(node.args[1])
-            func_expr = self.visit(node.args[0])
-            return f"({arr_expr}).filter({func_expr})"
-        elif node.name == "arrayMap":
-            arr_expr = self.visit(node.args[1])
-            func_expr = self.visit(node.args[0])
-            return f"({arr_expr}).map({func_expr})"
-        elif node.name == "md5Hex":
-            expr_code = self.visit(node.args[0])
-            return f"md5({expr_code})"  # Assuming md5 function is available
-        elif node.name == "sha256Hex":
-            expr_code = self.visit(node.args[0])
-            return f"sha256({expr_code})"  # Assuming sha256 function is available
-        elif node.name == "sha256HmacChainHex":
-            args_code = ", ".join([self.visit(arg) for arg in node.args])
-            return f"sha256HmacChainHex([{args_code}])"
-        elif node.name == "position":
-            str_expr = self.visit(node.args[0])
-            substr_expr = self.visit(node.args[1])
-            return f"({str_expr}).indexOf({substr_expr}) + 1"
-        elif node.name == "positionCaseInsensitive":
-            str_expr = self.visit(node.args[0])
-            substr_expr = self.visit(node.args[1])
-            return f"({str_expr}).toLowerCase().indexOf(({substr_expr}).toLowerCase()) + 1"
-        elif node.name == "print":
-            args_code = ", ".join([f"printHogStringOutput({self.visit(arg)})" for arg in node.args])
-            self.inlined_stl.add("print")
-            return f"console.log({args_code})"
-        elif node.name == "like":
-            str_expr = self.visit(node.args[0])
-            pattern_expr = self.visit(node.args[1])
-            regex_expr = f'new RegExp("^" + {pattern_expr}.replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")'
-            return f"({regex_expr}).test({str_expr})"
-        elif node.name == "ilike":
-            str_expr = self.visit(node.args[0])
-            pattern_expr = self.visit(node.args[1])
-            regex_expr = f'new RegExp("^" + {pattern_expr}.replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
-            return f"({regex_expr}).test({str_expr})"
-        elif node.name == "notLike":
-            str_expr = self.visit(node.args[0])
-            pattern_expr = self.visit(node.args[1])
-            regex_expr = f'new RegExp("^" + {pattern_expr}.replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")'
-            return f"!({regex_expr}).test({str_expr})"
-        elif node.name == "notILike":
-            str_expr = self.visit(node.args[0])
-            pattern_expr = self.visit(node.args[1])
-            regex_expr = f'new RegExp("^" + {pattern_expr}.replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
-            return f"!({regex_expr}).test({str_expr})"
-        elif node.name == "match":
-            str_expr = self.visit(node.args[0])
-            regex_expr = self.visit(node.args[1])
-            return f"new RegExp({regex_expr}).test({str_expr})"
-        elif node.name == "toUnixTimestamp":
-            input_expr = self.visit(node.args[0])
-            return f"(Date.parse({input_expr}) / 1000)"
-        elif node.name == "fromUnixTimestamp":
-            input_expr = self.visit(node.args[0])
-            return f"new Date({input_expr} * 1000)"
-        elif node.name == "toUnixTimestampMilli":
-            input_expr = self.visit(node.args[0])
-            return f"Date.parse({input_expr})"
-        elif node.name == "fromUnixTimestampMilli":
-            input_expr = self.visit(node.args[0])
-            return f"new Date({input_expr})"
-        elif node.name == "toDate":
-            input_expr = self.visit(node.args[0])
-            return f"new Date({input_expr})"
-        elif node.name == "toDateTime":
-            input_expr = self.visit(node.args[0])
-            return f"new Date({input_expr})"
-        elif node.name == "formatDateTime":
-            input_expr = self.visit(node.args[0])
-            format_expr = self.visit(node.args[1])
-            # Note: For proper date formatting, consider using a library like 'date-fns' or 'moment.js'
-            return f"formatDateTime({input_expr}, {format_expr})"  # Assuming formatDateTime is defined
-        elif node.name in ["HogError", "Error", "RetryError", "NotImplementedError"]:
-            message_expr = self.visit(node.args[0]) if len(node.args) > 0 else '"Error"'
-            return f"new Error({message_expr})"
+        if node.name in STL_FUNCTIONS:
+            self.inlined_stl.add(node.name)
+            args_code = ", ".join(self.visit(arg) for arg in node.args)
+            return f"{_sanitize_var_name(node.name)}({args_code})"
         else:
             # Regular function calls
             args = node.params if node.params is not None else node.args
@@ -713,12 +424,15 @@ class JavaScriptCompiler(Visitor):
         return f"{left_code} = {right_code};"
 
     def visit_function(self, node: ast.Function):
-        self._declare_local(node.name)
+        self._declare_local(_sanitize_var_name(node.name))
         params_code = ", ".join(_sanitize_var_name(p) for p in node.params)
         self._start_scope()
         for arg in node.params:
             self._declare_local(arg)
-        body_code = self.visit(_as_block(node.body))
+        if isinstance(node.body, ast.Placeholder):
+            body_code = ast.Block(declarations=[ast.ExprStatement(expr=node.body.expr), ast.ReturnStatement(expr=None)])
+        else:
+            body_code = self.visit(_as_block(node.body))
         self._end_scope()
         return f"function {_sanitize_var_name(node.name)}({params_code}) {body_code}"
 
@@ -727,7 +441,10 @@ class JavaScriptCompiler(Visitor):
         self._start_scope()
         for arg in node.args:
             self._declare_local(arg)
-        expr_code = self.visit(node.expr)
+        if isinstance(node.expr, ast.Placeholder):
+            expr_code = ast.Block(declarations=[ast.ExprStatement(expr=node.expr), ast.ReturnStatement(expr=None)])
+        else:
+            expr_code = self.visit(node.expr)
         self._end_scope()
         return f"({params_code}) => {expr_code}"
 

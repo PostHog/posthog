@@ -8,6 +8,7 @@ cd ..
 
 rm -f hogvm/__tests__/__snapshots__/*.stdout.nodejs
 rm -f hogvm/__tests__/__snapshots__/*.stdout.python
+rm -f hogvm/__tests__/__snapshots__/*.stdout.compiledjs
 
 for file in hogvm/__tests__/*.hog; do
     echo "Testing $file"

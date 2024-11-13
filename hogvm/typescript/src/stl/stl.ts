@@ -71,9 +71,7 @@ export const STL: Record<string, STLFunction> = {
     },
     toString: { fn: STLToString, minArgs: 1, maxArgs: 1 },
     toUUID: {
-        fn: (args) => {
-            return String(args[0])
-        },
+        fn: STLToString,
         minArgs: 1,
         maxArgs: 1,
     },
