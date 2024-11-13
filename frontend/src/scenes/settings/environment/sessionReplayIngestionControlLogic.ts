@@ -39,6 +39,8 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
         setEditUrlBlocklistIndex: (originalIndex: number | null) => ({ originalIndex }),
         newUrlBlocklist: true,
         cancelProposingUrlBlocklist: true,
+        setEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
+        updateEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
     }),
     connect({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] }),
     reducers({
@@ -101,6 +103,13 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
                 newUrlBlocklist: () => -1,
                 updateUrlBlocklist: () => null,
                 addUrlBlocklist: () => null,
+            },
+        ],
+        eventTriggerConfig: [
+            null as string[] | null,
+            {
+                setEventTriggerConfig: (_, { eventTriggerConfig }) => eventTriggerConfig,
+                updateEventTriggerConfig: (_, { eventTriggerConfig }) => eventTriggerConfig,
             },
         ],
     }),
@@ -183,6 +192,7 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
         currentTeam: (currentTeam: TeamPublicType | TeamType | null) => {
             actions.setUrlTriggerConfig(currentTeam?.session_recording_url_trigger_config ?? [])
             actions.setUrlBlocklistConfig(currentTeam?.session_recording_url_blocklist_config ?? [])
+            actions.setEventTriggerConfig(currentTeam?.session_recording_event_trigger_config ?? [])
         },
     })),
     forms(({ values, actions }) => ({
@@ -208,14 +218,14 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
         },
     })),
     sharedListeners(({ values }) => ({
-        saveUrlTriggers: async () => {
-            await teamLogic.asyncActions.updateCurrentTeam({
-                session_recording_url_trigger_config: values.urlTriggerConfig ?? [],
-            })
-        },
         saveUrlBlocklists: async () => {
             await teamLogic.asyncActions.updateCurrentTeam({
                 session_recording_url_blocklist_config: values.urlBlocklistConfig ?? [],
+            })
+        },
+        saveEventTriggers: async () => {
+            await teamLogic.asyncActions.updateCurrentTeam({
+                session_recording_event_trigger_config: values.eventTriggerConfig ?? [],
             })
         },
     })),
@@ -242,6 +252,12 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
         submitProposedUrlBlocklistSuccess: () => {
             actions.setEditUrlBlocklistIndex(null)
             actions.resetProposedUrlBlocklist()
+        },
+        updateEventTriggerConfig: async ({ eventTriggerConfig }) => {
+            actions.setEventTriggerConfig(eventTriggerConfig)
+            await teamLogic.asyncActions.updateCurrentTeam({
+                session_recording_event_trigger_config: eventTriggerConfig,
+            })
         },
     })),
 ])

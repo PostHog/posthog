@@ -12,9 +12,11 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -320,6 +322,32 @@ function UrlBlocklistOptions(): JSX.Element | null {
     )
 }
 
+function EventTriggerOptions(): JSX.Element | null {
+    const { eventTriggerConfig } = useValues(sessionReplayIngestionControlLogic)
+    const { updateEventTriggerConfig } = useActions(sessionReplayIngestionControlLogic)
+
+    return (
+        <div className="flex flex-col space-y-2 mt-4">
+            <div className="flex items-center gap-2 justify-between">
+                <LemonLabel className="text-base">User sends events</LemonLabel>
+            </div>
+            <p>Session recording will be started when the user sends any of these events.</p>
+            <EventSelect
+                filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
+                onChange={(includedEvents) => {
+                    updateEventTriggerConfig(includedEvents)
+                }}
+                selectedEvents={eventTriggerConfig ?? []}
+                addElement={
+                    <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                        Add event
+                    </LemonButton>
+                }
+            />
+        </div>
+    )
+}
+
 export function SessionRecordingIngestionSettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -480,6 +508,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                 <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_BLOCKLIST}>
                     <UrlBlocklistOptions />
                 </FlaggedFeature>
+                <EventTriggerOptions />
             </>
         </PayGateMini>
     )
