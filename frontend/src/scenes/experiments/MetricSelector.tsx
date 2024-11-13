@@ -144,6 +144,7 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.HogQLExpression,
                     TaxonomicFilterGroupType.DataWarehouseProperties,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
