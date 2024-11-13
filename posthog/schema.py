@@ -306,6 +306,24 @@ class CustomEventConversionGoal(BaseModel):
     customEventName: str
 
 
+class DataColorToken(StrEnum):
+    PRESET_1 = "preset-1"
+    PRESET_2 = "preset-2"
+    PRESET_3 = "preset-3"
+    PRESET_4 = "preset-4"
+    PRESET_5 = "preset-5"
+    PRESET_6 = "preset-6"
+    PRESET_7 = "preset-7"
+    PRESET_8 = "preset-8"
+    PRESET_9 = "preset-9"
+    PRESET_10 = "preset-10"
+    PRESET_11 = "preset-11"
+    PRESET_12 = "preset-12"
+    PRESET_13 = "preset-13"
+    PRESET_14 = "preset-14"
+    PRESET_15 = "preset-15"
+
+
 class DataWarehouseEventsModifier(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -856,33 +874,11 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
-class LabelConfigBase(BaseModel):
+class LegendEntryConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    color: Literal["preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"] = (
-        "preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"
-    )
-
-
-class LabelConfigByKey(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignmentBy: Literal["key"] = "key"
-    color: Literal["preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"] = (
-        "preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"
-    )
-
-
-class LabelConfigByPosition(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignmentBy: Literal["position"] = "position"
-    color: Literal["preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"] = (
-        "preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"
-    )
+    color: DataColorToken
 
 
 class LifecycleToggle(StrEnum):
@@ -5537,8 +5533,8 @@ class TrendsQuery(BaseModel):
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
-    labels: Optional[Union[dict[str, LabelConfigByKey], dict[str, LabelConfigByPosition]]] = Field(
-        default=None, description="Configuration of labels"
+    legendEntries: Optional[dict[str, LegendEntryConfig]] = Field(
+        default=None, description="Display configuration for the result datasets."
     )
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

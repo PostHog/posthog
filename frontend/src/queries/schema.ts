@@ -889,16 +889,8 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
-export type LabelConfigBase = {
+export type LegendEntryConfig = {
     color: DataColorToken
-}
-
-export interface LabelConfigByPosition extends LabelConfigBase {
-    assignmentBy: 'position'
-}
-
-export interface LabelConfigByKey extends LabelConfigBase {
-    assignmentBy: 'key'
 }
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
@@ -917,8 +909,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
-    /** Configuration of labels */
-    labels?: Record<string, LabelConfigByKey> | Record<integer, LabelConfigByPosition>
+    /** Display configuration for the result datasets. */
+    legendEntries?: Record<string, LegendEntryConfig>
 }
 
 export type AssistantPropertyFilter =

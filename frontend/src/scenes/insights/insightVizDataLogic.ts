@@ -182,6 +182,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
         funnelPathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.funnelPathsFilter : null)],
+        legendEntries: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.legendEntries : null)],
 
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
