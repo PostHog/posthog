@@ -64,7 +64,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         featureFlags: [
             { results: [], count: 0, filters: null, offset: 0 } as FeatureFlagsResult,
             {
-                loadFeatureFlags: async (): Promise<FeatureFlagsResult> => {
+                loadFeatureFlags: async () => {
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
                     )
@@ -74,13 +74,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         offset: values.paramsFromFilters.offset,
                     }
                 },
-                updateFeatureFlag: async ({
-                    id,
-                    payload,
-                }: {
-                    id: number
-                    payload: Partial<FeatureFlagType>
-                }): Promise<FeatureFlagsResult> => {
+                updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
                     const response = await api.update(
                         `api/projects/${values.currentTeamId}/feature_flags/${id}`,
                         payload
