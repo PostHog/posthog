@@ -148,12 +148,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
 
 def _expr_to_compare_op(
-    expr: ast.Expr,
-    value: ValueT,
-    operator: PropertyOperator,
-    property: Optional[Property],
-    is_json_field: bool,
-    team: Team,
+    expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
     if operator == PropertyOperator.IS_SET:
         return ast.CompareOperation(
@@ -173,8 +168,6 @@ def _expr_to_compare_op(
         if is_json_field:
             if not isinstance(expr, ast.Field):
                 raise Exception(f"Requires a Field expression")
-            if not property:
-                raise Exception(f"Requires a Property object")
 
             field = ast.Field(chain=expr.chain[:-1])
 
