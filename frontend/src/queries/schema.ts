@@ -861,6 +861,7 @@ export type TrendsFilter = {
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     hiddenLegendIndexes?: integer[]
+    colorAssignmentBy?: 'key' | 'position'
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
