@@ -31,7 +31,7 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Ins
             interval: 'day',
             trendsFilter: {
                 display: ChartDisplayType.ActionsLineGraphCumulative,
-                showLegend: true,
+                showLegend: false,
                 smoothingIntervals: 1,
             },
             series: [
