@@ -227,6 +227,9 @@ export function SecondaryMetricsTable({
                     {
                         title: 'Credible interval (95%)',
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            if (item.variant === 'control') {
+                                return <em>Baseline</em>
+                            }
                             const credibleInterval = credibleIntervalForVariant(targetResults || null, item.variant)
                             if (!credibleInterval) {
                                 return <>—</>
@@ -274,6 +277,10 @@ export function SecondaryMetricsTable({
                     {
                         title: 'Credible interval (95%)',
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            if (item.variant === 'control') {
+                                return <em>Baseline</em>
+                            }
+
                             const credibleInterval = credibleIntervalForVariant(targetResults || null, item.variant)
                             if (!credibleInterval) {
                                 return <>—</>
