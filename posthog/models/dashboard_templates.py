@@ -36,7 +36,7 @@ class DashboardTemplate(UUIDModel):
     # URL length for browsers can be as much as 64Kb
     # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers
     # but GitHub apparently is more likely 8kb https://stackoverflow.com/a/64565317
-    github_url = models.CharField(max_length=8201, null=True)
+    github_url = models.CharField(max_length=8201, null=True, blank=True)
     # where this template is available, e.g. "general" and/or "onboarding"
     availability_contexts = ArrayField(models.CharField(max_length=255), blank=True, null=True)
 
@@ -50,6 +50,9 @@ class DashboardTemplate(UUIDModel):
                 name="unique_template_name_per_team",
             ),
         ]
+
+    def __str__(self):
+        return self.template_name
 
     @staticmethod
     def original_template() -> "DashboardTemplate":

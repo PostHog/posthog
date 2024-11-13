@@ -5,6 +5,7 @@ from posthog.admin.admins import (
     UserAdmin,
     TeamAdmin,
     DashboardAdmin,
+    DashboardTemplateAdmin,
     InsightAdmin,
     ExperimentAdmin,
     FeatureFlagAdmin,
@@ -26,6 +27,7 @@ from posthog.models import (
     User,
     Team,
     Dashboard,
+    DashboardTemplate,
     Insight,
     Experiment,
     FeatureFlag,
@@ -49,6 +51,7 @@ admin.site.register(Team, TeamAdmin)
 admin.site.register(User, UserAdmin)
 
 admin.site.register(Dashboard, DashboardAdmin)
+admin.site.register(DashboardTemplate, DashboardTemplateAdmin)
 admin.site.register(Insight, InsightAdmin)
 
 admin.site.register(Experiment, ExperimentAdmin)

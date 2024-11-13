@@ -1,4 +1,6 @@
 {
+    "type": "ai/viz",
+    "plan": "Test plan",
     "reasoning_steps": [
         "The user's query is to identify the most popular pages.",
         "To determine the most popular pages, we should analyze the '$pageview' event as it tracks when a user loads or reloads a page.",

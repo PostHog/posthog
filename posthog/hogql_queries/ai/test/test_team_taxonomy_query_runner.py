@@ -100,3 +100,75 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert isinstance(response, CachedTeamTaxonomyQueryResponse)
             self.assertEqual(len(response.results), 2)
+
+    def test_limit(self):
+        now = timezone.now()
+
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+
+        for i in range(501):
+            with freeze_time(now + timedelta(minutes=i)):
+                _create_event(
+                    event=f"event{i}",
+                    distinct_id="person1",
+                    team=self.team,
+                )
+
+        flush_persons_and_events()
+
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
+        response = runner.run()
+
+        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
+        self.assertEqual(len(response.results), 500)
+
+    def test_events_not_useful_for_llm_ignored(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        for _i in range(2):
+            _create_event(
+                event="$pageview",
+                distinct_id="person1",
+                properties={"$browser": "Chrome", "$country": "US"},
+                team=self.team,
+            )
+        _create_event(
+            event="did custom thing",
+            distinct_id="person1",
+            properties={"$browser": "Chrome", "$country": "US"},
+            team=self.team,
+        )
+        # Events below should have `ignored_in_assistant`
+        _create_event(
+            event="$pageleave",
+            distinct_id="person1",
+            properties={"$browser": "Chrome", "$country": "US"},
+            team=self.team,
+        )
+        _create_event(
+            event="$autocapture",
+            distinct_id="person1",
+            properties={"$browser": "Chrome", "$country": "US"},
+            team=self.team,
+        )
+        _create_event(
+            event="$feature_flag_called",
+            distinct_id="person1",
+            properties={"$browser": "Chrome", "$country": "US"},
+            team=self.team,
+        )
+
+        flush_persons_and_events()
+
+        runner = TeamTaxonomyQueryRunner(team=self.team, query=TeamTaxonomyQuery())
+        response = runner.run()
+
+        assert isinstance(response, CachedTeamTaxonomyQueryResponse)
+        self.assertEqual([result.event for result in response.results], ["$pageview", "did custom thing"])

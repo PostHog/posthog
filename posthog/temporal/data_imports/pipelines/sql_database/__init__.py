@@ -143,6 +143,7 @@ def bigquery_source(
     client_email: str,
     token_uri: str,
     table_name: str,
+    bq_destination_table_id: str,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
@@ -162,7 +163,10 @@ def bigquery_source(
         "token_uri": token_uri,
     }
 
-    engine = create_engine(f"bigquery://{project_id}/{dataset_id}", credentials_info=credentials_info)
+    engine = create_engine(
+        f"bigquery://{project_id}/{dataset_id}?create_disposition=CREATE_IF_NEEDED&allowLargeResults=true&destination={bq_destination_table_id}",
+        credentials_info=credentials_info,
+    )
 
     return sql_database(engine, schema=None, table_names=[table_name], incremental=incremental)
 

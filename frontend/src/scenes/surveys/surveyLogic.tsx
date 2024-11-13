@@ -181,6 +181,11 @@ export const surveyLogic = kea<surveyLogicType>([
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
     loaders(({ props, actions, values }) => ({
+        responseSummary: {
+            summarize: async ({ questionIndex }: { questionIndex?: number }) => {
+                return api.surveys.summarize_responses(props.id, questionIndex)
+            },
+        },
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
@@ -941,6 +946,9 @@ export const surveyLogic = kea<surveyLogicType>([
                             }),
                             'timestamp',
                             'person',
+                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
+                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
+                            `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
                         ],
                         orderBy: ['timestamp DESC'],
                         where: [`event == 'survey sent'`],

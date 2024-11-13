@@ -119,7 +119,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_group_query_includes_recording_events(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bla", properties={})
         timestamp = timezone.now()
         produce_replay_summary(

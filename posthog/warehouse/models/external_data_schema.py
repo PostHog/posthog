@@ -99,8 +99,7 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
     )
 
 
-@database_sync_to_async
-def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
     schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()
@@ -117,15 +116,6 @@ def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exte
             sync_external_data_job_workflow(schema, create=True)
 
     return schema
-
-
-@database_sync_to_async
-def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return list(
-        ExternalDataSchema.objects.exclude(deleted=True)
-        .filter(team_id=team_id, source_id=source_id, should_sync=True)
-        .all()
-    )
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):

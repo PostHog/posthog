@@ -248,6 +248,17 @@ const VariableComponent = ({
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
+    // Dont show the popover overlay for list variables not in edit mode
+    if (!showEditingUI && variable.type === 'List') {
+        return (
+            <LemonSelect
+                value={variable.value ?? variable.default_value}
+                onChange={(value) => onChange(variable.id, value)}
+                options={variable.values.map((n) => ({ label: n, value: n }))}
+            />
+        )
+    }
+
     return (
         <Popover
             key={variable.id}

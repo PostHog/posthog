@@ -116,6 +116,7 @@ const MOCK_FUNNEL_EXPERIMENT: Experiment = {
         interval: 'day',
         filter_test_accounts: true,
     },
+    metrics: [],
     archived: false,
     created_by: {
         id: 1,
@@ -172,6 +173,7 @@ const MOCK_TREND_EXPERIMENT: Experiment = {
             },
         },
     },
+    metrics: [],
     parameters: {
         feature_flag_variants: [
             {
@@ -181,6 +183,129 @@ const MOCK_TREND_EXPERIMENT: Experiment = {
             {
                 key: 'test',
                 rollout_percentage: 50,
+            },
+        ],
+        recommended_sample_size: 0,
+        recommended_running_time: 28.3,
+    },
+    secondary_metrics: [],
+    filters: {
+        events: [
+            {
+                id: '$pageview',
+                math: 'avg_count_per_actor',
+                name: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+        ],
+        actions: [],
+        date_to: '2023-05-19T23:59',
+        insight: InsightType.TRENDS,
+        interval: 'day',
+        date_from: '2023-05-05T11:36',
+        filter_test_accounts: false,
+    },
+    archived: false,
+    created_by: {
+        id: 1,
+        uuid: '01881f35-b41a-0000-1d94-331938392cac',
+        distinct_id: 'Xr1OY26ZsDh9ZbvA212ggq4l0Hf0dmEUjT33zvRPKrX',
+        first_name: 'SS',
+        email: 'test@posthog.com',
+        is_email_verified: false,
+    },
+    created_at: '2022-03-15T21:31:00.192917Z',
+    updated_at: '2022-03-15T21:31:00.192917Z',
+}
+
+const MOCK_WEB_EXPERIMENT_MANY_VARIANTS: Experiment = {
+    id: 4,
+    name: 'web-experiment',
+    type: 'web',
+    start_date: '2023-02-11T10:37:17.634000Z',
+    end_date: null,
+    feature_flag_key: 'web-experiment',
+    feature_flag: {
+        id: 1,
+        team_id: 1,
+        name: 'Web Experiment on Hawaii.com',
+        key: 'web-experiment',
+        active: false,
+        deleted: false,
+        ensure_experience_continuity: false,
+        filters: {
+            groups: [
+                {
+                    properties: [
+                        {
+                            key: 'company_name',
+                            type: PropertyFilterType.Person,
+                            value: 'awesome',
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                    variant: null,
+                    rollout_percentage: undefined,
+                },
+            ],
+            payloads: {},
+            multivariate: {
+                variants: [
+                    {
+                        key: 'control',
+                        rollout_percentage: 16,
+                    },
+                    {
+                        key: 'test_1',
+                        rollout_percentage: 16,
+                    },
+                    {
+                        key: 'test_2',
+                        rollout_percentage: 16,
+                    },
+                    {
+                        key: 'test_3',
+                        rollout_percentage: 16,
+                    },
+                    {
+                        key: 'test_4',
+                        rollout_percentage: 16,
+                    },
+                    {
+                        key: 'test_5',
+                        rollout_percentage: 20,
+                    },
+                ],
+            },
+        },
+    },
+    metrics: [],
+    parameters: {
+        feature_flag_variants: [
+            {
+                key: 'control',
+                rollout_percentage: 16,
+            },
+            {
+                key: 'test_1',
+                rollout_percentage: 16,
+            },
+            {
+                key: 'test_2',
+                rollout_percentage: 16,
+            },
+            {
+                key: 'test_3',
+                rollout_percentage: 16,
+            },
+            {
+                key: 'test_4',
+                rollout_percentage: 16,
+            },
+            {
+                key: 'test_5',
+                rollout_percentage: 20,
             },
         ],
         recommended_sample_size: 0,
@@ -277,6 +402,7 @@ const MOCK_TREND_EXPERIMENT_MANY_VARIANTS: Experiment = {
             },
         },
     },
+    metrics: [],
     parameters: {
         feature_flag_variants: [
             {
@@ -1236,6 +1362,7 @@ const meta: Meta = {
                     MOCK_FUNNEL_EXPERIMENT,
                     MOCK_TREND_EXPERIMENT,
                     MOCK_TREND_EXPERIMENT_MANY_VARIANTS,
+                    MOCK_WEB_EXPERIMENT_MANY_VARIANTS,
                 ]),
                 '/api/projects/:team_id/experiments/1/': MOCK_FUNNEL_EXPERIMENT,
                 '/api/projects/:team_id/experiments/1/results/': MOCK_EXPERIMENT_RESULTS,
@@ -1243,6 +1370,8 @@ const meta: Meta = {
                 '/api/projects/:team_id/experiments/2/results/': MOCK_TREND_EXPERIMENT_RESULTS,
                 '/api/projects/:team_id/experiments/3/': MOCK_TREND_EXPERIMENT_MANY_VARIANTS,
                 '/api/projects/:team_id/experiments/3/results/': MOCK_TREND_EXPERIMENT_MANY_VARIANTS_RESULTS,
+                '/api/projects/:team_id/experiments/4/': MOCK_WEB_EXPERIMENT_MANY_VARIANTS,
+                '/api/projects/:team_id/experiments/4/results/': MOCK_TREND_EXPERIMENT_MANY_VARIANTS_RESULTS,
             },
         }),
     ],

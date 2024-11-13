@@ -1,4 +1,3 @@
-from uuid import UUID
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -9,28 +8,16 @@ def get_external_data_source(team_id: str, external_data_source_id: str) -> Exte
     return ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
 
 
-def create_external_data_job(
-    external_data_source_id: UUID,
-    external_data_schema_id: UUID,
-    workflow_id: str,
-    workflow_run_id: str,
-    team_id: int,
-) -> ExternalDataJob:
-    job = ExternalDataJob.objects.create(
-        team_id=team_id,
-        pipeline_id=external_data_source_id,
-        schema_id=external_data_schema_id,
-        status=ExternalDataJob.Status.RUNNING,
-        rows_synced=0,
-        workflow_id=workflow_id,
-        workflow_run_id=workflow_run_id,
+@database_sync_to_async
+def aget_running_job_for_schema(schema_id: str) -> ExternalDataJob | None:
+    return (
+        ExternalDataJob.objects.filter(schema_id=schema_id, status=ExternalDataJob.Status.RUNNING)
+        .order_by("-created_at")
+        .first()
     )
 
-    return job
 
-
-@database_sync_to_async
-def aupdate_external_job_status(
+def update_external_job_status(
     job_id: str, team_id: int, status: ExternalDataJob.Status, latest_error: str | None
 ) -> ExternalDataJob:
     model = ExternalDataJob.objects.get(id=job_id, team_id=team_id)

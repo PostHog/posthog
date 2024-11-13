@@ -138,6 +138,7 @@ export const legacyEntityToNode = (
                 ...shared,
                 math: entity.math || 'total',
                 math_property: entity.math_property,
+                math_property_type: entity.math_property_type,
                 math_hogql: entity.math_hogql,
                 math_group_type_index: entity.math_group_type_index,
             } as any

@@ -2,6 +2,7 @@ import RE2 from 're2'
 import { exec, execAsync, execSync } from '../execute'
 import { Operation as op } from '../operation'
 import { UncaughtHogVMException } from '../utils'
+import { BytecodeEntry } from '../types'
 
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
@@ -114,9 +115,6 @@ describe('hogvm execute', () => {
         ).toThrow('Unsupported function call: invalidFunc')
         expect(() => execSync(['_h', op.INTEGER], options)).toThrow('Unexpected end of bytecode')
         expect(() => execSync(['_h', op.CALL_GLOBAL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
-        expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrow(
-            'Invalid bytecode. More than one value left on stack'
-        )
 
         expect(() => execSync(['_H', 1, op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
             'Unexpected node while running bytecode in chunk "root": InvalidOp'
@@ -127,9 +125,6 @@ describe('hogvm execute', () => {
         expect(() => execSync(['_H', 1, op.INTEGER], options)).toThrow('Unexpected end of bytecode')
         expect(() => execSync(['_H', 1, op.CALL_GLOBAL, 'match', 1], options)).toThrow(
             'Not enough arguments on the stack'
-        )
-        expect(() => execSync(['_H', 1, op.TRUE, op.TRUE, op.NOT], options)).toThrow(
-            'Invalid bytecode. More than one value left on stack'
         )
     })
 
@@ -338,9 +333,18 @@ describe('hogvm execute', () => {
                 return Promise.resolve('zero')
             },
         }
-        expect(await execAsync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('one')
-        expect(await execAsync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('two')
-        expect(await execAsync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('zero')
+        expect(
+            (await execAsync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1, op.RETURN], { asyncFunctions }))
+                .result
+        ).toBe('one')
+        expect(
+            (await execAsync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1, op.RETURN], { asyncFunctions }))
+                .result
+        ).toBe('two')
+        expect(
+            (await execAsync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1, op.RETURN], { asyncFunctions }))
+                .result
+        ).toBe('zero')
     })
 
     test('bytecode variable assignment', async () => {
@@ -528,14 +532,16 @@ describe('hogvm execute', () => {
             38,
         ]
         expect(
-            await execAsync(bytecode, {
-                asyncFunctions: {
-                    httpGet: async (url: string) => {
-                        await delay(1)
-                        return 'hello ' + url
+            (
+                await execAsync(bytecode, {
+                    asyncFunctions: {
+                        httpGet: async (url: string) => {
+                            await delay(1)
+                            return 'hello ' + url
+                        },
                     },
-                },
-            })
+                })
+            ).result
         ).toBe(2)
     })
 
@@ -556,7 +562,7 @@ describe('hogvm execute', () => {
             finished: false,
             result: undefined,
             state: {
-                bytecode,
+                bytecodes: { root: { bytecode } },
                 asyncSteps: 1,
                 callStack: [
                     {
@@ -567,7 +573,7 @@ describe('hogvm execute', () => {
                         closure: {
                             __hogClosure__: true,
                             callable: {
-                                __hogCallable__: 'main',
+                                __hogCallable__: 'local',
                                 name: '',
                                 argCount: 0,
                                 chunk: 'root',
@@ -602,12 +608,38 @@ describe('hogvm execute', () => {
             result: '0.002',
             state: {
                 asyncSteps: 0,
-                bytecode: [],
+                bytecodes: { root: { bytecode } },
                 callStack: [],
                 declaredFunctions: {},
                 maxMemUsed: 13,
                 ops: 2,
                 stack: [],
+                upvalues: [],
+                throwStack: [],
+                syncDuration: expect.any(Number),
+            },
+        })
+    })
+    test('no stack pop with repl:true', () => {
+        const bytecode = [
+            '_h',
+            33,
+            0.002, // seconds to sleep
+            2,
+            'toString',
+            1,
+        ]
+        expect(exec(bytecode, { repl: true })).toEqual({
+            finished: true,
+            result: undefined,
+            state: {
+                asyncSteps: 0,
+                bytecodes: { root: { bytecode } },
+                callStack: [],
+                declaredFunctions: {},
+                maxMemUsed: 13,
+                ops: 2,
+                stack: ['0.002'],
                 upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
@@ -629,7 +661,7 @@ describe('hogvm execute', () => {
             result: '0.002',
             state: {
                 asyncSteps: 0,
-                bytecode: [],
+                bytecodes: {},
                 callStack: [],
                 declaredFunctions: {},
                 maxMemUsed: 13,
@@ -1955,7 +1987,7 @@ describe('hogvm execute', () => {
             result: undefined,
             state: {
                 asyncSteps: 1,
-                bytecode: bytecode,
+                bytecodes: { root: { bytecode } },
                 callStack: [
                     {
                         ip: 12,
@@ -1965,7 +1997,7 @@ describe('hogvm execute', () => {
                         closure: {
                             __hogClosure__: true,
                             callable: {
-                                __hogCallable__: 'main',
+                                __hogCallable__: 'local',
                                 name: '',
                                 argCount: 0,
                                 chunk: 'root',
@@ -2051,7 +2083,7 @@ describe('hogvm execute', () => {
             asyncFunctionName: 'sleep',
             asyncFunctionArgs: [2],
             state: {
-                bytecode,
+                bytecodes: { root: { bytecode } },
                 stack: [
                     2,
                     {
@@ -2085,7 +2117,7 @@ describe('hogvm execute', () => {
                         closure: {
                             __hogClosure__: true,
                             callable: {
-                                __hogCallable__: 'main',
+                                __hogCallable__: 'local',
                                 name: '',
                                 argCount: 0,
                                 upvalueCount: 0,
@@ -2110,7 +2142,7 @@ describe('hogvm execute', () => {
             result: 17,
             finished: true,
             state: {
-                bytecode: [],
+                bytecodes: {},
                 stack: expect.any(Array),
                 telemetry: undefined,
                 upvalues: [],
@@ -2198,7 +2230,7 @@ describe('hogvm execute', () => {
             asyncFunctionName: 'sleep',
             asyncFunctionArgs: [2],
             state: {
-                bytecode,
+                bytecodes: { root: { bytecode } },
                 stack: [
                     {
                         __hogClosure__: true,
@@ -2243,7 +2275,7 @@ describe('hogvm execute', () => {
                         closure: {
                             __hogClosure__: true,
                             callable: {
-                                __hogCallable__: 'main',
+                                __hogCallable__: 'local',
                                 name: '',
                                 argCount: 0,
                                 upvalueCount: 0,
@@ -2268,7 +2300,7 @@ describe('hogvm execute', () => {
             result: 'outside',
             finished: true,
             state: {
-                bytecode: [],
+                bytecodes: {},
                 stack: [],
                 upvalues: [],
                 callStack: [],
@@ -2361,7 +2393,7 @@ describe('hogvm execute', () => {
             asyncFunctionName: 'sleep',
             asyncFunctionArgs: [2],
             state: {
-                bytecode: bytecode,
+                bytecodes: { root: { bytecode } },
                 stack: [
                     {
                         __hogClosure__: true,
@@ -2406,7 +2438,7 @@ describe('hogvm execute', () => {
                         closure: {
                             __hogClosure__: true,
                             callable: {
-                                __hogCallable__: 'main',
+                                __hogCallable__: 'local',
                                 name: '',
                                 argCount: 0,
                                 upvalueCount: 0,
@@ -2449,7 +2481,7 @@ describe('hogvm execute', () => {
             result: 'outside',
             finished: true,
             state: {
-                bytecode: [],
+                bytecodes: {},
                 stack: expect.any(Array),
                 upvalues: [],
                 callStack: [],
@@ -2470,7 +2502,7 @@ describe('hogvm execute', () => {
             result: 3,
             finished: true,
             state: {
-                bytecode: [],
+                bytecodes: {},
                 stack: [],
                 upvalues: [],
                 callStack: [],
@@ -2498,7 +2530,7 @@ describe('hogvm execute', () => {
             result: 'truefalse',
             finished: true,
             state: {
-                bytecode: [],
+                bytecodes: expect.any(Object),
                 stack: [],
                 upvalues: [],
                 callStack: [],
@@ -2516,5 +2548,37 @@ describe('hogvm execute', () => {
                 ],
             },
         })
+    })
+
+    test('multiple bytecodes', () => {
+        const ret = (string: string): BytecodeEntry => ({ bytecode: ['_H', 1, op.STRING, string, op.RETURN] })
+        const call = (chunk: string): BytecodeEntry => ({
+            bytecode: ['_H', 1, op.STRING, chunk, op.CALL_GLOBAL, 'import', 1, op.RETURN],
+        })
+
+        const bytecodes: Record<string, BytecodeEntry> = {
+            root: call('code2'),
+            code2: ret('banana'),
+        }
+        const res = exec({ bytecodes })
+        expect(res.result).toEqual('banana')
+    })
+
+    test('multiple bytecodes via callback', () => {
+        const ret = (string: string): BytecodeEntry => ({ bytecode: ['_H', 1, op.STRING, string, op.RETURN] })
+        const call = (chunk: string): BytecodeEntry => ({
+            // bytecode: ['_H', 1, op.STRING, chunk, op.CALL_GLOBAL, '__importCallable', 1, op.CALL_LOCAL, 0, op.RETURN],
+            bytecode: ['_H', 1, op.STRING, chunk, op.CALL_GLOBAL, 'import', 1, op.RETURN],
+        })
+        const res = exec(call('code2').bytecode, {
+            importBytecode: (chunk: string) =>
+                ({
+                    code2: call('code3'),
+                    code3: call('code4'),
+                    code4: call('code5'),
+                    code5: ret('tomato'),
+                }[chunk]),
+        })
+        expect(res.result).toEqual('tomato')
     })
 })

@@ -1,6 +1,7 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FilterType, NotebookNodeType, RecordingUniversalFilters, ReplayTabs } from '~/types'
 import {
+    DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
     convertLegacyFiltersToUniversalFilters,
     sessionRecordingsPlaylistLogic,
@@ -143,7 +144,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
     expandable: false,
     attributes: {
         universalFilters: {
-            default: undefined,
+            default: DEFAULT_RECORDING_FILTERS,
         },
         pinned: {
             default: undefined,

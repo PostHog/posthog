@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
-import { RecordingsQuery } from '~/queries/schema'
+import { RecordingOrder } from '~/queries/schema'
 import { RecordingUniversalFilters, ReplayTabs, SessionRecordingType } from '~/types'
 
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
@@ -31,7 +31,7 @@ function SortedBy({
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
-    const simpleSortingOptions: LemonSelectSection<RecordingsQuery['order']> = {
+    const simpleSortingOptions: LemonSelectSection<RecordingOrder> = {
         options: [
             {
                 value: 'start_time',
@@ -39,7 +39,7 @@ function SortedBy({
             },
             {
                 value: 'activity_score',
-                label: 'Activity score',
+                label: 'Activity',
             },
             {
                 value: 'console_error_count',
@@ -47,7 +47,7 @@ function SortedBy({
             },
         ],
     }
-    const detailedSortingOptions: LemonSelectSection<RecordingsQuery['order']> = {
+    const detailedSortingOptions: LemonSelectSection<RecordingOrder> = {
         options: [
             {
                 label: 'Longest',

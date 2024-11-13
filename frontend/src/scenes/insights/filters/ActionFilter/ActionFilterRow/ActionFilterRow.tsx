@@ -123,6 +123,8 @@ export interface ActionFilterRowProps {
         deleteButton,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
     trendsDisplayCategory: ChartDisplayCategory | null
+    /** Whether properties shown should be limited to just numerical types */
+    showNumericalPropsOnly?: boolean
 }
 
 export function ActionFilterRow({
@@ -151,6 +153,7 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
     trendsDisplayCategory,
+    showNumericalPropsOnly,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -177,6 +180,7 @@ export function ActionFilterRow({
     const {
         math,
         math_property: mathProperty,
+        math_property_type: mathPropertyType,
         math_hogql: mathHogQL,
         math_group_type_index: mathGroupTypeIndex,
     } = filter
@@ -196,9 +200,11 @@ export function ActionFilterRow({
                       mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
                           ? mathHogQL ?? 'count()'
                           : undefined,
+                  mathPropertyType,
               }
             : {
                   math_property: undefined,
+                  mathPropertyType: undefined,
                   math_hogql: undefined,
                   math_group_type_index: undefined,
                   math: undefined,
@@ -210,11 +216,12 @@ export function ActionFilterRow({
             ...mathProperties,
         })
     }
-    const onMathPropertySelect = (_: unknown, property: string): void => {
+    const onMathPropertySelect = (_: unknown, property: string, groupType: TaxonomicFilterGroupType): void => {
         updateFilterMath({
             ...filter,
             math_hogql: undefined,
             math_property: property,
+            math_property_type: groupType,
             index,
         })
     }
@@ -223,6 +230,7 @@ export function ActionFilterRow({
         updateFilterMath({
             ...filter,
             math_property: undefined,
+            math_property_type: undefined,
             math_hogql: hogql,
             index,
         })
@@ -281,6 +289,7 @@ export function ActionFilterRow({
             placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}
+            showNumericalPropsOnly={showNumericalPropsOnly}
         />
     )
 
@@ -425,6 +434,8 @@ export function ActionFilterRow({
                                                         TaxonomicFilterGroupType.DataWarehouseProperties,
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
+                                                        TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
                                                     schemaColumns={
                                                         filter.type == TaxonomicFilterGroupType.DataWarehouse &&
@@ -435,11 +446,12 @@ export function ActionFilterRow({
                                                             : []
                                                     }
                                                     value={mathProperty}
-                                                    onChange={(currentValue) =>
-                                                        onMathPropertySelect(index, currentValue)
+                                                    onChange={(currentValue, groupType) =>
+                                                        onMathPropertySelect(index, currentValue, groupType)
                                                     }
                                                     eventNames={name ? [name] : []}
                                                     data-attr="math-property-select"
+                                                    showNumericalPropsOnly={showNumericalPropsOnly}
                                                     renderValue={(currentValue) => (
                                                         <Tooltip
                                                             title={

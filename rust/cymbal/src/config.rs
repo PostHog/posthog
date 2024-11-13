@@ -38,6 +38,35 @@ pub struct Config {
 
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
+
+    #[envconfig(default = "http://localhost:19000")] // minio
+    pub object_storage_endpoint: String,
+
+    #[envconfig(default = "symbol_sets")]
+    pub object_storage_bucket: String,
+
+    #[envconfig(default = "us-east-1")]
+    pub object_storage_region: String,
+
+    #[envconfig(default = "object_storage_root_user")]
+    pub object_storage_access_key_id: String,
+
+    #[envconfig(default = "object_storage_root_password")]
+    pub object_storage_secret_access_key: String,
+
+    #[envconfig(default = "symbolsets")]
+    pub ss_prefix: String,
+
+    #[envconfig(default = "100000")]
+    pub frame_cache_size: u64,
+
+    #[envconfig(default = "600")]
+    pub frame_cache_ttl_seconds: u64,
+}
+
+pub enum AwsRegion {
+    USEast1,
+    USWest1,
 }
 
 impl Config {

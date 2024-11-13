@@ -275,6 +275,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.purchase_credits(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
+    @action(methods=["POST"], detail=False, url_path="trials/activate")
+    def activate_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.activate_trial(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="trials/cancel")
+    def cancel_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.cancel_trial(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
     @action(methods=["POST"], detail=False, url_path="activate/authorize")
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()

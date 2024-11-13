@@ -132,13 +132,22 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                 seriesIndicatorType={isTrends ? undefined : 'numeric'}
                 sortable={isTrends ? undefined : true}
                 showNestedArrow={isTrends ? undefined : true}
+                showNumericalPropsOnly={isTrends}
+                actionsTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.DataWarehouse,
+                ]}
                 propertiesTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.HogQLExpression,
+                    TaxonomicFilterGroupType.DataWarehouseProperties,
+                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
                 ]}
             />
             <div className="mt-4 space-y-4">

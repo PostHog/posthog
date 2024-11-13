@@ -8,6 +8,7 @@ use crate::PropVal;
 #[derive(Clone, Deserialize)]
 struct EnteredTimestamp {
     timestamp: f64,
+    excluded: bool,
     timings: Vec<f64>,
     uuids: Vec<Uuid>,
 }
@@ -48,6 +49,7 @@ const MAX_REPLAY_EVENTS: usize = 10;
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
+    excluded: false,
     timings: vec![],
     uuids: vec![],
 };
@@ -101,32 +103,29 @@ impl AggregateFunnelRow {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
             vars.entered_timestamp[0] = EnteredTimestamp {
                 timestamp,
+                excluded: false,
                 timings: vec![],
                 uuids: vec![],
             };
 
             if events_with_same_timestamp.len() == 1 {
-                if !self.process_event(
+                self.process_event(
                     args,
                     &mut vars,
                     &events_with_same_timestamp[0],
                     prop_val,
                     false
-                ) {
-                    return;
-                }
+                );
             } else if events_with_same_timestamp.iter().map(|x| &x.steps).all_equal() {
                 // Deal with the most common case where they are all the same event (order doesn't matter)
                 for event in events_with_same_timestamp {
-                    if !self.process_event(
+                    self.process_event(
                         args,
                         &mut vars,
                         event,
                         prop_val,
                         false
-                    ) {
-                        return;
-                    }
+                    );
                 }
             } else {
                 // Handle permutations for different events with the same timestamp
@@ -144,15 +143,13 @@ impl AggregateFunnelRow {
 
                 // Run exclusions, if they exist, then run matching events.
                 for event in sorted_events {
-                    if !self.process_event(
+                    self.process_event(
                         args,
                         &mut vars,
                         &event,
                         &prop_val,
                         true
-                    ) {
-                        return;
-                    }
+                    );
                 }
             }
 
@@ -165,6 +162,11 @@ impl AggregateFunnelRow {
         // Find the furthest step we have made it to and print it
         let final_index = vars.max_step.0;
         let final_value = &vars.max_step.1;
+
+        if final_value.excluded {
+            self.results.push(Result(-1, prop_val.clone(), vec![], vec![]));
+            return;
+        }
 
         for i in 0..final_index {
             //if event_uuids[i].len() >= MAX_REPLAY_EVENTS && !event_uuids[i].contains(&final_value.uuids[i]) {
@@ -188,7 +190,7 @@ impl AggregateFunnelRow {
         event: &Event,
         prop_val: &PropVal,
         processing_multiple_events: bool
-    ) -> bool {
+    ) {
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
             let step = (if *step < 0 {
@@ -199,35 +201,51 @@ impl AggregateFunnelRow {
             }) as usize;
 
             let in_match_window = (event.timestamp - vars.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
+            let previous_step_excluded = vars.entered_timestamp[step-1].excluded;
             let already_reached_this_step = vars.entered_timestamp[step].timestamp == vars.entered_timestamp[step - 1].timestamp
                 && vars.entered_timestamp[step].timestamp != 0.0;
 
             if in_match_window && !already_reached_this_step {
                 if exclusion {
-                    self.results.push(Result(-1, prop_val.clone(), vec![], vec![]));
-                    return false;
-                }
-                let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
-                let already_used_event = processing_multiple_events && vars.entered_timestamp[step-1].uuids.contains(&event.uuid);
-                if !is_unmatched_step_attribution && !already_used_event {
-                    vars.entered_timestamp[step] = EnteredTimestamp {
-                        timestamp: vars.entered_timestamp[step - 1].timestamp,
-                        timings: {
-                            let mut timings = vars.entered_timestamp[step - 1].timings.clone();
-                            timings.push(event.timestamp);
-                            timings
-                        },
-                        uuids: {
-                            let mut uuids = vars.entered_timestamp[step - 1].uuids.clone();
-                            uuids.push(event.uuid);
-                            uuids
-                        },
-                    };
-                    if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
-                        vars.event_uuids[step - 1].push(event.uuid);
+                    if !previous_step_excluded {
+                        vars.entered_timestamp[step - 1].excluded = true;
+                        if vars.max_step.0 == step - 1 {
+                            let max_timestamp_in_match_window = (event.timestamp - vars.max_step.1.timestamp) <= args.conversion_window_limit as f64;
+                            if max_timestamp_in_match_window {
+                                vars.max_step.1.excluded = true;
+                            }
+                        }
                     }
-                    if step > vars.max_step.0 {
-                        vars.max_step = (step, vars.entered_timestamp[step].clone());
+                } else {
+                    let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
+                    let already_used_event = processing_multiple_events && vars.entered_timestamp[step - 1].uuids.contains(&event.uuid);
+                    if !is_unmatched_step_attribution && !already_used_event {
+                        let new_entered_timestamp = |vars: &Vars| -> EnteredTimestamp {
+                            EnteredTimestamp {
+                                timestamp: vars.entered_timestamp[step - 1].timestamp,
+                                excluded: previous_step_excluded,
+                                timings: {
+                                    let mut timings = vars.entered_timestamp[step - 1].timings.clone();
+                                    timings.push(event.timestamp);
+                                    timings
+                                },
+                                uuids: {
+                                    let mut uuids = vars.entered_timestamp[step - 1].uuids.clone();
+                                    uuids.push(event.uuid);
+                                    uuids
+                                },
+                            }
+                        };
+                        if !previous_step_excluded {
+                            vars.entered_timestamp[step] = new_entered_timestamp(vars);
+                            if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
+                                vars.event_uuids[step - 1].push(event.uuid);
+                            }
+                        }
+
+                        if step > vars.max_step.0 || (step == vars.max_step.0 && vars.max_step.1.excluded) {
+                            vars.max_step = (step, new_entered_timestamp(vars));
+                        }
                     }
                 }
             }
@@ -242,7 +260,5 @@ impl AggregateFunnelRow {
                 }
             }
         }
-
-        true
     }
 }

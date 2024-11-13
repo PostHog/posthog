@@ -35,6 +35,7 @@ export function ActionHogFunctions(): JSX.Element | null {
             ) : null}
 
             <LinkedHogFunctions
+                type="destination"
                 filters={filters}
                 newDisabledReason={
                     hasCohortFilters

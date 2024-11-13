@@ -9,10 +9,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -114,10 +114,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -144,17 +144,17 @@
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -256,17 +256,17 @@
                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
                              FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 2)
+                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
                              GROUP BY person_distinct_id_overrides.distinct_id
                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -293,10 +293,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -396,11 +396,11 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -410,10 +410,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -438,10 +438,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -534,11 +534,11 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -548,10 +548,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -581,10 +581,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -677,11 +677,11 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -691,10 +691,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -724,10 +724,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -820,11 +820,11 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -834,10 +834,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -867,10 +867,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -963,11 +963,11 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -977,10 +977,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1010,10 +1010,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1115,10 +1115,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1145,17 +1145,17 @@
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1257,17 +1257,17 @@
                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
                              FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 2)
+                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
                              GROUP BY person_distinct_id_overrides.distinct_id
                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1294,10 +1294,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1397,11 +1397,11 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -1411,10 +1411,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1439,10 +1439,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1516,11 +1516,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -1529,10 +1529,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
@@ -1559,10 +1559,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1636,11 +1636,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -1649,10 +1649,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
@@ -1679,10 +1679,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1756,11 +1756,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -1769,10 +1769,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
@@ -1799,10 +1799,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -1876,11 +1876,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                        GROUP BY distinct_id
@@ -1889,10 +1889,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
@@ -1919,10 +1919,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2024,10 +2024,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2054,17 +2054,17 @@
     (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2166,17 +2166,17 @@
                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
                              FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 2)
+                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
                              GROUP BY person_distinct_id_overrides.distinct_id
                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                           LEFT JOIN
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2203,10 +2203,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2306,11 +2306,11 @@
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND distinct_id IN
                                  (SELECT distinct_id
                                   FROM events
-                                  WHERE team_id = 2
+                                  WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -2320,10 +2320,10 @@
                             (SELECT group_key,
                                     argMax(group_properties, _timestamp) AS group_properties_0
                              FROM groups
-                             WHERE team_id = 2
+                             WHERE team_id = 99999
                                AND group_type_index = 0
                              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                          WHERE team_id = 2
+                          WHERE team_id = 99999
                             AND event IN ['buy', 'play movie', 'sign up']
                             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2348,10 +2348,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2371,10 +2371,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2394,10 +2394,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2469,11 +2469,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -2483,10 +2483,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2535,11 +2535,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -2549,10 +2549,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2601,11 +2601,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -2615,10 +2615,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2648,10 +2648,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2671,10 +2671,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2694,10 +2694,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2769,11 +2769,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -2783,10 +2783,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2835,11 +2835,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -2849,10 +2849,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2901,11 +2901,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -2915,10 +2915,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2948,10 +2948,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2971,10 +2971,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -2994,10 +2994,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3069,11 +3069,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -3083,10 +3083,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3135,11 +3135,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -3149,10 +3149,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3201,11 +3201,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -3215,10 +3215,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3248,10 +3248,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3271,10 +3271,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3294,10 +3294,10 @@
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND group_type_index = 0
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND event IN ['buy', 'play movie', 'sign up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3369,11 +3369,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -3383,10 +3383,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3435,11 +3435,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -3449,10 +3449,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
@@ -3501,11 +3501,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
@@ -3515,10 +3515,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['buy', 'play movie', 'sign up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')

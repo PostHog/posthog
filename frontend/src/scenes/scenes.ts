@@ -234,6 +234,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.SQLEditor]: {
+        projectBased: true,
+        name: 'SQL editor',
+        defaultDocsPath: '/docs/data-warehouse/setup',
+        layout: 'app-raw-no-header',
+    },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
         name: 'Data warehouse',
@@ -362,6 +368,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.DebugQuery]: {
         projectBased: true,
     },
+    [Scene.DebugHog]: {
+        projectBased: true,
+        name: 'Hog Repl',
+    },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
         layout: 'plain',
@@ -401,6 +411,14 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.SessionAttributionExplorer]: {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
+    },
+    [Scene.MessagingBroadcasts]: {
+        projectBased: true,
+        name: 'Broadcasts',
+    },
+    [Scene.MessagingProviders]: {
+        projectBased: true,
+        name: 'Providers',
     },
 }
 
@@ -469,6 +487,7 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
+    '/messaging': urls.messagingBroadcasts(),
 }
 
 export const routes: Record<string, Scene> = {
@@ -539,6 +558,7 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
+    [urls.sqlEditor()]: Scene.SQLEditor,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.DataManagement,
@@ -577,6 +597,7 @@ export const routes: Record<string, Scene> = {
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.debugQuery()]: Scene.DebugQuery,
+    [urls.debugHog()]: Scene.DebugHog,
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
     [urls.canvas()]: Scene.Canvas,
@@ -584,4 +605,11 @@ export const routes: Record<string, Scene> = {
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
     [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
+    [urls.messagingProviders()]: Scene.MessagingProviders,
+    [urls.messagingProvider(':id')]: Scene.MessagingProviders,
+    [urls.messagingProviderNew()]: Scene.MessagingProviders,
+    [urls.messagingProviderNew(':template')]: Scene.MessagingProviders,
+    [urls.messagingBroadcasts()]: Scene.MessagingBroadcasts,
+    [urls.messagingBroadcast(':id')]: Scene.MessagingBroadcasts,
+    [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
 }
