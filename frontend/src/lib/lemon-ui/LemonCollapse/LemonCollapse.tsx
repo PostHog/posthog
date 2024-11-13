@@ -13,6 +13,7 @@ export interface LemonCollapsePanel<K extends React.Key> {
     key: K
     header: ReactNode
     content: ReactNode
+    dataAttr?: string
     className?: string
 }
 
