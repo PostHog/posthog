@@ -10,6 +10,7 @@ import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
 
 import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 import type { relatedFeatureFlagsLogicType } from './relatedFeatureFlagsLogicType'
+
 export interface RelatedFeatureFlag extends FeatureFlagType {
     value: boolean | string
     evaluation: FeatureFlagEvaluationType
@@ -83,14 +84,25 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             },
         ],
     }),
-    selectors(() => ({
+    selectors(({ props }) => ({
         mappedRelatedFeatureFlags: [
             (selectors) => [selectors.relatedFeatureFlags, selectors.featureFlags],
             (relatedFlags, featureFlags): RelatedFeatureFlag[] => {
                 if (relatedFlags && featureFlags) {
-                    return featureFlags.results
+                    let flags = featureFlags.results
                         .map((flag) => ({ ...relatedFlags[flag.key], ...flag }))
                         .filter((flag) => flag.evaluation !== undefined)
+
+                    // show non-group (person) flags if props.groups is empty
+                    if (!props.groups || Object.keys(props.groups).length === 0) {
+                        flags = flags.filter(
+                            (flag) =>
+                                flag.filters.aggregation_group_type_index === undefined ||
+                                flag.filters.aggregation_group_type_index === null
+                        )
+                    }
+
+                    return flags
                 }
                 return []
             },

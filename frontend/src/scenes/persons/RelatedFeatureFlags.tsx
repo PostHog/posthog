@@ -13,6 +13,7 @@ import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFl
 
 interface Props {
     distinctId: string
+    personId?: string
     groups?: { [key: string]: string }
 }
 
@@ -34,11 +35,11 @@ const featureFlagMatchMapping = {
     [FeatureFlagMatchReason.Disabled]: 'Disabled',
 }
 
-export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element {
+export function RelatedFeatureFlags({ distinctId, personId, groups }: Props): JSX.Element {
     const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters } = useValues(
-        relatedFeatureFlagsLogic({ distinctId, groups })
+        relatedFeatureFlagsLogic({ distinctId, personId, groups })
     )
-    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groups }))
+    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, personId, groups }))
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
@@ -123,7 +124,11 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                 const matchesSet = featureFlag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
                 return (
                     <div>
-                        {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
+                        {featureFlag.active ? (
+                            <>{featureFlagMatchMapping[featureFlag.evaluation.reason as FeatureFlagMatchReason]}</>
+                        ) : (
+                            '--'
+                        )}
 
                         {matchesSet && <LemonSnack>Set {(featureFlag.evaluation.condition_index ?? 0) + 1}</LemonSnack>}
                     </div>
