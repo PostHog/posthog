@@ -1,9 +1,10 @@
-function NotImplementedError (message, payload) {
-    return __newHogError('NotImplementedError', message, payload)
-}
-
-function HogError (type, message, payload) {
-    return __newHogError(type, message, payload)
+function __getProperty(objectOrArray, key, nullish) {
+    if ((nullish && !objectOrArray) || key === 0) { return null }
+    if (Array.isArray(objectOrArray)) {
+        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
+    } else {
+        return objectOrArray[key]
+    }
 }
 
 function concat (...args) {
@@ -66,39 +67,13 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
-function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
-    if (typeof identifier === 'number') return identifier.toString();
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
-    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
-}
-
 function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
@@ -117,16 +92,34 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
+function __escapeIdentifier(identifier) {
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
+    if (typeof identifier === 'number') return identifier.toString();
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
+}
+
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
+function NotImplementedError (message, payload) {
+    return __newHogError('NotImplementedError', message, payload)
+}
+
+function HogError (type, message, payload) {
+    return __newHogError(type, message, payload)
+}
+
 function __newHogError(type, message, payload) {
     let error = new Error(message);
+    error.__hogError__ = true
     error.type = type
     error.payload = payload
     return error
-}function FishError(message) {
+}
+
+function FishError(message) {
     return HogError("FishError", message);
 }
 function FoodError(message) {
@@ -134,28 +127,28 @@ function FoodError(message) {
 }
 try {
     throw FishError("You forgot to feed your fish");
-} catch (__error) { if (__error.name === "FoodError") { let e = __error;
-print(concat("Problem with your food: ", get_global("e").message));
+} catch (__error) { if (__error.type === "FoodError") { let e = __error;
+print(concat("Problem with your food: ", __getProperty(e, "message", true)));
 }
- else if (__error.name === "FishError") { let e = __error;
-print(concat("Problem with your fish: ", get_global("e").message));
+ else if (__error.type === "FishError") { let e = __error;
+print(concat("Problem with your fish: ", __getProperty(e, "message", true)));
 }
 }
 try {
     throw FoodError("Your fish are hungry");
-} catch (__error) { if (__error.name === "FoodError") { let e = __error;
-print(concat("Problem with your food: ", get_global("e").message));
+} catch (__error) { if (__error.type === "FoodError") { let e = __error;
+print(concat("Problem with your food: ", __getProperty(e, "message", true)));
 }
- else if (__error.name === "FishError") { let e = __error;
-print(concat("Problem with your fish: ", get_global("e").message));
+ else if (__error.type === "FishError") { let e = __error;
+print(concat("Problem with your fish: ", __getProperty(e, "message", true)));
 }
 }
 try {
     throw NotImplementedError("Your fish are hungry");
-} catch (__error) { if (__error.name === "FoodError") { let e = __error;
-print(concat("Problem with your food: ", get_global("e").message));
+} catch (__error) { if (__error.type === "FoodError") { let e = __error;
+print(concat("Problem with your food: ", __getProperty(e, "message", true)));
 }
- else if (__error.name === "None") { let e = __error;
-print(concat("Unknown problem: ", get_global("e")));
+ else if (true) { let e = __error;
+print(concat("Unknown problem: ", e));
 }
 }

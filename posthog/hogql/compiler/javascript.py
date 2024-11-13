@@ -13,7 +13,7 @@ from posthog.hogql.visitor import Visitor
 
 # TODO: make sure _JS_GET_GLOBAL is unique!
 _JS_GET_GLOBAL = "get_global"
-_JS_KEYWORDS = ["var", "let", "const", "function", "typeof"]
+_JS_KEYWORDS = ["var", "let", "const", "function", "typeof", "Error"]
 
 
 @dataclasses.dataclass
@@ -281,8 +281,9 @@ class JavaScriptCompiler(Visitor):
         # Handle STL functions
         if node.name in STL_FUNCTIONS:
             self.inlined_stl.add(node.name)
+            name = _sanitize_var_name(node.name)
             args_code = ", ".join(self.visit(arg) for arg in node.args)
-            return f"{_sanitize_var_name(node.name)}({args_code})"
+            return f"{name}({args_code})"
         else:
             # Regular function calls
             args_code = ", ".join([self.visit(arg) for arg in node.args or []])
@@ -331,23 +332,28 @@ class JavaScriptCompiler(Visitor):
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):
         try_code = self.visit(_as_block(node.try_stmt))
         code = "try " + try_code + " catch (__error) { "
+        has_catch_all = False
         for index, catch in enumerate(node.catches):
             catch_var = catch[0] or "e"
-            catch_type = str(catch[1])
+            self._start_scope()
+            self._declare_local(catch_var)
+            catch_type = str(catch[1]) if catch[1] is not None else None
             catch_declarations = _as_block(catch[2])
             catch_code = "".join(self._indent(self.visit(d)) for d in catch_declarations.declarations)
             if index > 0:
                 code += " else "
-            if catch_type and catch_type != "Error":
+            if catch_type is not None and catch_type != "Error":
                 code += (
-                    f"if (__error.name === {json.dumps(catch_type)}) {{ let {_sanitize_var_name(catch_var)} = __error;\n"
+                    f"if (__error.type === {json.dumps(catch_type)}) {{ let {_sanitize_var_name(catch_var)} = __error;\n"
                     f"{catch_code}\n"
                     f"}}\n"
                 )
             else:
-                f"if (true) {{ let {_sanitize_var_name(catch_var)} = __error;\n"
-                f"{catch_code}\n"
-                f"}}\n"
+                has_catch_all = True
+                code += f"if (true) {{ let {_sanitize_var_name(catch_var)} = __error;\n" f"{catch_code}\n" f"}}\n"
+            self._end_scope()
+        if not has_catch_all:
+            code += " else { throw __error; }"
         code += "}"
 
         if node.finally_stmt:
@@ -503,7 +509,7 @@ class JavaScriptCompiler(Visitor):
 
     def visit_tuple(self, node: ast.Tuple):
         items_code = ", ".join([self.visit(expr) for expr in node.exprs])
-        return f"[{items_code}]"
+        return f"tuple({items_code})"
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         # Assuming HogQLXTag corresponds to JSX-like syntax

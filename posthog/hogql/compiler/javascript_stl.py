@@ -931,7 +931,7 @@ function HogError (type, message, payload) {
     ],
     "Error": [
         """
-function Error (message, payload) {
+function __x_Error (message, payload) {
     return __newHogError('Error', message, payload)
 }
 """,
@@ -955,7 +955,7 @@ function NotImplementedError (message, payload) {
     ],
     "typeof": [
         """
-function __x_typeof (value) {
+function typeof (value) {
     if (value === null || value === undefined) {
         return 'null'
     } else if (__isHogDateTime(value)) {
@@ -1259,7 +1259,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 """,
@@ -1296,7 +1296,8 @@ function __escapeIdentifier(identifier) {
     "__newHogError": [
         """
 function __newHogError(type, message, payload) {
-    let error = new Error(message);
+    let error = new Error(message || 'An error occurred');
+    error.__hogError__ = true
     error.type = type
     error.payload = payload
     return error

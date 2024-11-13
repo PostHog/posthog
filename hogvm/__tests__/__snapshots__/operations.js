@@ -1,3 +1,50 @@
+function ilike (str, pattern) {
+    return __like(str, pattern, true)
+}
+
+function toUUID (value) {
+    return __STLToString([value])
+}
+
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
+}
+
+function toFloat (value) {
+    if (__isHogDateTime(value)) {
+        return value.dt
+    } else if (__isHogDate(value)) {
+        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
+        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+        return Math.floor(day.diff(epoch, 'days').days)
+    }
+    return !isNaN(parseFloat(value)) ? parseFloat(value) : null
+}
+
+function match (str, pattern) {
+   return new RegExp(pattern).test(str)
+}
+
+function like (str, pattern) {
+    return __like(str, pattern, false)
+}
+
+function __like(str, pattern, caseInsensitive = false) {
+    if (caseInsensitive) {
+        str = str.toLowerCase()
+        pattern = pattern.toLowerCase()
+    }
+    pattern = String(pattern)
+        .replaceAll(/[-/\^$*+?.()|[\]{}]/g, '\$&')
+        .replaceAll('%', '.*')
+        .replaceAll('_', '.')
+    return new RegExp(pattern).test(str)
+}
+
+function concat (...args) {
+    return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
+}
+
 function toInt (value) {
     if (__isHogDateTime(value)) {
         return Math.floor(value.dt)
@@ -7,22 +54,6 @@ function toInt (value) {
         return Math.floor(day.diff(epoch, 'days').days)
     }
     return !isNaN(parseInt(value)) ? parseInt(value) : null
-}
-
-function ilike (str, pattern) {
-    return __like(str, pattern, true)
-}
-
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-
-function toString (value) {
-    return __STLToString([value])
-}
-
-function concat (...args) {
-    return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
 }
 
 function jsonStringify (value, spacing) {
@@ -70,38 +101,7 @@ function jsonStringify (value, spacing) {
     return JSON.stringify(convert(value))
 }
 
-function toFloat (value) {
-    if (__isHogDateTime(value)) {
-        return value.dt
-    } else if (__isHogDate(value)) {
-        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
-        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
-        return Math.floor(day.diff(epoch, 'days').days)
-    }
-    return !isNaN(parseFloat(value)) ? parseFloat(value) : null
-}
-
-function like (str, pattern) {
-    return __like(str, pattern, false)
-}
-
-function __like(str, pattern, caseInsensitive = false) {
-    if (caseInsensitive) {
-        str = str.toLowerCase()
-        pattern = pattern.toLowerCase()
-    }
-    pattern = String(pattern)
-        .replaceAll(/[-/\^$*+?.()|[\]{}]/g, '\$&')
-        .replaceAll('%', '.*')
-        .replaceAll('_', '.')
-    return new RegExp(pattern).test(str)
-}
-
-function match (str, pattern) {
-   return new RegExp(pattern).test(str)
-}
-
-function toUUID (value) {
+function toString (value) {
     return __STLToString([value])
 }
 
@@ -181,16 +181,16 @@ function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
 function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
 }
 
 function test(val) {

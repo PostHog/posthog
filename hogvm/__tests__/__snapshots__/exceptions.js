@@ -1,5 +1,17 @@
+function __x_Error (message, payload) {
+    return __newHogError('Error', message, payload)
+}
+
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
+}
+
+function __newHogError(type, message, payload) {
+    let error = new Error(message || 'An error occurred');
+    error.__hogError__ = true
+    error.type = type
+    error.payload = payload
+    return error
 }
 
 function concat (...args) {
@@ -16,17 +28,6 @@ function __STLToString(args) {
         return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
     }
     return __printHogStringOutput(args[0])
-}
-
-function Error (message, payload) {
-    return __newHogError('Error', message, payload)
-}
-
-function __newHogError(type, message, payload) {
-    let error = new Error(message);
-    error.type = type
-    error.payload = payload
-    return error
 }
 
 function __printHogStringOutput(obj) {
@@ -69,39 +70,13 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
-function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
-    if (typeof identifier === 'number') return identifier.toString();
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
-    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
-}
-
 function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
@@ -116,47 +91,56 @@ function __isHogError(obj) {
     return obj && obj.__hogError__ === true
 }
 
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
+function __escapeIdentifier(identifier) {
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
+    if (typeof identifier === 'number') return identifier.toString();
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
-}print("start");
+}
+
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
+}
+
+print("start");
 try {
     print("try");
-} catch (__error) { if (__error.name === "None") { let e = __error;
-print(concat(get_global("e"), " was the exception"));
+} catch (__error) { if (true) { let e = __error;
+print(concat(e, " was the exception"));
 }
 }
 print("------------------");
 print("start");
 try {
     print("try");
-} catch (__error) { if (__error.name === "None") { let e = __error;
+} catch (__error) { if (true) { let e = __error;
 print("No var for error, but no error");
 }
 }
 print("------------------");
 try {
     print("try again");
-    throw Error();
-} catch (__error) { if (__error.name === "None") { let e = __error;
-print(concat(get_global("e"), " was the exception"));
+    throw __x_Error();
+} catch (__error) { if (true) { let e = __error;
+print(concat(e, " was the exception"));
 }
 }
 print("------------------");
 try {
     print("try again");
-    throw Error();
-} catch (__error) { if (__error.name === "None") { let e = __error;
+    throw __x_Error();
+} catch (__error) { if (true) { let e = __error;
 print("No var for error");
 }
 }
 print("------------------");
 function third() {
     print("Throwing in third");
-    throw Error("Threw in third");
+    throw __x_Error("Threw in third");
 }
 function second() {
     print("second");
@@ -170,15 +154,15 @@ function base() {
     print("base");
     try {
             first();
-        } catch (__error) { if (__error.name === "None") { let e = __error;
-        print(concat("Caught in base: ", get_global("e")));    throw get_global("e");
+        } catch (__error) { if (true) { let e = __error;
+        print(concat("Caught in base: ", e));    throw e;
     }
     }
 }
 try {
     base();
-} catch (__error) { if (__error.name === "None") { let e = __error;
-print(concat("Caught in root: ", get_global("e")));
+} catch (__error) { if (true) { let e = __error;
+print(concat("Caught in root: ", e));
 }
 }
 print("The end");

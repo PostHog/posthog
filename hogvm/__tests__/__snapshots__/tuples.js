@@ -1,5 +1,20 @@
+function __getProperty(objectOrArray, key, nullish) {
+    if ((nullish && !objectOrArray) || key === 0) { return null }
+    if (Array.isArray(objectOrArray)) {
+        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
+    } else {
+        return objectOrArray[key]
+    }
+}
+
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
+}
+
+function tuple (...args) {
+    const tuple = args.slice()
+    tuple.__isHogTuple = true
+    return tuple
 }
 
 function __printHogStringOutput(obj) {
@@ -7,12 +22,6 @@ function __printHogStringOutput(obj) {
         return obj
     }
     return __printHogValue(obj)
-}
-
-function tuple (...args) {
-    const tuple = args.slice()
-    tuple.__isHogTuple = true
-    return tuple
 }
 
 function __printHogValue(obj, marked = new Set()) {
@@ -48,7 +57,13 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
+}
+
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
@@ -59,6 +74,10 @@ function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
 function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
 }
@@ -67,56 +86,29 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
-}
-
 function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
-}print(tuple());
-print([1]);
-print([1, 2]);
-print([1, 2]);
-print([1, 2, 3]);
-print([1, "2", 3]);
-print([1, [2, 3], 4]);
-print([1, [2, [3, 4]], 5]);
-let a = [1, 2, 3];
-print(a[((2) > 0 ? (2 - 1) : ((a).length + (2)))]);
-print((a?.[((2) > 0 ? (2 - 1) : ((a).length + (2)))]));
-print((a?.[((8) > 0 ? (8 - 1) : ((a).length + (8)))]));
-print([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))]).length + (2)))]);
-print(((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])?.[((2) > 0 ? (2 - 1) : ((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])).length + (2)))])?.[((2) > 0 ? (2 - 1) : (((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])?.[((2) > 0 ? (2 - 1) : ((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])).length + (2)))])).length + (2)))]));
-print(((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])?.[((2) > 0 ? (2 - 1) : ((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])).length + (2)))])?.[((2) > 0 ? (2 - 1) : (((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])?.[((2) > 0 ? (2 - 1) : ((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])).length + (2)))])).length + (2)))]));
-print(((([1, [2, [3, 4]], 5]?.[((4) > 0 ? (4 - 1) : (([1, [2, [3, 4]], 5]).length + (4)))])?.[((7) > 0 ? (7 - 1) : ((([1, [2, [3, 4]], 5]?.[((4) > 0 ? (4 - 1) : (([1, [2, [3, 4]], 5]).length + (4)))])).length + (7)))])?.[((2) > 0 ? (2 - 1) : (((([1, [2, [3, 4]], 5]?.[((4) > 0 ? (4 - 1) : (([1, [2, [3, 4]], 5]).length + (4)))])?.[((7) > 0 ? (7 - 1) : ((([1, [2, [3, 4]], 5]?.[((4) > 0 ? (4 - 1) : (([1, [2, [3, 4]], 5]).length + (4)))])).length + (7)))])).length + (2)))]));
-print(((([1, [2, [3, 4]], 5]?.[((4) > 0 ? (4 - 1) : (([1, [2, [3, 4]], 5]).length + (4)))])?.[((7) > 0 ? (7 - 1) : ((([1, [2, [3, 4]], 5]?.[((4) > 0 ? (4 - 1) : (([1, [2, [3, 4]], 5]).length + (4)))])).length + (7)))])?.[((2) > 0 ? (2 - 1) : (((([1, [2, [3, 4]], 5]?.[((4) > 0 ? (4 - 1) : (([1, [2, [3, 4]], 5]).length + (4)))])?.[((7) > 0 ? (7 - 1) : ((([1, [2, [3, 4]], 5]?.[((4) > 0 ? (4 - 1) : (([1, [2, [3, 4]], 5]).length + (4)))])).length + (7)))])).length + (2)))]));
-print([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))]).length + (2)))]);
-print(([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))]).length + (2)))] + 1));
+}
+
+print(tuple());
+print(tuple(1));
+print(tuple(1, 2));
+print(tuple(1, 2));
+print(tuple(1, 2, 3));
+print(tuple(1, "2", 3));
+print(tuple(1, tuple(2, 3), 4));
+print(tuple(1, tuple(2, tuple(3, 4)), 5));
+let a = tuple(1, 2, 3);
+print(__getProperty(a, 2, false));
+print(__getProperty(a, 2, true));
+print(__getProperty(a, 8, true));
+print(__getProperty(__getProperty(__getProperty(tuple(1, tuple(2, tuple(3, 4)), 5), 2, false), 2, false), 2, false));
+print(__getProperty(__getProperty(__getProperty(tuple(1, tuple(2, tuple(3, 4)), 5), 2, true), 2, true), 2, true));
+print(__getProperty(__getProperty(__getProperty(tuple(1, tuple(2, tuple(3, 4)), 5), 2, true), 2, true), 2, true));
+print(__getProperty(__getProperty(__getProperty(tuple(1, tuple(2, tuple(3, 4)), 5), 4, true), 7, true), 2, true));
+print(__getProperty(__getProperty(__getProperty(tuple(1, tuple(2, tuple(3, 4)), 5), 4, true), 7, true), 2, true));
+print(__getProperty(__getProperty(__getProperty(tuple(1, tuple(2, tuple(3, 4)), 5), 2, false), 2, false), 2, false));
+print((__getProperty(__getProperty(__getProperty(tuple(1, tuple(2, tuple(3, 4)), 5), 2, false), 2, false), 2, false) + 1));
