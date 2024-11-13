@@ -1,17 +1,21 @@
-function arrayPopBack (arr) {
-    if (!Array.isArray(arr)) {
-        return []
+function arrayReverse (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].reverse() }
+function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
+function __lambda (fn) { return fn }
+function __getProperty(objectOrArray, key, nullish) {
+    if ((nullish && !objectOrArray) || key === 0) { return null }
+    if (Array.isArray(objectOrArray)) {
+        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
+    } else {
+        return objectOrArray[key]
     }
-    return arr.slice(0, arr.length - 1)
 }
-
-function arrayReverse (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return [...arr].reverse()
-}
-
+function arrayPopFront (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(1) }
+function arrayPopBack (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(0, arr.length - 1) }
+function arraySort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort() }
+function arrayReverseSort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort().reverse() }
+function has (arr, elem) { if (!Array.isArray(arr) || arr.length === 0) { return false } return arr.includes(elem) }
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __setProperty(objectOrArray, key, value) {
     if (Array.isArray(objectOrArray)) {
         if (key > 0) {
@@ -24,91 +28,8 @@ function __setProperty(objectOrArray, key, value) {
     }
     return objectOrArray
 }
-
-function arraySort (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return [...arr].sort()
-}
-
-function has (arr, elem) {
-    if (!Array.isArray(arr) || arr.length === 0) {
-        return false
-    }
-    return arr.includes(elem)
-}
-
-function __lambda (fn) {
-    return fn
-}
-
-function indexOf (arrOrString, elem) {
-    if (Array.isArray(arrOrString)) {
-        return arrOrString.indexOf(elem) + 1
-    } else {
-        return 0
-    }
-}
-
-function arrayPushBack (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
-    }
-    return [...arr, item]
-}
-
-function arrayPushFront (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
-    }
-    return [item, ...arr]
-}
-
-function arrayCount (func, arr) {
-    let count = 0
-    for (let i = 0; i < arr.length; i++) {
-        if (func(arr[i])) {
-            count = count + 1
-        }
-    }
-    return count
-}
-
-function arrayPopFront (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return arr.slice(1)
-}
-
-function __getProperty(objectOrArray, key, nullish) {
-    if ((nullish && !objectOrArray) || key === 0) { return null }
-    if (Array.isArray(objectOrArray)) {
-        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
-    } else {
-        return objectOrArray[key]
-    }
-}
-
-function arrayReverseSort (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return [...arr].sort().reverse()
-}
-
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-
-function __printHogStringOutput(obj) {
-    if (typeof obj === 'string') {
-        return obj
-    }
-    return __printHogValue(obj)
-}
-
+function arrayStringConcat (arr, separator = '') { if (!Array.isArray(arr)) { return '' } return arr.join(separator) }
+function arrayCount (func, arr) { let count = 0; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { count = count + 1 } } return count }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
         if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj) && !__isHogClosure(obj) && !__isHogCallable(obj)) {
@@ -145,45 +66,23 @@ function __printHogValue(obj, marked = new Set()) {
             if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-
+function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
+function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
+function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
+function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __escapeIdentifier(identifier) {
     const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
-
+function arrayPushFront (arr, item) { if (!Array.isArray(arr)) { return [item] } return [item, ...arr] }
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
-}
-
-function arrayStringConcat (arr, separator = '') {
-    if (!Array.isArray(arr)) {
-        return ''
-    }
-    return arr.join(separator)
-}
+function indexOf (arrOrString, elem) { if (Array.isArray(arrOrString)) { return arrOrString.indexOf(elem) + 1 } else { return 0 } }
+function __isHogError(obj) {return obj && obj.__hogError__ === true}
 
 print([]);
 print([1, 2, 3]);

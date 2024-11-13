@@ -1,51 +1,9 @@
-function arrayMap (func, arr) {
-    let result = []
-    for (let i = 0; i < arr.length; i++) {
-        result = arrayPushBack(result, func(arr[i]))
-    }
-    return result
-}
-
-function __lambda (fn) {
-    return fn
-}
-
-function arrayExists (func, arr) {
-        for (let i = 0; i < arr.length; i++) {
-            if (func(arr[i])) {
-                return true
-            }
-        }
-        return false
-    }
-
-function like (str, pattern) {
-    return __like(str, pattern, false)
-}
-
-function __like(str, pattern, caseInsensitive = false) {
-    if (caseInsensitive) {
-        str = str.toLowerCase()
-        pattern = pattern.toLowerCase()
-    }
-    pattern = String(pattern)
-        .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
-        .replaceAll('%', '.*')
-        .replaceAll('_', '.')
-    return new RegExp(pattern).test(str)
-}
-
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-
-function __printHogStringOutput(obj) {
-    if (typeof obj === 'string') {
-        return obj
-    }
-    return __printHogValue(obj)
-}
-
+function arrayExists (func, arr) { for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { return true } } return false }
+function like (str, pattern) { return __like(str, pattern, false) }
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
+function __lambda (fn) { return fn }
+function arrayFilter (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
         if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj) && !__isHogClosure(obj) && !__isHogCallable(obj)) {
@@ -82,55 +40,34 @@ function __printHogValue(obj, marked = new Set()) {
             if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-
 function __escapeIdentifier(identifier) {
     const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
-
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
-
-function arrayFilter (func, arr) {
-    let result = []
-    for (let i = 0; i < arr.length; i++) {
-        if (func(arr[i])) {
-            result = arrayPushBack(result, arr[i])
-        }
+function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
+function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
+function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
+function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
+function __like(str, pattern, caseInsensitive = false) {
+    if (caseInsensitive) {
+        str = str.toLowerCase()
+        pattern = pattern.toLowerCase()
     }
-    return result
+    pattern = String(pattern)
+        .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+        .replaceAll('%', '.*')
+        .replaceAll('_', '.')
+    return new RegExp(pattern).test(str)
 }
-
-function arrayPushBack (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
-    }
-    return [...arr, item]
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
-}
+function __isHogError(obj) {return obj && obj.__hogError__ === true}
+function arrayMap (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
+function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
 
 print("--- arrayMap ----");
 print(arrayMap(__lambda((x) => (x * 2)), [1, 2, 3]));

@@ -1,71 +1,38 @@
-STL_FUNCTIONS = {
+STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     "concat": [
-        """
-function concat (...args) {
-    return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
-}
-""",
+        """function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('') } """,
         ["__STLToString"],
     ],
     "match": [
-        """
-function match (str, pattern) {
-   return new RegExp(pattern).test(str)
-}
-""",
+        "function match (str, pattern) { return new RegExp(pattern).test(str) }",
         [],
     ],
     "like": [
-        """
-function like (str, pattern) {
-    return __like(str, pattern, false)
-}
-""",
+        "function like (str, pattern) { return __like(str, pattern, false) }",
         ["__like"],
     ],
     "ilike": [
-        """
-function ilike (str, pattern) {
-    return __like(str, pattern, true)
-}
-""",
+        "function ilike (str, pattern) { return __like(str, pattern, true) }",
         ["__like"],
     ],
     "notLike": [
-        """
-function notLike (str, pattern) {
-    return !__like(str, pattern, false)
-}
-""",
+        "function notLike (str, pattern) { return !__like(str, pattern, false) }",
         ["__like"],
     ],
     "notILike": [
-        """
-function notILike (str, pattern) {
-    return !__like(str, pattern, true)
-}
-""",
+        "function notILike (str, pattern) { return !__like(str, pattern, true) }",
         ["__like"],
     ],
     "toString": [
-        """
-function toString (value) {
-    return __STLToString([value])
-}
-""",
+        "function toString (value) { return __STLToString([value]) }",
         ["__STLToString"],
     ],
     "toUUID": [
-        """
-function toUUID (value) {
-    return __STLToString([value])
-}
-""",
+        "function toUUID (value) { return __STLToString([value]) }",
         ["__STLToString"],
     ],
     "toInt": [
-        """
-function toInt (value) {
+        """function toInt (value) {
     if (__isHogDateTime(value)) {
         return Math.floor(value.dt)
     } else if (__isHogDate(value)) {
@@ -74,13 +41,11 @@ function toInt (value) {
         return Math.floor(day.diff(epoch, 'days').days)
     }
     return !isNaN(parseInt(value)) ? parseInt(value) : null
-}
-""",
+}""",
         ["__isHogDateTime", "__isHogDate"],
     ],
     "toFloat": [
-        """
-function toFloat (value) {
+        """function toFloat (value) {
     if (__isHogDateTime(value)) {
         return value.dt
     } else if (__isHogDate(value)) {
@@ -88,30 +53,19 @@ function toFloat (value) {
         const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
         return Math.floor(day.diff(epoch, 'days').days)
     }
-    return !isNaN(parseFloat(value)) ? parseFloat(value) : null
-}
-""",
+    return !isNaN(parseFloat(value)) ? parseFloat(value) : null}""",
         ["__isHogDateTime", "__isHogDate"],
     ],
     "ifNull": [
-        """
-function ifNull (value, defaultValue) {
-    return value !== null ? value : defaultValue
-}
-""",
+        "function ifNull (value, defaultValue) { return value !== null ? value : defaultValue } ",
         [],
     ],
     "length": [
-        """
-function length (value) {
-    return value.length
-}
-""",
+        "function length (value) { return value.length }",
         [],
     ],
     "empty": [
-        """
-function empty (value) {
+        """function empty (value) {
     if (typeof value === 'object') {
         if (Array.isArray(value)) {
             return value.length === 0
@@ -125,63 +79,35 @@ function empty (value) {
         return false
     }
     return !value
-}
-""",
+}""",
         [],
     ],
     "notEmpty": [
-        """
-function notEmpty (value) {
-    return !empty(value)
-}
-""",
+        "function notEmpty (value) { return !empty(value) }",
         ["empty"],
     ],
     "tuple": [
-        """
-function tuple (...args) {
-    const tuple = args.slice()
-    tuple.__isHogTuple = true
-    return tuple
-}
-""",
+        "function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }",
         [],
     ],
     "lower": [
-        """
-function lower (value) {
-    return value.toLowerCase()
-}
-""",
+        "function lower (value) { return value.toLowerCase() }",
         [],
     ],
     "upper": [
-        """
-function upper (value) {
-    return value.toUpperCase()
-}
-""",
+        "function upper (value) { return value.toUpperCase() }",
         [],
     ],
     "reverse": [
-        """
-function reverse (value) {
-    return value.split('').reverse().join('')
-}
-""",
+        "function reverse (value) { return value.split('').reverse().join('') }",
         [],
     ],
     "print": [
-        """
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-""",
+        "function print (...args) { console.log(...args.map(__printHogStringOutput)) }",
         ["__printHogStringOutput"],
     ],
     "jsonParse": [
-        """
-function jsonParse (str) {
+        """function jsonParse (str) {
     function convert(x) {
         if (Array.isArray(x)) {
             return x.map(convert)
@@ -202,13 +128,11 @@ function jsonParse (str) {
         return x
     }
     return convert(JSON.parse(str))
-}
-""",
+}""",
         ["__toHogDateTime", "__toHogDate", "__newHogError"],
     ],
     "jsonStringify": [
-        """
-function jsonStringify (value, spacing) {
+        """function jsonStringify (value, spacing) {
     function convert(x, marked) {
         if (!marked) {
             marked = new Set()
@@ -251,13 +175,11 @@ function jsonStringify (value, spacing) {
         return JSON.stringify(convert(value), null, spacing)
     }
     return JSON.stringify(convert(value))
-}
-""",
+}""",
         ["__isHogDateTime", "__isHogDate", "__isHogError", "__isHogCallable", "__isHogClosure"],
     ],
     "JSONHas": [
-        """
-function JSONHas (obj, ...path) {
+        """function JSONHas (obj, ...path) {
     let current = obj
     for (const key of path) {
         let currentParsed = current
@@ -303,26 +225,15 @@ function JSONHas (obj, ...path) {
         }
     }
     return true
-}
-""",
+}""",
         [],
     ],
     "isValidJSON": [
-        """
-function isValidJSON (str) {
-    try {
-        JSON.parse(str)
-        return true
-    } catch (e) {
-        return false
-    }
-}
-""",
+        "function isValidJSON (str) { try { JSON.parse(str); return true } catch (e) { return false } }",
         [],
     ],
     "JSONLength": [
-        """
-function JSONLength (obj, ...path) {
+        """function JSONLength (obj, ...path) {
     try {
         if (typeof obj === 'string') {
             obj = JSON.parse(obj)
@@ -341,13 +252,11 @@ function JSONLength (obj, ...path) {
         }
     }
     return 0
-}
-""",
+}""",
         ["__getNestedValue"],
     ],
     "JSONExtractBool": [
-        """
-function JSONExtractBool (obj, ...path) {
+        """function JSONExtractBool (obj, ...path) {
     try {
         if (typeof obj === 'string') {
             obj = JSON.parse(obj)
@@ -362,97 +271,47 @@ function JSONExtractBool (obj, ...path) {
         return obj
     }
     return false
-}
-""",
+}""",
         ["__getNestedValue"],
     ],
     "base64Encode": [
-        """
-function base64Encode (str) {
-    return Buffer.from(str).toString('base64')
-}
-""",
+        "function base64Encode (str) { return Buffer.from(str).toString('base64') }",
         [],
     ],
     "base64Decode": [
-        """
-function base64Decode (str) {
-    return Buffer.from(str, 'base64').toString()
-}
-""",
+        "function base64Decode (str) { return Buffer.from(str, 'base64').toString() } ",
         [],
     ],
     "tryBase64Decode": [
-        """
-function tryBase64Decode (str) {
-    try {
-        return Buffer.from(str, 'base64').toString()
-    } catch (e) {
-        return ''
-    }
-}
-""",
+        "function tryBase64Decode (str) { try { return Buffer.from(str, 'base64').toString() } catch (e) { return '' } }",
         [],
     ],
     "encodeURLComponent": [
-        """
-function encodeURLComponent (str) {
-    return encodeURIComponent(str)
-}
-""",
+        "function encodeURLComponent (str) { return encodeURIComponent(str) }",
         [],
     ],
     "decodeURLComponent": [
-        """
-function decodeURLComponent (str) {
-    return decodeURIComponent(str)
-}
-""",
+        "function decodeURLComponent (str) { return decodeURIComponent(str) }",
         [],
     ],
     "replaceOne": [
-        """
-function replaceOne (str, searchValue, replaceValue) {
-    return str.replace(searchValue, replaceValue)
-}
-""",
+        "function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }",
         [],
     ],
     "replaceAll": [
-        """
-function replaceAll (str, searchValue, replaceValue) {
-    return str.replaceAll(searchValue, replaceValue)
-}
-""",
+        "function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }",
         [],
     ],
     "position": [
-        """
-function position (str, elem) {
-    if (typeof str === 'string') {
-        return str.indexOf(String(elem)) + 1
-    } else {
-        return 0
-    }
-}
-""",
+        "function position (str, elem) { if (typeof str === 'string') { return str.indexOf(String(elem)) + 1 } else { return 0 } }",
         [],
     ],
     "positionCaseInsensitive": [
-        """
-function positionCaseInsensitive (str, elem) {
-    if (typeof str === 'string') {
-        return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1
-    } else {
-        return 0
-    }
-}
-""",
+        "function positionCaseInsensitive (str, elem) { if (typeof str === 'string') { return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1 } else { return 0 } }",
         [],
     ],
     "trim": [
-        """
-function trim (str, char) {
+        """function trim (str, char) {
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -471,13 +330,11 @@ function trim (str, char) {
         return ''
     }
     return str.slice(start, end)
-}
-""",
+}""",
         [],
     ],
     "trimLeft": [
-        """
-function trimLeft (str, char) {
+        """function trimLeft (str, char) {
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -489,13 +346,11 @@ function trimLeft (str, char) {
         start++
     }
     return str.slice(start)
-}
-""",
+}""",
         [],
     ],
     "trimRight": [
-        """
-function trimRight (str, char) {
+        """function trimRight (str, char) {
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -507,66 +362,29 @@ function trimRight (str, char) {
         end--
     }
     return str.slice(0, end)
-}
-""",
+}""",
         [],
     ],
     "splitByString": [
-        """
-function splitByString (separator, str, maxSplits) {
-    if (maxSplits === undefined || maxSplits === null) {
-        return str.split(separator)
-    }
-    return str.split(separator, maxSplits)
-}
-""",
+        "function splitByString (separator, str, maxSplits) { if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }",
         [],
     ],
     "generateUUIDv4": [
-        """
-function generateUUIDv4 () {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        const r = (Math.random() * 16) | 0
-        const v = c === 'x' ? r : (r & 0x3) | 0x8
-        return v.toString(16)
-    })
-}
-""",
+        "function generateUUIDv4 () { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { const r = (Math.random() * 16) | 0; const v = c === 'x' ? r : (r & 0x3) | 0x8; return v.toString(16) })}",
         [],
     ],
     "sha256Hex": [
-        """
-function sha256Hex (str, options) {
-    return "SHA256 not implemented"
-}
-""",
+        "function sha256Hex (str, options) { return 'SHA256 not implemented' }",
         [],
     ],
     "md5Hex": [
-        """
-function md5Hex(string) {
-    function cmn(q, a, b, x, s, t) {
-        a = (((a + q) + (x >>> 0) + t) >>> 0);
-        return (((a << s) | (a >>> (32 - s))) + b) >>> 0;
-    }
-    function ff(a, b, c, d, x, s, t) {
-        return cmn((b & c) | (~b & d), a, b, x, s, t);
-    }
-    function gg(a, b, c, d, x, s, t) {
-        return cmn((b & d) | (c & ~d), a, b, x, s, t);
-    }
-    function hh(a, b, c, d, x, s, t) {
-        return cmn(b ^ c ^ d, a, b, x, s, t);
-    }
-    function ii(a, b, c, d, x, s, t) {
-        return cmn(c ^ (b | ~d), a, b, x, s, t);
-    }
-    function toBytes(str) {
-        var bytes = [];
-        for (var i = 0; i < str.length; i++)
-            bytes.push(str.charCodeAt(i));
-        return bytes;
-    }
+        """function md5Hex(string) {
+    function cmn(q, a, b, x, s, t) { a = (((a + q) + (x >>> 0) + t) >>> 0); return (((a << s) | (a >>> (32 - s))) + b) >>> 0; }
+    function ff(a, b, c, d, x, s, t) { return cmn((b & c) | (~b & d), a, b, x, s, t); }
+    function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & ~d), a, b, x, s, t); }
+    function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
+    function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | ~d), a, b, x, s, t); }
+    function toBytes(str) { var bytes = []; for (var i = 0; i < str.length; i++) bytes.push(str.charCodeAt(i)); return bytes; }
     function toHex(num) {
         var hex = "", i;
         for (i = 0; i < 4; i++)
@@ -641,21 +459,15 @@ function md5Hex(string) {
         d = (d + 0x10325476) >>> 0;
     }
     return toHex(a) + toHex(b) + toHex(c) + toHex(d);
-}
-""",
+}""",
         [],
     ],
     "sha256HmacChainHex": [
-        """
-function sha256HmacChainHex (data, options) {
-    return "sha256HmacChainHex not implemented"
-}
-""",
+        "function sha256HmacChainHex (data, options) { return 'sha256HmacChainHex not implemented' }",
         [],
     ],
     "keys": [
-        """
-function keys (obj) {
+        """function keys (obj) {
     if (typeof obj === 'object' && obj !== null) {
         if (Array.isArray(obj)) {
             return Array.from(obj.keys())
@@ -665,13 +477,11 @@ function keys (obj) {
         return Object.keys(obj)
     }
     return []
-}
-""",
+}""",
         [],
     ],
     "values": [
-        """
-function values (obj) {
+        """function values (obj) {
     if (typeof obj === 'object' && obj !== null) {
         if (Array.isArray(obj)) {
             return [...obj]
@@ -681,276 +491,115 @@ function values (obj) {
         return Object.values(obj)
     }
     return []
-}
-""",
+}""",
         [],
     ],
     "indexOf": [
-        """
-function indexOf (arrOrString, elem) {
-    if (Array.isArray(arrOrString)) {
-        return arrOrString.indexOf(elem) + 1
-    } else {
-        return 0
-    }
-}
-""",
+        "function indexOf (arrOrString, elem) { if (Array.isArray(arrOrString)) { return arrOrString.indexOf(elem) + 1 } else { return 0 } }",
         [],
     ],
     "arrayPushBack": [
-        """
-function arrayPushBack (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
-    }
-    return [...arr, item]
-}
-""",
+        "function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }",
         [],
     ],
     "arrayPushFront": [
-        """
-function arrayPushFront (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
-    }
-    return [item, ...arr]
-}
-""",
+        "function arrayPushFront (arr, item) { if (!Array.isArray(arr)) { return [item] } return [item, ...arr] }",
         [],
     ],
     "arrayPopBack": [
-        """
-function arrayPopBack (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return arr.slice(0, arr.length - 1)
-}
-""",
+        "function arrayPopBack (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(0, arr.length - 1) }",
         [],
     ],
     "arrayPopFront": [
-        """
-function arrayPopFront (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return arr.slice(1)
-}
-""",
+        "function arrayPopFront (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(1) }",
         [],
     ],
     "arraySort": [
-        """
-function arraySort (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return [...arr].sort()
-}
-""",
+        "function arraySort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort() }",
         [],
     ],
     "arrayReverse": [
-        """
-function arrayReverse (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return [...arr].reverse()
-}
-""",
+        "function arrayReverse (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].reverse() }",
         [],
     ],
     "arrayReverseSort": [
-        """
-function arrayReverseSort (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return [...arr].sort().reverse()
-}
-""",
+        "function arrayReverseSort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort().reverse() }",
         [],
     ],
     "arrayStringConcat": [
-        """
-function arrayStringConcat (arr, separator = '') {
-    if (!Array.isArray(arr)) {
-        return ''
-    }
-    return arr.join(separator)
-}
-""",
+        "function arrayStringConcat (arr, separator = '') { if (!Array.isArray(arr)) { return '' } return arr.join(separator) }",
         [],
     ],
     "arrayCount": [
-        """
-function arrayCount (func, arr) {
-    let count = 0
-    for (let i = 0; i < arr.length; i++) {
-        if (func(arr[i])) {
-            count = count + 1
-        }
-    }
-    return count
-}
-""",
+        "function arrayCount (func, arr) { let count = 0; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { count = count + 1 } } return count }",
         [],
     ],
     "arrayExists": [
-        """
-function arrayExists (func, arr) {
-        for (let i = 0; i < arr.length; i++) {
-            if (func(arr[i])) {
-                return true
-            }
-        }
-        return false
-    }
-""",
+        """function arrayExists (func, arr) { for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { return true } } return false }""",
         [],
     ],
     "arrayFilter": [
-        """
-function arrayFilter (func, arr) {
-    let result = []
-    for (let i = 0; i < arr.length; i++) {
-        if (func(arr[i])) {
-            result = arrayPushBack(result, arr[i])
-        }
-    }
-    return result
-}
-""",
+        """function arrayFilter (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}""",
         ["arrayPushBack"],
     ],
     "arrayMap": [
-        """
-function arrayMap (func, arr) {
-    let result = []
-    for (let i = 0; i < arr.length; i++) {
-        result = arrayPushBack(result, func(arr[i]))
-    }
-    return result
-}
-""",
+        """function arrayMap (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }""",
         ["arrayPushBack"],
     ],
     "has": [
-        """
-function has (arr, elem) {
-    if (!Array.isArray(arr) || arr.length === 0) {
-        return false
-    }
-    return arr.includes(elem)
-}
-""",
+        """function has (arr, elem) { if (!Array.isArray(arr) || arr.length === 0) { return false } return arr.includes(elem) }""",
         [],
     ],
     "now": [
-        """
-function now () {
-    return __now()
-}
-""",
+        """function now () { return __now() }""",
         ["__now"],
     ],
     "toUnixTimestamp": [
-        """
-function toUnixTimestamp (input, zone) {
-    return __toUnixTimestamp(input, zone)
-}
-""",
+        """function toUnixTimestamp (input, zone) { return __toUnixTimestamp(input, zone) }""",
         ["__toUnixTimestamp"],
     ],
     "fromUnixTimestamp": [
-        """
-function fromUnixTimestamp (input) {
-    return __fromUnixTimestamp(input)
-}
-""",
+        """function fromUnixTimestamp (input) { return __fromUnixTimestamp(input) }""",
         ["__fromUnixTimestamp"],
     ],
     "toUnixTimestampMilli": [
-        """
-function toUnixTimestampMilli (input, zone) {
-    return __toUnixTimestampMilli(input, zone)
-}
-""",
+        """function toUnixTimestampMilli (input, zone) { return __toUnixTimestampMilli(input, zone) }""",
         ["__toUnixTimestampMilli"],
     ],
     "fromUnixTimestampMilli": [
-        """
-function fromUnixTimestampMilli (input) {
-    return __fromUnixTimestampMilli(input)
-}
-""",
+        """function fromUnixTimestampMilli (input) { return __fromUnixTimestampMilli(input) }""",
         ["__fromUnixTimestampMilli"],
     ],
     "toTimeZone": [
-        """
-function toTimeZone (input, zone) {
-    return __toTimeZone(input, zone)
-}
-""",
+        """function toTimeZone (input, zone) { return __toTimeZone(input, zone) }""",
         ["__toTimeZone"],
     ],
     "toDate": [
-        """
-function toDate (input) {
-    return __toDate(input)
-}
-""",
+        """function toDate (input) { return __toDate(input) }""",
         ["__toDate"],
     ],
     "toDateTime": [
-        """
-function toDateTime (input, zone) {
-    return __toDateTime(input, zone)
-}
-""",
+        """function toDateTime (input, zone) { return __toDateTime(input, zone) }""",
         ["__toDateTime"],
     ],
     "formatDateTime": [
-        """
-function formatDateTime (input, format, zone) {
-    return __formatDateTime(input, format, zone)
-}
-""",
+        """function formatDateTime (input, format, zone) { return __formatDateTime(input, format, zone) }""",
         ["__formatDateTime"],
     ],
     "HogError": [
-        """
-function HogError (type, message, payload) {
-    return __newHogError(type, message, payload)
-}
-""",
+        """function HogError (type, message, payload) { return __newHogError(type, message, payload) }""",
         ["__newHogError"],
     ],
     "Error": [
-        """
-function __x_Error (message, payload) {
-    return __newHogError('Error', message, payload)
-}
-""",
+        """function __x_Error (message, payload) { return __newHogError('Error', message, payload) }""",
         ["__newHogError"],
     ],
     "RetryError": [
-        """
-function RetryError (message, payload) {
-    return __newHogError('RetryError', message, payload)
-}
-""",
+        """function RetryError (message, payload) { return __newHogError('RetryError', message, payload) }""",
         ["__newHogError"],
     ],
     "NotImplementedError": [
-        """
-function NotImplementedError (message, payload) {
-    return __newHogError('NotImplementedError', message, payload)
-}
-""",
+        """function NotImplementedError (message, payload) { return __newHogError('NotImplementedError', message, payload) }""",
         ["__newHogError"],
     ],
     "typeof": [
@@ -1002,32 +651,15 @@ function __STLToString(args) {
         ["__isHogDate", "__isHogDateTime", "__printHogStringOutput"],
     ],
     "__isHogDate": [
-        """
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-""",
+        """function __isHogDate(obj) { return obj && obj.__hogDate__ === true }""",
         [],
     ],
     "__isHogDateTime": [
-        """
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-""",
+        """function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }""",
         [],
     ],
     "__toHogDate": [
-        """
-function __toHogDate(year, month, day) {
-    return {
-        __hogDate__: true,
-        year: year,
-        month: month,
-        day: day,
-    }
-}
-""",
+        """function __toHogDate(year, month, day) { return { __hogDate__: true, year: year, month: month, day: day, } }""",
         [],
     ],
     "__toHogDateTime": [
@@ -1058,11 +690,7 @@ function __toHogDateTime(timestamp, zone) {
         ["__isHogDate"],
     ],
     "__now": [
-        """
-function __now(zone) {
-    return __toHogDateTime(Date.now() / 1000, zone)
-}
-""",
+        """function __now(zone) { return __toHogDateTime(Date.now() / 1000, zone) }""",
         ["__toHogDateTime"],
     ],
     "__toUnixTimestamp": [
@@ -1080,52 +708,23 @@ function __toUnixTimestamp(input, zone) {
         ["__isHogDateTime", "__isHogDate", "__toHogDateTime"],
     ],
     "__fromUnixTimestamp": [
-        """
-function __fromUnixTimestamp(input) {
-    return __toHogDateTime(input)
-}
-""",
+        """function __fromUnixTimestamp(input) { return __toHogDateTime(input) }""",
         ["__toHogDateTime"],
     ],
     "__toUnixTimestampMilli": [
-        """
-function __toUnixTimestampMilli(input, zone) {
-    return __toUnixTimestamp(input, zone) * 1000
-}
-""",
+        """function __toUnixTimestampMilli(input, zone) { return __toUnixTimestamp(input, zone) * 1000 }""",
         ["__toUnixTimestamp"],
     ],
     "__fromUnixTimestampMilli": [
-        """
-function __fromUnixTimestampMilli(input) {
-        return __toHogDateTime(input / 1000)
-}
-""",
+        """function __fromUnixTimestampMilli(input) { return __toHogDateTime(input / 1000) }""",
         ["__toHogDateTime"],
     ],
     "__toTimeZone": [
-        """
-function __toTimeZone(input, zone) {
-    if (!__isHogDateTime(input)) {
-        throw new Error('Expected a DateTime')
-    }
-    return { ...input, zone }
-}
-""",
+        """function __toTimeZone(input, zone) { if (!__isHogDateTime(input)) { throw new Error('Expected a DateTime') }; return { ...input, zone }}""",
         ["__isHogDateTime"],
     ],
     "__toDate": [
-        """
-function __toDate(input) {
-    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input)
-    return {
-        __hogDate__: true,
-        year: dt.year,
-        month: dt.month,
-        day: dt.day,
-    }
-}
-""",
+        """function __toDate(input) { const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input); return { __hogDate__: true, year: dt.year, month: dt.month, day: dt.day, } }""",
         [],
     ],
     "__toDateTime": [
@@ -1214,14 +813,7 @@ function __formatDateTime(input, format, zone) {
         ["__isHogDateTime"],
     ],
     "__printHogStringOutput": [
-        """
-function __printHogStringOutput(obj) {
-    if (typeof obj === 'string') {
-        return obj
-    }
-    return __printHogValue(obj)
-}
-""",
+        """function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) } """,
         ["__printHogValue"],
     ],
     "__printHogValue": [
@@ -1306,27 +898,15 @@ function __newHogError(type, message, payload) {
         [],
     ],
     "__isHogError": [
-        """
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-""",
+        """function __isHogError(obj) {return obj && obj.__hogError__ === true}""",
         [],
     ],
     "__isHogCallable": [
-        """
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-""",
+        """function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }""",
         [],
     ],
     "__isHogClosure": [
-        """
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
-}
-""",
+        """function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }""",
         [],
     ],
     "__getNestedValue": [
@@ -1400,11 +980,7 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "__lambda": [
-        """
-function __lambda (fn) {
-    return fn
-}
-""",
+        """function __lambda (fn) { return fn }""",
         [],
     ],
 }
@@ -1470,6 +1046,6 @@ def import_stl_functions(requested_functions):
     code_pieces = []
     for func in sorted_functions:
         code, _ = STL_FUNCTIONS[func]
-        code_pieces.append(code.strip())
+        code_pieces.append(str(code).strip())
 
-    return "\n\n".join(code_pieces)
+    return "\n".join(code_pieces)
