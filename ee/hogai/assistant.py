@@ -81,6 +81,9 @@ class Assistant:
     def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
         self._graph.add_edge(from_node, to_node)
 
+    def compile_graph(self):
+        return self._graph.compile()
+
     def add_trends_planner_nodes(self, next_node: AssistantNodeName):
         builder = self._graph
 
@@ -104,9 +107,6 @@ class Assistant:
                 "plan_found": next_node,
             },
         )
-
-    def compile_graph(self):
-        return self._graph.compile()
 
     def compile_full_graph(self):
         builder = self._graph

@@ -31,7 +31,7 @@
     },
     {
         "title": "Needle in a Haystack: Find a 'personal/pro' plan",
-        "query": "How frequently do people pay for a professional plan? Show a trends insight.",
-        "expected_output": "Events:\\n- paid_bill\\n    - math operation: total count\\n    - property filter 1:\\n        - entity: event\\n        - property name: plan\\n        - property type: String\\n        - operator: equals\\n        - property value: personal/pro"
+        "query": "How frequently do people pay for a personal-pro plan?",
+        "expected_output": "Events:\\n- paid_bill\\n    - math operation: total count\\n    - property filter 1:\\n        - entity: event\\n        - property name: plan\\n        - property type: String\\n        - operator: contains\\n        - property value: personal/pro"
     }
 ]

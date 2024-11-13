@@ -53,7 +53,7 @@ class Command(BaseCommand):
                     )
 
             with open(path.join(output_path, EVAL_DATASETS[node]), "w") as f:
-                json.dump(dataset, f, indent=2)
+                json.dump(dataset, f, indent=4)
 
     def handle(self, *args, **options):
         loop = asyncio.get_event_loop()
