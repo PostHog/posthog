@@ -1,0 +1,38 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\n            SELECT id, team_id, fingerprint, issue_id, version\n            FROM posthog_errortrackingissuefingerprintv2\n            WHERE team_id = $1 AND fingerprint = $2\n        ",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "id",
+                "type_info": "Uuid"
+            },
+            {
+                "ordinal": 1,
+                "name": "team_id",
+                "type_info": "Int4"
+            },
+            {
+                "ordinal": 2,
+                "name": "fingerprint",
+                "type_info": "Text"
+            },
+            {
+                "ordinal": 3,
+                "name": "issue_id",
+                "type_info": "Uuid"
+            },
+            {
+                "ordinal": 4,
+                "name": "version",
+                "type_info": "Int8"
+            }
+        ],
+        "parameters": {
+            "Left": ["Int4", "Text"]
+        },
+        "nullable": [false, false, false, false, false]
+    },
+    "hash": "8d6677fd85c16de116f061daa0c046ad179d08ce24deb6e5edebbc8c4b9bda5f"
+}
