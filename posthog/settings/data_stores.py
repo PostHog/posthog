@@ -326,7 +326,7 @@ if not CDP_FUNCTION_EXECUTOR_API_URL:
 
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
+        "BACKEND": "django.core.cache.backends.dummy.DummyCache",
         # the django redis default client can be replica aware
         # if location is an array then the first element is the primary
         # and the rest are replicas
