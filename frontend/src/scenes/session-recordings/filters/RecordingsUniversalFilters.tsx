@@ -11,6 +11,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { NodeKind } from '~/queries/schema'
 import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { DurationFilter } from './DurationFilter'
@@ -109,6 +110,8 @@ export const RecordingsUniversalFilters = ({
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.SessionProperties,
+                        TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.HogQLExpression,
                     ]}
                     onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                 >
@@ -144,6 +147,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen}
+                        metadataSource={{ kind: NodeKind.RecordingsQuery }}
                     />
                 )
             })}

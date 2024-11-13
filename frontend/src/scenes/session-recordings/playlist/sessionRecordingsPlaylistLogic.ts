@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
+import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
     isActionFilter,
@@ -120,6 +120,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
             actions.push(f)
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
+        } else if (isHogQLPropertyFilter(f)) {
+            properties.push(f)
         } else if (isAnyPropertyfilter(f)) {
             if (isRecordingPropertyFilter(f)) {
                 if (f.key === 'visited_page') {
