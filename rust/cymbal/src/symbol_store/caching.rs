@@ -5,7 +5,9 @@ use tokio::sync::Mutex;
 
 use crate::{
     error::Error,
-    metric_consts::{STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS},
+    metric_consts::{
+        STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_HITS, STORE_CACHE_MISSES,
+    },
 };
 
 use super::{saving::Saveable, Fetcher, Parser, Provider};
@@ -36,8 +38,10 @@ where
         let mut cache = self.cache.lock().await;
         let cache_key = format!("{}:{}", team_id, r.to_string());
         if let Some(set) = cache.get(&cache_key) {
+            metrics::counter!(STORE_CACHE_HITS).increment(1);
             return Ok(set);
         }
+        metrics::counter!(STORE_CACHE_MISSES).increment(1);
         let found = self.inner.fetch(team_id, r).await?;
         let bytes = found.byte_count();
         let parsed = self.inner.parse(found).await?;

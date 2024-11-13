@@ -5,7 +5,7 @@ use sqlx::PgPool;
 
 use crate::{
     config::Config,
-    error::Error,
+    error::UnhandledError,
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
@@ -30,7 +30,7 @@ impl Resolver {
         team_id: i32,
         pool: &PgPool,
         catalog: &Catalog,
-    ) -> Result<Frame, Error> {
+    ) -> Result<Frame, UnhandledError> {
         if let Some(result) = self.cache.get(&frame.frame_id()) {
             return Ok(result.contents);
         }
