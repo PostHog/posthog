@@ -3323,6 +3323,7 @@ interface BaseExperimentResults {
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: Record<string, any>[]
     filters: TrendsFilterType
+    exposure_filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
     credible_intervals: { [key: string]: [number, number] }
