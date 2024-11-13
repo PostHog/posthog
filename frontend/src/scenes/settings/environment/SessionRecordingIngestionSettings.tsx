@@ -507,8 +507,8 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                 </FlaggedFeature>
                 <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_BLOCKLIST}>
                     <UrlBlocklistOptions />
+                    <EventTriggerOptions />
                 </FlaggedFeature>
-                <EventTriggerOptions />
             </>
         </PayGateMini>
     )
