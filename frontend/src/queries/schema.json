@@ -1598,6 +1598,15 @@
                 "expected_loss": {
                     "type": "number"
                 },
+                "filters": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        }
+                    },
+                    "type": "object"
+                },
                 "funnels_query": {
                     "$ref": "#/definitions/FunnelsQuery"
                 },
@@ -1698,6 +1707,15 @@
                 },
                 "exposure_query": {
                     "$ref": "#/definitions/TrendsQuery"
+                },
+                "filters": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        }
+                    },
+                    "type": "object"
                 },
                 "insight": {
                     "items": {
@@ -4049,6 +4067,15 @@
                                 "expected_loss": {
                                     "type": "number"
                                 },
+                                "filters": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "insight": {
+                                            "$ref": "#/definitions/InsightType"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
                                 "funnels_query": {
                                     "$ref": "#/definitions/FunnelsQuery"
                                 },
@@ -4115,6 +4142,15 @@
                                 },
                                 "exposure_query": {
                                     "$ref": "#/definitions/TrendsQuery"
+                                },
+                                "filters": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "insight": {
+                                            "$ref": "#/definitions/InsightType"
+                                        }
+                                    },
+                                    "type": "object"
                                 },
                                 "insight": {
                                     "items": {
@@ -5560,6 +5596,15 @@
                 "expected_loss": {
                     "type": "number"
                 },
+                "filters": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        }
+                    },
+                    "type": "object"
+                },
                 "funnels_query": {
                     "$ref": "#/definitions/FunnelsQuery"
                 },
@@ -5657,6 +5702,15 @@
                 },
                 "exposure_query": {
                     "$ref": "#/definitions/TrendsQuery"
+                },
+                "filters": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        }
+                    },
+                    "type": "object"
                 },
                 "insight": {
                     "items": {
@@ -7397,6 +7451,10 @@
         },
         "InsightThresholdType": {
             "enum": ["absolute", "percentage"],
+            "type": "string"
+        },
+        "InsightType": {
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL", "HOG"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -9281,6 +9339,15 @@
                         "expected_loss": {
                             "type": "number"
                         },
+                        "filters": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "insight": {
+                                    "$ref": "#/definitions/InsightType"
+                                }
+                            },
+                            "type": "object"
+                        },
                         "funnels_query": {
                             "$ref": "#/definitions/FunnelsQuery"
                         },
@@ -9347,6 +9414,15 @@
                         },
                         "exposure_query": {
                             "$ref": "#/definitions/TrendsQuery"
+                        },
+                        "filters": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "insight": {
+                                    "$ref": "#/definitions/InsightType"
+                                }
+                            },
+                            "type": "object"
                         },
                         "insight": {
                             "items": {
@@ -9954,6 +10030,15 @@
                         "expected_loss": {
                             "type": "number"
                         },
+                        "filters": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "insight": {
+                                    "$ref": "#/definitions/InsightType"
+                                }
+                            },
+                            "type": "object"
+                        },
                         "funnels_query": {
                             "$ref": "#/definitions/FunnelsQuery"
                         },
@@ -10020,6 +10105,15 @@
                         },
                         "exposure_query": {
                             "$ref": "#/definitions/TrendsQuery"
+                        },
+                        "filters": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "insight": {
+                                    "$ref": "#/definitions/InsightType"
+                                }
+                            },
+                            "type": "object"
                         },
                         "insight": {
                             "items": {
