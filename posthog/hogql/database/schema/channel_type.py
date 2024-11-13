@@ -1,6 +1,9 @@
+from typing import Optional
+
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.parser import parse_expr
+from posthog.schema import CustomChannelRule, CustomChannelCondition, PropertyOperator
 
 
 # Create a virtual field that categories the type of channel that a user was acquired through. Use GA4's definitions as
@@ -54,7 +57,115 @@ def create_initial_channel_type(name: str):
     )
 
 
+def custom_condition_to_expr(
+    custom_condition: CustomChannelCondition,
+    campaign: ast.Expr,
+    medium: ast.Expr,
+    source: ast.Expr,
+    referring_domain: ast.Expr,
+) -> ast.Expr:
+    operator = custom_condition.operator
+    value = custom_condition.value
+
+    if custom_condition.property == "campaign":
+        expr = campaign
+    elif custom_condition.property == "medium":
+        expr = medium
+    elif custom_condition.property == "source":
+        expr = source
+    elif custom_condition.property == "referring_domain":
+        expr = referring_domain
+    else:
+        raise NotImplementedError(f"Property {custom_condition.property} not implemented")
+
+    if operator == PropertyOperator.IS_SET:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=expr,
+            right=ast.Constant(value=None),
+        )
+    elif operator == PropertyOperator.IS_NOT_SET:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=expr,
+                right=ast.Constant(value=None),
+            )
+        ]
+
+        return ast.Or(exprs=exprs)
+    elif operator == PropertyOperator.ICONTAINS:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike,
+            left=expr,
+            right=ast.Constant(value=f"%{value}%"),
+        )
+    elif operator == PropertyOperator.NOT_ICONTAINS:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotILike,
+            left=expr,
+            right=ast.Constant(value=f"%{value}%"),
+        )
+    elif operator == PropertyOperator.REGEX:
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)]),
+                ast.Constant(value=0),
+            ],
+        )
+    elif operator == PropertyOperator.NOT_REGEX:
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(
+                    name="not",
+                    args=[
+                        ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)])
+                    ],
+                ),
+                ast.Constant(value=1),
+            ],
+        )
+    elif operator == PropertyOperator.EXACT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=expr,
+            right=ast.Constant(value=value),
+        )
+    elif operator == PropertyOperator.IS_NOT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=expr,
+            right=ast.Constant(value=value),
+        )
+    elif operator == PropertyOperator.LT:
+        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.GT:
+        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.LTE:
+        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.GTE:
+        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+    else:
+        raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+
+
+def custom_rule_to_expr(
+    custom_rule: CustomChannelRule,
+    campaign: ast.Expr,
+    medium: ast.Expr,
+    source: ast.Expr,
+    referring_domain: ast.Expr,
+) -> ast.Expr:
+    conditions = []
+    for condition in custom_rule.conditions:
+        conditions.append(custom_condition_to_expr(condition, campaign, medium, source, referring_domain))
+    return ast.Call(name=custom_rule.combiner, args=conditions)
+
+
 def create_channel_type_expr(
+    custom_rules: Optional[list[CustomChannelRule]],
     campaign: ast.Expr,
     medium: ast.Expr,
     source: ast.Expr,
@@ -73,6 +184,10 @@ def create_channel_type_expr(
             name="lower",
             args=[expr],
         )
+
+    custom_rule_expr: Optional[ast.Expr] = None
+    if custom_rules:
+        custom_rule_expr = custom_rule_expr
 
     # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
     # update either.
