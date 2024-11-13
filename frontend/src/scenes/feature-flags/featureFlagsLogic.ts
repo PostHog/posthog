@@ -40,7 +40,7 @@ export interface FeatureFlagsFilters {
     type?: string
     search?: string
     order?: string
-    page: number
+    page?: number
 }
 
 const DEFAULT_FILTERS: FeatureFlagsFilters = {
@@ -145,15 +145,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
             }),
         ],
-        // Check to see if any non-default filters are being used
-        shouldShowEmptyState: [
-            (s) => [s.featureFlagsLoading, s.featureFlags, s.filters],
-            (featureFlagsLoading, featureFlags, filters): boolean => {
-                return (
-                    !featureFlagsLoading && featureFlags.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
-                )
-            },
-        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -163,6 +154,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     path: urls.featureFlags(),
                 },
             ],
+        ],
+        // Check to see if any non-default filters are being used
+        shouldShowEmptyState: [
+            (s) => [s.featureFlagsLoading, s.featureFlags, s.filters],
+            (featureFlagsLoading, featureFlags, filters): boolean => {
+                return (
+                    !featureFlagsLoading && featureFlags.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                )
+            },
         ],
         pagination: [
             (s) => [s.filters, s.count],
