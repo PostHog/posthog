@@ -1,0 +1,37 @@
+[
+    {
+        "title": "No Excessive Property Filters",
+        "query": "Show the $pageview trend",
+        "expected_output": "Events:\n- $pageview\n    - math operation: total count"
+    },
+    {
+        "title": "No Excessive Property Filters for a Defined Math Type",
+        "query": "What is the MAU?",
+        "expected_output": "Events:\n- $pageview\n    - math operation: unique users."
+    },
+    {
+        "title": "Basic Filtering",
+        "query": "can you compare how many US vs India users viewed a dashboard in the last 30d?",
+        "expected_output": "Events:\\n- viewed dashboard\\n    - math operation: total count\\n    - property filter 1:\\n        - entity: event\\n        - property name: $geoip_country_name\\n        - property type: String\\n        - operator: equals\\n        - property value: United States\\n    - property filter 2:\\n        - entity: event\\n        - property name: $geoip_country_name\\n        - property type: String\\n        - operator: equals\\n        - property value: India\\n\\nBreakdown by:\\n- breakdown 1:\\n    - entity: event\\n    - property name: $geoip_country_name"
+    },
+    {
+        "title": "Formula Mode",
+        "query": "i want to see a ratio of identify divided by page views",
+        "expected_output": "Events:\\n- $identify\\n    - math operation: unique users\\n- $pageview\\n    - math operation: total count\\n\\nFormula:\\n`A/B`, where `A` is the unique users of `$identify` and `B` is the total count of `$pageview`."
+    },
+    {
+        "title": "Math Type by a Property",
+        "query": "what is the average session duration?",
+        "expected_output": "Events:\\n- All Events\\n    - math operation: average by `$session_duration`."
+    },
+    {
+        "title": "Math Type by a User",
+        "query": "What is the median page view count for a user?",
+        "expected_output": "Events:\\n- $pageview\\n    - math operation: median by users."
+    },
+    {
+        "title": "Needle in a Haystack: Find a 'personal/pro' plan",
+        "query": "How frequently do people pay for a professional plan? Show a trends insight.",
+        "expected_output": "Events:\\n- paid_bill\\n    - math operation: total count\\n    - property filter 1:\\n        - entity: event\\n        - property name: plan\\n        - property type: String\\n        - operator: equals\\n        - property value: personal/pro"
+    }
+]

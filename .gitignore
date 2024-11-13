@@ -69,3 +69,8 @@ plugin-transpiler/dist
 *.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
+# Generated evaluation datasets for the assistant
+ee/hogai/eval/compiled_datasets/
+.deepeval
+.deepeval-cache.json
+.deepeval_telemtry.txt

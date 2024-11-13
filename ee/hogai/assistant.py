@@ -78,17 +78,11 @@ class Assistant:
         self._team = team
         self._graph = StateGraph(AssistantState)
 
-    def _compile_graph(self):
-        builder = self._graph
+    def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
+        self._graph.add_edge(from_node, to_node)
 
-        router_node = RouterNode(self._team)
-        builder.add_node(AssistantNodeName.ROUTER, router_node.run)
-        builder.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
-        builder.add_conditional_edges(
-            AssistantNodeName.ROUTER,
-            router_node.router,
-            path_map={"trends": AssistantNodeName.TRENDS_PLANNER, "funnel": AssistantNodeName.FUNNEL_PLANNER},
-        )
+    def add_trends_planner_nodes(self, next_node: AssistantNodeName):
+        builder = self._graph
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node.run)
@@ -107,9 +101,26 @@ class Assistant:
             create_trends_plan_tools_node.router,
             path_map={
                 "continue": AssistantNodeName.TRENDS_PLANNER,
-                "plan_found": AssistantNodeName.TRENDS_GENERATOR,
+                "plan_found": next_node,
             },
         )
+
+    def compile_graph(self):
+        return self._graph.compile()
+
+    def compile_full_graph(self):
+        builder = self._graph
+
+        router_node = RouterNode(self._team)
+        builder.add_node(AssistantNodeName.ROUTER, router_node.run)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
+        builder.add_conditional_edges(
+            AssistantNodeName.ROUTER,
+            router_node.router,
+            path_map={"trends": AssistantNodeName.TRENDS_PLANNER, "funnel": AssistantNodeName.FUNNEL_PLANNER},
+        )
+
+        self.add_trends_planner_nodes(builder, AssistantNodeName.TRENDS_GENERATOR)
 
         generate_trends_node = TrendsGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_GENERATOR, generate_trends_node.run)
@@ -164,10 +175,10 @@ class Assistant:
             },
         )
 
-        return builder.compile()
+        return self.compile_graph()
 
     def stream(self, conversation: Conversation) -> Generator[BaseModel, None, None]:
-        assistant_graph = self._compile_graph()
+        assistant_graph = self.compile_full_graph()
         callbacks = [langfuse_handler] if langfuse_handler else []
         messages = [message.root for message in conversation.messages]
 
