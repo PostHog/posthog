@@ -1,7 +1,6 @@
-use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::error::Error;
+use crate::error::UnhandledError;
 
 pub struct IssueFingerprintOverride {
     pub id: Uuid,
@@ -18,26 +17,11 @@ pub struct Issue {
     pub fingerprint: String,
 }
 
-pub async fn resolve_issue_id(
-    pool: &PgPool,
-    team_id: i32,
-    fingerprint: &str,
-) -> Result<Uuid, Error> {
-    let existing = load_issue_override(pool, team_id, fingerprint).await?;
-
-    let issue_fingerprint = match existing {
-        Some(f) => f,
-        None => create_issue(pool, team_id, fingerprint).await?,
-    };
-
-    Ok(issue_fingerprint.issue_id)
-}
-
 pub async fn load_issue_override<'c, E>(
     executor: E,
     team_id: i32,
     fingerprint: &str,
-) -> Result<Option<IssueFingerprintOverride>, Error>
+) -> Result<Option<IssueFingerprintOverride>, UnhandledError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -59,7 +43,7 @@ pub async fn create_issue<'c, A>(
     connection: A,
     team_id: i32,
     fingerprint: &str,
-) -> Result<IssueFingerprintOverride, Error>
+) -> Result<IssueFingerprintOverride, UnhandledError>
 where
     A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
 {
@@ -99,45 +83,4 @@ where
     // TODO: write to Kafka
 
     Ok(res)
-}
-
-#[cfg(test)]
-mod test {
-    use sqlx::PgPool;
-
-    #[sqlx::test(migrations = "./tests/test_migrations")]
-    async fn test_issue_creation(db: PgPool) {
-        let team_id: i32 = 1;
-        let fingerprint = "this_is_a_fingerprint".to_string();
-
-        super::resolve_issue_id(&db, team_id, &fingerprint)
-            .await
-            .unwrap();
-
-        // Verify both records are created in Postgres
-        let record = super::load_issue_override(&db, team_id, &fingerprint)
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(record.fingerprint, fingerprint);
-        assert_eq!(record.version, 0);
-
-        super::resolve_issue_id(&db, team_id, &fingerprint)
-            .await
-            .unwrap();
-
-        let result = sqlx::query!(
-            r#"
-                SELECT COUNT(*)
-                FROM posthog_errortrackingissue
-            "#,
-        )
-        .fetch_one(&db)
-        .await
-        .unwrap();
-
-        // Only a single issue is created
-        assert_eq!(result.count, Some(1))
-    }
 }

@@ -4,6 +4,8 @@ use app_context::AppContext;
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
+use issue_resolution::{create_issue, load_issue_override};
+use sqlx::PgPool;
 use tracing::warn;
 use types::{ErrProps, Exception, Stacktrace};
 use uuid::Uuid;
@@ -53,10 +55,10 @@ pub async fn handle_event(
 
     let fingerprint = generate_fingerprint(&results);
 
-    let resolved_issue_id = resolve_issue_id(&context.pool, event.team_id, &fingerprint).await?;
+    let resolved_issue_id = resolve_issue(&context.pool, event.team_id, &fingerprint).await?;
 
     props.fingerprint = Some(fingerprint);
-    properties.resolved_issue_id = Some(resolved_issue_id);
+    props.resolved_issue_id = Some(resolved_issue_id);
     props.exception_list = Some(results);
 
     event.properties = Some(serde_json::to_string(&props).unwrap());
@@ -143,6 +145,21 @@ async fn process_exception(
     });
 
     Ok(e)
+}
+
+async fn resolve_issue(
+    pool: &PgPool,
+    team_id: i32,
+    fingerprint: &str,
+) -> Result<Uuid, UnhandledError> {
+    let existing = load_issue_override(pool, team_id, fingerprint).await?;
+
+    let issue_fingerprint = match existing {
+        Some(f) => f,
+        None => create_issue(pool, team_id, fingerprint).await?,
+    };
+
+    Ok(issue_fingerprint.issue_id)
 }
 
 // This is stupidly expensive, since it round-trips the event through JSON, lol. We should change ClickhouseEvent to only do serde at the
