@@ -6617,6 +6617,7 @@ class HogQLAutocomplete(BaseModel):
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            RecordingsQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -6661,6 +6662,7 @@ class HogQLMetadata(BaseModel):
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            RecordingsQuery,
         ]
     ] = Field(
         default=None,
