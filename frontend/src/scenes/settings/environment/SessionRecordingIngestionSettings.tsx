@@ -333,7 +333,7 @@ function EventTriggerOptions(): JSX.Element | null {
             </div>
             <p>Session recording will be started when the user sends any of these events.</p>
             <EventSelect
-                filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
+                filterGroupTypes={[TaxonomicFilterGroupType.Events]}
                 onChange={(includedEvents) => {
                     updateEventTriggerConfig(includedEvents)
                 }}
