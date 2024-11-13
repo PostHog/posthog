@@ -162,7 +162,7 @@
         {
             "name": "Frontend: Debug Jest Tests",
             "type": "node-terminal",
-            "command": "pnpm test:unit",
+            "command": "pnpm test:unit --runInBand",
             "request": "launch",
             "cwd": "${workspaceFolder}"
         },
