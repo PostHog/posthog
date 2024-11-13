@@ -27,7 +27,9 @@ const dataColorVars = [
     'color-15',
 ] as const
 
-export type DataColor = (typeof dataColorVars)[number]
+export type DataColorToken = `preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}`
+
+export type DataColorTheme = Record<DataColorToken, string>
 
 export const tagColors: LemonTagType[] = [
     'primary',
@@ -48,6 +50,10 @@ export function getColorVar(variable: string): string {
         return document.body.getAttribute('theme') === 'light' ? '#000' : '#fff'
     }
     return colorValue.trim()
+}
+
+export function getDataThemeColor(theme: DataColorTheme, color: DataColorToken): string {
+    return theme[color]
 }
 
 /** Returns the color for the given series index.
