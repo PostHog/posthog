@@ -239,6 +239,7 @@ export interface HogQLQueryModifiers {
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    customChannelTypeRules?: CustomChannelRule[]
 }
 
 export interface DataWarehouseEventsModifier {
