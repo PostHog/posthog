@@ -4707,7 +4707,6 @@ export type SessionReplayUrlTriggerConfig = {
     matching: 'regex'
 }
 
-
 export type ReplayTemplateType = {
     key: string
     name: string
