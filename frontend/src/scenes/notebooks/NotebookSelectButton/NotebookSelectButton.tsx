@@ -255,7 +255,7 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
                 }
             }}
         >
-            {children ?? 'Add to notebook'}
+            {children ?? 'Notebooks'}
         </LemonButton>
     )
 
