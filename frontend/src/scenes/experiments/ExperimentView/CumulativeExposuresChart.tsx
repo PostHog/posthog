@@ -41,7 +41,10 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Ins
             series: [
                 {
                     kind: NodeKind.EventsNode,
-                    event: experiment.filters?.events?.[0]?.name,
+                    event:
+                        experimentInsightType === InsightType.TRENDS
+                            ? '$feature_flag_called'
+                            : experiment.filters?.events?.[0]?.name,
                     math: BaseMathType.UniqueUsers,
                     properties: [
                         {
