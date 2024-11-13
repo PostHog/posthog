@@ -61,32 +61,37 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         closeEnrichAnalyticsNotice: true,
     }),
     loaders(({ values }) => ({
-        featureFlags: {
-            __default: { results: [], count: 0, filters: null, offset: 0 } as FeatureFlagsResult,
-            loadFeatureFlags: async (): Promise<FeatureFlagsResult> => {
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
-                )
+        featureFlags: [
+            { results: [], count: 0, filters: null, offset: 0 } as FeatureFlagsResult,
+            {
+                loadFeatureFlags: async (): Promise<FeatureFlagsResult> => {
+                    const response = await api.get(
+                        `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
+                    )
 
-                return {
-                    ...response,
-                    offset: values.paramsFromFilters.offset,
-                }
+                    return {
+                        ...response,
+                        offset: values.paramsFromFilters.offset,
+                    }
+                },
+                updateFeatureFlag: async ({
+                    id,
+                    payload,
+                }: {
+                    id: number
+                    payload: Partial<FeatureFlagType>
+                }): Promise<FeatureFlagsResult> => {
+                    const response = await api.update(
+                        `api/projects/${values.currentTeamId}/feature_flags/${id}`,
+                        payload
+                    )
+                    const updatedFlags = [...values.featureFlags.results].map((flag) =>
+                        flag.id === response.id ? response : flag
+                    )
+                    return { ...values.featureFlags, results: updatedFlags }
+                },
             },
-            updateFeatureFlag: async ({
-                id,
-                payload,
-            }: {
-                id: number
-                payload: Partial<FeatureFlagType>
-            }): Promise<FeatureFlagsResult> => {
-                const response = await api.update(`api/projects/${values.currentTeamId}/feature_flags/${id}`, payload)
-                const updatedFlags = [...values.featureFlags.results].map((flag) =>
-                    flag.id === response.id ? response : flag
-                )
-                return { ...values.featureFlags, results: updatedFlags }
-            },
-        },
+        ],
     })),
     reducers({
         featureFlags: {
