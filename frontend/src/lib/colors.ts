@@ -4,7 +4,11 @@ import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'
 
-/* Insight series colors. */
+/*
+ * Data colors.
+ */
+
+/** CSS variable names for the default posthog theme data colors. */
 const dataColorVars = [
     'data-color-1',
     'data-color-2',
@@ -26,17 +30,6 @@ const dataColorVars = [
 export type DataColorToken = `preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}`
 
 export type DataColorTheme = Record<DataColorToken, string>
-
-export const tagColors: LemonTagType[] = [
-    'primary',
-    'highlight',
-    'warning',
-    'danger',
-    'success',
-    'completion',
-    'caution',
-    'option',
-]
 
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
@@ -107,3 +100,18 @@ export function getGraphColors(isDarkModeOn: boolean): Record<string, string | n
         tooltipBody: '#fff',
     }
 }
+
+/*
+ * Tag colors.
+ */
+
+export const tagColors: LemonTagType[] = [
+    'primary',
+    'highlight',
+    'warning',
+    'danger',
+    'success',
+    'completion',
+    'caution',
+    'option',
+]
