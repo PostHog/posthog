@@ -3324,6 +3324,7 @@ interface BaseExperimentResults {
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: Record<string, any>[]
     filters: TrendsFilterType
+    exposure_filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
     credible_intervals: { [key: string]: [number, number] }
@@ -4502,6 +4503,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.PRODUCT_ANALYTICS
     | ProductKey.SESSION_REPLAY
     | ProductKey.FEATURE_FLAGS
+    | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS

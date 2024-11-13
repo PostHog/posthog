@@ -285,12 +285,12 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
             case AlertState.FIRING:
                 assert breaches is not None
                 send_notifications_for_breaches(alert, breaches)
-    except Exception as err:
+    except Exception:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
         logger.exception(error_message)
 
         set_tag("alert_config_id", alert.id)
-        set_tag("evaluation_error_message", str(err))
+        set_tag("evaluation_error_message", traceback.format_exc())
 
         capture_exception(Exception(error_message))
 

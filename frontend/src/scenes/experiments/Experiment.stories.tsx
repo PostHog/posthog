@@ -805,6 +805,33 @@ const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
             sampling_factor: undefined,
             smoothing_intervals: 1,
         },
+        exposure_filters: {
+            breakdown: '$feature/aloha',
+            breakdown_normalize_url: false,
+            breakdown_type: 'event',
+            date_from: '2023-02-11T10:37:17.634000Z',
+            explicit_date: 'true',
+            display: ChartDisplayType.ActionsLineGraph,
+            events: [
+                {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    math: 'dau',
+                },
+            ],
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            properties: [
+                {
+                    key: '$feature/aloha',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                    value: ['control', 'test'],
+                },
+            ],
+        },
         significance_code: SignificanceCode.NotEnoughExposure,
         p_value: 1,
         variants: [
@@ -1298,6 +1325,33 @@ const MOCK_TREND_EXPERIMENT_MANY_VARIANTS_RESULTS: TrendsExperimentResults = {
             ],
             sampling_factor: undefined,
             smoothing_intervals: 1,
+        },
+        exposure_filters: {
+            breakdown: '$feature/aloha',
+            breakdown_normalize_url: false,
+            breakdown_type: 'event',
+            date_from: '2023-02-11T10:37:17.634000Z',
+            explicit_date: 'true',
+            display: ChartDisplayType.ActionsLineGraph,
+            events: [
+                {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    math: 'dau',
+                },
+            ],
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            properties: [
+                {
+                    key: '$feature/aloha',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                    value: ['control', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5'],
+                },
+            ],
         },
         significance_code: SignificanceCode.NotEnoughExposure,
         p_value: 1,
