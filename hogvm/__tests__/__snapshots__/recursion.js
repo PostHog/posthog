@@ -42,6 +42,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -62,10 +63,6 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = {
         '\b': '\\b',
@@ -78,11 +75,19 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
+}
+
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
 }
 
 function __isHogDateTime(obj) {
@@ -93,9 +98,7 @@ function __isHogError(obj) {
     return obj && obj.__hogError__ === true
 }
 
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}let fibonacci = (number) => {
+let fibonacci = (number) => {
     if ((number < 2)) {
             return number;
         } else {

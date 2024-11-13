@@ -1,3 +1,12 @@
+function arrayExists (func, arr) {
+        for (let i = 0; i < arr.length; i++) {
+            if (func(arr[i])) {
+                return true
+            }
+        }
+        return false
+    }
+
 function arrayFilter (func, arr) {
     let result = []
     for (let i = 0; i < arr.length; i++) {
@@ -52,6 +61,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -84,21 +94,28 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
-function arrayExists (func, arr) {
-        for (let i = 0; i < arr.length; i++) {
-            if (func(arr[i])) {
-                return true
-            }
-        }
-        return false
-    }
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
+}
+
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
+}
 
 function arrayMap (func, arr) {
     let result = []
@@ -108,18 +125,6 @@ function arrayMap (func, arr) {
     return result
 }
 
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
 function arrayPushBack (arr, item) {
     if (!Array.isArray(arr)) {
         return [item]
@@ -127,9 +132,7 @@ function arrayPushBack (arr, item) {
     return [...arr, item]
 }
 
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}print("--- arrayMap ----");
+print("--- arrayMap ----");
 print(arrayMap((x) => (x * 2), [1, 2, 3]));
 print("--- arrayExists ----");
 print(arrayExists((x) => (new RegExp("^" + ("%nana%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test(x), ["apple", "banana", "cherry"]));

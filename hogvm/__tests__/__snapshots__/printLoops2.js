@@ -1,3 +1,20 @@
+function __setProperty(objectOrArray, key, value) {
+    if (Array.isArray(objectOrArray)) {
+        if (key > 0) {
+            objectOrArray[key - 1] = value
+        } else {
+            objectOrArray[objectOrArray.length + key] = value
+        }
+    } else {
+        objectOrArray[key] = value
+    }
+    return objectOrArray
+}
+
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
+}
+
 function jsonStringify (value, spacing) {
     function convert(x, marked) {
         if (!marked) {
@@ -59,10 +76,6 @@ function __STLToString(args) {
     return __printHogStringOutput(args[0])
 }
 
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-
 function __printHogStringOutput(obj) {
     if (typeof obj === 'string') {
         return obj
@@ -103,6 +116,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -135,7 +149,7 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
@@ -218,10 +232,12 @@ function __toHogDateTime(timestamp, zone) {
 
 function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
-}let root = {"key": "value", "key2": "value2"};
+}
+
+let root = {"key": "value", "key2": "value2"};
 let leaf = {"key": "value", "key2": "value2"};
 for (let i = 0; (i < 30); i = (i + 1)) {
-    root[((concat("key_", i)) > 0 ? (concat("key_", i) - 1) : ((root).length + (concat("key_", i))))] = {"something": leaf};
+    __setProperty(root, concat("key_", i), {"something": leaf});
 }
 print(root);
 print(jsonParse(jsonStringify(root)));

@@ -1,7 +1,3 @@
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-
 function concat (...args) {
     return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
 }
@@ -16,6 +12,10 @@ function __STLToString(args) {
         return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
     }
     return __printHogStringOutput(args[0])
+}
+
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
 }
 
 function __printHogStringOutput(obj) {
@@ -58,6 +58,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -90,7 +91,7 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
@@ -101,26 +102,28 @@ function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
 }
 
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}function mandelbrot(re, im, max_iter) {
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+function mandelbrot(re, im, max_iter) {
     let z_re = 0.0;
     let z_im = 0.0;
     let n = 0;
     while (!!((((z_re * z_re) + (z_im * z_im)) <= 4) && (n < max_iter))) {
             let temp_re = (((z_re * z_re) - (z_im * z_im)) + re);
             let temp_im = (((2 * z_re) * z_im) + im);
-            z_re = temp_re;
-            z_im = temp_im;
-            n = (n + 1);
+            z_re = temp_re
+            z_im = temp_im
+            n = (n + 1)
         }
     if ((n === max_iter)) {
             return " ";
@@ -144,11 +147,11 @@ function main() {
                         let re = (((x / width) * (xmax - xmin)) + xmin);
                         let im = (((y / height) * (ymax - ymin)) + ymin);
                         let letter = mandelbrot(re, im, max_iter);
-                        row = concat(row, letter);
-                        x = (x + 1);
+                        row = concat(row, letter)
+                        x = (x + 1)
                     }
             print(row);
-            y = (y + 1);
+            y = (y + 1)
         }
 }
 main();

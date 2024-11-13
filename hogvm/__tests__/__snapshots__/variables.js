@@ -42,6 +42,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -74,7 +75,11 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
 function __isHogError(obj) {
@@ -93,9 +98,7 @@ function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}print("-- test variables --");
+print("-- test variables --");
 {
     let a = (1 + 2);
     print(a);
@@ -105,7 +108,7 @@ function __isHogCallable(obj) {
 print("-- test variable reassignment --");
 {
     let a = 1;
-    a = (a + 3);
-    a = (a * 2);
+    a = (a + 3)
+    a = (a * 2)
     print(a);
 }

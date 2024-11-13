@@ -42,7 +42,31 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
+}
+
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = {
+        '\b': '\\b',
+        '\f': '\\f',
+        '\r': '\\r',
+        '\n': '\\n',
+        '\t': '\\t',
+        '\0': '\\0',
+        '\v': '\\v',
+        '\\': '\\\\',
+        "'": "\\'",
+    }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
+}
+
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
 }
 
 function __escapeIdentifier(identifier) {
@@ -62,40 +86,19 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
 }
 
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}function returnCallable(a) {
+function returnCallable(a) {
     return (x) => (x * a);
 }
 let double = returnCallable(2);

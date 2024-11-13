@@ -1,3 +1,16 @@
+function __setProperty(objectOrArray, key, value) {
+    if (Array.isArray(objectOrArray)) {
+        if (key > 0) {
+            objectOrArray[key - 1] = value
+        } else {
+            objectOrArray[objectOrArray.length + key] = value
+        }
+    } else {
+        objectOrArray[key] = value
+    }
+    return objectOrArray
+}
+
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
 }
@@ -42,6 +55,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -74,19 +88,11 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
-}
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
 }
 
 function __isHogDate(obj) {
@@ -95,61 +101,80 @@ function __isHogDate(obj) {
 
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
-}{
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
+}
+
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+function __getProperty(objectOrArray, key, nullish) {
+    if ((nullish && !objectOrArray) || key === 0) { return null }
+    if (Array.isArray(objectOrArray)) {
+        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
+    } else {
+        return objectOrArray[key]
+    }
+}
+
+{
     let r = [1, 2, {"d": [1, 3, 42, 6]}];
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((2) > 0 ? (2 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (2)))]);
+    print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 2, false));
 }
 {
     let r = [1, 2, {"d": [1, 3, 42, 6]}];
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((3) > 0 ? (3 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (3)))]);
+    print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
     let r = [1, 2, {"d": [1, 3, 42, 6]}];
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((4) > 0 ? (4 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (4)))]);
+    print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 4, false));
 }
 {
     let r = {"d": [1, 3, 42, 6]};
-    print(r.d[((2) > 0 ? (2 - 1) : ((r.d).length + (2)))]);
+    print(__getProperty(__getProperty(r, "d", true), 2, false));
 }
 {
     let r = [1, 2, {"d": [1, 3, 42, 3]}];
-    r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((3) > 0 ? (3 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (3)))] = 3;
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((3) > 0 ? (3 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (3)))]);
+    __setProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, 3);
+    print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
     let r = [1, 2, {"d": [1, 3, 42, 3]}];
-    r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((3) > 0 ? (3 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (3)))] = 3;
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((3) > 0 ? (3 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (3)))]);
+    __setProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, 3);
+    print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
     let r = [1, 2, {"d": [1, 3, 42, 3]}];
-    r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("c") > 0 ? ("c" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("c")))] = [666];
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]);
+    __setProperty(__getProperty(r, 3, false), "c", [666]);
+    print(__getProperty(r, 3, false));
 }
 {
     let r = [1, 2, {"d": [1, 3, 42, 3]}];
-    r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((3) > 0 ? (3 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (3)))] = 3;
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]);
+    __setProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, 3);
+    print(__getProperty(__getProperty(r, 3, false), "d", false));
 }
 {
     let r = [1, 2, {"d": [1, 3, 42, 3]}];
-    r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))] = ["a", "b", "c", "d"];
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((3) > 0 ? (3 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (3)))]);
+    __setProperty(__getProperty(r, 3, false), "d", ["a", "b", "c", "d"]);
+    print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
     let r = [1, 2, {"d": [1, 3, 42, 3]}];
     let g = "d";
-    r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][((g) > 0 ? (g - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + (g)))] = ["a", "b", "c", "d"];
-    print(r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))][((3) > 0 ? (3 - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))][(("d") > 0 ? ("d" - 1) : ((r[((3) > 0 ? (3 - 1) : ((r).length + (3)))]).length + ("d")))]).length + (3)))]);
+    __setProperty(__getProperty(r, 3, false), g, ["a", "b", "c", "d"]);
+    print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
     let event = {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}};
-    event[(("properties") > 0 ? ("properties" - 1) : ((event).length + ("properties")))][(("$browser") > 0 ? ("$browser" - 1) : ((event[(("properties") > 0 ? ("properties" - 1) : ((event).length + ("properties")))]).length + ("$browser")))] = "Firefox";
+    __setProperty(__getProperty(event, "properties", false), "$browser", "Firefox");
     print(event);
 }
 {
     let event = {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}};
-    event.properties["$browser"] = "Firefox";
+    __setProperty(__getProperty(event, "properties", true), "$browser", "Firefox")
     print(event);
 }
 {

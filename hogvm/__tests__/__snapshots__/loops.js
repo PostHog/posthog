@@ -1,5 +1,29 @@
+function keys (obj) {
+    if (typeof obj === 'object' && obj !== null) {
+        if (Array.isArray(obj)) {
+            return Array.from(obj.keys())
+        } else if (obj instanceof Map) {
+            return Array.from(obj.keys())
+        }
+        return Object.keys(obj)
+    }
+    return []
+}
+
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
+}
+
+function values (obj) {
+    if (typeof obj === 'object' && obj !== null) {
+        if (Array.isArray(obj)) {
+            return [...obj]
+        } else if (obj instanceof Map) {
+            return Array.from(obj.values())
+        }
+        return Object.values(obj)
+    }
+    return []
 }
 
 function __printHogStringOutput(obj) {
@@ -42,6 +66,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -62,6 +87,18 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
+}
+
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
+}
+
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
+}
+
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = {
         '\b': '\\b',
@@ -74,32 +111,22 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
-}
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
 }
 
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}print("-- test while loop --");
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+print("-- test while loop --");
 {
     let i = 0;
     while ((i < 3)) {
-            i = (i + 1);
+            i = (i + 1)
             print(i);
         }
     print(i);
@@ -115,58 +142,49 @@ print("-- test emptier for loop --");
     let i = 0;
     for (; (i < 3); ) {
             print("woo");
-            i = (i + 1);
+            i = (i + 1)
         }
     print("hoo");
 }
 print("-- for in loop with arrays --");
 {
     let arr = [1, 2, 3];
-    for (let i of arr) {
-            print(get_global("i"));
+    for (let i of values(arr)) {
+            print(i);
         }
 }
 print("-- for in loop with arrays and keys --");
 {
     let arr = [1, 2, 3];
-    for (let k in arr) {
-        let v = arr[k];
-        {
-                print(get_global("k"), get_global("v"));
-            }
-    }
+    for (let k of keys(arr)) { let v = arr[k]; {
+            print(k, v);
+        } }
 }
 print("-- for in loop with tuples --");
 {
     let tup = [1, 2, 3];
-    for (let i of tup) {
-            print(get_global("i"));
+    for (let i of values(tup)) {
+            print(i);
         }
 }
 print("-- for in loop with tuples and keys --");
 {
     let tup = [1, 2, 3];
-    for (let k in tup) {
-        let v = tup[k];
-        {
-                print(get_global("k"), get_global("v"));
-            }
-    }
+    for (let k of keys(tup)) { let v = tup[k]; {
+            print(k, v);
+        } }
 }
 print("-- for in loop with dicts --");
 {
     let obj = {"first": "v1", "second": "v2", "third": "v3"};
-    for (let i of obj) {
-            print(get_global("i"));
+    for (let i of values(obj)) {
+            print(i);
         }
 }
 print("-- for in loop with dicts and keys --");
 {
     let obj = {"first": "v1", "second": "v2", "third": "v3"};
-    for (let k in obj) {
-        let v = obj[k];
-        {
-                print(get_global("k"), get_global("v"));
-            }
-    }
+    for (let k of keys(obj)) { let v = obj[k]; {
+            print(k, v);
+        } }
 }

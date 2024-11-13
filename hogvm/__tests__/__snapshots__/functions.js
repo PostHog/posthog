@@ -78,22 +78,97 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function __getProperty(objectOrArray, key, nullish) {
-    if ((nullish && !objectOrArray) || key === 0) { return null }
-    if (Array.isArray(objectOrArray)) {
-        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
-    } else {
-        return objectOrArray[key]
+function empty (value) {
+    if (typeof value === 'object') {
+        if (Array.isArray(value)) {
+            return value.length === 0
+        } else if (value === null) {
+            return true
+        } else if (value instanceof Map) {
+            return value.size === 0
+        }
+        return Object.keys(value).length === 0
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+        return false
     }
+    return !value
 }
 
-print({});
-print({"key": "value"});
-print({"key": "value", "other": "thing"});
-print({"key": {"otherKey": "value"}});
-let key = "kk";
-print({[key]: "value"});
-print(__getProperty({"key": "value"}, "key", false));
-print(__getProperty({"key": "value"}, "key", false));
-print(__getProperty(__getProperty({"key": {"otherKey": "value"}}, "key", false), "otherKey", false));
-print(__getProperty(__getProperty({"key": {"otherKey": "value"}}, "key", false), "otherKey", false));
+print("-- test functions --");
+function add(a, b) {
+    return (a + b);
+}
+print(add);
+function add2(a, b) {
+    let c = (a + b);
+    return c;
+}
+print(add2);
+function mult(a, b) {
+    return (a * b);
+}
+print(mult);
+function noArgs() {
+    let url = "basdfasdf";
+    let second = (2 + 3);
+    return second;
+}
+print(noArgs);
+function empty() {
+
+}
+function empty2() {
+
+}
+function empty3() {
+
+}
+function noReturn() {
+    let a = 1;
+    let b = 2;
+    let c = (a + b);
+}
+function emptyReturn() {
+    return null;
+}
+function emptyReturnBeforeOtherStuff() {
+    return null;
+    (2 + 2);
+}
+function emptyReturnBeforeOtherStuffNoSemicolon() {
+    return (2 + 2);
+}
+function ifThenReturn() {
+    if (false) {
+            return null;
+        }
+    return 4;
+}
+print(add(3, 4));
+print(((add(3, 4) + 100) + add(1, 1)));
+print((noArgs() ?? -1));
+print((empty() ?? -1));
+print((empty2() ?? -1));
+print((empty3() ?? -1));
+print((noReturn() ?? -1));
+print((emptyReturn() ?? -1));
+print((emptyReturnBeforeOtherStuff() ?? -1));
+print((emptyReturnBeforeOtherStuffNoSemicolon() ?? -1));
+print((ifThenReturn() ?? -1));
+print(mult(((add(3, 4) + 100) + add(2, 1)), 2));
+print(mult(((add2(3, 4) + 100) + add2(2, 1)), 10));
+function printArgs(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+    print(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+let printArgs2 = (arg1, arg2, arg3, arg4, arg5, arg6, arg7) => {
+    print(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+    return null;
+};
+printArgs(1, 2, 3, 4, 5, 6, 7);
+printArgs2(1, 2, 3, 4, 5, 6, 7);
+printArgs(1, 2, 3, 4, 5, 6);
+printArgs2(1, 2, 3, 4, 5, 6);
+printArgs(1, 2, 3, 4, 5);
+printArgs2(1, 2, 3, 4, 5);
+printArgs();
+printArgs2();

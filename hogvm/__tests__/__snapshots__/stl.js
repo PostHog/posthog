@@ -1,41 +1,13 @@
-function reverse (value) {
-    return value.split('').reverse().join('')
-}
-
-function replaceOne (str, searchValue, replaceValue) {
-    return str.replace(searchValue, replaceValue)
-}
-
-function notEmpty (value) {
-    return !empty(value)
-}
-
-function replaceAll (str, searchValue, replaceValue) {
-    return str.replaceAll(searchValue, replaceValue)
+function length (value) {
+    return value.length
 }
 
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
 }
 
-function length (value) {
-    return value.length
-}
-
-function generateUUIDv4 () {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        const r = (Math.random() * 16) | 0
-        const v = c === 'x' ? r : (r & 0x3) | 0x8
-        return v.toString(16)
-    })
-}
-
 function encodeURLComponent (str) {
     return encodeURIComponent(str)
-}
-
-function base64Encode (str) {
-    return Buffer.from(str).toString('base64')
 }
 
 function tuple (...args) {
@@ -44,16 +16,27 @@ function tuple (...args) {
     return tuple
 }
 
-function lower (value) {
-    return value.toLowerCase()
+function __printHogStringOutput(obj) {
+    if (typeof obj === 'string') {
+        return obj
+    }
+    return __printHogValue(obj)
 }
 
 function base64Decode (str) {
     return Buffer.from(str, 'base64').toString()
 }
 
-function upper (value) {
-    return value.toUpperCase()
+function reverse (value) {
+    return value.split('').reverse().join('')
+}
+
+function notEmpty (value) {
+    return !empty(value)
+}
+
+function base64Encode (str) {
+    return Buffer.from(str).toString('base64')
 }
 
 function empty (value) {
@@ -72,15 +55,24 @@ function empty (value) {
     return !value
 }
 
+function lower (value) {
+    return value.toLowerCase()
+}
+
 function decodeURLComponent (str) {
     return decodeURIComponent(str)
 }
 
-function __printHogStringOutput(obj) {
-    if (typeof obj === 'string') {
-        return obj
-    }
-    return __printHogValue(obj)
+function replaceAll (str, searchValue, replaceValue) {
+    return str.replaceAll(searchValue, replaceValue)
+}
+
+function generateUUIDv4 () {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        const r = (Math.random() * 16) | 0
+        const v = c === 'x' ? r : (r & 0x3) | 0x8
+        return v.toString(16)
+    })
 }
 
 function __printHogValue(obj, marked = new Set()) {
@@ -116,6 +108,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -148,7 +141,7 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
@@ -163,13 +156,23 @@ function __isHogError(obj) {
     return obj && obj.__hogError__ === true
 }
 
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
+}
+
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}print("-- empty, notEmpty, length, lower, upper, reverse --");
+function replaceOne (str, searchValue, replaceValue) {
+    return str.replace(searchValue, replaceValue)
+}
+
+function upper (value) {
+    return value.toUpperCase()
+}
+
+print("-- empty, notEmpty, length, lower, upper, reverse --");
 if (!!(empty("") && notEmpty("234"))) {
     print(length("123"));
 }

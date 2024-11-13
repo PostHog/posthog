@@ -1,55 +1,3 @@
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-
-function JSONHas (obj, ...path) {
-    let current = obj
-    for (const key of path) {
-        let currentParsed = current
-        if (typeof current === 'string') {
-            try {
-                currentParsed = JSON.parse(current)
-            } catch (e) {
-                return false
-            }
-        }
-        if (currentParsed instanceof Map) {
-            if (!currentParsed.has(key)) {
-                return false
-            }
-            current = currentParsed.get(key)
-        } else if (typeof currentParsed === 'object' && currentParsed !== null) {
-            if (typeof key === 'number') {
-                if (Array.isArray(currentParsed)) {
-                    if (key < 0) {
-                        if (key < -currentParsed.length) {
-                            return false
-                        }
-                        current = currentParsed[currentParsed.length + key]
-                    } else if (key === 0) {
-                        return false
-                    } else {
-                        if (key > currentParsed.length) {
-                            return false
-                        }
-                        current = currentParsed[key - 1]
-                    }
-                } else {
-                    return false
-                }
-            } else {
-                if (!(key in currentParsed)) {
-                    return false
-                }
-                current = currentParsed[key]
-            }
-        } else {
-            return false
-        }
-    }
-    return true
-}
-
 function jsonStringify (value, spacing) {
     function convert(x, marked) {
         if (!marked) {
@@ -118,22 +66,6 @@ function jsonParse (str) {
     return convert(JSON.parse(str))
 }
 
-function __toHogDate(year, month, day) {
-    return {
-        __hogDate__: true,
-        year: year,
-        month: month,
-        day: day,
-    }
-}
-
-function __printHogStringOutput(obj) {
-    if (typeof obj === 'string') {
-        return obj
-    }
-    return __printHogValue(obj)
-}
-
 function __newHogError(type, message, payload) {
     let error = new Error(message);
     error.type = type
@@ -164,6 +96,84 @@ function __toHogDateTime(timestamp, zone) {
     }
 }
 
+function JSONLength (obj, ...path) {
+    try {
+        if (typeof obj === 'string') {
+            obj = JSON.parse(obj)
+        }
+    } catch (e) {
+        return 0
+    }
+    if (typeof obj === 'object' && obj !== null) {
+        const value = __getNestedValue(obj, path, true)
+        if (Array.isArray(value)) {
+            return value.length
+        } else if (value instanceof Map) {
+            return value.size
+        } else if (typeof value === 'object' && value !== null) {
+            return Object.keys(value).length
+        }
+    }
+    return 0
+}
+
+function isValidJSON (str) {
+    try {
+        JSON.parse(str)
+        return true
+    } catch (e) {
+        return false
+    }
+}
+
+function JSONHas (obj, ...path) {
+    let current = obj
+    for (const key of path) {
+        let currentParsed = current
+        if (typeof current === 'string') {
+            try {
+                currentParsed = JSON.parse(current)
+            } catch (e) {
+                return false
+            }
+        }
+        if (currentParsed instanceof Map) {
+            if (!currentParsed.has(key)) {
+                return false
+            }
+            current = currentParsed.get(key)
+        } else if (typeof currentParsed === 'object' && currentParsed !== null) {
+            if (typeof key === 'number') {
+                if (Array.isArray(currentParsed)) {
+                    if (key < 0) {
+                        if (key < -currentParsed.length) {
+                            return false
+                        }
+                        current = currentParsed[currentParsed.length + key]
+                    } else if (key === 0) {
+                        return false
+                    } else {
+                        if (key > currentParsed.length) {
+                            return false
+                        }
+                        current = currentParsed[key - 1]
+                    }
+                } else {
+                    return false
+                }
+            } else {
+                if (!(key in currentParsed)) {
+                    return false
+                }
+                current = currentParsed[key]
+            }
+        } else {
+            return false
+        }
+    }
+    return true
+}
+
 function JSONExtractBool (obj, ...path) {
     try {
         if (typeof obj === 'string') {
@@ -179,6 +189,46 @@ function JSONExtractBool (obj, ...path) {
         return obj
     }
     return false
+}
+
+function __getNestedValue(obj, path, allowNull = false) {
+    let current = obj
+    for (const key of path) {
+        if (current == null) {
+            return null
+        }
+        if (current instanceof Map) {
+            current = current.get(key)
+        } else if (typeof current === 'object' && current !== null) {
+            current = current[key]
+        } else {
+            return null
+        }
+    }
+    if (current === null && !allowNull) {
+        return null
+    }
+    return current
+}
+
+function __toHogDate(year, month, day) {
+    return {
+        __hogDate__: true,
+        year: year,
+        month: month,
+        day: day,
+    }
+}
+
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
+}
+
+function __printHogStringOutput(obj) {
+    if (typeof obj === 'string') {
+        return obj
+    }
+    return __printHogValue(obj)
 }
 
 function __printHogValue(obj, marked = new Set()) {
@@ -214,6 +264,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -234,31 +285,6 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-
-function isValidJSON (str) {
-    try {
-        JSON.parse(str)
-        return true
-    } catch (e) {
-        return false
-    }
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
-}
-
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = {
         '\b': '\\b',
@@ -271,53 +297,30 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
+}
+
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
 }
 
 function __isHogError(obj) {
     return obj && obj.__hogError__ === true
 }
 
-function JSONLength (obj, ...path) {
-    try {
-        if (typeof obj === 'string') {
-            obj = JSON.parse(obj)
-        }
-    } catch (e) {
-        return 0
-    }
-    if (typeof obj === 'object' && obj !== null) {
-        const value = __getNestedValue(obj, path, true)
-        if (Array.isArray(value)) {
-            return value.length
-        } else if (value instanceof Map) {
-            return value.size
-        } else if (typeof value === 'object' && value !== null) {
-            return Object.keys(value).length
-        }
-    }
-    return 0
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
 }
 
-function __getNestedValue(obj, path, allowNull = false) {
-    let current = obj
-    for (const key of path) {
-        if (current == null) {
-            return null
-        }
-        if (current instanceof Map) {
-            current = current.get(key)
-        } else if (typeof current === 'object' && current !== null) {
-            current = current[key]
-        } else {
-            return null
-        }
-    }
-    if (current === null && !allowNull) {
-        return null
-    }
-    return current
-}print(jsonParse("[1,2,3]"));
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
+}
+
+print(jsonParse("[1,2,3]"));
 let event = {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}};
 let json = jsonStringify(event);
 print(jsonParse(json));

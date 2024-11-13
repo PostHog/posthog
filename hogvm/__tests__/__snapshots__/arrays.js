@@ -1,22 +1,14 @@
-function arrayPushFront (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
+function __setProperty(objectOrArray, key, value) {
+    if (Array.isArray(objectOrArray)) {
+        if (key > 0) {
+            objectOrArray[key - 1] = value
+        } else {
+            objectOrArray[objectOrArray.length + key] = value
+        }
+    } else {
+        objectOrArray[key] = value
     }
-    return [item, ...arr]
-}
-
-function arrayReverse (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return [...arr].reverse()
-}
-
-function has (arr, elem) {
-    if (!Array.isArray(arr) || arr.length === 0) {
-        return false
-    }
-    return arr.includes(elem)
+    return objectOrArray
 }
 
 function arraySort (arr) {
@@ -26,6 +18,51 @@ function arraySort (arr) {
     return [...arr].sort()
 }
 
+function indexOf (arrOrString, elem) {
+    if (Array.isArray(arrOrString)) {
+        return arrOrString.indexOf(elem) + 1
+    } else {
+        return 0
+    }
+}
+
+function arrayPopFront (arr) {
+    if (!Array.isArray(arr)) {
+        return []
+    }
+    return arr.slice(1)
+}
+
+function arrayPopBack (arr) {
+    if (!Array.isArray(arr)) {
+        return []
+    }
+    return arr.slice(0, arr.length - 1)
+}
+
+function arrayReverse (arr) {
+    if (!Array.isArray(arr)) {
+        return []
+    }
+    return [...arr].reverse()
+}
+
+function __getProperty(objectOrArray, key, nullish) {
+    if ((nullish && !objectOrArray) || key === 0) { return null }
+    if (Array.isArray(objectOrArray)) {
+        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
+    } else {
+        return objectOrArray[key]
+    }
+}
+
+function arrayPushFront (arr, item) {
+    if (!Array.isArray(arr)) {
+        return [item]
+    }
+    return [item, ...arr]
+}
+
 function arrayReverseSort (arr) {
     if (!Array.isArray(arr)) {
         return []
@@ -33,15 +70,11 @@ function arrayReverseSort (arr) {
     return [...arr].sort().reverse()
 }
 
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-
-function __printHogStringOutput(obj) {
-    if (typeof obj === 'string') {
-        return obj
+function arrayStringConcat (arr, separator = '') {
+    if (!Array.isArray(arr)) {
+        return ''
     }
-    return __printHogValue(obj)
+    return arr.join(separator)
 }
 
 function arrayCount (func, arr) {
@@ -54,12 +87,15 @@ function arrayCount (func, arr) {
     return count
 }
 
-function indexOf (arrOrString, elem) {
-    if (Array.isArray(arrOrString)) {
-        return arrOrString.indexOf(elem) + 1
-    } else {
-        return 0
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
+}
+
+function __printHogStringOutput(obj) {
+    if (typeof obj === 'string') {
+        return obj
     }
+    return __printHogValue(obj)
 }
 
 function __printHogValue(obj, marked = new Set()) {
@@ -95,6 +131,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -115,6 +152,33 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
+}
+
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
+}
+
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
+}
+
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+function arrayPushBack (arr, item) {
+    if (!Array.isArray(arr)) {
+        return [item]
+    }
+    return [...arr, item]
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
+}
+
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = {
         '\b': '\\b',
@@ -127,81 +191,42 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-
-function arrayPopFront (arr) {
-    if (!Array.isArray(arr)) {
-        return []
+function has (arr, elem) {
+    if (!Array.isArray(arr) || arr.length === 0) {
+        return false
     }
-    return arr.slice(1)
+    return arr.includes(elem)
 }
 
-function arrayStringConcat (arr, separator = '') {
-    if (!Array.isArray(arr)) {
-        return ''
-    }
-    return arr.join(separator)
-}
-
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-
-function arrayPushBack (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
-    }
-    return [...arr, item]
-}
-
-function arrayPopBack (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return arr.slice(0, arr.length - 1)
-}print([]);
+print([]);
 print([1, 2, 3]);
 print([1, "2", 3]);
 print([1, [2, 3], 4]);
 print([1, [2, [3, 4]], 5]);
 let a = [1, 2, 3];
-print(a[((2) > 0 ? (2 - 1) : ((a).length + (2)))]);
-print((a?.[((2) > 0 ? (2 - 1) : ((a).length + (2)))]));
-print((a?.[((2) > 0 ? (2 - 1) : ((a).length + (2)))]));
-print((a?.[((7) > 0 ? (7 - 1) : ((a).length + (7)))]));
-print((a?.[((7) > 0 ? (7 - 1) : ((a).length + (7)))]));
-print([1, 2, 3][((2) > 0 ? (2 - 1) : (([1, 2, 3]).length + (2)))]);
-print([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))]).length + (2)))]);
-print(((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])?.[((2) > 0 ? (2 - 1) : ((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])).length + (2)))])?.[((2) > 0 ? (2 - 1) : (((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])?.[((2) > 0 ? (2 - 1) : ((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])).length + (2)))])).length + (2)))]));
-print(((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])?.[((2) > 0 ? (2 - 1) : ((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])).length + (2)))])?.[((2) > 0 ? (2 - 1) : (((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])?.[((2) > 0 ? (2 - 1) : ((([1, [2, [3, 4]], 5]?.[((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))])).length + (2)))])).length + (2)))]));
-print(((([1, [2, [3, 4]], 5]?.[((7) > 0 ? (7 - 1) : (([1, [2, [3, 4]], 5]).length + (7)))])?.[((4) > 0 ? (4 - 1) : ((([1, [2, [3, 4]], 5]?.[((7) > 0 ? (7 - 1) : (([1, [2, [3, 4]], 5]).length + (7)))])).length + (4)))])?.[((2) > 0 ? (2 - 1) : (((([1, [2, [3, 4]], 5]?.[((7) > 0 ? (7 - 1) : (([1, [2, [3, 4]], 5]).length + (7)))])?.[((4) > 0 ? (4 - 1) : ((([1, [2, [3, 4]], 5]?.[((7) > 0 ? (7 - 1) : (([1, [2, [3, 4]], 5]).length + (7)))])).length + (4)))])).length + (2)))]));
-print(((([1, [2, [3, 4]], 5]?.[((7) > 0 ? (7 - 1) : (([1, [2, [3, 4]], 5]).length + (7)))])?.[((4) > 0 ? (4 - 1) : ((([1, [2, [3, 4]], 5]?.[((7) > 0 ? (7 - 1) : (([1, [2, [3, 4]], 5]).length + (7)))])).length + (4)))])?.[((2) > 0 ? (2 - 1) : (((([1, [2, [3, 4]], 5]?.[((7) > 0 ? (7 - 1) : (([1, [2, [3, 4]], 5]).length + (7)))])?.[((4) > 0 ? (4 - 1) : ((([1, [2, [3, 4]], 5]?.[((7) > 0 ? (7 - 1) : (([1, [2, [3, 4]], 5]).length + (7)))])).length + (4)))])).length + (2)))]));
-print(([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))]).length + (2)))] + 1));
-print([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5][((2) > 0 ? (2 - 1) : (([1, [2, [3, 4]], 5]).length + (2)))]).length + (2)))]).length + (2)))]);
+print(__getProperty(a, 2, false));
+print(__getProperty(a, 2, true));
+print(__getProperty(a, 2, true));
+print(__getProperty(a, 7, true));
+print(__getProperty(a, 7, true));
+print(__getProperty([1, 2, 3], 2, false));
+print(__getProperty(__getProperty(__getProperty([1, [2, [3, 4]], 5], 2, false), 2, false), 2, false));
+print(__getProperty(__getProperty(__getProperty([1, [2, [3, 4]], 5], 2, true), 2, true), 2, true));
+print(__getProperty(__getProperty(__getProperty([1, [2, [3, 4]], 5], 2, true), 2, true), 2, true));
+print(__getProperty(__getProperty(__getProperty([1, [2, [3, 4]], 5], 7, true), 4, true), 2, true));
+print(__getProperty(__getProperty(__getProperty([1, [2, [3, 4]], 5], 7, true), 4, true), 2, true));
+print((__getProperty(__getProperty(__getProperty([1, [2, [3, 4]], 5], 2, false), 2, false), 2, false) + 1));
+print(__getProperty(__getProperty(__getProperty([1, [2, [3, 4]], 5], 2, false), 2, false), 2, false));
 print("------");
 let b = [1, 2, [1, 2, 3]];
-b[((2) > 0 ? (2 - 1) : ((b).length + (2)))] = 4;
-print(b[((1) > 0 ? (1 - 1) : ((b).length + (1)))]);
-print(b[((2) > 0 ? (2 - 1) : ((b).length + (2)))]);
-print(b[((3) > 0 ? (3 - 1) : ((b).length + (3)))]);
-b[((3) > 0 ? (3 - 1) : ((b).length + (3)))][((3) > 0 ? (3 - 1) : ((b[((3) > 0 ? (3 - 1) : ((b).length + (3)))]).length + (3)))] = 8;
+__setProperty(b, 2, 4);
+print(__getProperty(b, 1, false));
+print(__getProperty(b, 2, false));
+print(__getProperty(b, 3, false));
+__setProperty(__getProperty(b, 3, false), 3, 8);
 print(b);
 print("------");
 print(arrayPushBack([1, 2, 3], 4));
@@ -243,5 +268,5 @@ print(indexOf([1, 2, 3], 4));
 print(arrayCount((x) => (x > 2), [1, 2, 3, 4, 5]));
 print("------");
 let c = [1, 2, 3];
-print(c[((1) > 0 ? (1 - 1) : ((c).length + (1)))], c[((2) > 0 ? (2 - 1) : ((c).length + (2)))], c[((3) > 0 ? (3 - 1) : ((c).length + (3)))], c[((4) > 0 ? (4 - 1) : ((c).length + (4)))]);
-print(c[((-1) > 0 ? (-1 - 1) : ((c).length + (-1)))], c[((-2) > 0 ? (-2 - 1) : ((c).length + (-2)))], c[((-3) > 0 ? (-3 - 1) : ((c).length + (-3)))], c[((-4) > 0 ? (-4 - 1) : ((c).length + (-4)))]);
+print(__getProperty(c, 1, false), __getProperty(c, 2, false), __getProperty(c, 3, false), __getProperty(c, 4, false));
+print(__getProperty(c, -1, false), __getProperty(c, -2, false), __getProperty(c, -3, false), __getProperty(c, -4, false));

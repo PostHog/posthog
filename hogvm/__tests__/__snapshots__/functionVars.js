@@ -1,3 +1,7 @@
+function base64Decode (str) {
+    return Buffer.from(str, 'base64').toString()
+}
+
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
 }
@@ -42,6 +46,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -62,6 +67,10 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
+}
+
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
@@ -78,6 +87,10 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
+function base64Encode (str) {
+    return Buffer.from(str).toString('base64')
+}
+
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = {
         '\b': '\\b',
@@ -90,12 +103,10 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}function execFunction() {
+function execFunction() {
     print("execFunction");
 }
 function execFunctionNested() {
@@ -120,8 +131,8 @@ secondExecFunction();
 secondExecFunctionNested();
 secondExecFunction();
 print("--------");
-let decode = () => get_global("base64Decode");
-let sixtyFour = get_global("base64Encode");
+let decode = () => base64Decode;
+let sixtyFour = base64Encode;
 print(sixtyFour("http://www.google.com"));
 print(decode()(sixtyFour("http://www.google.com")));
-print(decode());
+print(decode()(sixtyFour("http://www.google.com")));

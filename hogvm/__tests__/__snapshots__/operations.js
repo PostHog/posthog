@@ -1,5 +1,28 @@
+function toInt (value) {
+    if (__isHogDateTime(value)) {
+        return Math.floor(value.dt)
+    } else if (__isHogDate(value)) {
+        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
+        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+        return Math.floor(day.diff(epoch, 'days').days)
+    }
+    return !isNaN(parseInt(value)) ? parseInt(value) : null
+}
+
+function ilike (str, pattern) {
+    return __like(str, pattern, true)
+}
+
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
+}
+
+function toString (value) {
+    return __STLToString([value])
+}
+
+function concat (...args) {
+    return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
 }
 
 function jsonStringify (value, spacing) {
@@ -47,25 +70,6 @@ function jsonStringify (value, spacing) {
     return JSON.stringify(convert(value))
 }
 
-function toUUID (value) {
-    return __STLToString([value])
-}
-
-function toInt (value) {
-    if (__isHogDateTime(value)) {
-        return Math.floor(value.dt)
-    } else if (__isHogDate(value)) {
-        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
-        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
-        return Math.floor(day.diff(epoch, 'days').days)
-    }
-    return !isNaN(parseInt(value)) ? parseInt(value) : null
-}
-
-function toString (value) {
-    return __STLToString([value])
-}
-
 function toFloat (value) {
     if (__isHogDateTime(value)) {
         return value.dt
@@ -77,12 +81,28 @@ function toFloat (value) {
     return !isNaN(parseFloat(value)) ? parseFloat(value) : null
 }
 
+function like (str, pattern) {
+    return __like(str, pattern, false)
+}
+
+function __like(str, pattern, caseInsensitive = false) {
+    if (caseInsensitive) {
+        str = str.toLowerCase()
+        pattern = pattern.toLowerCase()
+    }
+    pattern = String(pattern)
+        .replaceAll(/[-/\^$*+?.()|[\]{}]/g, '\$&')
+        .replaceAll('%', '.*')
+        .replaceAll('_', '.')
+    return new RegExp(pattern).test(str)
+}
+
 function match (str, pattern) {
    return new RegExp(pattern).test(str)
 }
 
-function concat (...args) {
-    return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
+function toUUID (value) {
+    return __STLToString([value])
 }
 
 function __STLToString(args) {
@@ -137,47 +157,28 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
 function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
 function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
 }
 
 function __isHogDateTime(obj) {
@@ -188,9 +189,11 @@ function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
 }
 
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}function test(val) {
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+function test(val) {
     print(jsonStringify(val));
 }
 print("-- test the most common expressions --");
@@ -210,21 +213,21 @@ test((!true));
 test(false);
 test(null);
 test(3.14);
-test((1 === 2));
-test((1 === 2));
+test((1 == 2));
+test((1 == 2));
 test((1 != 2));
 test((1 < 2));
 test((1 <= 2));
 test((1 > 2));
 test((1 >= 2));
-test((new RegExp("^" + ("b").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test("a"));
-test((new RegExp("^" + ("%a%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test("baa"));
-test((new RegExp("^" + ("%x%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test("baa"));
-test((new RegExp("^" + ("%A%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")).test("baa"));
-test((new RegExp("^" + ("%C%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")).test("baa"));
-test((new RegExp("^" + ("b").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")).test("a"));
-test(!(new RegExp("^" + ("b").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test("a"));
-test(!(new RegExp("^" + ("b").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")).test("a"));
+test(like("a", "b"));
+test(like("baa", "%a%"));
+test(like("baa", "%x%"));
+test(ilike("baa", "%A%"));
+test(ilike("baa", "%C%"));
+test(ilike("a", "b"));
+test(!like("a", "b"));
+test(!ilike("a", "b"));
 test(("car".includes("a")));
 test(("foo".includes("a")));
 test((!"car".includes("a")));
@@ -253,23 +256,23 @@ test(toInt("bla"));
 test(toFloat("1.2"));
 test(toFloat("bla"));
 test(toUUID("asd"));
-test((1 === null));
+test((1 == null));
 test((1 != null));
-test(("1" === 1));
-test((1 === "1"));
-test((1 === true));
-test((0 === true));
-test((2 === true));
+test(("1" == 1));
+test((1 == "1"));
+test((1 == true));
+test((0 == true));
+test((2 == true));
 test((1 != false));
-test((1 === "2"));
-test((1 === "2"));
+test((1 == "2"));
+test((1 == "2"));
 test((1 != "2"));
 test((1 < "2"));
 test((1 <= "2"));
 test((1 > "2"));
 test((1 >= "2"));
-test(("1" === 2));
-test(("1" === 2));
+test(("1" == 2));
+test(("1" == 2));
 test(("1" != 2));
 test(("1" < 2));
 test(("1" <= 2));
