@@ -65,15 +65,15 @@ export const OnboardingBillingStep = ({
                     {product.subscribed && (
                         <div className="mb-8">
                             <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
-                                <div className="flex gap-x-4">
-                                    <IconCheckCircle className="text-success text-3xl mb-6" />
-                                    <div>
+                                <div className="flex gap-x-4 min-w-0">
+                                    <IconCheckCircle className="text-success text-3xl mb-6 flex-shrink-0" />
+                                    <div className="flex-1 min-w-0">
                                         <h3 className="text-lg font-bold mb-1 text-left">{action} successful</h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
                                     </div>
                                 </div>
-                                <div className="h-20">
-                                    <StarHog className="h-full w-full" />
+                                <div className="h-20 w-20 flex-shrink-0">
+                                    <StarHog className="h-full w-full object-contain" />
                                 </div>
                             </div>
                             <LemonButton
