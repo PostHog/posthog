@@ -6,7 +6,6 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import { PrimaryMetricModal } from '../Metrics/PrimaryMetricModal'
 import { PrimaryTrendsExposureModal } from '../Metrics/PrimaryTrendsExposureModal'
 import {
     ExperimentLoadingAnimation,
@@ -117,7 +116,6 @@ export function ExperimentView(): JSX.Element {
                                 />
                             </>
                         )}
-                        <PrimaryMetricModal experimentId={experimentId} />
                         <PrimaryTrendsExposureModal experimentId={experimentId} />
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />

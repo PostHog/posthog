@@ -3,19 +3,77 @@ import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useState } from 'react'
 
-import { ActionFilter as ActionFilterType, AnyPropertyFilter, Experiment, FilterType, InsightType } from '~/types'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, FunnelsQuery, TrendsQuery } from '~/queries/schema'
+import { ActionFilter, AnyPropertyFilter, Experiment, FilterType, InsightType } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric } from '../experimentLogic'
+import { PrimaryMetricModal } from '../Metrics/PrimaryMetricModal'
 
-export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Element {
+export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined }): JSX.Element {
+    const event = query?.series?.[0] as unknown as ActionFilter
+
+    if (!event) {
+        return <></>
+    }
+
+    return (
+        <>
+            <div className="mb-2">
+                <div className="flex mb-1">
+                    <b>
+                        <InsightLabel action={event} showCountedByTag={true} hideIcon showEventName />
+                    </b>
+                </div>
+                <div className="space-y-1">
+                    {event.properties?.map((prop: AnyPropertyFilter) => (
+                        <PropertyFilterButton key={prop.key} item={prop} />
+                    ))}
+                </div>
+            </div>
+        </>
+    )
+}
+
+export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.Element {
+    return (
+        <>
+            {(query.series || []).map((event: any, idx: number) => (
+                <div key={idx} className="mb-2">
+                    <div className="flex mb-1">
+                        <div
+                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ backgroundColor: 'var(--bg-table)' }}
+                        >
+                            {idx + 1}
+                        </div>
+                        <b>
+                            <InsightLabel action={event} hideIcon showEventName />
+                        </b>
+                    </div>
+                    <div className="space-y-1">
+                        {event.properties?.map((prop: AnyPropertyFilter) => (
+                            <PropertyFilterButton key={prop.key} item={prop} />
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </>
+    )
+}
+
+// :FLAG: CLEAN UP AFTER MIGRATION
+export function MetricDisplayOld({ filters }: { filters?: FilterType }): JSX.Element {
     const metricType = filters?.insight || InsightType.TRENDS
 
     return (
         <>
-            {([...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[])
+            {([...(filters?.events || []), ...(filters?.actions || [])] as ActionFilter[])
                 .sort((a, b) => (a.order || 0) - (b.order || 0))
-                .map((event: ActionFilterType, idx: number) => (
+                .map((event: ActionFilter, idx: number) => (
                     <div key={idx} className="mb-2">
                         <div className="flex mb-1">
                             {metricType === InsightType.FUNNELS && (
@@ -48,8 +106,11 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
 }
 
 export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
+    const { experiment, featureFlags, getMetricType } = useValues(experimentLogic({ experimentId }))
     const { openExperimentExposureModal, updateExperimentExposure } = useActions(experimentLogic({ experimentId }))
+
+    const metricIdx = 0
+    const metricType = getMetricType(metricIdx)
 
     return (
         <>
@@ -61,10 +122,15 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                     <IconInfo className="ml-1 text-muted text-sm" />
                 </Tooltip>
             </div>
-            {experiment.parameters?.custom_exposure_filter ? (
-                <MetricDisplay filters={experiment.parameters.custom_exposure_filter} />
+            {/* :FLAG: CLEAN UP AFTER MIGRATION */}
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] ? (
+                metricType === InsightType.FUNNELS ? (
+                    <MetricDisplayFunnels query={(experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query} />
+                ) : (
+                    <MetricDisplayTrends query={(experiment.metrics[0] as ExperimentTrendsQuery).count_query} />
+                )
             ) : (
-                <span className="description">Default via $feature_flag_called events</span>
+                <MetricDisplayOld filters={experiment.filters} />
             )}
             <div className="mb-2 mt-2">
                 <span className="flex">
@@ -88,9 +154,10 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function Goal(): JSX.Element {
-    const { experiment, experimentId, getMetricType, experimentMathAggregationForTrends, hasGoalSet } =
+    const { experiment, experimentId, getMetricType, experimentMathAggregationForTrends, hasGoalSet, featureFlags } =
         useValues(experimentLogic)
-    const { openExperimentGoalModal } = useActions(experimentLogic({ experimentId }))
+    const { setExperiment } = useActions(experimentLogic)
+    const [isExperimentGoalModalOpen, setIsExperimentGoalModalOpen] = useState(false)
     const metricType = getMetricType(0)
 
     return (
@@ -123,7 +190,20 @@ export function Goal(): JSX.Element {
                         type="secondary"
                         size="small"
                         data-attr="add-experiment-goal"
-                        onClick={openExperimentGoalModal}
+                        onClick={() => {
+                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                                setExperiment({
+                                    ...experiment,
+                                    metrics: [getDefaultFunnelsMetric()],
+                                })
+                            } else {
+                                setExperiment({
+                                    ...experiment,
+                                    filters: getDefaultFilters(InsightType.FUNNELS, undefined),
+                                })
+                            }
+                            setIsExperimentGoalModalOpen(true)
+                        }}
                     >
                         Add goal
                     </LemonButton>
@@ -134,8 +214,21 @@ export function Goal(): JSX.Element {
                         <div className="card-secondary mb-2 mt-2">
                             {metricType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                         </div>
-                        <MetricDisplay filters={experiment.filters} />
-                        <LemonButton size="xsmall" type="secondary" onClick={openExperimentGoalModal}>
+                        {/* :FLAG: CLEAN UP AFTER MIGRATION */}
+                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] ? (
+                            metricType === InsightType.FUNNELS ? (
+                                <MetricDisplayFunnels
+                                    query={(experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query}
+                                />
+                            ) : (
+                                <MetricDisplayTrends
+                                    query={(experiment.metrics[0] as ExperimentTrendsQuery).count_query}
+                                />
+                            )
+                        ) : (
+                            <MetricDisplayOld filters={experiment.filters} />
+                        )}
+                        <LemonButton size="xsmall" type="secondary" onClick={() => setIsExperimentGoalModalOpen(true)}>
                             Change goal
                         </LemonButton>
                     </div>
@@ -151,6 +244,11 @@ export function Goal(): JSX.Element {
                     )}
                 </div>
             )}
+            <PrimaryMetricModal
+                experimentId={experimentId}
+                isOpen={isExperimentGoalModalOpen}
+                onClose={() => setIsExperimentGoalModalOpen(false)}
+            />
         </div>
     )
 }

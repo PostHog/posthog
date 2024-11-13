@@ -18,7 +18,7 @@ import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types
 
 import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './MetricSelector'
+import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './Selectors'
 
 export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

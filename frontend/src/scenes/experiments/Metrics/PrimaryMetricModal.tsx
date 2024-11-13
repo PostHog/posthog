@@ -7,18 +7,18 @@ import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from
 import { PrimaryGoalFunnels } from '../Metrics/PrimaryGoalFunnels'
 import { PrimaryGoalTrends } from '../Metrics/PrimaryGoalTrends'
 
-export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const {
-        experiment,
-        isExperimentGoalModalOpen,
-        experimentLoading,
-        getMetricType,
-        trendMetricInsightLoading,
-        funnelMetricInsightLoading,
-    } = useValues(experimentLogic({ experimentId }))
-    const { closeExperimentGoalModal, updateExperimentGoal, setExperiment } = useActions(
-        experimentLogic({ experimentId })
-    )
+export function PrimaryMetricModal({
+    experimentId,
+    isOpen,
+    onClose,
+}: {
+    experimentId: Experiment['id']
+    isOpen: boolean
+    onClose: () => void
+}): JSX.Element {
+    const { experiment, experimentLoading, getMetricType, trendMetricInsightLoading, funnelMetricInsightLoading } =
+        useValues(experimentLogic({ experimentId }))
+    const { updateExperimentGoal, setExperiment } = useActions(experimentLogic({ experimentId }))
 
     const experimentFiltersLength =
         (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
@@ -30,13 +30,13 @@ export function PrimaryMetricModal({ experimentId }: { experimentId: Experiment[
 
     return (
         <LemonModal
-            isOpen={isExperimentGoalModalOpen}
-            onClose={closeExperimentGoalModal}
+            isOpen={isOpen}
+            onClose={onClose}
             width={1000}
             title="Change experiment goal"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={closeExperimentGoalModal}>
+                    <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={onClose}>
                         Cancel
                     </LemonButton>
                     <LemonButton

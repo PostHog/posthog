@@ -18,7 +18,7 @@ import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types
 
 import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './MetricSelector'
+import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './Selectors'
 export function PrimaryGoalFunnels(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
@@ -31,7 +31,13 @@ export function PrimaryGoalFunnels(): JSX.Element {
             <div className="mb-4">
                 <LemonLabel>Name (optional)</LemonLabel>
                 <LemonInput
-                    value={currentMetric.name}
+                    value={(() => {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            return currentMetric.name
+                        }
+                        return ''
+                    })()}
                     onChange={(newName) => {
                         setFunnelsMetric({
                             metricIdx: 0,

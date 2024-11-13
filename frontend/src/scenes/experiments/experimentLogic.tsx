@@ -70,7 +70,7 @@ const NEW_EXPERIMENT: Experiment = {
     name: '',
     type: 'product',
     feature_flag_key: '',
-    filters: getDefaultFilters(InsightType.FUNNELS, undefined),
+    filters: {},
     metrics: [],
     metrics_secondary: [],
     parameters: {
@@ -1627,8 +1627,13 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasGoalSet: [
-            (s) => [s.experiment],
-            (experiment): boolean => {
+            (s) => [s.experiment, s.featureFlags],
+            (experiment, featureFlags): boolean => {
+                // :FLAG: CLEAN UP AFTER MIGRATION
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    return !!experiment.metrics[0]
+                }
+
                 const filters = experiment?.filters
                 return !!(
                     (filters?.actions && filters.actions.length > 0) ||
