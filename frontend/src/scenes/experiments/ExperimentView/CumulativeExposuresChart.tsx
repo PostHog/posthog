@@ -1,3 +1,5 @@
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
@@ -83,8 +85,11 @@ export function CumulativeExposuresChart(): JSX.Element {
 
     return (
         <div>
-            <div>
-                <h2 className="font-semibold text-lg">Cumulative exposures</h2>
+            <div className="inline-flex space-x-2 mb-0">
+                <h2 className="mb-0 font-semibold text-lg">Cumulative exposures</h2>
+                <Tooltip title="Monitor number of unique users exposed to the experiment, and confirm the allocation matches the expected distribution between variants.">
+                    <IconInfo className="text-muted-alt text-base" />
+                </Tooltip>
             </div>
             {experiment.start_date ? (
                 <InsightViz
