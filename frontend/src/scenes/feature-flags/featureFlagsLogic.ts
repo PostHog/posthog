@@ -35,12 +35,21 @@ export interface FeatureFlagsResult {
 }
 
 export interface FeatureFlagsFilters {
-    active: string
-    created_by_id: number
-    type: string
-    search: string
-    order: string
-    page: number
+    active?: string
+    created_by_id?: number
+    type?: string
+    search?: string
+    order?: string
+    page?: number
+}
+
+const DEFAULT_FILTERS: FeatureFlagsFilters = {
+    active: undefined,
+    created_by_id: undefined,
+    type: undefined,
+    search: undefined,
+    order: undefined,
+    page: 1,
 }
 
 export interface FlagLogicProps {
@@ -62,7 +71,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     }),
     loaders(({ values }) => ({
         featureFlags: [
-            { results: [], count: 0, filters: null, offset: 0 } as FeatureFlagsResult,
+            { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as FeatureFlagsResult,
             {
                 loadFeatureFlags: async () => {
                     const response = await api.get(
@@ -107,7 +116,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
         ],
         filters: [
-            {} as Partial<FeatureFlagsFilters>,
+            DEFAULT_FILTERS,
             {
                 setFeatureFlagsFilters: (state, { filters, replace }) => {
                     if (replace) {
@@ -135,8 +144,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
             }),
         ],
-        // Check to see if any non-default filters are being used
-        usingFilters: [(s) => [s.filters], (filters) => !objectsEqual(filters, { limit: FLAGS_PER_PAGE, offset: 0 })],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -147,10 +154,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 },
             ],
         ],
+        // Check to see if any non-default filters are being used
         shouldShowEmptyState: [
-            (s) => [s.featureFlagsLoading, s.featureFlags, s.usingFilters],
-            (featureFlagsLoading, featureFlags, usingFilters): boolean => {
-                return !featureFlagsLoading && featureFlags.results.length <= 0 && !usingFilters
+            (s) => [s.featureFlagsLoading, s.featureFlags, s.filters],
+            (featureFlagsLoading, featureFlags, filters): boolean => {
+                return (
+                    !featureFlagsLoading && featureFlags.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                )
             },
         ],
         pagination: [
@@ -229,7 +239,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 pageFiltersFromUrl.page = parseInt(page)
             }
 
-            actions.setFeatureFlagsFilters(pageFiltersFromUrl)
+            actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
     })),
     events(({ actions }) => ({
