@@ -1093,7 +1093,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         max={100}
                                                         // .toString() prevents user from typing leading zeroes
                                                         value={value.toString()}
-                                                        maxLength={3}
                                                         onChange={(changedValue) => {
                                                             const valueInt =
                                                                 changedValue !== undefined && !isNaN(changedValue)
