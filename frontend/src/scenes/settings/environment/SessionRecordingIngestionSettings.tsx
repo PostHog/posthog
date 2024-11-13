@@ -331,7 +331,10 @@ function EventTriggerOptions(): JSX.Element | null {
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">Event emitted</LemonLabel>
             </div>
-            <p>Session recording will be started when the user sends any of these events.</p>
+            <p>
+                Session recording will be started immediately before PostHog queues any of these events to be sent to
+                the backend.
+            </p>
             <EventSelect
                 filterGroupTypes={[TaxonomicFilterGroupType.Events]}
                 onChange={(includedEvents) => {
