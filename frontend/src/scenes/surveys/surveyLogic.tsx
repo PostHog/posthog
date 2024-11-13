@@ -168,6 +168,9 @@ export const surveyLogic = kea<surveyLogicType>([
             nextStep,
             specificQuestionIndex,
         }),
+        setDataCollectionType: (dataCollectionType: 'until_stopped' | 'until_limit' | 'until_adaptive_limit') => ({
+            dataCollectionType,
+        }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
         archiveSurvey: true,
@@ -645,6 +648,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 setSurveyMissing: () => true,
+            },
+        ],
+        dataCollectionType: [
+            'until_stopped',
+            {
+                setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
             },
         ],
 

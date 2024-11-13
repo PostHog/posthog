@@ -169,6 +169,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_EVENTS: 'surveys-events', // owner: #team-feature-success
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-feature-success
     SURVEYS_RECURRING: 'surveys-recurring', // owner: #team-feature-success
+    SURVEYS_ADAPTIVE_COLLECTION: 'surveys-recurring', // owner: #team-feature-success
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay

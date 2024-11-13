@@ -2766,6 +2766,10 @@ export interface Survey {
     iteration_start_dates?: string[]
     current_iteration?: number | null
     current_iteration_start_date?: string
+    response_sampling_start_date?: string
+    response_sampling_interval_type?: string
+    response_sampling_interval?: number
+    response_sampling_limit?: number
 }
 
 export enum SurveyUrlMatchType {

@@ -6,6 +6,7 @@ import { IconInfo } from '@posthog/icons'
 import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCalendarSelect,
     LemonCheckbox,
     LemonCollapse,
     LemonDialog,
@@ -15,17 +16,21 @@ import {
     LemonTag,
     LemonTextArea,
     Link,
+    Popover,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { formatDate } from 'lib/utils'
+import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -62,6 +67,7 @@ export default function SurveyEdit(): JSX.Element {
         schedule,
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
+        dataCollectionType,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -71,6 +77,7 @@ export default function SurveyEdit(): JSX.Element {
         setFlagPropertyErrors,
         setSchedule,
         deleteBranchingLogic,
+        setDataCollectionType,
     } = useActions(surveyLogic)
     const {
         surveysMultipleQuestionsAvailable,
@@ -79,6 +86,7 @@ export default function SurveyEdit(): JSX.Element {
         surveysActionsAvailable,
     } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const [visible, setVisible] = useState(true)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
@@ -843,41 +851,140 @@ export default function SurveyEdit(): JSX.Element {
                             header: 'Completion conditions',
                             content: (
                                 <>
-                                    <LemonField name="responses_limit">
-                                        {({ onChange, value }) => {
-                                            return (
-                                                <div className="flex flex-row gap-2 items-center">
-                                                    <LemonCheckbox
-                                                        checked={!!value}
-                                                        onChange={(checked) => {
-                                                            const newResponsesLimit = checked ? 100 : null
-                                                            onChange(newResponsesLimit)
-                                                        }}
-                                                    />
-                                                    Stop the survey once
-                                                    <LemonInput
-                                                        type="number"
-                                                        data-attr="survey-responses-limit-input"
-                                                        size="small"
-                                                        min={1}
-                                                        value={value || NaN}
-                                                        onChange={(newValue) => {
-                                                            if (newValue && newValue > 0) {
-                                                                onChange(newValue)
-                                                            } else {
-                                                                onChange(null)
-                                                            }
-                                                        }}
-                                                        className="w-16"
-                                                    />{' '}
-                                                    responses are received.
-                                                    <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
-                                                        <IconInfo />
-                                                    </Tooltip>
-                                                </div>
-                                            )
-                                        }}
-                                    </LemonField>
+                                    {featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_COLLECTION] && (
+                                        <div className="mt-2">
+                                            <h4> How should we manage survey responses? </h4>
+                                            <LemonField.Pure>
+                                                <LemonRadio
+                                                    value={dataCollectionType}
+                                                    onChange={(
+                                                        newValue:
+                                                            | 'until_stopped'
+                                                            | 'until_limit'
+                                                            | 'until_adaptive_limit'
+                                                    ) => {
+                                                        setDataCollectionType(newValue)
+                                                    }}
+                                                    options={[
+                                                        {
+                                                            value: 'until_stopped',
+                                                            label: 'Keep collecting until stopped',
+                                                            'data-attr': 'survey-iteration-frequency-days',
+                                                        },
+                                                        {
+                                                            value: 'until_limit',
+                                                            label: 'Stop after reaching a limit',
+                                                            'data-attr': 'survey-iteration-frequency-days',
+                                                            disabledReason: surveysRecurringScheduleDisabledReason,
+                                                        },
+                                                        {
+                                                            value: 'until_adaptive_limit',
+                                                            label: 'Adaptive limit by responses and time',
+                                                            'data-attr': 'survey-iteration-frequency-days',
+                                                            disabledReason: surveysRecurringScheduleDisabledReason,
+                                                        },
+                                                    ]}
+                                                />
+                                            </LemonField.Pure>
+                                        </div>
+                                    )}
+                                    {dataCollectionType == 'until_adaptive_limit' && (
+                                        <LemonField.Pure className="mt-4">
+                                            <div className="flex flex-row gap-2 items-center">
+                                                Starting{' '}
+                                                <Popover
+                                                    actionable
+                                                    overlay={
+                                                        <LemonCalendarSelect
+                                                            value={survey.response_sampling_start_date}
+                                                            onChange={(value) => {
+                                                                setSurveyValue('response_sampling_start_date', value)
+                                                            }}
+                                                            showTimeToggle={false}
+                                                            onClose={() => setVisible(false)}
+                                                        />
+                                                    }
+                                                    visible={visible}
+                                                    onClickOutside={() => setVisible(false)}
+                                                >
+                                                    <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
+                                                        {formatDate(dayjs(survey.response_sampling_start_date || ''))}
+                                                    </LemonButton>
+                                                </Popover>
+                                                , limit
+                                                <LemonInput
+                                                    type="number"
+                                                    size="small"
+                                                    min={1}
+                                                    onChange={(newValue) => {
+                                                        setSurveyValue('response_sampling_limit', newValue)
+                                                    }}
+                                                    value={survey.response_sampling_limit}
+                                                />
+                                                responses, every
+                                                <LemonInput
+                                                    type="number"
+                                                    size="small"
+                                                    onChange={(newValue) => {
+                                                        setSurveyValue('response_sampling_interval', newValue)
+                                                    }}
+                                                    value={survey.response_sampling_interval}
+                                                />
+                                                <LemonSelect
+                                                    value={survey.response_sampling_interval_type}
+                                                    size="small"
+                                                    onChange={(newValue) => {
+                                                        setSurveyValue('response_sampling_interval_type', newValue)
+                                                    }}
+                                                    options={[
+                                                        { value: 'day', label: 'Day(s)' },
+                                                        { value: 'week', label: 'Week(s)' },
+                                                        { value: 'month', label: 'Month(s)' },
+                                                    ]}
+                                                />
+                                                <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
+                                                    <IconInfo />
+                                                </Tooltip>
+                                            </div>
+                                        </LemonField.Pure>
+                                    )}
+                                    {dataCollectionType == 'until_limit' && (
+                                        <LemonField name="responses_limit" className="mt-4">
+                                            {({ onChange, value }) => {
+                                                return (
+                                                    <div className="flex flex-row gap-2 items-center">
+                                                        <LemonCheckbox
+                                                            checked={!!value}
+                                                            onChange={(checked) => {
+                                                                const newResponsesLimit = checked ? 100 : null
+                                                                onChange(newResponsesLimit)
+                                                            }}
+                                                        />
+                                                        Stop the survey once
+                                                        <LemonInput
+                                                            type="number"
+                                                            data-attr="survey-responses-limit-input"
+                                                            size="small"
+                                                            min={1}
+                                                            value={value || NaN}
+                                                            onChange={(newValue) => {
+                                                                if (newValue && newValue > 0) {
+                                                                    onChange(newValue)
+                                                                } else {
+                                                                    onChange(null)
+                                                                }
+                                                            }}
+                                                            className="w-16"
+                                                        />{' '}
+                                                        responses are received.
+                                                        <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
+                                                            <IconInfo />
+                                                        </Tooltip>
+                                                    </div>
+                                                )
+                                            }}
+                                        </LemonField>
+                                    )}
                                     {featureFlags[FEATURE_FLAGS.SURVEYS_RECURRING] && (
                                         <div className="mt-2">
                                             <h4> How often should we show this survey? </h4>
