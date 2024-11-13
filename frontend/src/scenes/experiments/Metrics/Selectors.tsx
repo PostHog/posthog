@@ -1,23 +1,17 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { FUNNEL_STEP_COUNT_LIMIT } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { TIME_INTERVAL_BOUNDS } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, InsightType, StepOrderValue } from '~/types'
-
-import { experimentLogic } from '../experimentLogic'
+import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'
 
 export const commonActionFilterProps = {
     actionsTaxonomicGroupTypes: [
@@ -38,6 +32,7 @@ export const commonActionFilterProps = {
     ],
 }
 
+// Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/filters/AggregationSelect.tsx
 export function FunnelAggregationSelect({
     value,
     onChange,
@@ -119,6 +114,7 @@ export function FunnelAggregationSelect({
     )
 }
 
+// Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/views/Funnels/FunnelConversionWindowFilter.tsx
 export function FunnelConversionWindowFilter({
     funnelWindowInterval,
     funnelWindowIntervalUnit,
@@ -174,6 +170,7 @@ export function FunnelConversionWindowFilter({
     )
 }
 
+// Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/EditorFilters/AttributionFilter.tsx
 export function FunnelAttributionSelect({
     value,
     onChange,
@@ -252,50 +249,5 @@ export function FunnelAttributionSelect({
                 data-attr="breakdown-attributions"
             />
         </div>
-    )
-}
-
-export function InsightTestAccountFilter(): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    const { experiment, getMetricType, featureFlags } = useValues(experimentLogic)
-    const { setExperiment, setTrendsMetric, setFunnelsMetric } = useActions(experimentLogic)
-    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    return (
-        <TestAccountFilterSwitch
-            checked={(() => {
-                // :FLAG: CLEAN UP AFTER MIGRATION
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    const val =
-                        (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query?.filterTestAccounts ||
-                        (experiment.metrics[0] as ExperimentTrendsQuery).count_query?.filterTestAccounts
-                    return hasFilters ? !!val : false
-                }
-                return hasFilters ? !!experiment.filters.filter_test_accounts : false
-            })()}
-            onChange={(checked: boolean) => {
-                // :FLAG: CLEAN UP AFTER MIGRATION
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                    if (getMetricType(0) === InsightType.FUNNELS) {
-                        setFunnelsMetric({
-                            metricIdx: 0,
-                            filterTestAccounts: checked,
-                        })
-                    } else {
-                        setTrendsMetric({
-                            metricIdx: 0,
-                            filterTestAccounts: checked,
-                        })
-                    }
-                } else {
-                    setExperiment({
-                        filters: {
-                            ...experiment.filters,
-                            filter_test_accounts: checked,
-                        },
-                    })
-                }
-            }}
-            fullWidth
-        />
     )
 }
