@@ -6,8 +6,9 @@ import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ReactNode } from 'react'
-import { SceneConfig } from 'scenes/sceneTypes'
+import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
@@ -29,6 +30,7 @@ export function Navigation({
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (mode !== 'full') {
         return (
@@ -47,6 +49,9 @@ export function Navigation({
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
+            {!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV] && activeNavbarItem?.identifier === Scene.SQLEditor && (
+                <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />
+            )}
             <main>
                 {sceneConfig?.layout !== 'app-raw-no-header' && <TopBar />}
                 <div

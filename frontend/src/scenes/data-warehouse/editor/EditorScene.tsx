@@ -3,7 +3,6 @@ import { useRef } from 'react'
 
 import { editorSizingLogic } from './editorSizingLogic'
 import { QueryWindow } from './QueryWindow'
-import { SourceNavigator } from './SourceNavigator'
 
 export function EditorScene(): JSX.Element {
     const ref = useRef(null)
@@ -28,7 +27,6 @@ export function EditorScene(): JSX.Element {
     return (
         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
             <div className="w-full h-full flex flex-row overflow-hidden" ref={ref}>
-                <SourceNavigator />
                 <QueryWindow />
             </div>
         </BindLogic>

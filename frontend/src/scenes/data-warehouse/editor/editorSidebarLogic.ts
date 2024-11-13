@@ -1,0 +1,169 @@
+import Fuse from 'fuse.js'
+import { connect, kea, path, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
+import { SidebarCategory } from '~/layout/navigation-3000/types'
+import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema'
+import { DataWarehouseSavedQuery } from '~/types'
+
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { editorSidebarLogicType } from './editorSidebarLogicType'
+
+const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], {
+    keys: [{ name: 'name', weight: 2 }],
+    threshold: 0.3,
+    ignoreLocation: true,
+    includeMatches: true,
+})
+
+const posthogTablesfuse = new Fuse<DatabaseSchemaTable>([], {
+    keys: [{ name: 'name', weight: 2 }],
+    threshold: 0.3,
+    ignoreLocation: true,
+    includeMatches: true,
+})
+
+const savedQueriesfuse = new Fuse<DataWarehouseSavedQuery>([], {
+    keys: [{ name: 'name', weight: 2 }],
+    threshold: 0.3,
+    ignoreLocation: true,
+    includeMatches: true,
+})
+
+export const editorSidebarLogic = kea<editorSidebarLogicType>([
+    path(['data-warehouse', 'editor', 'editorSidebarLogic']),
+    connect({
+        values: [
+            sceneLogic,
+            ['activeScene', 'sceneParams'],
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
+            databaseTableListLogic,
+            ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
+        ],
+    }),
+    selectors({
+        contents: [
+            (s) => [
+                s.relevantSavedQueries,
+                s.dataWarehouseSavedQueriesLoading,
+                s.relevantPosthogTables,
+                s.relevantDataWarehouseTables,
+                s.databaseLoading,
+            ],
+            (
+                relevantSavedQueries,
+                dataWarehouseSavedQueriesLoading,
+                relevantPosthogTables,
+                relevantDataWarehouseTables,
+                databaseLoading
+            ) => [
+                {
+                    key: 'data-warehouse-sources',
+                    noun: ['source', 'sources'],
+                    loading: databaseLoading,
+                    items: relevantDataWarehouseTables.map(([table, matches]) => ({
+                        key: table.id,
+                        name: table.name,
+                        url: '',
+                        searchMatch: matches
+                            ? {
+                                  matchingFields: matches.map((match) => match.key),
+                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                              }
+                            : null,
+                    })),
+                } as SidebarCategory,
+                {
+                    key: 'data-warehouse-tables',
+                    noun: ['table', 'tables'],
+                    loading: databaseLoading,
+                    items: relevantPosthogTables.map(([table, matches]) => ({
+                        key: table.id,
+                        name: table.name,
+                        url: '',
+                        searchMatch: matches
+                            ? {
+                                  matchingFields: matches.map((match) => match.key),
+                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                              }
+                            : null,
+                    })),
+                } as SidebarCategory,
+                {
+                    key: 'data-warehouse-views',
+                    noun: ['view', 'views'],
+                    loading: dataWarehouseSavedQueriesLoading,
+                    items: relevantSavedQueries.map(([savedQuery, matches]) => ({
+                        key: savedQuery.id,
+                        name: savedQuery.name,
+                        url: '',
+                        searchMatch: matches
+                            ? {
+                                  matchingFields: matches.map((match) => match.key),
+                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                              }
+                            : null,
+                    })),
+                } as SidebarCategory,
+            ],
+        ],
+        activeListItemKey: [
+            (s) => [s.activeScene, s.sceneParams],
+            (activeScene, sceneParams): [string, number] | null => {
+                return activeScene === Scene.DataWarehouse && sceneParams.params.id
+                    ? ['saved-queries', parseInt(sceneParams.params.id)]
+                    : null
+            },
+        ],
+        relevantDataWarehouseTables: [
+            (s) => [s.dataWarehouseTables, navigation3000Logic.selectors.searchTerm],
+            (dataWarehouseTables, searchTerm): [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return dataWarehouseTablesfuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return dataWarehouseTables.map((table) => [table, null])
+            },
+        ],
+        relevantPosthogTables: [
+            (s) => [s.posthogTables, navigation3000Logic.selectors.searchTerm],
+            (posthogTables, searchTerm): [DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return posthogTablesfuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return posthogTables.map((table) => [table, null])
+            },
+        ],
+        relevantSavedQueries: [
+            (s) => [s.dataWarehouseSavedQueries, navigation3000Logic.selectors.searchTerm],
+            (dataWarehouseSavedQueries, searchTerm): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return savedQueriesfuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return dataWarehouseSavedQueries.map((savedQuery) => [savedQuery, null])
+            },
+        ],
+    }),
+    subscriptions({
+        dataWarehouseTables: (dataWarehouseTables) => {
+            dataWarehouseTablesfuse.setCollection(dataWarehouseTables)
+        },
+        posthogTables: (posthogTables) => {
+            posthogTablesfuse.setCollection(posthogTables)
+        },
+        dataWarehouseSavedQueries: (dataWarehouseSavedQueries) => {
+            savedQueriesfuse.setCollection(dataWarehouseSavedQueries)
+        },
+    }),
+])
