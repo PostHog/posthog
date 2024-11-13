@@ -561,6 +561,11 @@ class CountPerActorMathType(StrEnum):
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
 
 
+class CustomChannelCombiner(StrEnum):
+    AND_ = "and"
+    OR_ = "or"
+
+
 class CustomChannelField(StrEnum):
     UTM_SOURCE = "utm_source"
     UTM_MEDIUM = "utm_medium"
@@ -568,9 +573,15 @@ class CustomChannelField(StrEnum):
     REFERRING_DOMAIN = "referring_domain"
 
 
-class Combiner(StrEnum):
-    AND_ = "and"
-    OR_ = "or"
+class CustomChannelOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
 
 
 class CustomEventConversionGoal(BaseModel):
@@ -1034,6 +1045,7 @@ class HogQLQueryModifiers(BaseModel):
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
     useMaterializedViews: Optional[bool] = None
+    customChannelTypeRules: Optional[list[CustomChannelRule]] = None
 
 
 class HogQLVariable(BaseModel):
@@ -2949,9 +2961,9 @@ class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    field: CustomChannelField
-    op: PropertyOperator
-    value: str
+    key: CustomChannelField
+    op: CustomChannelOperator
+    value: Optional[Union[str, list[str]]] = None
 
 
 class CustomChannelRule(BaseModel):
@@ -2959,7 +2971,7 @@ class CustomChannelRule(BaseModel):
         extra="forbid",
     )
     channel_type: str
-    combiner: Combiner
+    combiner: CustomChannelCombiner
     conditions: list[CustomChannelCondition]
 
 

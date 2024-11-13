@@ -17,7 +17,11 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     LazyJoinToAdd,
 )
-from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
+from posthog.hogql.database.schema.channel_type import (
+    create_channel_type_expr,
+    POSSIBLE_CHANNEL_TYPES,
+    ChannelTypeExprs,
+)
 from posthog.hogql.database.schema.sessions_v1 import null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
@@ -306,12 +310,15 @@ def select_from_sessions_table_v2(
             ],
         )
     aggregate_fields["$channel_type"] = create_channel_type_expr(
-        campaign=aggregate_fields["$entry_utm_campaign"],
-        medium=aggregate_fields["$entry_utm_medium"],
-        source=aggregate_fields["$entry_utm_source"],
-        referring_domain=aggregate_fields["$entry_referring_domain"],
-        gclid=aggregate_fields["$entry_gclid"],
-        gad_source=aggregate_fields["$entry_gad_source"],
+        context.modifiers.customChannelTypeRules,
+        ChannelTypeExprs(
+            campaign=aggregate_fields["$entry_utm_campaign"],
+            medium=aggregate_fields["$entry_utm_medium"],
+            source=aggregate_fields["$entry_utm_source"],
+            referring_domain=aggregate_fields["$entry_referring_domain"],
+            gclid=aggregate_fields["$entry_gclid"],
+            gad_source=aggregate_fields["$entry_gad_source"],
+        ),
     )
     # some aliases for people upgrading from v1 to v2
     aggregate_fields["$exit_current_url"] = aggregate_fields["$end_current_url"]

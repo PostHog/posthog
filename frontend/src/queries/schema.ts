@@ -29,7 +29,6 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyMathType,
-    PropertyOperator,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -2529,14 +2528,30 @@ export enum CustomChannelField {
     ReferringDomain = 'referring_domain',
 }
 
+export enum CustomChannelOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    IContains = 'icontains',
+    NotIContains = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+}
+
 export interface CustomChannelCondition {
-    field: CustomChannelField
-    value: string
-    op: PropertyOperator
+    key: CustomChannelField
+    value?: string | string[]
+    op: CustomChannelOperator
+}
+
+export enum CustomChannelCombiner {
+    And = 'and',
+    Or = 'or',
 }
 
 export interface CustomChannelRule {
     conditions: CustomChannelCondition[]
-    combiner: 'and' | 'or'
+    combiner: CustomChannelCombiner
     channel_type: string
 }

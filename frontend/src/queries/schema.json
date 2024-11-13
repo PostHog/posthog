@@ -3912,24 +3912,42 @@
             ],
             "type": "string"
         },
+        "CustomChannelCombiner": {
+            "enum": ["and", "or"],
+            "type": "string"
+        },
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
-                "field": {
+                "key": {
                     "$ref": "#/definitions/CustomChannelField"
                 },
                 "op": {
-                    "$ref": "#/definitions/PropertyOperator"
+                    "$ref": "#/definitions/CustomChannelOperator"
                 },
                 "value": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 }
             },
-            "required": ["field", "value", "op"],
+            "required": ["key", "op"],
             "type": "object"
         },
         "CustomChannelField": {
             "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain"],
+            "type": "string"
+        },
+        "CustomChannelOperator": {
+            "enum": ["exact", "is_not", "is_set", "is_not_set", "icontains", "not_icontains", "regex", "not_regex"],
             "type": "string"
         },
         "CustomChannelRule": {
@@ -3939,8 +3957,7 @@
                     "type": "string"
                 },
                 "combiner": {
-                    "enum": ["and", "or"],
-                    "type": "string"
+                    "$ref": "#/definitions/CustomChannelCombiner"
                 },
                 "conditions": {
                     "items": {
