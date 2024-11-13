@@ -105,6 +105,18 @@ export interface ExperimentResultCalculationError {
     statusCode: number
 }
 
+interface CachedSecondaryMetricExperimentFunnelsQueryResponse extends CachedExperimentFunnelsQueryResponse {
+    filters?: {
+        insight?: InsightType
+    }
+}
+
+interface CachedSecondaryMetricExperimentTrendsQueryResponse extends CachedExperimentTrendsQueryResponse {
+    filters?: {
+        insight?: InsightType
+    }
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -1267,8 +1279,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 (
                     experimentResults:
                         | Partial<ExperimentResults['result']>
-                        | CachedExperimentFunnelsQueryResponse
-                        | CachedExperimentTrendsQueryResponse
+                        | CachedSecondaryMetricExperimentFunnelsQueryResponse
+                        | CachedSecondaryMetricExperimentTrendsQueryResponse
                         | null,
                     variantKey: string
                 ): [number, number] | null => {
@@ -1277,7 +1289,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return null
                     }
 
-                    if (experimentResults.filters && experimentResults.filters?.insight === InsightType.FUNNELS) {
+                    if (experimentResults.filters?.insight === InsightType.FUNNELS) {
                         const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
                             ({ key }) => key === 'control'
                         ) as FunnelExperimentVariant
