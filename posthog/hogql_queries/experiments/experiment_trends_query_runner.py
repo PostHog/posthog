@@ -153,6 +153,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             if hasattr(count_event, "event"):
                 prepared_exposure_query.dateRange = self._get_insight_date_range()
                 prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+                prepared_exposure_query.trendsFilter = TrendsFilter(
+                    display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+                )
                 prepared_exposure_query.series = [
                     EventsNode(
                         event=count_event.event,
@@ -175,6 +178,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
             prepared_exposure_query.dateRange = self._get_insight_date_range()
             prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+            prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
             prepared_exposure_query.properties = [
                 EventPropertyFilter(
                     key=self.breakdown_key,
@@ -188,6 +192,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_exposure_query = TrendsQuery(
                 dateRange=self._get_insight_date_range(),
                 breakdownFilter=self._get_breakdown_filter(),
+                trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
                 series=[
                     EventsNode(
                         event="$feature_flag_called",
@@ -196,7 +201,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 ],
                 properties=[
                     EventPropertyFilter(
-                        key=self.breakdown_key,
+                        key="$feature_flag_response",
                         value=self.variants,
                         operator="exact",
                         type="event",
