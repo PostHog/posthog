@@ -1,3 +1,4 @@
+from abc import ABC
 import itertools
 import xml.etree.ElementTree as ET
 from functools import cached_property
@@ -19,17 +20,17 @@ from ee.hogai.taxonomy_agent.parsers import (
     parse_react_agent_output,
 )
 from ee.hogai.taxonomy_agent.prompts import (
-    react_definitions_prompt,
-    react_follow_up_prompt,
-    react_malformed_json_prompt,
-    react_missing_action_correction_prompt,
-    react_missing_action_prompt,
-    react_pydantic_validation_exception_prompt,
-    react_scratchpad_prompt,
-    react_user_prompt,
+    REACT_DEFINITIONS_PROMPT,
+    REACT_FOLLOW_UP_PROMPT,
+    REACT_MALFORMED_JSON_PROMPT,
+    REACT_MISSING_ACTION_CORRECTION_PROMPT,
+    REACT_MISSING_ACTION_PROMPT,
+    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+    REACT_SCRATCHPAD_PROMPT,
+    REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation, remove_line_breaks
+from ee.hogai.utils import AssistantState, AssistantNode, filter_visualization_conversation, remove_line_breaks
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -40,7 +41,7 @@ from posthog.schema import (
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
-    def _run(
+    def _run_with_prompt_and_toolkit(
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
@@ -52,14 +53,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             prompt
             + ChatPromptTemplate.from_messages(
                 [
-                    ("user", react_definitions_prompt),
+                    ("user", REACT_DEFINITIONS_PROMPT),
                 ],
                 template_format="mustache",
             )
-            + self._reconstruct_conversation(state)
+            + self._construct_messages(state)
             + ChatPromptTemplate.from_messages(
                 [
-                    ("user", react_scratchpad_prompt),
+                    ("user", REACT_SCRATCHPAD_PROMPT),
                 ],
                 template_format="mustache",
             )
@@ -87,19 +88,19 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 # When the agent doesn't output the "Action:" block, we need to correct the log and append the action block,
                 # so that it has a higher chance to recover.
                 corrected_log = str(
-                    ChatPromptTemplate.from_template(react_missing_action_correction_prompt, template_format="mustache")
+                    ChatPromptTemplate.from_template(REACT_MISSING_ACTION_CORRECTION_PROMPT, template_format="mustache")
                     .format_messages(output=e.llm_output)[0]
                     .content
                 )
                 result = AgentAction(
                     "handle_incorrect_response",
-                    react_missing_action_prompt,
+                    REACT_MISSING_ACTION_PROMPT,
                     corrected_log,
                 )
             else:
                 result = AgentAction(
                     "handle_incorrect_response",
-                    react_malformed_json_prompt,
+                    REACT_MALFORMED_JSON_PROMPT,
                     e.llm_output,
                 )
 
@@ -156,7 +157,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .values_list("group_type", flat=True)
         )
 
-    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
@@ -173,14 +174,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             if human_message:
                 if idx == 0:
                     conversation.append(
-                        HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
+                        HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
                             question=human_message.content
                         )
                     )
                 else:
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(
-                            react_follow_up_prompt,
+                            REACT_FOLLOW_UP_PROMPT,
                             template_format="mustache",
                         ).format(feedback=human_message.content)
                     )
@@ -199,8 +200,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         return format_log_to_str(actions)
 
 
-class TaxonomyAgentPlannerToolsNode(AssistantNode):
-    def _run(
+class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
+    def _run_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps") or []
@@ -210,7 +211,7 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode):
             input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
             observation = (
-                ChatPromptTemplate.from_template(react_pydantic_validation_exception_prompt, template_format="mustache")
+                ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
             )
