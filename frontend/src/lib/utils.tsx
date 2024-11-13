@@ -1505,6 +1505,26 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     return `rgb(${[r, g, b].join(',')})`
 }
 
+/* Colors in hsl for gradation. */
+export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
+export const PURPLE: [number, number, number] = [260, 88, 71]
+
+/**
+ * Gradate color saturation based on its intended strength.
+ * This is for visualizations where a data point's color depends on its value.
+ * @param hsl The HSL color to gradate.
+ * @param strength The strength of the data point.
+ * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
+ */
+export function gradateColor(
+    hsl: [number, number, number],
+    strength: number,
+    floor: number = 0
+): `hsla(${number}, ${number}%, ${number}%, ${string})` {
+    const saturation = floor + (1 - floor) * strength
+    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
+}
+
 export function toString(input?: any): string {
     return input?.toString() || ''
 }
