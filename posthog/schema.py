@@ -596,24 +596,6 @@ class CustomEventConversionGoal(BaseModel):
     customEventName: str
 
 
-class DataColor(StrEnum):
-    COLOR_1 = "color-1"
-    COLOR_2 = "color-2"
-    COLOR_3 = "color-3"
-    COLOR_4 = "color-4"
-    COLOR_5 = "color-5"
-    COLOR_6 = "color-6"
-    COLOR_7 = "color-7"
-    COLOR_8 = "color-8"
-    COLOR_9 = "color-9"
-    COLOR_10 = "color-10"
-    COLOR_11 = "color-11"
-    COLOR_12 = "color-12"
-    COLOR_13 = "color-13"
-    COLOR_14 = "color-14"
-    COLOR_15 = "color-15"
-
-
 class DataWarehouseEventsModifier(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1171,7 +1153,9 @@ class LabelConfigBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    color: DataColor
+    color: Literal["preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"] = (
+        "preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"
+    )
 
 
 class LabelConfigByKey(BaseModel):
@@ -1179,7 +1163,9 @@ class LabelConfigByKey(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["key"] = "key"
-    color: DataColor
+    color: Literal["preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"] = (
+        "preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"
+    )
 
 
 class LabelConfigByPosition(BaseModel):
@@ -1187,7 +1173,9 @@ class LabelConfigByPosition(BaseModel):
         extra="forbid",
     )
     assignmentBy: Literal["position"] = "position"
-    color: DataColor
+    color: Literal["preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"] = (
+        "preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}"
+    )
 
 
 class LifecycleToggle(StrEnum):
