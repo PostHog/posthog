@@ -160,11 +160,19 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
             raise NotImplementedError(f"Property {condition.key} not implemented")
         value = condition.value
         if isinstance(value, list):
-            for val in value:
-                conditions.append(ast.Call(name="or", args=[custom_condition_to_expr(expr, val, condition.op)]))
+            if len(value) == 0:
+                continue
+            elif len(value) == 1:
+                conditions.append(custom_condition_to_expr(expr, value[0], condition.op))
+            else:
+                conditions.append(
+                    ast.Call(name="or", args=[custom_condition_to_expr(expr, val, condition.op) for val in value])
+                )
         else:
             conditions.append(custom_condition_to_expr(expr, value, condition.op))
-    if len(conditions) == 1:
+    if len(conditions) == 0:
+        return ast.Constant(value=True)
+    elif len(conditions) == 1:
         return conditions[0]
     else:
         return ast.Call(name=custom_rule.combiner, args=conditions)
