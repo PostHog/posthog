@@ -218,14 +218,14 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
         },
     })),
     sharedListeners(({ values }) => ({
+        saveUrlTriggers: async () => {
+            await teamLogic.asyncActions.updateCurrentTeam({
+                session_recording_url_trigger_config: values.urlTriggerConfig ?? [],
+            })
+        },
         saveUrlBlocklists: async () => {
             await teamLogic.asyncActions.updateCurrentTeam({
                 session_recording_url_blocklist_config: values.urlBlocklistConfig ?? [],
-            })
-        },
-        saveEventTriggers: async () => {
-            await teamLogic.asyncActions.updateCurrentTeam({
-                session_recording_event_trigger_config: values.eventTriggerConfig ?? [],
             })
         },
     })),
