@@ -137,8 +137,7 @@ mod test {
         .await
         .unwrap();
 
-        // Olly: don't understand why I need the Some here
-        // I'm just trying to assert that only one record exists
+        // Only a single issue is created
         assert_eq!(result.count, Some(1))
     }
 }
