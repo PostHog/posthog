@@ -2521,3 +2521,22 @@ export enum AssistantGenerationStatusType {
 export interface AssistantGenerationStatusEvent {
     type: AssistantGenerationStatusType
 }
+
+export enum CustomChannelField {
+    UTMSource = 'utm_source',
+    UTMMedium = 'utm_medium',
+    UTMCampaign = 'utm_campaign',
+    ReferringDomain = 'referring_domain',
+}
+
+export interface CustomChannelCondition {
+    field: CustomChannelField
+    value: string
+    op: PropertyOperator
+}
+
+export interface CustomChannelRule {
+    conditions: CustomChannelCondition[]
+    combiner: 'and' | 'or'
+    channel_type: string
+}

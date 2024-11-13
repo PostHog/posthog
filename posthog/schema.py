@@ -561,6 +561,18 @@ class CountPerActorMathType(StrEnum):
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
 
 
+class CustomChannelField(StrEnum):
+    UTM_SOURCE = "utm_source"
+    UTM_MEDIUM = "utm_medium"
+    UTM_CAMPAIGN = "utm_campaign"
+    REFERRING_DOMAIN = "referring_domain"
+
+
+class Combiner(StrEnum):
+    AND_ = "and"
+    OR_ = "or"
+
+
 class CustomEventConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2931,6 +2943,24 @@ class CohortPropertyFilter(BaseModel):
     operator: Optional[PropertyOperator] = PropertyOperator.IN_
     type: Literal["cohort"] = "cohort"
     value: int
+
+
+class CustomChannelCondition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field: CustomChannelField
+    op: PropertyOperator
+    value: str
+
+
+class CustomChannelRule(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    channel_type: str
+    combiner: Combiner
+    conditions: list[CustomChannelCondition]
 
 
 class Response(BaseModel):

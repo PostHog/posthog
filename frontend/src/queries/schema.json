@@ -3912,6 +3912,46 @@
             ],
             "type": "string"
         },
+        "CustomChannelCondition": {
+            "additionalProperties": false,
+            "properties": {
+                "field": {
+                    "$ref": "#/definitions/CustomChannelField"
+                },
+                "op": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["field", "value", "op"],
+            "type": "object"
+        },
+        "CustomChannelField": {
+            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain"],
+            "type": "string"
+        },
+        "CustomChannelRule": {
+            "additionalProperties": false,
+            "properties": {
+                "channel_type": {
+                    "type": "string"
+                },
+                "combiner": {
+                    "enum": ["and", "or"],
+                    "type": "string"
+                },
+                "conditions": {
+                    "items": {
+                        "$ref": "#/definitions/CustomChannelCondition"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["conditions", "combiner", "channel_type"],
+            "type": "object"
+        },
         "CustomEventConversionGoal": {
             "additionalProperties": false,
             "properties": {
