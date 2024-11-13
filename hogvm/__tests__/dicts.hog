@@ -3,7 +3,7 @@ print({'key': 'value'})
 print({'key': 'value', 'other': 'thing'})
 print({'key': {'otherKey': 'value'}})
 
-let key := 3
+let key := 'kk'
 print({key: 'value'})
 
 print({'key': 'value', }.key)

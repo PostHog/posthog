@@ -131,7 +131,7 @@ class JavaScriptCompiler(Visitor):
 
         op_map = {
             # TODO: check nulls
-            ast.CompareOperationOp.Eq: "===",
+            ast.CompareOperationOp.Eq: "==",
             ast.CompareOperationOp.NotEq: "!=",
             ast.CompareOperationOp.Gt: ">",
             ast.CompareOperationOp.GtEq: ">=",
@@ -147,26 +147,17 @@ class JavaScriptCompiler(Visitor):
         elif op == ast.CompareOperationOp.NotIn:
             return f"(!{right_code}.includes({left_code}))"
         elif op == ast.CompareOperationOp.Like:
-            # TODO: check what's happening here
-            # Escape special regex characters in pattern
-            pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
-            regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$")'
-            return f"({regex_code}).test({left_code})"
+            self.inlined_stl.add("like")
+            return f"like({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.ILike:
-            # TODO: check what's happening here
-            pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
-            regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
-            return f"({regex_code}).test({left_code})"
+            self.inlined_stl.add("ilike")
+            return f"ilike({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.NotLike:
-            # TODO: check what's happening here
-            pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
-            regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$")'
-            return f"!({regex_code}).test({left_code})"
+            self.inlined_stl.add("like")
+            return f"!like({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.NotILike:
-            # TODO: check what's happening here
-            pattern_code = f'({right_code}).replace(/[.*+?^${{}}()|[\\]\\\\]/g, "\\\\$&")'
-            regex_code = f'new RegExp("^" + {pattern_code}.replace(/%/g, ".*").replace(/_/g, ".") + "$", "i")'
-            return f"!({regex_code}).test({left_code})"
+            self.inlined_stl.add("ilike")
+            return f"!ilike({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.Regex:
             # TODO: re2?
             return f"new RegExp({right_code}).test({left_code})"
@@ -209,6 +200,9 @@ class JavaScriptCompiler(Visitor):
             if index == 0:
                 if found_local:
                     array_code = _sanitize_var_name(element)
+                elif element in STL_FUNCTIONS:
+                    self.inlined_stl.add(element)
+                    array_code = f"{_sanitize_var_name(element)}"
                 else:
                     array_code = f"{_JS_GET_GLOBAL}({json.dumps(element)})"
                 continue
@@ -246,6 +240,9 @@ class JavaScriptCompiler(Visitor):
             raise QueryError(f"Constant type `{type(value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
+        if node.params is not None:
+            return self.visit(ast.ExprCall(expr=ast.Call(name=node.name, args=node.params), args=node.args or []))
+
         # Handle special functions
         if node.name == "not" and len(node.args) == 1:
             expr_code = self.visit(node.args[0])
@@ -288,8 +285,7 @@ class JavaScriptCompiler(Visitor):
             return f"{_sanitize_var_name(node.name)}({args_code})"
         else:
             # Regular function calls
-            args = node.params if node.params is not None else node.args
-            args_code = ", ".join([self.visit(arg) for arg in args])
+            args_code = ", ".join([self.visit(arg) for arg in node.args or []])
             return f"{node.name}({args_code})"
 
     def visit_expr_call(self, node: ast.ExprCall):
@@ -374,6 +370,7 @@ class JavaScriptCompiler(Visitor):
         return f"while ({expr_code}) {body_code}"
 
     def visit_for_statement(self, node: ast.ForStatement):
+        self._start_scope()
         init_code = self.visit(node.initializer) if node.initializer else ""
         init_code = init_code[:-1] if init_code.endswith(";") else init_code
         condition_code = self.visit(node.condition) if node.condition else ""
@@ -381,15 +378,28 @@ class JavaScriptCompiler(Visitor):
         increment_code = self.visit(node.increment) if node.increment else ""
         increment_code = increment_code[:-1] if increment_code.endswith(";") else increment_code
         body_code = self.visit(_as_block(node.body))
+        self._end_scope()
         return f"for ({init_code}; {condition_code}; {increment_code}) {body_code}"
 
     def visit_for_in_statement(self, node: ast.ForInStatement):
         expr_code = self.visit(node.expr)
-        body_code = self.visit(_as_block(node.body))
         if node.keyVar and node.valueVar:
-            return f"for (let {_sanitize_var_name(node.keyVar)} in {expr_code}) {{\n    let {_sanitize_var_name(node.valueVar)} = {expr_code}[{_sanitize_var_name(node.keyVar)}];\n{self._indent(body_code)}\n}}"
+            self._start_scope()
+            self._declare_local(node.keyVar)
+            self._declare_local(node.valueVar)
+            body_code = self.visit(_as_block(node.body))
+            self.inlined_stl.add("keys")
+            resp = f"for (let {_sanitize_var_name(node.keyVar)} of keys({expr_code})) {{ let {_sanitize_var_name(node.valueVar)} = {expr_code}[{_sanitize_var_name(node.keyVar)}]; {body_code} }}"
+            self._end_scope()
+            return resp
         elif node.valueVar:
-            return f"for (let {_sanitize_var_name(node.valueVar)} of {expr_code}) {body_code}"
+            self._start_scope()
+            self._declare_local(node.valueVar)
+            body_code = self.visit(_as_block(node.body))
+            self.inlined_stl.add("values")
+            resp = f"for (let {_sanitize_var_name(node.valueVar)} of values({expr_code})) {body_code}"
+            self._end_scope()
+            return resp
         else:
             raise QueryError("ForInStatement requires at least a valueVar")
 
@@ -468,14 +478,23 @@ class JavaScriptCompiler(Visitor):
         for arg in node.args:
             self._declare_local(arg)
         if isinstance(node.expr, ast.Placeholder):
-            expr_code = ast.Block(declarations=[ast.ExprStatement(expr=node.expr), ast.ReturnStatement(expr=None)])
+            expr_code = self.visit(
+                ast.Block(declarations=[ast.ExprStatement(expr=node.expr.expr), ast.ReturnStatement(expr=None)])
+            )
         else:
             expr_code = self.visit(node.expr)
         self._end_scope()
         return f"({params_code}) => {expr_code}"
 
     def visit_dict(self, node: ast.Dict):
-        items_code = ", ".join([f"{self.visit(key)}: {self.visit(value)}" for key, value in node.items])
+        items = []
+        for key, value in node.items:
+            key_code = self.visit(key)
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                key_code = f"[{key_code}]"
+            value_code = self.visit(value)
+            items.append(f"{key_code}: {value_code}")
+        items_code = ", ".join(items)
         return f"{{{items_code}}}"
 
     def visit_array(self, node: ast.Array):

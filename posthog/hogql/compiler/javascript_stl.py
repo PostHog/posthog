@@ -1259,6 +1259,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 """,
@@ -1275,17 +1276,7 @@ function __printHogValue(obj, marked = new Set()) {
     "__escapeString": [
         """
 function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\\b': '\\\\b',
-        '\\f': '\\\\f',
-        '\\r': '\\\\r',
-        '\\n': '\\\\n',
-        '\\t': '\\\\t',
-        '\\0': '\\\\0',
-        '\\v': '\\\\v',
-        '\\\\': '\\\\\\\\',
-        "'": "\\\\'",
-    }
+    const singlequoteEscapeCharsMap = { '\\b': '\\\\b', '\\f': '\\\\f', '\\r': '\\\\r', '\\n': '\\\\n', '\\t': '\\\\t', '\\0': '\\\\0', '\\v': '\\\\v', '\\\\': '\\\\\\\\', "'": "\\\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 """,
@@ -1294,17 +1285,7 @@ function __escapeString(value) {
     "__escapeIdentifier": [
         """
 function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\\b': '\\\\b',
-        '\\f': '\\\\f',
-        '\\r': '\\\\r',
-        '\\n': '\\\\n',
-        '\\t': '\\\\t',
-        '\\0': '\\\\0',
-        '\\v': '\\\\v',
-        '\\\\': '\\\\\\\\',
-        '`': '\\\\`',
-    }
+    const backquoteEscapeCharsMap = { '\\b': '\\\\b', '\\f': '\\\\f', '\\r': '\\\\r', '\\n': '\\\\n', '\\t': '\\\\t', '\\0': '\\\\0', '\\v': '\\\\v', '\\\\': '\\\\\\\\', '`': '\\\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\\``;
@@ -1373,14 +1354,16 @@ function __getNestedValue(obj, path, allowNull = false) {
     ],
     "__like": [
         """
-function __like(str, pattern, caseInsensitive = false, regexMatch) {
+function __like(str, pattern, caseInsensitive = false) {
     if (caseInsensitive) {
         str = str.toLowerCase()
         pattern = pattern.toLowerCase()
     }
-    pattern = pattern.replace(/%/g, '.*').replace(/_/g, '.')
-    const regex = new RegExp('^' + pattern + '$')
-    return regex.test(str)
+    pattern = String(pattern)
+        .replaceAll(/[-/\\^$*+?.()|[\\]{}]/g, '\\$&')
+        .replaceAll('%', '.*')
+        .replaceAll('_', '.')
+    return new RegExp(pattern).test(str)
 }
 """,
         [],
