@@ -1262,8 +1262,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         credibleIntervalForVariant: [
-            (s) => [s.experimentInsightType],
-            (experimentInsightType) =>
+            () => [],
+            () =>
                 (
                     experimentResults:
                         | Partial<ExperimentResults['result']>
@@ -1277,7 +1277,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return null
                     }
 
-                    if (experimentInsightType === InsightType.FUNNELS) {
+                    if (experimentResults.filters?.insight === InsightType.FUNNELS) {
                         const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
                             ({ key }) => key === 'control'
                         ) as FunnelExperimentVariant
