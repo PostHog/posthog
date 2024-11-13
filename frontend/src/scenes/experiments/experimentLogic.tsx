@@ -105,13 +105,13 @@ export interface ExperimentResultCalculationError {
     statusCode: number
 }
 
-interface CachedSecondaryMetricExperimentFunnelsQueryResponse extends CachedExperimentFunnelsQueryResponse {
+export interface CachedSecondaryMetricExperimentFunnelsQueryResponse extends CachedExperimentFunnelsQueryResponse {
     filters?: {
         insight?: InsightType
     }
 }
 
-interface CachedSecondaryMetricExperimentTrendsQueryResponse extends CachedExperimentTrendsQueryResponse {
+export interface CachedSecondaryMetricExperimentTrendsQueryResponse extends CachedExperimentTrendsQueryResponse {
     filters?: {
         insight?: InsightType
     }
