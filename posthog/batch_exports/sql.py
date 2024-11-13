@@ -7,7 +7,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
             SELECT
                 id,
                 MAX(version) AS version,
-                argMax(_timestamp, version) AS _timestamp2
+                argMax(_timestamp, person.version) AS _timestamp2
             FROM
                 person
             WHERE
@@ -27,7 +27,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         ),
         new_distinct_ids AS (
             SELECT
-                argMax(person_id, version) AS person_id
+                argMax(person_id, person_distinct_id2.version) AS person_id
             FROM
                 person_distinct_id2
             WHERE
@@ -46,8 +46,8 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
             GROUP BY
                 distinct_id
             HAVING
-                argMax(_timestamp, version) >= {{interval_start:DateTime64}} AND
-                argMax(_timestamp, version) < {{interval_end:DateTime64}}
+                argMax(_timestamp, person_distinct_id2.version) >= {{interval_start:DateTime64}} AND
+                argMax(_timestamp, person_distinct_id2.version) < {{interval_end:DateTime64}}
         ),
         all_new_persons AS (
             SELECT
