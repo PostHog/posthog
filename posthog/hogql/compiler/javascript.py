@@ -11,6 +11,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import Visitor
 
+# TODO: make sure _JS_GET_GLOBAL is unique!
 _JS_GET_GLOBAL = "get_global"
 _JS_KEYWORDS = ["var", "let", "const", "function", "typeof"]
 
@@ -50,8 +51,9 @@ def create_javascript(
 ) -> CompiledJavaScript:
     supported_functions = supported_functions or set()
     compiler = JavaScriptCompiler(supported_functions, args, context, in_repl, locals)
-    code = compiler.visit(expr)
-    code = import_stl_functions(compiler.inlined_stl) + code
+    base_code = compiler.visit(expr)
+    import_code = import_stl_functions(compiler.inlined_stl)
+    code = import_code + ("\n\n" if import_code else "") + base_code
     return CompiledJavaScript(code=code, locals=compiler.locals)
 
 
@@ -202,52 +204,33 @@ class JavaScriptCompiler(Visitor):
 
     def visit_field(self, node: ast.Field):
         found_local = any(local.name == str(node.chain[0]) for local in self.locals)
-        code_parts = []
+        array_code = ""
         for index, element in enumerate(node.chain):
-            if index == 0 and not found_local:
-                # TODO: make sure js_get_global is unique!
-                code_parts.append(f"{_JS_GET_GLOBAL}({json.dumps(element)})")
+            if index == 0:
+                if found_local:
+                    array_code = _sanitize_var_name(element)
+                else:
+                    array_code = f"{_JS_GET_GLOBAL}({json.dumps(element)})"
                 continue
 
-            if isinstance(element, int) and not isinstance(element, bool) and index > 0:
-                code_parts.append(f"[{element}]")
-            elif isinstance(element, str):
-                if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", element):
-                    element = _sanitize_var_name(element)
-                    if code_parts:
-                        code_parts.append("." + element)
-                    else:
-                        code_parts.append(element)
-                else:
-                    element = f"[{json.dumps(element)}]"
-                    code_parts.append(element)
+            if (isinstance(element, int) and not isinstance(element, bool)) or isinstance(element, str):
+                self.inlined_stl.add("__getProperty")
+                array_code = f"__getProperty({array_code}, {json.dumps(element)}, true)"
             else:
                 raise QueryError(f"Unsupported element: {element} ({type(element)})")
-
-        code = "".join(code_parts)
-        return code
+        return array_code
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         tuple_code = self.visit(node.tuple)
         index_code = str(node.index)
-        adjusted_index = f"(({index_code}) > 0 ? ({index_code} - 1) : (({tuple_code}).length + ({index_code})))"
-        if node.nullish:
-            return f"({tuple_code}?.[{adjusted_index.strip()}])"
-        else:
-            return f"{tuple_code}[{adjusted_index.strip()}]"
+        self.inlined_stl.add("__getProperty")
+        return f"__getProperty({tuple_code}, {index_code}, {json.dumps(node.nullish)})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
         array_code = self.visit(node.array)
         property_code = self.visit(node.property)
-        # TODO: this is used for strings and objects as well, we can't assume it's an array
-        adjusted_index = (
-            f"(({property_code}) > 0 ? ({property_code} - 1) : (({array_code}).length + ({property_code})))"
-        )
-
-        if node.nullish:
-            return f"({array_code}?.[{adjusted_index.strip()}])"
-        else:
-            return f"{array_code}[{adjusted_index.strip()}]"
+        self.inlined_stl.add("__getProperty")
+        return f"__getProperty({array_code}, {property_code}, {json.dumps(node.nullish)})"
 
     def visit_constant(self, node: ast.Constant):
         value = node.value
@@ -419,9 +402,52 @@ class JavaScriptCompiler(Visitor):
             return f"let {_sanitize_var_name(node.name)};"
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):
-        left_code = self.visit(node.left)
-        right_code = self.visit(node.right)
-        return f"{left_code} = {right_code};"
+        if isinstance(node.left, ast.TupleAccess):
+            tuple_code = self.visit(node.left.tuple)
+            index = node.left.index
+            right_code = self.visit(node.right)
+            self.inlined_stl.add("__setProperty")
+            return f"__setProperty({tuple_code}, {index}, {right_code});"
+
+        elif isinstance(node.left, ast.ArrayAccess):
+            array_code = self.visit(node.left.array)
+            property_code = self.visit(node.left.property)
+            right_code = self.visit(node.right)
+            self.inlined_stl.add("__setProperty")
+            return f"__setProperty({array_code}, {property_code}, {right_code});"
+
+        elif isinstance(node.left, ast.Field):
+            chain = node.left.chain
+            name = chain[0]
+            is_local = any(local.name == name for local in self.locals)
+
+            if is_local:
+                array_code = ""
+                for index, element in enumerate(chain):
+                    if index == 0:
+                        array_code = _sanitize_var_name(element)
+                        if len(chain) == 1:
+                            array_code = f"{array_code} = {self.visit(node.right)}"
+                    elif (isinstance(element, int) and not isinstance(element, bool)) or isinstance(element, str):
+                        if index == len(chain) - 1:
+                            right_code = self.visit(node.right)
+                            self.inlined_stl.add("__setProperty")
+                            array_code = f"__setProperty({array_code}, {json.dumps(element)}, {right_code})"
+                        else:
+                            self.inlined_stl.add("__getProperty")
+                            array_code = f"__getProperty({array_code}, {json.dumps(element)}, true)"
+                    else:
+                        raise QueryError(f"Unsupported element: {element} ({type(element)})")
+                return array_code
+
+            else:
+                # Cannot assign to undeclared variables or globals
+                raise QueryError(f'Variable "{name}" not declared in this scope. Cannot assign to globals.')
+
+        else:
+            left_code = self.visit(node.left)
+            right_code = self.visit(node.right)
+            return f"{left_code} = {right_code};"
 
     def visit_function(self, node: ast.Function):
         self._declare_local(_sanitize_var_name(node.name))
