@@ -1,3 +1,4 @@
+import { DataColor } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
@@ -896,7 +897,7 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export type LabelConfigBase = {
-    color: `color-${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}`
+    color: DataColor
 }
 
 export interface LabelConfigByPosition extends LabelConfigBase {
