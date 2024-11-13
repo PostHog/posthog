@@ -3948,7 +3948,23 @@
             "type": "object"
         },
         "DataColorToken": {
-            "const": "preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}",
+            "enum": [
+                "preset-1",
+                "preset-2",
+                "preset-3",
+                "preset-4",
+                "preset-5",
+                "preset-6",
+                "preset-7",
+                "preset-8",
+                "preset-9",
+                "preset-10",
+                "preset-11",
+                "preset-12",
+                "preset-13",
+                "preset-14",
+                "preset-15"
+            ],
             "type": "string"
         },
         "DataTableNode": {
@@ -8255,7 +8271,7 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
-        "LabelConfigBase": {
+        "LegendEntryConfig": {
             "additionalProperties": false,
             "properties": {
                 "color": {
@@ -8263,34 +8279,6 @@
                 }
             },
             "required": ["color"],
-            "type": "object"
-        },
-        "LabelConfigByKey": {
-            "additionalProperties": false,
-            "properties": {
-                "assignmentBy": {
-                    "const": "key",
-                    "type": "string"
-                },
-                "color": {
-                    "$ref": "#/definitions/DataColorToken"
-                }
-            },
-            "required": ["assignmentBy", "color"],
-            "type": "object"
-        },
-        "LabelConfigByPosition": {
-            "additionalProperties": false,
-            "properties": {
-                "assignmentBy": {
-                    "const": "position",
-                    "type": "string"
-                },
-                "color": {
-                    "$ref": "#/definitions/DataColorToken"
-                }
-            },
-            "required": ["assignmentBy", "color"],
             "type": "object"
         },
         "LifecycleFilter": {
@@ -12767,25 +12755,12 @@
                     "const": "TrendsQuery",
                     "type": "string"
                 },
-                "labels": {
-                    "anyOf": [
-                        {
-                            "additionalProperties": {
-                                "$ref": "#/definitions/LabelConfigByKey"
-                            },
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": {
-                                "$ref": "#/definitions/LabelConfigByPosition"
-                            },
-                            "propertyNames": {
-                                "type": "integer"
-                            },
-                            "type": "object"
-                        }
-                    ],
-                    "description": "Configuration of labels"
+                "legendEntries": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/LegendEntryConfig"
+                    },
+                    "description": "Display configuration for the result datasets.",
+                    "type": "object"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
