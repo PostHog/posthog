@@ -23,12 +23,13 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'lib/Chart'
-import { getBarColorFromStatus, getGraphColors, getTrendLikeSeriesColor } from 'lib/colors'
+import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -285,6 +286,7 @@ export function LineGraph_({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { getTheme } = useValues(dataThemeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
@@ -319,13 +321,14 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
 
-        const mainColor = dataset?.status
-            ? getBarColorFromStatus(dataset.status)
-            : getTrendLikeSeriesColor(
-                  // colorIndex is set for trends, seriesIndex is used for stickiness, index is used for retention
-                  dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index,
-                  isPrevious && !isArea
-              )
+        const dataTheme = getTheme('posthog')
+        const datasetIndex = dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index
+        const colorIndex = (datasetIndex % Object.keys(dataTheme).length) + 1
+
+        const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : dataTheme[`preset-${colorIndex}`]
+        const applyTransparency = isPrevious && !isArea
+        const mainColor = applyTransparency ? `${themeColor}80` : themeColor
+
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
         const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
