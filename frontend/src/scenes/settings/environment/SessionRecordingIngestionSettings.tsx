@@ -329,7 +329,7 @@ function EventTriggerOptions(): JSX.Element | null {
     return (
         <div className="flex flex-col space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">User sends events</LemonLabel>
+                <LemonLabel className="text-base">Event emitted</LemonLabel>
             </div>
             <p>Session recording will be started when the user sends any of these events.</p>
             <EventSelect
