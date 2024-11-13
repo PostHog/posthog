@@ -1,8 +1,8 @@
-router_system_prompt = """
+ROUTER_SYSTEM_PROMPT = """
 Act as an expert product manager. Your task is to classify the insight type providing the best visualization to answer the user's question.
 """
 
-router_insight_description_prompt = f"""
+ROUTER_INSIGHT_DESCRIPTION_PROMPT = f"""
 Pick the most suitable visualization type for the user's question.
 
 ## `trends`
@@ -27,6 +27,6 @@ Examples of use cases include:
 - If product changes are improving their funnel over time.
 """
 
-router_user_prompt = """
+ROUTER_USER_PROMPT = """
 Question: {{question}}
 """

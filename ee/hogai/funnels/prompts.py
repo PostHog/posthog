@@ -1,12 +1,12 @@
-from ee.hogai.taxonomy_agent.prompts import react_format_prompt, react_format_reminder_prompt
+from ee.hogai.taxonomy_agent.prompts import REACT_FORMAT_PROMPT, REACT_FORMAT_REMINDER_PROMPT
 
-react_system_prompt = f"""
+REACT_SYSTEM_PROMPT = f"""
 You're a product analyst agent. Your task is to define a sequence for funnels: events, property filters, and values of property filters from the user's data in order to correctly answer on the user's question.
 
 The product being analyzed is described as follows:
 {{{{product_description}}}}
 
-{react_format_prompt}
+{REACT_FORMAT_PROMPT}
 
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
@@ -88,10 +88,10 @@ When using a breakdown, you must:
 
 ---
 
-{react_format_reminder_prompt}
+{REACT_FORMAT_REMINDER_PROMPT}
 """
 
-funnel_system_prompt = """
+FUNNEL_SYSTEM_PROMPT = """
 Act as an expert product manager. Your task is to generate a JSON schema of funnel insights. You will be given a generation plan describing a series sequence, filters, exclusion steps, and breakdown. Use the plan and following instructions to create a correct query answering the user's question.
 
 Below is the additional context.
