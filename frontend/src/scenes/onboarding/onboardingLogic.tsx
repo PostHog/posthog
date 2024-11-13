@@ -70,12 +70,20 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Replay,
     },
     [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags & Experiments',
+        name: 'Feature Flags',
         breadcrumbsName: 'Feature Flags',
         icon: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
         url: urls.featureFlags(),
         scene: Scene.FeatureFlags,
+    },
+    [ProductKey.EXPERIMENTS]: {
+        name: 'Experiments',
+        breadcrumbsName: 'Experiments',
+        icon: 'IconTestTube',
+        iconColor: 'rgb(182 42 217)',
+        url: urls.experiments(),
+        scene: Scene.Experiments,
     },
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
@@ -281,7 +289,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
         shouldShowReverseProxyStep: [
             (s) => [s.productKey],
             (productKey) => {
-                return productKey && [ProductKey.FEATURE_FLAGS].includes(productKey as ProductKey)
+                return (
+                    productKey && [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS].includes(productKey as ProductKey)
+                )
             },
         ],
         isStepKeyInvalid: [
