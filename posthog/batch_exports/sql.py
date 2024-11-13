@@ -21,21 +21,6 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
     FROM (
         SELECT
             team_id,
-            id,
-            max(version) AS version,
-            argMax(properties, person.version) AS properties,
-            argMax(_timestamp, person.version) AS _timestamp
-        FROM
-            person
-        PREWHERE
-            team_id = {{team_id:Int64}}
-        GROUP BY
-            team_id,
-            id
-    ) AS p
-    INNER JOIN (
-        SELECT
-            team_id,
             distinct_id,
             max(version) AS version,
             argMax(person_id, person_distinct_id2.version) AS person_id,
@@ -47,7 +32,22 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         GROUP BY
             team_id,
             distinct_id
-    ) AS pd ON p.id = pd.person_id AND p.team_id = pd.team_id
+    ) AS pd
+    INNER JOIN (
+        SELECT
+            team_id,
+            id,
+            max(version) AS version,
+            argMax(properties, person.version) AS properties,
+            argMax(_timestamp, person.version) AS _timestamp
+        FROM
+            person
+        PREWHERE
+            team_id = {{team_id:Int64}}
+        GROUP BY
+            team_id,
+            id
+    ) AS p ON p.id = pd.person_id AND p.team_id = pd.team_id
     WHERE
         pd.team_id = {{team_id:Int64}}
         AND p.team_id = {{team_id:Int64}}
@@ -81,21 +81,6 @@ CREATE OR REPLACE VIEW persons_batch_export_backfill ON CLUSTER {settings.CLICKH
     FROM (
         SELECT
             team_id,
-            id,
-            max(version) AS version,
-            argMax(properties, person.version) AS properties,
-            argMax(_timestamp, person.version) AS _timestamp
-        FROM
-            person
-        PREWHERE
-            team_id = {{team_id:Int64}}
-        GROUP BY
-            team_id,
-            id
-    ) AS p
-    INNER JOIN (
-        SELECT
-            team_id,
             distinct_id,
             max(version) AS version,
             argMax(person_id, person_distinct_id2.version) AS person_id,
@@ -107,7 +92,22 @@ CREATE OR REPLACE VIEW persons_batch_export_backfill ON CLUSTER {settings.CLICKH
         GROUP BY
             team_id,
             distinct_id
-    ) AS pd ON p.id = pd.person_id AND p.team_id = pd.team_id
+    ) AS pd
+    INNER JOIN (
+        SELECT
+            team_id,
+            id,
+            max(version) AS version,
+            argMax(properties, person.version) AS properties,
+            argMax(_timestamp, person.version) AS _timestamp
+        FROM
+            person
+        PREWHERE
+            team_id = {{team_id:Int64}}
+        GROUP BY
+            team_id,
+            id
+    ) AS p ON p.id = pd.person_id AND p.team_id = pd.team_id
     WHERE
         pd.team_id = {{team_id:Int64}}
         AND p.team_id = {{team_id:Int64}}
