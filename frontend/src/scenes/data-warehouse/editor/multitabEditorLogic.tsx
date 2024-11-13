@@ -3,10 +3,12 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { editor, Uri } from 'monaco-editor'
+import { ModelMarker } from 'lib/monaco/codeEditorLogic'
+import { editor, MarkerSeverity, Uri } from 'monaco-editor'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { performQuery } from '~/queries/query'
+import { HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
@@ -38,13 +40,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: true,
         saveAsView: true,
         saveAsViewSuccess: (name: string) => ({ name }),
+        reloadMetadata: true,
+        setMetadata: (query: string, metadata: HogQLMetadataResponse) => ({ query, metadata }),
     }),
     propsChanged(({ actions }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor) {
             actions.initialize()
         }
     }),
-    reducers({
+    reducers(({ props }) => ({
         queryInput: [
             '',
             {
@@ -77,7 +81,55 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setTabs: (_, { tabs }) => tabs,
             },
         ],
-    }),
+        metadata: [
+            null as null | [string, HogQLMetadataResponse],
+            {
+                setMetadata: (_, { query, metadata }) => [query, metadata],
+            },
+        ],
+        modelMarkers: [
+            [] as ModelMarker[],
+            {
+                setMetadata: ({ metadata }) => {
+                    const model = props.editor?.getModel()
+                    if (!model || !metadata) {
+                        return []
+                    }
+                    const markers: ModelMarker[] = []
+                    const [query, metadataResponse] = metadata
+
+                    function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
+                        const start = model!.getPositionAt(error.start ?? 0)
+                        const end = model!.getPositionAt(error.end ?? query.length)
+                        return {
+                            start: error.start ?? 0,
+                            startLineNumber: start.lineNumber,
+                            startColumn: start.column,
+                            end: error.end ?? query.length,
+                            endLineNumber: end.lineNumber,
+                            endColumn: end.column,
+                            message: error.message ?? 'Unknown error',
+                            severity: severity,
+                            hogQLFix: error.fix,
+                        }
+                    }
+
+                    for (const notice of metadataResponse?.errors ?? []) {
+                        markers.push(noticeToMarker(notice, 8 /* MarkerSeverity.Error */))
+                    }
+                    for (const notice of metadataResponse?.warnings ?? []) {
+                        markers.push(noticeToMarker(notice, 4 /* MarkerSeverity.Warning */))
+                    }
+                    for (const notice of metadataResponse?.notices ?? []) {
+                        markers.push(noticeToMarker(notice, 1 /* MarkerSeverity.Hint */))
+                    }
+
+                    props.monaco?.editor.setModelMarkers(model, 'hogql', markers)
+                    return markers
+                },
+            },
+        ],
+    })),
     listeners(({ values, props, actions }) => ({
         createTab: () => {
             let currentModelCount = 1
@@ -219,6 +271,25 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
             await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
         },
+        reloadMetadata: async (_, breakpoint) => {
+            const model = props.editor?.getModel()
+            if (!model || !props.monaco) {
+                return
+            }
+            await breakpoint(300)
+            const query = values.queryInput
+            if (query === '') {
+                return
+            }
+
+            const response = await performQuery<HogQLMetadata>({
+                kind: NodeKind.HogQLMetadata,
+                language: HogLanguage.hogQL,
+                query: query,
+            })
+            breakpoint()
+            actions.setMetadata(query, response)
+        },
     })),
     subscriptions(({ props, actions, values }) => ({
         activeModelUri: (activeModelUri) => {
@@ -237,8 +308,25 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }).mount()
             }
         },
+        queryInput: () => {
+            actions.reloadMetadata()
+        },
     })),
     selectors({
         activeTabKey: [(s) => [s.activeModelUri], (activeModelUri) => `hogQLQueryEditor/${activeModelUri?.path}`],
+        isValidView: [(s) => [s.metadata], (metadata) => !!(metadata && metadata[1]?.isValidView)],
+        hasErrors: [
+            (s) => [s.modelMarkers],
+            (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === 8 /* MarkerSeverity.Error */).length,
+        ],
+        error: [
+            (s) => [s.hasErrors, s.modelMarkers],
+            (hasErrors, modelMarkers) => {
+                const firstError = modelMarkers.find((e) => e.severity === 8 /* MarkerSeverity.Error */)
+                return hasErrors && firstError
+                    ? `Error on line ${firstError.startLineNumber}, column ${firstError.startColumn}`
+                    : null
+            },
+        ],
     }),
 ])

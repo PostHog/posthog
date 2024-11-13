@@ -22,7 +22,8 @@ export function QueryWindow(): JSX.Element {
         monaco,
         editor,
     })
-    const { allTabs, activeModelUri, queryInput, activeQuery, activeTabKey } = useValues(logic)
+    const { allTabs, activeModelUri, queryInput, activeQuery, activeTabKey, hasErrors, error, isValidView } =
+        useValues(logic)
     const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView } = useActions(logic)
 
     return (
@@ -58,7 +59,9 @@ export function QueryWindow(): JSX.Element {
                 query={activeQuery ?? ''}
                 onQueryInputChange={runQuery}
                 onSave={saveAsView}
-                saveDisabledReason=""
+                saveDisabledReason={
+                    hasErrors ? error ?? 'Query has errors' : !isValidView ? 'All fields must have an alias' : ''
+                }
             />
         </div>
     )
