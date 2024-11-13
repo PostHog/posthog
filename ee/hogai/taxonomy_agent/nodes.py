@@ -1,6 +1,6 @@
-from abc import ABC
 import itertools
 import xml.etree.ElementTree as ET
+from abc import ABC
 from functools import cached_property
 from typing import cast
 
@@ -22,6 +22,8 @@ from ee.hogai.taxonomy_agent.parsers import (
 from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
+    REACT_FORMAT_PROMPT,
+    REACT_FORMAT_REMINDER_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
     REACT_MISSING_ACTION_PROMPT,
@@ -30,7 +32,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils import AssistantState, AssistantNode, filter_visualization_conversation, remove_line_breaks
+from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation, remove_line_breaks
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -73,6 +75,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 AgentAction,
                 agent.invoke(
                     {
+                        "react_format": REACT_FORMAT_PROMPT,
+                        "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
                         "product_description": self._team.project.product_description,
