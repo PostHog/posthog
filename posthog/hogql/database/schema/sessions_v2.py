@@ -1,5 +1,5 @@
 import re
-from typing import cast, Optional, TYPE_CHECKING
+from typing import cast, Optional, TYPE_CHECKING, Union
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -25,13 +25,14 @@ from posthog.hogql.database.schema.channel_type import (
 from posthog.hogql.database.schema.sessions_v1 import null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.models.property_definition import PropertyType
 from posthog.models.raw_sessions.sql import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode
+from posthog.schema import BounceRatePageViewMode, CustomChannelRule
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -495,7 +496,20 @@ def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team:
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
-        return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
+        modifiers = create_default_modifiers_for_team(team)
+        custom_channel_type_rules: Optional[list[Union[CustomChannelRule, dict]]] = modifiers.customChannelTypeRules
+        if custom_channel_type_rules:
+            custom_channel_types = [
+                (CustomChannelRule(**rule) if isinstance(rule, dict) else rule).channel_type
+                for rule in custom_channel_type_rules
+            ]
+        else:
+            custom_channel_types = []
+        default_channel_types = [
+            name for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()
+        ]
+        # merge the list, keep the order, and remove duplicates
+        return [[name] for name in list(dict.fromkeys(custom_channel_types + default_channel_types))]
 
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:
