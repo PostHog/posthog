@@ -1,14 +1,16 @@
-function __setProperty(objectOrArray, key, value) {
+function __getProperty(objectOrArray, key, nullish) {
+    if ((nullish && !objectOrArray) || key === 0) { return null }
     if (Array.isArray(objectOrArray)) {
-        if (key > 0) {
-            objectOrArray[key - 1] = value
-        } else {
-            objectOrArray[objectOrArray.length + key] = value
-        }
+        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
     } else {
-        objectOrArray[key] = value
+        return objectOrArray[key]
     }
-    return objectOrArray
+}
+
+function tuple (...args) {
+    const tuple = args.slice()
+    tuple.__isHogTuple = true
+    return tuple
 }
 
 function print (...args) {
@@ -55,85 +57,69 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
 function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
 function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
 }
 
 function __isHogCallable(obj) {
     return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
+}
+
 function __isHogError(obj) {
     return obj && obj.__hogError__ === true
 }
 
-function __getProperty(objectOrArray, key, nullish) {
-    if ((nullish && !objectOrArray) || key === 0) { return null }
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
+}
+
+function __setProperty(objectOrArray, key, value) {
     if (Array.isArray(objectOrArray)) {
-        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
+        if (key > 0) {
+            objectOrArray[key - 1] = value
+        } else {
+            objectOrArray[objectOrArray.length + key] = value
+        }
     } else {
-        return objectOrArray[key]
+        objectOrArray[key] = value
     }
+    return objectOrArray
+}
+
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
 }
 
 {
-    let r = [1, 2, {"d": [1, 3, 42, 6]}];
+    let r = [1, 2, {"d": tuple(1, 3, 42, 6)}];
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 2, false));
 }
 {
-    let r = [1, 2, {"d": [1, 3, 42, 6]}];
+    let r = [1, 2, {"d": tuple(1, 3, 42, 6)}];
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
-    let r = [1, 2, {"d": [1, 3, 42, 6]}];
+    let r = [1, 2, {"d": tuple(1, 3, 42, 6)}];
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 4, false));
 }
 {
-    let r = {"d": [1, 3, 42, 6]};
+    let r = {"d": tuple(1, 3, 42, 6)};
     print(__getProperty(__getProperty(r, "d", true), 2, false));
 }
 {

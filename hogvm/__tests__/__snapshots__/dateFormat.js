@@ -2,8 +2,47 @@ function concat (...args) {
     return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
 }
 
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
+function fromUnixTimestamp (input) {
+    return __fromUnixTimestamp(input)
+}
+
+function __fromUnixTimestamp(input) {
+    return __toHogDateTime(input)
+}
+
+function __toHogDateTime(timestamp, zone) {
+    if (__isHogDate(timestamp)) {
+        const dateTime = DateTime.fromObject(
+            {
+                year: timestamp.year,
+                month: timestamp.month,
+                day: timestamp.day,
+            },
+            { zone: zone || 'UTC' }
+        )
+        return {
+            __hogDateTime__: true,
+            dt: dateTime.toSeconds(),
+            zone: dateTime.zoneName || 'UTC',
+        }
+    }
+    return {
+        __hogDateTime__: true,
+        dt: timestamp,
+        zone: zone || 'UTC',
+    }
+}
+
+function __STLToString(args) {
+    if (__isHogDate(args[0])) {
+        const month = args[0].month
+        const day = args[0].day
+        return `\${args[0].year}-\${month < 10 ? '0' : ''}\${month}-\${day < 10 ? '0' : ''}\${day}`
+    }
+    if (__isHogDateTime(args[0])) {
+        return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
+    }
+    return __printHogStringOutput(args[0])
 }
 
 function formatDateTime (input, format, zone) {
@@ -78,16 +117,8 @@ function __formatDateTime(input, format, zone) {
     return DateTime.fromSeconds(input.dt, { zone: zone || input.zone }).toFormat(formatString)
 }
 
-function __STLToString(args) {
-    if (__isHogDate(args[0])) {
-        const month = args[0].month
-        const day = args[0].day
-        return `\${args[0].year}-\${month < 10 ? '0' : ''}\${month}-\${day < 10 ? '0' : ''}\${day}`
-    }
-    if (__isHogDateTime(args[0])) {
-        return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
-    }
-    return __printHogStringOutput(args[0])
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
 }
 
 function __printHogStringOutput(obj) {
@@ -130,39 +161,19 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
 function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
 function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
@@ -178,43 +189,12 @@ function __isHogError(obj) {
     return obj && obj.__hogError__ === true
 }
 
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-
-function fromUnixTimestamp (input) {
-    return __fromUnixTimestamp(input)
-}
-
-function __fromUnixTimestamp(input) {
-    return __toHogDateTime(input)
-}
-
-function __toHogDateTime(timestamp, zone) {
-    if (__isHogDate(timestamp)) {
-        const dateTime = DateTime.fromObject(
-            {
-                year: timestamp.year,
-                month: timestamp.month,
-                day: timestamp.day,
-            },
-            { zone: zone || 'UTC' }
-        )
-        return {
-            __hogDateTime__: true,
-            dt: dateTime.toSeconds(),
-            zone: dateTime.zoneName || 'UTC',
-        }
-    }
-    return {
-        __hogDateTime__: true,
-        dt: timestamp,
-        zone: zone || 'UTC',
-    }
-}
-
 function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
+}
+
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
 }
 
 let dt = fromUnixTimestamp(1234377543.123456);

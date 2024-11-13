@@ -1,9 +1,26 @@
-function like (str, pattern) {
-    return __like(str, pattern, false)
-}
-
 function notILike (str, pattern) {
     return !__like(str, pattern, true)
+}
+
+function trim (str, char) {
+    if (char === null || char === undefined) {
+        char = ' '
+    }
+    if (char.length !== 1) {
+        return ''
+    }
+    let start = 0
+    while (str[start] === char) {
+        start++
+    }
+    let end = str.length
+    while (str[end - 1] === char) {
+        end--
+    }
+    if (start >= end) {
+        return ''
+    }
+    return str.slice(start, end)
 }
 
 function trimRight (str, char) {
@@ -20,6 +37,28 @@ function trimRight (str, char) {
     return str.slice(0, end)
 }
 
+function like (str, pattern) {
+    return __like(str, pattern, false)
+}
+
+function ilike (str, pattern) {
+    return __like(str, pattern, true)
+}
+
+function trimLeft (str, char) {
+    if (char === null || char === undefined) {
+        char = ' '
+    }
+    if (char.length !== 1) {
+        return ''
+    }
+    let start = 0
+    while (str[start] === char) {
+        start++
+    }
+    return str.slice(start)
+}
+
 function position (str, elem) {
     if (typeof str === 'string') {
         return str.indexOf(String(elem)) + 1
@@ -28,16 +67,35 @@ function position (str, elem) {
     }
 }
 
+function splitByString (separator, str, maxSplits) {
+    if (maxSplits === undefined || maxSplits === null) {
+        return str.split(separator)
+    }
+    return str.split(separator, maxSplits)
+}
+
+function notLike (str, pattern) {
+    return !__like(str, pattern, false)
+}
+
+function __like(str, pattern, caseInsensitive = false) {
+    if (caseInsensitive) {
+        str = str.toLowerCase()
+        pattern = pattern.toLowerCase()
+    }
+    pattern = String(pattern)
+        .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+        .replaceAll('%', '.*')
+        .replaceAll('_', '.')
+    return new RegExp(pattern).test(str)
+}
+
 function positionCaseInsensitive (str, elem) {
     if (typeof str === 'string') {
         return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1
     } else {
         return 0
     }
-}
-
-function notLike (str, pattern) {
-    return !__like(str, pattern, false)
 }
 
 function print (...args) {
@@ -84,7 +142,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -93,15 +151,6 @@ function __escapeIdentifier(identifier) {
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
-}
-
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
-}
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
 function __isHogClosure(obj) {
@@ -120,63 +169,13 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function ilike (str, pattern) {
-    return __like(str, pattern, true)
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
-function __like(str, pattern, caseInsensitive = false) {
-    if (caseInsensitive) {
-        str = str.toLowerCase()
-        pattern = pattern.toLowerCase()
-    }
-    pattern = String(pattern)
-        .replaceAll(/[-/\^$*+?.()|[\]{}]/g, '\$&')
-        .replaceAll('%', '.*')
-        .replaceAll('_', '.')
-    const regex = new RegExp(pattern)
-    return regex.test(str)
-}
-
-function trim (str, char) {
-    if (char === null || char === undefined) {
-        char = ' '
-    }
-    if (char.length !== 1) {
-        return ''
-    }
-    let start = 0
-    while (str[start] === char) {
-        start++
-    }
-    let end = str.length
-    while (str[end - 1] === char) {
-        end--
-    }
-    if (start >= end) {
-        return ''
-    }
-    return str.slice(start, end)
-}
-
-function splitByString (separator, str, maxSplits) {
-    if (maxSplits === undefined || maxSplits === null) {
-        return str.split(separator)
-    }
-    return str.split(separator, maxSplits)
-}
-
-function trimLeft (str, char) {
-    if (char === null || char === undefined) {
-        char = ' '
-    }
-    if (char.length !== 1) {
-        return ''
-    }
-    let start = 0
-    while (str[start] === char) {
-        start++
-    }
-    return str.slice(start)
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
 print(trim("  hello  world  "));

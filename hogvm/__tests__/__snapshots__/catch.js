@@ -11,6 +11,10 @@ function concat (...args) {
     return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
 }
 
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
+}
+
 function __STLToString(args) {
     if (__isHogDate(args[0])) {
         const month = args[0].month
@@ -21,10 +25,6 @@ function __STLToString(args) {
         return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
     }
     return __printHogStringOutput(args[0])
-}
-
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
 }
 
 function __printHogStringOutput(obj) {
@@ -67,29 +67,8 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
-}
-
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
-}
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}
-
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
 }
 
 function __escapeIdentifier(identifier) {
@@ -99,8 +78,29 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
+}
+
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
+}
+
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
 function NotImplementedError (message, payload) {
@@ -112,7 +112,7 @@ function HogError (type, message, payload) {
 }
 
 function __newHogError(type, message, payload) {
-    let error = new Error(message);
+    let error = new Error(message || 'An error occurred');
     error.__hogError__ = true
     error.type = type
     error.payload = payload
@@ -133,7 +133,7 @@ print(concat("Problem with your food: ", __getProperty(e, "message", true)));
  else if (__error.type === "FishError") { let e = __error;
 print(concat("Problem with your fish: ", __getProperty(e, "message", true)));
 }
-}
+ else { throw __error; }}
 try {
     throw FoodError("Your fish are hungry");
 } catch (__error) { if (__error.type === "FoodError") { let e = __error;
@@ -142,7 +142,7 @@ print(concat("Problem with your food: ", __getProperty(e, "message", true)));
  else if (__error.type === "FishError") { let e = __error;
 print(concat("Problem with your fish: ", __getProperty(e, "message", true)));
 }
-}
+ else { throw __error; }}
 try {
     throw NotImplementedError("Your fish are hungry");
 } catch (__error) { if (__error.type === "FoodError") { let e = __error;

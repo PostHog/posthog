@@ -2,19 +2,6 @@ function print (...args) {
     console.log(...args.map(__printHogStringOutput))
 }
 
-function __setProperty(objectOrArray, key, value) {
-    if (Array.isArray(objectOrArray)) {
-        if (key > 0) {
-            objectOrArray[key - 1] = value
-        } else {
-            objectOrArray[objectOrArray.length + key] = value
-        }
-    } else {
-        objectOrArray[key] = value
-    }
-    return objectOrArray
-}
-
 function __printHogStringOutput(obj) {
     if (typeof obj === 'string') {
         return obj
@@ -55,40 +42,8 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
-}
-
-function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
-    if (typeof identifier === 'number') return identifier.toString();
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
-    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
-}
-
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
@@ -107,17 +62,46 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
+function __escapeIdentifier(identifier) {
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
+    if (typeof identifier === 'number') return identifier.toString();
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
+}
+
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __setProperty(objectOrArray, key, value) {
+    if (Array.isArray(objectOrArray)) {
+        if (key > 0) {
+            objectOrArray[key - 1] = value
+        } else {
+            objectOrArray[objectOrArray.length + key] = value
+        }
+    } else {
+        objectOrArray[key] = value
+    }
+    return objectOrArray
+}
+
 function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
-let dbl = (x) => (x * 2);
+function __lambda (fn) {
+    return fn
+}
+
+let dbl = __lambda((x) => (x * 2));
 print(dbl);
 print(dbl(2));
 print(dbl(8));
 print("--------");
 let __x_var = 5;
-let varify = (x) => (x * __x_var);
+let varify = __lambda((x) => (x * __x_var));
 print(varify(2));
 __x_var = 10
 print(varify(2));
@@ -125,7 +109,7 @@ print(varify(8));
 print("--------");
 function bigVar() {
     let __x_var = 5;
-    let varify = (x) => (x * __x_var);
+    let varify = __lambda((x) => (x * __x_var));
     return varify;
 }
 let bigVarify = bigVar();

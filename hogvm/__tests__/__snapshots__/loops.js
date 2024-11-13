@@ -10,8 +10,10 @@ function keys (obj) {
     return []
 }
 
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
+function tuple (...args) {
+    const tuple = args.slice()
+    tuple.__isHogTuple = true
+    return tuple
 }
 
 function values (obj) {
@@ -24,6 +26,10 @@ function values (obj) {
         return Object.values(obj)
     }
     return []
+}
+
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
 }
 
 function __printHogStringOutput(obj) {
@@ -66,25 +72,8 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
-}
-
-function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
-    if (typeof identifier === 'number') return identifier.toString();
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
-    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
 function __isHogCallable(obj) {
@@ -95,31 +84,28 @@ function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
 }
 
 function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
 }
 
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
+}
+
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __escapeIdentifier(identifier) {
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
+    if (typeof identifier === 'number') return identifier.toString();
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
 print("-- test while loop --");
@@ -162,14 +148,14 @@ print("-- for in loop with arrays and keys --");
 }
 print("-- for in loop with tuples --");
 {
-    let tup = [1, 2, 3];
+    let tup = tuple(1, 2, 3);
     for (let i of values(tup)) {
             print(i);
         }
 }
 print("-- for in loop with tuples and keys --");
 {
-    let tup = [1, 2, 3];
+    let tup = tuple(1, 2, 3);
     for (let k of keys(tup)) { let v = tup[k]; {
             print(k, v);
         } }

@@ -537,10 +537,10 @@ function generateUUIDv4 () {
     "sha256Hex": [
         """
 function sha256Hex (str, options) {
-    return __sha256Hex(str, options)
+    return "SHA256 not implemented"
 }
 """,
-        ["__sha256Hex"],
+        [],
     ],
     "md5Hex": [
         """
@@ -648,10 +648,10 @@ function md5Hex(string) {
     "sha256HmacChainHex": [
         """
 function sha256HmacChainHex (data, options) {
-    return __sha256HmacChainHex(data, options)
+    return "sha256HmacChainHex not implemented"
 }
 """,
-        ["__sha256HmacChainHex"],
+        [],
     ],
     "keys": [
         """
@@ -955,7 +955,7 @@ function NotImplementedError (message, payload) {
     ],
     "typeof": [
         """
-function typeof (value) {
+function __x_typeof (value) {
     if (value === null || value === undefined) {
         return 'null'
     } else if (__isHogDateTime(value)) {
@@ -1259,7 +1259,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 """,
@@ -1361,7 +1361,7 @@ function __like(str, pattern, caseInsensitive = false) {
         pattern = pattern.toLowerCase()
     }
     pattern = String(pattern)
-        .replaceAll(/[-/\\^$*+?.()|[\\]{}]/g, '\\$&')
+        .replaceAll(/[-/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&')
         .replaceAll('%', '.*')
         .replaceAll('_', '.')
     return new RegExp(pattern).test(str)
@@ -1395,6 +1395,14 @@ function __setProperty(objectOrArray, key, value) {
         objectOrArray[key] = value
     }
     return objectOrArray
+}
+""",
+        [],
+    ],
+    "__lambda": [
+        """
+function __lambda (fn) {
+    return fn
 }
 """,
         [],

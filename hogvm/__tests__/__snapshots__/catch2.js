@@ -1,17 +1,9 @@
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
+}
+
 function concat (...args) {
     return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('')
-}
-
-function HogError (type, message, payload) {
-    return __newHogError(type, message, payload)
-}
-
-function __newHogError(type, message, payload) {
-    let error = new Error(message || 'An error occurred');
-    error.__hogError__ = true
-    error.type = type
-    error.payload = payload
-    return error
 }
 
 function __getProperty(objectOrArray, key, nullish) {
@@ -21,10 +13,6 @@ function __getProperty(objectOrArray, key, nullish) {
     } else {
         return objectOrArray[key]
     }
-}
-
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
 }
 
 function __STLToString(args) {
@@ -79,7 +67,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -103,16 +91,28 @@ function __isHogClosure(obj) {
     return obj && obj.__isHogClosure__ === true
 }
 
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
 function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
+}
+
+function HogError (type, message, payload) {
+    return __newHogError(type, message, payload)
+}
+
+function __newHogError(type, message, payload) {
+    let error = new Error(message || 'An error occurred');
+    error.__hogError__ = true
+    error.type = type
+    error.payload = payload
+    return error
+}
+
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
 }
 
 try {

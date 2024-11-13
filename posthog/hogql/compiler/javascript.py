@@ -490,7 +490,8 @@ class JavaScriptCompiler(Visitor):
         else:
             expr_code = self.visit(node.expr)
         self._end_scope()
-        return f"({params_code}) => {expr_code}"
+        self.inlined_stl.add("__lambda")
+        return f"__lambda(({params_code}) => {expr_code})"
 
     def visit_dict(self, node: ast.Dict):
         items = []
@@ -509,6 +510,7 @@ class JavaScriptCompiler(Visitor):
 
     def visit_tuple(self, node: ast.Tuple):
         items_code = ", ".join([self.visit(expr) for expr in node.exprs])
+        self.inlined_stl.add("tuple")
         return f"tuple({items_code})"
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):

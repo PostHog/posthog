@@ -1,3 +1,15 @@
+function arrayMap (func, arr) {
+    let result = []
+    for (let i = 0; i < arr.length; i++) {
+        result = arrayPushBack(result, func(arr[i]))
+    }
+    return result
+}
+
+function __lambda (fn) {
+    return fn
+}
+
 function arrayExists (func, arr) {
         for (let i = 0; i < arr.length; i++) {
             if (func(arr[i])) {
@@ -7,14 +19,20 @@ function arrayExists (func, arr) {
         return false
     }
 
-function arrayFilter (func, arr) {
-    let result = []
-    for (let i = 0; i < arr.length; i++) {
-        if (func(arr[i])) {
-            result = arrayPushBack(result, arr[i])
-        }
+function like (str, pattern) {
+    return __like(str, pattern, false)
+}
+
+function __like(str, pattern, caseInsensitive = false) {
+    if (caseInsensitive) {
+        str = str.toLowerCase()
+        pattern = pattern.toLowerCase()
     }
-    return result
+    pattern = String(pattern)
+        .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+        .replaceAll('%', '.*')
+        .replaceAll('_', '.')
+    return new RegExp(pattern).test(str)
 }
 
 function print (...args) {
@@ -61,48 +79,12 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
-}
-
-function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
-    if (typeof identifier === 'number') return identifier.toString();
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
-    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
-}
-
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
     return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
 }
 
 function __isHogError(obj) {
@@ -117,10 +99,24 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function arrayMap (func, arr) {
+function __escapeIdentifier(identifier) {
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
+    if (typeof identifier === 'number') return identifier.toString();
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
+}
+
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function arrayFilter (func, arr) {
     let result = []
     for (let i = 0; i < arr.length; i++) {
-        result = arrayPushBack(result, func(arr[i]))
+        if (func(arr[i])) {
+            result = arrayPushBack(result, arr[i])
+        }
     }
     return result
 }
@@ -132,13 +128,17 @@ function arrayPushBack (arr, item) {
     return [...arr, item]
 }
 
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
+}
+
 print("--- arrayMap ----");
-print(arrayMap((x) => (x * 2), [1, 2, 3]));
+print(arrayMap(__lambda((x) => (x * 2)), [1, 2, 3]));
 print("--- arrayExists ----");
-print(arrayExists((x) => (new RegExp("^" + ("%nana%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test(x), ["apple", "banana", "cherry"]));
-print(arrayExists((x) => (new RegExp("^" + ("%boom%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test(x), ["apple", "banana", "cherry"]));
-print(arrayExists((x) => (new RegExp("^" + ("%boom%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test(x), []));
+print(arrayExists(__lambda((x) => like(x, "%nana%")), ["apple", "banana", "cherry"]));
+print(arrayExists(__lambda((x) => like(x, "%boom%")), ["apple", "banana", "cherry"]));
+print(arrayExists(__lambda((x) => like(x, "%boom%")), []));
 print("--- arrayFilter ----");
-print(arrayFilter((x) => (new RegExp("^" + ("%nana%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test(x), ["apple", "banana", "cherry"]));
-print(arrayFilter((x) => (new RegExp("^" + ("%e%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test(x), ["apple", "banana", "cherry"]));
-print(arrayFilter((x) => (new RegExp("^" + ("%boom%").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".") + "$")).test(x), []));
+print(arrayFilter(__lambda((x) => like(x, "%nana%")), ["apple", "banana", "cherry"]));
+print(arrayFilter(__lambda((x) => like(x, "%e%")), ["apple", "banana", "cherry"]));
+print(arrayFilter(__lambda((x) => like(x, "%boom%")), []));

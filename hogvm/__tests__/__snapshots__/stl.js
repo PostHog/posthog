@@ -1,19 +1,59 @@
-function length (value) {
-    return value.length
+function generateUUIDv4 () {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        const r = (Math.random() * 16) | 0
+        const v = c === 'x' ? r : (r & 0x3) | 0x8
+        return v.toString(16)
+    })
 }
 
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
 }
 
-function encodeURLComponent (str) {
-    return encodeURIComponent(str)
+function lower (value) {
+    return value.toLowerCase()
+}
+
+function replaceAll (str, searchValue, replaceValue) {
+    return str.replaceAll(searchValue, replaceValue)
+}
+
+function length (value) {
+    return value.length
+}
+
+function upper (value) {
+    return value.toUpperCase()
+}
+
+function base64Encode (str) {
+    return Buffer.from(str).toString('base64')
+}
+
+function replaceOne (str, searchValue, replaceValue) {
+    return str.replace(searchValue, replaceValue)
+}
+
+function reverse (value) {
+    return value.split('').reverse().join('')
 }
 
 function tuple (...args) {
     const tuple = args.slice()
     tuple.__isHogTuple = true
     return tuple
+}
+
+function encodeURLComponent (str) {
+    return encodeURIComponent(str)
+}
+
+function base64Decode (str) {
+    return Buffer.from(str, 'base64').toString()
+}
+
+function decodeURLComponent (str) {
+    return decodeURIComponent(str)
 }
 
 function __printHogStringOutput(obj) {
@@ -23,20 +63,8 @@ function __printHogStringOutput(obj) {
     return __printHogValue(obj)
 }
 
-function base64Decode (str) {
-    return Buffer.from(str, 'base64').toString()
-}
-
-function reverse (value) {
-    return value.split('').reverse().join('')
-}
-
 function notEmpty (value) {
     return !empty(value)
-}
-
-function base64Encode (str) {
-    return Buffer.from(str).toString('base64')
 }
 
 function empty (value) {
@@ -53,26 +81,6 @@ function empty (value) {
         return false
     }
     return !value
-}
-
-function lower (value) {
-    return value.toLowerCase()
-}
-
-function decodeURLComponent (str) {
-    return decodeURIComponent(str)
-}
-
-function replaceAll (str, searchValue, replaceValue) {
-    return str.replaceAll(searchValue, replaceValue)
-}
-
-function generateUUIDv4 () {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        const r = (Math.random() * 16) | 0
-        const v = c === 'x' ? r : (r & 0x3) | 0x8
-        return v.toString(16)
-    })
 }
 
 function __printHogValue(obj, marked = new Set()) {
@@ -108,39 +116,19 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
 function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
 function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
@@ -164,19 +152,11 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function replaceOne (str, searchValue, replaceValue) {
-    return str.replace(searchValue, replaceValue)
-}
-
-function upper (value) {
-    return value.toUpperCase()
-}
-
 print("-- empty, notEmpty, length, lower, upper, reverse --");
 if (!!(empty("") && notEmpty("234"))) {
     print(length("123"));
 }
-if ((lower("Tdd4gh") === "tdd4gh")) {
+if ((lower("Tdd4gh") == "tdd4gh")) {
     print(upper("test"));
 }
 print(reverse("spinner"));

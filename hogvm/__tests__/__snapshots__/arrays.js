@@ -1,3 +1,17 @@
+function arrayPopBack (arr) {
+    if (!Array.isArray(arr)) {
+        return []
+    }
+    return arr.slice(0, arr.length - 1)
+}
+
+function arrayReverse (arr) {
+    if (!Array.isArray(arr)) {
+        return []
+    }
+    return [...arr].reverse()
+}
+
 function __setProperty(objectOrArray, key, value) {
     if (Array.isArray(objectOrArray)) {
         if (key > 0) {
@@ -18,6 +32,17 @@ function arraySort (arr) {
     return [...arr].sort()
 }
 
+function has (arr, elem) {
+    if (!Array.isArray(arr) || arr.length === 0) {
+        return false
+    }
+    return arr.includes(elem)
+}
+
+function __lambda (fn) {
+    return fn
+}
+
 function indexOf (arrOrString, elem) {
     if (Array.isArray(arrOrString)) {
         return arrOrString.indexOf(elem) + 1
@@ -26,25 +51,35 @@ function indexOf (arrOrString, elem) {
     }
 }
 
+function arrayPushBack (arr, item) {
+    if (!Array.isArray(arr)) {
+        return [item]
+    }
+    return [...arr, item]
+}
+
+function arrayPushFront (arr, item) {
+    if (!Array.isArray(arr)) {
+        return [item]
+    }
+    return [item, ...arr]
+}
+
+function arrayCount (func, arr) {
+    let count = 0
+    for (let i = 0; i < arr.length; i++) {
+        if (func(arr[i])) {
+            count = count + 1
+        }
+    }
+    return count
+}
+
 function arrayPopFront (arr) {
     if (!Array.isArray(arr)) {
         return []
     }
     return arr.slice(1)
-}
-
-function arrayPopBack (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return arr.slice(0, arr.length - 1)
-}
-
-function arrayReverse (arr) {
-    if (!Array.isArray(arr)) {
-        return []
-    }
-    return [...arr].reverse()
 }
 
 function __getProperty(objectOrArray, key, nullish) {
@@ -56,35 +91,11 @@ function __getProperty(objectOrArray, key, nullish) {
     }
 }
 
-function arrayPushFront (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
-    }
-    return [item, ...arr]
-}
-
 function arrayReverseSort (arr) {
     if (!Array.isArray(arr)) {
         return []
     }
     return [...arr].sort().reverse()
-}
-
-function arrayStringConcat (arr, separator = '') {
-    if (!Array.isArray(arr)) {
-        return ''
-    }
-    return arr.join(separator)
-}
-
-function arrayCount (func, arr) {
-    let count = 0
-    for (let i = 0; i < arr.length; i++) {
-        if (func(arr[i])) {
-            count = count + 1
-        }
-    }
-    return count
 }
 
 function print (...args) {
@@ -131,29 +142,16 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
+            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
-function __escapeIdentifier(identifier) {
-    const backquoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        '`': '\\`',
-    }
-    if (typeof identifier === 'number') return identifier.toString();
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
-    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
 }
 
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
 }
 
 function __isHogDate(obj) {
@@ -164,41 +162,27 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
-function arrayPushBack (arr, item) {
-    if (!Array.isArray(arr)) {
-        return [item]
-    }
-    return [...arr, item]
-}
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
+function __escapeIdentifier(identifier) {
+    const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
+    if (typeof identifier === 'number') return identifier.toString();
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+    return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
 function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
-    }
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
-function has (arr, elem) {
-    if (!Array.isArray(arr) || arr.length === 0) {
-        return false
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
+}
+
+function arrayStringConcat (arr, separator = '') {
+    if (!Array.isArray(arr)) {
+        return ''
     }
-    return arr.includes(elem)
+    return arr.join(separator)
 }
 
 print([]);
@@ -265,7 +249,7 @@ print(indexOf([1, 2, 3], 1));
 print(indexOf([1, 2, 3], 2));
 print(indexOf([1, 2, 3], 3));
 print(indexOf([1, 2, 3], 4));
-print(arrayCount((x) => (x > 2), [1, 2, 3, 4, 5]));
+print(arrayCount(__lambda((x) => (x > 2)), [1, 2, 3, 4, 5]));
 print("------");
 let c = [1, 2, 3];
 print(__getProperty(c, 1, false), __getProperty(c, 2, false), __getProperty(c, 3, false), __getProperty(c, 4, false));
