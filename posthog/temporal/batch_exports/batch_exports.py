@@ -64,9 +64,7 @@ FORMAT ArrowStream
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
     max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1,
-    max_threads=16,
-    join_algorithm='partial_merge'
+    optimize_aggregation_in_order=1
 """
 
 SELECT_FROM_PERSONS_VIEW_BACKFILL = """
@@ -87,9 +85,7 @@ FORMAT ArrowStream
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
     max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1,
-    max_threads=16,
-    join_algorithm='partial_merge'
+    optimize_aggregation_in_order=1
 """
 
 SELECT_FROM_EVENTS_VIEW = Template(
@@ -968,8 +964,8 @@ async def execute_batch_export_insert_activity(
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
-        # TODO: Consider removing this 10 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        start_to_close_timeout = max(dt.timedelta(minutes=10), dt.timedelta(**kwargs))
+        # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
+        start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
