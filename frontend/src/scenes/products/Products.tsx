@@ -152,8 +152,10 @@ export function Products(): JSX.Element {
                 <>
                     <div className="flex flex-col justify-center flex-grow items-center">
                         <div className="mb-8">
-                            <h2 className="text-center text-4xl">What would you like to set up?</h2>
-                            <p className="text-center">Don't worry &ndash; you can pick more than one!</p>
+                            <h2 className="text-center text-4xl">Which products would you like to use?</h2>
+                            <p className="text-center">
+                                Don't worry &ndash; you can pick more than one! Please select all that apply.
+                            </p>
                         </div>
                         <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
@@ -171,7 +173,7 @@ export function Products(): JSX.Element {
                         <div className="mt-12 flex gap-2 justify-center items-center">
                             {selectedProducts.length > 1 ? (
                                 <>
-                                    <LemonLabel>Get started with</LemonLabel>
+                                    <LemonLabel>Start first with</LemonLabel>
                                     <LemonSelect
                                         value={firstProductOnboarding}
                                         options={selectedProducts.map((productKey) => ({

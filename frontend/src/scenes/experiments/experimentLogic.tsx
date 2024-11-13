@@ -69,6 +69,7 @@ import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from '.
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
     name: '',
+    type: 'product',
     feature_flag_key: '',
     filters: {},
     metrics: [],
@@ -158,7 +159,9 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
+        setExperimentFeatureFlagKeyFromName: true,
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        setExperimentType: (type?: string) => ({ type }),
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -184,9 +187,12 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentCollectionGoalModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
-        setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
-        moveToNextFormStep: true,
+        openDistributionModal: true,
+        closeDistributionModal: true,
+        openReleaseConditionsModal: true,
+        closeReleaseConditionsModal: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
+        setTabKey: (tabKey: string) => ({ tabKey }),
     }),
     reducers({
         experiment: [
@@ -330,6 +336,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeShipVariantModal: () => false,
             },
         ],
+        isDistributionModalOpen: [
+            false,
+            {
+                openDistributionModal: () => true,
+                closeDistributionModal: () => false,
+            },
+        ],
+        isReleaseConditionsModalOpen: [
+            false,
+            {
+                openReleaseConditionsModal: () => true,
+                closeReleaseConditionsModal: () => false,
+            },
+        ],
         experimentValuesChangedLocally: [
             false,
             {
@@ -338,16 +358,26 @@ export const experimentLogic = kea<experimentLogicType>([
                 updateExperiment: () => false,
             },
         ],
-        currentFormStep: [
-            0,
+        tabKey: [
+            'results',
             {
-                setCurrentFormStep: (_, { stepIndex }) => stepIndex,
+                setTabKey: (_, { tabKey }) => tabKey,
             },
         ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+
+            actions.touchExperimentField('name')
+            actions.touchExperimentField('feature_flag_key')
+            values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
+                actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
+            )
+
+            if (hasFormErrors(values.experimentErrors)) {
+                return
+            }
 
             // Minimum Detectable Effect is calculated based on a loaded insight
             // Terminate if the insight did not manage to load in time
@@ -421,6 +451,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 })
             }
+        },
+        setExperimentType: async ({ type }) => {
+            actions.setExperiment({ type: type })
         },
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
@@ -497,8 +530,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
-
-            actions.setNewExperimentInsight(experiment?.filters)
 
             if (experiment?.start_date) {
                 actions.loadExperimentResults()
@@ -691,20 +722,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
-        },
-        moveToNextFormStep: async () => {
-            const { currentFormStep } = values
-            if (currentFormStep === 0) {
-                actions.touchExperimentField('name')
-                actions.touchExperimentField('feature_flag_key')
-                values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
-                    actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
-                )
-            }
-
-            if (!hasFormErrors(values.experimentErrors)) {
-                actions.setCurrentFormStep(currentFormStep + 1)
-            }
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
             if (exposureCohort && exposureCohort.id !== 'new') {
@@ -927,6 +944,16 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        dynamicFeatureFlagKey: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string => {
+                return experiment.name
+                    .toLowerCase()
+                    .replace(/[^A-Za-z0-9-_]+/g, '-')
+                    .replace(/-+$/, '')
+                    .replace(/^-+/, '')
+            },
+        ],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
@@ -1527,6 +1554,17 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
+        hasGoalSet: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                const filters = experiment?.filters
+                return !!(
+                    (filters?.actions && filters.actions.length > 0) ||
+                    (filters?.events && filters.events.length > 0) ||
+                    (filters?.data_warehouse && filters.data_warehouse.length > 0)
+                )
+            },
+        ],
     }),
     forms(({ actions }) => ({
         experiment: {
@@ -1556,7 +1594,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.resetExperiment()
-                    actions.setNewExperimentInsight()
                 }
 
                 if (parsedId !== 'new' && parsedId === values.experimentId) {

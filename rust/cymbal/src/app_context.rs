@@ -1,3 +1,4 @@
+use aws_config::{BehaviorVersion, Region};
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer, kafka_producer::create_kafka_producer,
     kafka_producer::KafkaContext,
@@ -11,7 +12,7 @@ use tracing::info;
 
 use crate::{
     config::Config,
-    error::Error,
+    error::UnhandledError,
     frames::resolver::Resolver,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
@@ -32,7 +33,7 @@ pub struct AppContext {
 }
 
 impl AppContext {
-    pub async fn new(config: &Config) -> Result<Self, Error> {
+    pub async fn new(config: &Config) -> Result<Self, UnhandledError> {
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
             .register("worker".to_string(), Duration::from_secs(60))
@@ -50,9 +51,20 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
-        // TODO - this isn't really correct, we should instead specify the relevant vals
-        // in `Config`
-        let s3_client = aws_sdk_s3::Client::new(&aws_config::from_env().load().await);
+        let aws_credentials = aws_sdk_s3::config::Credentials::new(
+            &config.object_storage_access_key_id,
+            &config.object_storage_secret_access_key,
+            None,
+            None,
+            "environment",
+        );
+        let aws_conf = aws_sdk_s3::config::Builder::new()
+            .region(Region::new(config.object_storage_region.clone()))
+            .endpoint_url(&config.object_storage_endpoint)
+            .credentials_provider(aws_credentials)
+            .behavior_version(BehaviorVersion::latest())
+            .build();
+        let s3_client = aws_sdk_s3::Client::from_conf(aws_conf);
         let s3_client = S3Client::new(s3_client);
 
         let ss_cache = Arc::new(Mutex::new(SymbolSetCache::new(
@@ -64,7 +76,7 @@ impl AppContext {
             smp,
             pool.clone(),
             s3_client,
-            config.ss_bucket.clone(),
+            config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
         let caching_smp = Caching::new(saving_smp, ss_cache);
