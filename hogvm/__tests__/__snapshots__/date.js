@@ -1,79 +1,37 @@
-function fromUnixTimestamp (input) {
-    return __fromUnixTimestamp(input)
-}
-
-function toFloat (value) {
-    if (__isHogDateTime(value)) {
-        return value.dt
-    } else if (__isHogDate(value)) {
-        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
-        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
-        return Math.floor(day.diff(epoch, 'days').days)
-    }
-    return !isNaN(parseFloat(value)) ? parseFloat(value) : null
-}
-
 function toDateTime (input, zone) {
     return __toDateTime(input, zone)
-}
-
-function print (...args) {
-    console.log(...args.map(__printHogStringOutput))
-}
-
-function __fromUnixTimestamp(input) {
-    return __toHogDateTime(input)
-}
-
-function toUnixTimestampMilli (input, zone) {
-    return __toUnixTimestampMilli(input, zone)
-}
-
-function __toUnixTimestampMilli(input, zone) {
-    return __toUnixTimestamp(input, zone) * 1000
-}
-
-function toInt (value) {
-    if (__isHogDateTime(value)) {
-        return Math.floor(value.dt)
-    } else if (__isHogDate(value)) {
-        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
-        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
-        return Math.floor(day.diff(epoch, 'days').days)
-    }
-    return !isNaN(parseInt(value)) ? parseInt(value) : null
 }
 
 function fromUnixTimestampMilli (input) {
     return __fromUnixTimestampMilli(input)
 }
 
-function __toDateTime(input, zone) {
-    const dt = typeof input === 'number' ? input : DateTime.fromISO(input, { zone: zone || 'UTC' }).toSeconds()
-    return {
-        __hogDateTime__: true,
-        dt: dt,
-        zone: zone || 'UTC',
-    }
+function print (...args) {
+    console.log(...args.map(__printHogStringOutput))
 }
 
-function __fromUnixTimestampMilli(input) {
-        return __toHogDateTime(input / 1000)
+function toString (value) {
+    return __STLToString([value])
+}
+
+function toUnixTimestamp (input, zone) {
+    return __toUnixTimestamp(input, zone)
+}
+
+function toUnixTimestampMilli (input, zone) {
+    return __toUnixTimestampMilli(input, zone)
+}
+
+function fromUnixTimestamp (input) {
+    return __fromUnixTimestamp(input)
 }
 
 function toTimeZone (input, zone) {
     return __toTimeZone(input, zone)
 }
 
-function __toTimeZone(input, zone) {
-    if (!__isHogDateTime(input)) {
-        throw new Error('Expected a DateTime')
-    }
-    return { ...input, zone }
-}
-
-function toUnixTimestamp (input, zone) {
-    return __toUnixTimestamp(input, zone)
+function __toUnixTimestampMilli(input, zone) {
+    return __toUnixTimestamp(input, zone) * 1000
 }
 
 function __toUnixTimestamp(input, zone) {
@@ -86,45 +44,19 @@ function __toUnixTimestamp(input, zone) {
     return DateTime.fromISO(input, { zone: zone || 'UTC' }).toSeconds()
 }
 
-function __toHogDateTime(timestamp, zone) {
-    if (__isHogDate(timestamp)) {
-        const dateTime = DateTime.fromObject(
-            {
-                year: timestamp.year,
-                month: timestamp.month,
-                day: timestamp.day,
-            },
-            { zone: zone || 'UTC' }
-        )
-        return {
-            __hogDateTime__: true,
-            dt: dateTime.toSeconds(),
-            zone: dateTime.zoneName || 'UTC',
-        }
-    }
-    return {
-        __hogDateTime__: true,
-        dt: timestamp,
-        zone: zone || 'UTC',
-    }
-}
-
 function toDate (input) {
     return __toDate(input)
 }
 
-function __toDate(input) {
-    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input)
-    return {
-        __hogDate__: true,
-        year: dt.year,
-        month: dt.month,
-        day: dt.day,
+function toFloat (value) {
+    if (__isHogDateTime(value)) {
+        return value.dt
+    } else if (__isHogDate(value)) {
+        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
+        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+        return Math.floor(day.diff(epoch, 'days').days)
     }
-}
-
-function toString (value) {
-    return __STLToString([value])
+    return !isNaN(parseFloat(value)) ? parseFloat(value) : null
 }
 
 function __STLToString(args) {
@@ -179,7 +111,101 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
+}
+
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = {
+        '\b': '\\b',
+        '\f': '\\f',
+        '\r': '\\r',
+        '\n': '\\n',
+        '\t': '\\t',
+        '\0': '\\0',
+        '\v': '\\v',
+        '\\': '\\\\',
+        "'": "\\'",
+    }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
+
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
+}
+
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+function __toDateTime(input, zone) {
+    const dt = typeof input === 'number' ? input : DateTime.fromISO(input, { zone: zone || 'UTC' }).toSeconds()
+    return {
+        __hogDateTime__: true,
+        dt: dt,
+        zone: zone || 'UTC',
+    }
+}
+
+function __fromUnixTimestampMilli(input) {
+        return __toHogDateTime(input / 1000)
+}
+
+function __toTimeZone(input, zone) {
+    if (!__isHogDateTime(input)) {
+        throw new Error('Expected a DateTime')
+    }
+    return { ...input, zone }
+}
+
+function __fromUnixTimestamp(input) {
+    return __toHogDateTime(input)
+}
+
+function __toHogDateTime(timestamp, zone) {
+    if (__isHogDate(timestamp)) {
+        const dateTime = DateTime.fromObject(
+            {
+                year: timestamp.year,
+                month: timestamp.month,
+                day: timestamp.day,
+            },
+            { zone: zone || 'UTC' }
+        )
+        return {
+            __hogDateTime__: true,
+            dt: dateTime.toSeconds(),
+            zone: dateTime.zoneName || 'UTC',
+        }
+    }
+    return {
+        __hogDateTime__: true,
+        dt: timestamp,
+        zone: zone || 'UTC',
+    }
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
+}
+
+function toInt (value) {
+    if (__isHogDateTime(value)) {
+        return Math.floor(value.dt)
+    } else if (__isHogDate(value)) {
+        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
+        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+        return Math.floor(day.diff(epoch, 'days').days)
+    }
+    return !isNaN(parseInt(value)) ? parseInt(value) : null
+}
+
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
+}
+
+function __isHogDateTime(obj) {
+    return obj && obj.__hogDateTime__ === true
 }
 
 function __escapeIdentifier(identifier) {
@@ -199,40 +225,17 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = {
-        '\b': '\\b',
-        '\f': '\\f',
-        '\r': '\\r',
-        '\n': '\\n',
-        '\t': '\\t',
-        '\0': '\\0',
-        '\v': '\\v',
-        '\\': '\\\\',
-        "'": "\\'",
+function __toDate(input) {
+    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input)
+    return {
+        __hogDate__: true,
+        year: dt.year,
+        month: dt.month,
+        day: dt.day,
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
 }
 
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
-function __isHogDateTime(obj) {
-    return obj && obj.__hogDateTime__ === true
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
-}let dt = fromUnixTimestamp(1234334543);
+let dt = fromUnixTimestamp(1234334543);
 print(dt);
 print(toString(dt));
 print(toInt(toUnixTimestamp(dt)));

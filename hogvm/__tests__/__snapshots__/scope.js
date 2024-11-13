@@ -2,6 +2,19 @@ function print (...args) {
     console.log(...args.map(__printHogStringOutput))
 }
 
+function __setProperty(objectOrArray, key, value) {
+    if (Array.isArray(objectOrArray)) {
+        if (key > 0) {
+            objectOrArray[key - 1] = value
+        } else {
+            objectOrArray[objectOrArray.length + key] = value
+        }
+    } else {
+        objectOrArray[key] = value
+    }
+    return objectOrArray
+}
+
 function __printHogStringOutput(obj) {
     if (typeof obj === 'string') {
         return obj
@@ -42,6 +55,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -74,15 +88,11 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
     return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
 }
 
 function __isHogError(obj) {
@@ -95,7 +105,13 @@ function __isHogDate(obj) {
 
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
-}let dbl = (x) => (x * 2);
+}
+
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
+}
+
+let dbl = (x) => (x * 2);
 print(dbl);
 print(dbl(2));
 print(dbl(8));
@@ -103,7 +119,7 @@ print("--------");
 let __x_var = 5;
 let varify = (x) => (x * __x_var);
 print(varify(2));
-__x_var = 10;
+__x_var = 10
 print(varify(2));
 print(varify(8));
 print("--------");
@@ -119,7 +135,7 @@ print("--------");
 let a = 3;
 function outerA() {
     print(a);
-    a = 4;
+    a = 4
     print(a);
 }
 function innerA() {
@@ -134,7 +150,7 @@ print("--------");
 let b = {"key": 3};
 function outerB() {
     print(b);
-    b.key = 4;
+    __setProperty(b, "key", 4)
     print(b);
 }
 function innerB() {

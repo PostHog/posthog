@@ -1,5 +1,37 @@
+function toDate (input) {
+    return __toDate(input)
+}
+
 function print (...args) {
     console.log(...args.map(__printHogStringOutput))
+}
+
+function __x_typeof (value) {
+    if (value === null || value === undefined) {
+        return 'null'
+    } else if (__isHogDateTime(value)) {
+        return 'datetime'
+    } else if (__isHogDate(value)) {
+        return 'date'
+    } else if (__isHogError(value)) {
+        return 'error'
+    } else if (__isHogCallable(value) || __isHogClosure(value)) {
+        return 'function'
+    } else if (Array.isArray(value)) {
+        if (value.__isHogTuple) {
+            return 'tuple'
+        }
+        return 'array'
+    } else if (typeof value === 'object') {
+        return 'object'
+    } else if (typeof value === 'number') {
+        return Number.isInteger(value) ? 'integer' : 'float'
+    } else if (typeof value === 'string') {
+        return 'string'
+    } else if (typeof value === 'boolean') {
+        return 'boolean'
+    }
+    return 'unknown'
 }
 
 function __printHogStringOutput(obj) {
@@ -7,31 +39,6 @@ function __printHogStringOutput(obj) {
         return obj
     }
     return __printHogValue(obj)
-}
-
-function toDate (input) {
-    return __toDate(input)
-}
-
-function __toDate(input) {
-    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input)
-    return {
-        __hogDate__: true,
-        year: dt.year,
-        month: dt.month,
-        day: dt.day,
-    }
-}
-
-function Error (message, payload) {
-    return __newHogError('Error', message, payload)
-}
-
-function __newHogError(type, message, payload) {
-    let error = new Error(message);
-    error.type = type
-    error.payload = payload
-    return error
 }
 
 function __printHogValue(obj, marked = new Set()) {
@@ -67,7 +74,20 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
+}
+
+function __isHogClosure(obj) {
+    return obj && obj.__isHogClosure__ === true
+}
+
+function __isHogError(obj) {
+    return obj && obj.__hogError__ === true
+}
+
+function __isHogDate(obj) {
+    return obj && obj.__hogDate__ === true
 }
 
 function __escapeIdentifier(identifier) {
@@ -99,55 +119,11 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
-}
-
-function __x_typeof (value) {
-    if (value === null || value === undefined) {
-        return 'null'
-    } else if (__isHogDateTime(value)) {
-        return 'datetime'
-    } else if (__isHogDate(value)) {
-        return 'date'
-    } else if (__isHogError(value)) {
-        return 'error'
-    } else if (__isHogCallable(value) || __isHogClosure(value)) {
-        return 'function'
-    } else if (Array.isArray(value)) {
-        if (value.__isHogTuple) {
-            return 'tuple'
-        }
-        return 'array'
-    } else if (typeof value === 'object') {
-        return 'object'
-    } else if (typeof value === 'number') {
-        return Number.isInteger(value) ? 'integer' : 'float'
-    } else if (typeof value === 'string') {
-        return 'string'
-    } else if (typeof value === 'boolean') {
-        return 'boolean'
-    }
-    return 'unknown'
-}
-
-function __isHogCallable(obj) {
-    return obj && typeof obj === 'function' && obj.__isHogCallable__
-}
-
-function __isHogError(obj) {
-    return obj && obj.__hogError__ === true
-}
-
-function __isHogDate(obj) {
-    return obj && obj.__hogDate__ === true
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
-}
-
-function __isHogClosure(obj) {
-    return obj && obj.__isHogClosure__ === true
 }
 
 function toDateTime (input, zone) {
@@ -161,7 +137,34 @@ function __toDateTime(input, zone) {
         dt: dt,
         zone: zone || 'UTC',
     }
-}function test(obj) {
+}
+
+function __toDate(input) {
+    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input)
+    return {
+        __hogDate__: true,
+        year: dt.year,
+        month: dt.month,
+        day: dt.day,
+    }
+}
+
+function Error (message, payload) {
+    return __newHogError('Error', message, payload)
+}
+
+function __newHogError(type, message, payload) {
+    let error = new Error(message);
+    error.type = type
+    error.payload = payload
+    return error
+}
+
+function __isHogCallable(obj) {
+    return obj && typeof obj === 'function' && obj.__isHogCallable__
+}
+
+function test(obj) {
     print(__x_typeof(obj));
 }
 test("hello world");

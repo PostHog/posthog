@@ -47,6 +47,47 @@ function print (...args) {
     console.log(...args.map(__printHogStringOutput))
 }
 
+function jsonParse (str) {
+    function convert(x) {
+        if (Array.isArray(x)) {
+            return x.map(convert)
+        } else if (typeof x === 'object' && x !== null) {
+            if (x.__hogDateTime__) {
+                return __toHogDateTime(x.dt, x.zone)
+            } else if (x.__hogDate__) {
+                return __toHogDate(x.year, x.month, x.day)
+            } else if (x.__hogError__) {
+                return __newHogError(x.type, x.message, x.payload)
+            }
+            const map = new Map()
+            for (const key in x) {
+                map.set(key, convert(x[key]))
+            }
+            return map
+        }
+        return x
+    }
+    return convert(JSON.parse(str))
+}
+
+function __getProperty(objectOrArray, key, nullish) {
+    if ((nullish && !objectOrArray) || key === 0) { return null }
+    if (Array.isArray(objectOrArray)) {
+        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
+    } else {
+        return objectOrArray[key]
+    }
+}
+
+function __toHogDate(year, month, day) {
+    return {
+        __hogDate__: true,
+        year: year,
+        month: month,
+        day: day,
+    }
+}
+
 function __printHogStringOutput(obj) {
     if (typeof obj === 'string') {
         return obj
@@ -87,6 +128,7 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
+    else if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
 
@@ -119,7 +161,7 @@ function __escapeString(value) {
         '\\': '\\\\',
         "'": "\\'",
     }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`; 
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 
 function __isHogCallable(obj) {
@@ -138,36 +180,11 @@ function __isHogDateTime(obj) {
     return obj && obj.__hogDateTime__ === true
 }
 
-function jsonParse (str) {
-    function convert(x) {
-        if (Array.isArray(x)) {
-            return x.map(convert)
-        } else if (typeof x === 'object' && x !== null) {
-            if (x.__hogDateTime__) {
-                return __toHogDateTime(x.dt, x.zone)
-            } else if (x.__hogDate__) {
-                return __toHogDate(x.year, x.month, x.day)
-            } else if (x.__hogError__) {
-                return __newHogError(x.type, x.message, x.payload)
-            }
-            const map = new Map()
-            for (const key in x) {
-                map.set(key, convert(x[key]))
-            }
-            return map
-        }
-        return x
-    }
-    return convert(JSON.parse(str))
-}
-
-function __toHogDate(year, month, day) {
-    return {
-        __hogDate__: true,
-        year: year,
-        month: month,
-        day: day,
-    }
+function __newHogError(type, message, payload) {
+    let error = new Error(message);
+    error.type = type
+    error.payload = payload
+    return error
 }
 
 function __toHogDateTime(timestamp, zone) {
@@ -197,12 +214,7 @@ function __isHogDate(obj) {
     return obj && obj.__hogDate__ === true
 }
 
-function __newHogError(type, message, payload) {
-    let error = new Error(message);
-    error.type = type
-    error.payload = payload
-    return error
-}let b = (x) => (x * 2);
+let b = (x) => (x * 2);
 print(b);
 print(b(2));
 print(b(8));
@@ -210,7 +222,7 @@ print("--------");
 let func = (x) => (x * 2);
 let arr = [func];
 print(func(2));
-print(arr[((1) > 0 ? (1 - 1) : ((arr).length + (1)))](2));
+print(__getProperty(arr, 1, false)(2));
 print((x) => (x * 2)(2));
 print("--------");
 let withArg = (x) => {
