@@ -472,7 +472,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     return open
                 },
-                setVisualizationType: (_, { visualizationType }) => {
+                setVisualizationType: (state, { visualizationType }) => {
+                    if (state) {
+                        return true
+                    }
+
                     return visualizationType !== ChartDisplayType.ActionsTable
                 },
             },
