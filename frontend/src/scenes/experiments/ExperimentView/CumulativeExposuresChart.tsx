@@ -85,8 +85,8 @@ export function CumulativeExposuresChart(): JSX.Element {
 
     return (
         <div>
-            <div className="inline-flex space-x-2 mb-0">
-                <h2 className="mb-0 font-semibold text-lg">Cumulative exposures</h2>
+            <div className="flex space-x-2 items-center mb-2">
+                <h2 className="font-semibold text-lg mb-0">Cumulative exposures</h2>
                 <Tooltip title="Monitor number of unique users exposed to the experiment, and confirm the allocation matches the expected distribution between variants.">
                     <IconInfo className="text-muted-alt text-base" />
                 </Tooltip>
