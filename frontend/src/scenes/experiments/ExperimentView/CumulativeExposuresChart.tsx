@@ -4,11 +4,24 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
-import { BaseMathType, ChartDisplayType, Experiment, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    _TrendsExperimentResults,
+    BaseMathType,
+    ChartDisplayType,
+    Experiment,
+    ExperimentResults,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { transformResultFilters } from '../utils'
 
-const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<InsightQueryNode> => {
+const getCumulativeExposuresQuery = (
+    experiment: Experiment,
+    experimentResults: ExperimentResults['result']
+): InsightVizNode<InsightQueryNode> => {
     const experimentInsightType = experiment.filters?.insight || InsightType.TRENDS
 
     const variants = experiment.parameters?.feature_flag_variants?.map((variant) => variant.key) || []
@@ -18,11 +31,12 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Ins
 
     // Trends Experiment
     if (experimentInsightType === InsightType.TRENDS && experiment.parameters?.custom_exposure_filter) {
+        const trendResults = experimentResults as _TrendsExperimentResults
         const queryFilters = {
-            ...experiment.parameters?.custom_exposure_filter,
+            ...trendResults.exposure_filters,
             display: ChartDisplayType.ActionsLineGraphCumulative,
-        }
-        return queryFromFilters(queryFilters)
+        } as _TrendsExperimentResults['exposure_filters']
+        return queryFromFilters(transformResultFilters(queryFilters))
     }
     return {
         kind: NodeKind.InsightVizNode,
@@ -65,7 +79,7 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Ins
 }
 
 export function CumulativeExposuresChart(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, experimentResults } = useValues(experimentLogic)
 
     return (
         <div>
@@ -75,7 +89,7 @@ export function CumulativeExposuresChart(): JSX.Element {
             {experiment.start_date ? (
                 <InsightViz
                     query={{
-                        ...getCumulativeExposuresQuery(experiment),
+                        ...getCumulativeExposuresQuery(experiment, experimentResults as ExperimentResults['result']),
                         showTable: true,
                     }}
                     setQuery={() => {}}
