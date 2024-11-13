@@ -24,8 +24,7 @@ let body := {
             'conversion_date_time': inputs.conversionDateTime
         }
     ],
-    'partialFailure': true,
-    'validateOnly': true
+    'partialFailure': true
 }
 
 if (not empty(inputs.conversionValue)) {

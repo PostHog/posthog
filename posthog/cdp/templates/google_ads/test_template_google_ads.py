@@ -45,7 +45,6 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
                             }
                         ],
                         "partialFailure": True,
-                        "validateOnly": True,
                     },
                 },
             )
