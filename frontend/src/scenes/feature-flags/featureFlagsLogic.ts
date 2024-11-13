@@ -146,11 +146,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }),
         ],
         // Check to see if any non-default filters are being used
-        usingFilters: [(s) => [s.filters], (filters) => !objectsEqual(filters, DEFAULT_FILTERS)],
         shouldShowEmptyState: [
-            (s) => [s.featureFlagsLoading, s.featureFlags],
-            (featureFlagsLoading, featureFlags): boolean => {
-                return !featureFlagsLoading && featureFlags.results.length <= 0
+            (s) => [s.featureFlagsLoading, s.featureFlags, s.filters],
+            (featureFlagsLoading, featureFlags, filters): boolean => {
+                return (
+                    !featureFlagsLoading && featureFlags.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                )
             },
         ],
         breadcrumbs: [

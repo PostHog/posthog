@@ -219,6 +219,21 @@ describe('Feature Flags', () => {
         cy.get(`[data-row-key=${disabledPrefixFlagName}]`).parent().first().contains('Disabled')
     })
 
+    it('Show empty state when filters are too restrictive', () => {
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+
+        const noResultsSearchTerm = 'zzzzzzzzzzz_no_flags_with_this_name_zzzzzzzzzzz'
+        cy.get('[data-attr=feature-flag-search]')
+            .focus()
+            .type(noResultsSearchTerm)
+            .should('have.value', noResultsSearchTerm)
+        cy.get('[data-attr=feature-flag-table]').should(
+            'contain',
+            'No results for this filter, change filter or create a new flag.'
+        )
+        cy.get('[data-attr=feature-flag-table]').should('not.contain', noResultsSearchTerm)
+    })
+
     it('Enable and disable feature flags from list', () => {
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
 

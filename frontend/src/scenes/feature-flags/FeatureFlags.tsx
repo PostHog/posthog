@@ -3,9 +3,11 @@ import { LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-u
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -24,6 +26,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { ProductKey } from '~/types'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -34,7 +37,6 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { FeatureFlagsEmptyState } from './EmptyState'
 import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFlagsLogic'
 
 export const scene: SceneExport = {
@@ -55,8 +57,7 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState, usingFilters } =
-        useValues(flagLogic)
+    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
     const { updateFeatureFlag, loadFeatureFlags, setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -358,13 +359,18 @@ export function OverViewTab({
         </div>
     )
 
-    if (shouldShowEmptyState) {
-        // Only show product intro if there are no results and no filters being applied
-        return <FeatureFlagsEmptyState showProductIntroduction={!usingFilters} filters={filtersSection} />
-    }
-
     return (
         <>
+            <ProductIntroduction
+                productName="Feature flags"
+                productKey={ProductKey.FEATURE_FLAGS}
+                thingName="feature flag"
+                description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+                docsURL="https://posthog.com/docs/feature-flags/manual"
+                action={() => router.actions.push(urls.featureFlag('new'))}
+                isEmpty={shouldShowEmptyState}
+                customHog={FeatureFlagHog}
+            />
             <div>{filtersSection}</div>
             <LemonDivider className="my-4" />
             <div className="mb-4">
