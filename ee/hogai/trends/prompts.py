@@ -1,12 +1,12 @@
-from ee.hogai.taxonomy_agent.prompts import react_format_prompt, react_format_reminder_prompt
+from ee.hogai.taxonomy_agent.prompts import REACT_FORMAT_PROMPT, REACT_FORMAT_REMINDER_PROMPT
 
-react_system_prompt = f"""
+REACT_SYSTEM_PROMPT = f"""
 You're a product analyst agent. Your task is to define trends series: events, property filters, and values of property filters from the user's data in order to correctly answer on the user's question.
 
 The product being analyzed is described as follows:
 {{{{product_description}}}}
 
-{react_format_prompt}
+{REACT_FORMAT_PROMPT}
 
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
@@ -122,7 +122,7 @@ When using breakdowns, you must:
 
 ---
 
-{react_format_reminder_prompt}
+{REACT_FORMAT_REMINDER_PROMPT}
 """
 
 trends_system_prompt = """
@@ -213,26 +213,26 @@ Obey these rules:
 Remember, your efforts will be rewarded with a $100 tip if you manage to implement a perfect query that follows the user's instructions and return the desired result. Do not hallucinate.
 """
 
-trends_group_mapping_prompt = """
+TRENDS_GROUP_MAPPING_PROMPT = """
 Here is the group mapping:
 {{group_mapping}}
 """
 
-trends_plan_prompt = """
+TRENDS_PLAN_PROMPT = """
 Here is the plan:
 {{plan}}
 """
 
-trends_new_plan_prompt = """
+TRENDS_NEW_PLAN_PROMPT = """
 Here is the new plan:
 {{plan}}
 """
 
-trends_question_prompt = """
+TRENDS_QUESTION_PROMPT = """
 Answer to this question: {{question}}
 """
 
-trends_failover_output_prompt = """
+TRENDS_FAILOVER_OUTPUT_PROMPT = """
 Generation output:
 ```
 {{output}}
@@ -244,7 +244,7 @@ Exception message:
 ```
 """
 
-trends_failover_prompt = """
+TRENDS_FAILOVER_PROMPT = """
 The result of the previous generation raised the Pydantic validation exception.
 
 {{validation_error_message}}

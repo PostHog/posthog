@@ -12,7 +12,7 @@ use tracing::info;
 
 use crate::{
     config::Config,
-    error::Error,
+    error::UnhandledError,
     frames::resolver::Resolver,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
@@ -33,7 +33,7 @@ pub struct AppContext {
 }
 
 impl AppContext {
-    pub async fn new(config: &Config) -> Result<Self, Error> {
+    pub async fn new(config: &Config) -> Result<Self, UnhandledError> {
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
             .register("worker".to_string(), Duration::from_secs(60))
