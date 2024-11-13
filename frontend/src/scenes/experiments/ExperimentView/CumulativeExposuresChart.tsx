@@ -18,7 +18,11 @@ const getCumulativeExposuresQuery = (experiment: Experiment): InsightVizNode<Ins
 
     // Trends Experiment
     if (experimentInsightType === InsightType.TRENDS && experiment.parameters?.custom_exposure_filter) {
-        return queryFromFilters(experiment.parameters.custom_exposure_filter)
+        const queryFilters = {
+            ...experiment.parameters?.custom_exposure_filter,
+            display: ChartDisplayType.ActionsLineGraphCumulative,
+        }
+        return queryFromFilters(queryFilters)
     }
     return {
         kind: NodeKind.InsightVizNode,
