@@ -2,6 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -17,6 +18,25 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, InsightType, StepOrderValue } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+
+export const commonActionFilterProps = {
+    actionsTaxonomicGroupTypes: [
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.DataWarehouse,
+    ],
+    propertiesTaxonomicGroupTypes: [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.SessionProperties,
+        TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.DataWarehouseProperties,
+        TaxonomicFilterGroupType.DataWarehousePersonProperties,
+    ],
+}
 
 export function FunnelAggregationSelect({
     value,

@@ -178,10 +178,6 @@ export const experimentLogic = kea<experimentLogicType>([
         archiveExperiment: true,
         resetRunningExperiment: true,
         checkFlagImplementationWarning: true,
-        openExperimentGoalModal: true,
-        closeExperimentGoalModal: true,
-        openExperimentExposureModal: true,
-        closeExperimentExposureModal: true,
         openExperimentCollectionGoalModal: true,
         closeExperimentCollectionGoalModal: true,
         openShipVariantModal: true,
@@ -435,27 +431,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFlagImplementationWarning: (_, { warning }) => warning,
             },
         ],
-        // TODO: delete with the old UI
-        exposureAndSampleSize: [
-            { exposure: 0, sampleSize: 0 } as { exposure: number; sampleSize: number },
-            {
-                setExposureAndSampleSize: (_, { exposure, sampleSize }) => ({ exposure, sampleSize }),
-            },
-        ],
-        isExperimentGoalModalOpen: [
-            false,
-            {
-                openExperimentGoalModal: () => true,
-                closeExperimentGoalModal: () => false,
-            },
-        ],
-        isExperimentExposureModalOpen: [
-            false,
-            {
-                openExperimentExposureModal: () => true,
-                closeExperimentExposureModal: () => false,
-            },
-        ],
         isExperimentCollectionGoalModalOpen: [
             false,
             {
@@ -641,7 +616,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     minimum_detectable_effect: minimumDetectableEffect,
                 },
             })
-            actions.closeExperimentGoalModal()
         },
         updateExperimentCollectionGoal: async () => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -664,20 +638,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     feature_flag_variants: values.experiment?.parameters?.feature_flag_variants,
                 },
             })
-            actions.closeExperimentExposureModal()
         },
         updateExperimentSecondaryMetrics: async ({ metrics }) => {
             actions.updateExperiment({ secondary_metrics: metrics })
-        },
-        closeExperimentGoalModal: () => {
-            if (values.experimentValuesChangedLocally) {
-                actions.loadExperiment()
-            }
-        },
-        closeExperimentExposureModal: () => {
-            if (values.experimentValuesChangedLocally) {
-                actions.loadExperiment()
-            }
         },
         closeExperimentCollectionGoalModal: () => {
             if (values.experimentValuesChangedLocally) {

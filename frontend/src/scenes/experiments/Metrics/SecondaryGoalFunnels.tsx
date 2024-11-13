@@ -1,7 +1,6 @@
 import { LemonLabel } from '@posthog/lemon-ui'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -18,7 +17,12 @@ import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types
 
 import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { FunnelAggregationSelect, FunnelAttributionSelect, FunnelConversionWindowFilter } from './Selectors'
+import {
+    commonActionFilterProps,
+    FunnelAggregationSelect,
+    FunnelAttributionSelect,
+    FunnelConversionWindowFilter,
+} from './Selectors'
 
 export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -103,22 +107,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                 seriesIndicatorType="numeric"
                 sortable={true}
                 showNestedArrow={true}
-                actionsTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.Actions,
-                    TaxonomicFilterGroupType.DataWarehouse,
-                ]}
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                    TaxonomicFilterGroupType.DataWarehouseProperties,
-                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                ]}
+                {...commonActionFilterProps}
             />
             <div className="mt-4 space-y-4">
                 <FunnelAggregationSelect

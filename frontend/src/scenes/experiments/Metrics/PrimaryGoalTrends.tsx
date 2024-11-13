@@ -1,6 +1,5 @@
 import { LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,6 +15,8 @@ import { FilterType } from '~/types'
 
 import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import { commonActionFilterProps } from './Selectors'
+
 export function PrimaryGoalTrends(): JSX.Element {
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
     const { setExperiment, setTrendsMetric } = useActions(experimentLogic)
@@ -102,22 +103,7 @@ export function PrimaryGoalTrends(): JSX.Element {
                 showSeriesIndicator={true}
                 entitiesLimit={1}
                 showNumericalPropsOnly={true}
-                actionsTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.Actions,
-                    TaxonomicFilterGroupType.DataWarehouse,
-                ]}
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                    TaxonomicFilterGroupType.DataWarehouseProperties,
-                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                ]}
+                {...commonActionFilterProps}
             />
             <div className="mt-4 space-y-4">
                 <TestAccountFilterSwitch

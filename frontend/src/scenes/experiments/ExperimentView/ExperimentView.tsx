@@ -7,7 +7,6 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import { PrimaryTrendsExposureModal } from '../Metrics/PrimaryTrendsExposureModal'
 import {
     ExperimentLoadingAnimation,
     LoadingState,
@@ -121,7 +120,6 @@ export function ExperimentView(): JSX.Element {
                                 />
                             </>
                         )}
-                        <PrimaryTrendsExposureModal experimentId={experimentId} />
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
                     </>

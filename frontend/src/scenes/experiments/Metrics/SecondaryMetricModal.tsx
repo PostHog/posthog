@@ -19,9 +19,7 @@ export function SecondaryMetricModal({
     onClose: () => void
 }): JSX.Element {
     const { experiment, experimentLoading, getSecondaryMetricType } = useValues(experimentLogic({ experimentId }))
-    const { closeExperimentGoalModal, updateExperimentGoal, setExperiment } = useActions(
-        experimentLogic({ experimentId })
-    )
+    const { updateExperimentGoal, setExperiment } = useActions(experimentLogic({ experimentId }))
     const metricType = getSecondaryMetricType(metricIdx)
 
     return (
@@ -32,7 +30,7 @@ export function SecondaryMetricModal({
             title="Change secondary metric"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={closeExperimentGoalModal}>
+                    <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={() => {}}>
                         Cancel
                     </LemonButton>
                     <LemonButton
