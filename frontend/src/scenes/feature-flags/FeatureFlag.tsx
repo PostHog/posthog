@@ -917,7 +917,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             ) : (
                 <div className="mb-8">
                     <h3 className="l3">Served value</h3>
-                    <div className="mb-2">
+                    <div className="mb-2" data-attr="feature-flag-served-value-segmented-button">
                         <LemonSegmentedButton
                             size="small"
                             options={[
@@ -1103,6 +1103,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                             onChange(valueInt)
                                                         }}
                                                         suffix={<span>%</span>}
+                                                        data-attr="feature-flag-variant-rollout-percentage-input"
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (
