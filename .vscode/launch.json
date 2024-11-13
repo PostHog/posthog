@@ -160,6 +160,13 @@
             "justMyCode": true
         },
         {
+            "name": "Frontend: Debug Jest Tests",
+            "type": "node-terminal",
+            "command": "pnpm test:unit",
+            "request": "launch",
+            "cwd": "${workspaceFolder}"
+        },
+        {
             "name": "(lldb) Attach",
             "type": "cppdbg",
             "request": "attach",
