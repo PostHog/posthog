@@ -122,6 +122,7 @@ export function Products(): JSX.Element {
                                     onClick={handleStartOnboarding}
                                     type="primary"
                                     status="alt"
+                                    data-attr="onboarding-continue"
                                 >
                                     Go
                                 </LemonButton>
@@ -131,6 +132,7 @@ export function Products(): JSX.Element {
                                 type="primary"
                                 status="alt"
                                 onClick={handleStartOnboarding}
+                                data-attr="onboarding-continue"
                                 sideIcon={<IconArrowRight />}
                                 disabledReason={
                                     selectedProducts.length === 0 ? 'Select a product to start with' : undefined
