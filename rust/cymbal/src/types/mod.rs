@@ -86,6 +86,22 @@ impl Exception {
     }
 }
 
+impl ErrProps {
+    pub fn add_error_message(&mut self, msg: impl ToString) {
+        let mut errors = match self.other.remove("$cymbal_errors") {
+            Some(serde_json::Value::Array(errors)) => errors,
+            _ => Vec::new(),
+        };
+
+        errors.push(serde_json::Value::String(msg.to_string()));
+
+        self.other.insert(
+            "$cymbal_errors".to_string(),
+            serde_json::Value::Array(errors),
+        );
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_types::ClickHouseEvent;

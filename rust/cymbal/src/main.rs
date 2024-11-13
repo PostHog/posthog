@@ -78,8 +78,11 @@ async fn main() {
         };
         metrics::counter!(EVENT_RECEIVED).increment(1);
 
-        let _processed_event = match handle_event(&context, event, offset).await {
-            Ok(r) => r,
+        let _processed_event = match handle_event(&context, event).await {
+            Ok(r) => {
+                offset.store().unwrap();
+                r
+            }
             Err(e) => {
                 error!("Error handling event: {:?}", e);
                 // If we get an unhandled error, it means we have some logical error in the code, or a

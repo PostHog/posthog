@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use app_context::AppContext;
-use common_kafka::kafka_consumer::Offset;
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
@@ -21,46 +20,40 @@ pub mod types;
 
 pub async fn handle_event(
     context: &AppContext,
-    event: ClickHouseEvent,
-    offset: Offset,
+    mut event: ClickHouseEvent,
 ) -> Result<Option<ClickHouseEvent>, UnhandledError> {
     let mut props = match get_props(&event) {
         Ok(r) => r,
         Err(e) => {
-            offset.store().unwrap();
             warn!("Failed to get props: {}", e);
-            // Drop exceptions with no properties - our users don't care about them, and neither do we.
-            return Ok(None);
+            add_error_to_event(&mut event, e)?;
+            return Ok(Some(event));
         }
     };
 
     let exceptions = match take_exception_list(event.uuid, &mut props) {
         Ok(r) => r,
         Err(e) => {
-            offset.store().unwrap();
             warn!("Failed to take exception list: {}", e);
-            // Some exceptions don't have an exception list - if that's the case, we just pass them on.
-            // TODO - we should probably drop these exceptions to, I'm not sure
+            // Add an error message, and patch the event properties back up.
+            props.add_error_message(format!("Failed to take exception list: {}", e));
+            event.properties = Some(serde_json::to_string(&props).unwrap());
             return Ok(Some(event));
         }
     };
 
     let mut results = Vec::new();
     for exception in exceptions.into_iter() {
-        // If we get an unhandled error during exception processing, we drop the offset without storing it,
-        // which means we'll take lag, but won't lose data.
+        // If we get an unhandled error during exception processing, we return an error, which should
+        // cause the caller to drop the offset without storing it - unhandled exceptions indicate
+        // a dependency is down, or some bug, adn we want to take lag in those situations.
         results.push(process_exception(context, event.team_id, exception).await?);
     }
 
     props.fingerprint = Some(generate_fingerprint(&results));
     props.exception_list = Some(results);
 
-    // "But we can open the box" said toad.
-    let mut event = event;
     event.properties = Some(serde_json::to_string(&props).unwrap());
-
-    // We've processed the exception event succesffully, so we can store the offset.
-    offset.store().unwrap();
 
     Ok(Some(event))
 }
@@ -144,4 +137,25 @@ async fn process_exception(
     });
 
     Ok(e)
+}
+
+// This is stupidly expensive, since it round-trips the event through JSON, lol. We should change ClickhouseEvent to only do serde at the
+// edges
+pub fn add_error_to_event(
+    event: &mut ClickHouseEvent,
+    e: impl ToString,
+) -> Result<(), UnhandledError> {
+    let mut props = event.take_raw_properties()?;
+    let mut errors = match props.remove("$cymbal_errors") {
+        Some(serde_json::Value::Array(errors)) => errors,
+        _ => Vec::new(),
+    };
+
+    errors.push(serde_json::Value::String(e.to_string()));
+    props.insert(
+        "$cymbal_errors".to_string(),
+        serde_json::Value::Array(errors),
+    );
+    event.set_raw_properties(props)?;
+    Ok(())
 }
