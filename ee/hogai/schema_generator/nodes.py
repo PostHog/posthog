@@ -24,6 +24,7 @@ from ee.hogai.schema_generator.prompts import (
 )
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils import AssistantState, AssistantNode, filter_visualization_conversation
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     FailureMessage,
@@ -101,6 +102,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     plan=generated_plan,
                     reasoning_steps=message.reasoning_steps,
                     answer=message.answer,
+                    cache_key=get_query_runner(message.answer.model_dump(), self._team).get_cache_key(),
+                    done=True,
                 )
             ],
             "intermediate_steps": None,

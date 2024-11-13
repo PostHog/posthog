@@ -2239,11 +2239,14 @@ export enum AssistantMessageType {
 export interface HumanMessage {
     type: AssistantMessageType.Human
     content: string
+    /** Human messages are only appended when done. */
+    done: true
 }
 
 export interface AssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
+    done?: boolean
 }
 
 export interface VisualizationMessage {
@@ -2251,16 +2254,21 @@ export interface VisualizationMessage {
     plan?: string
     reasoning_steps?: string[] | null
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
+    cache_key?: string
+    done?: boolean
 }
 
 export interface FailureMessage {
     type: AssistantMessageType.Failure
     content?: string
+    done?: boolean
 }
 
 export interface RouterMessage {
     type: AssistantMessageType.Router
     content: string
+    /** Router messages are not streamed, so they can only be done. */
+    done: true
 }
 
 export type RootAssistantMessage =

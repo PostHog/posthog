@@ -15,6 +15,7 @@ from ee.hogai.funnels.nodes import (
 )
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
+from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
     TrendsGeneratorToolsNode,
@@ -26,6 +27,7 @@ from posthog.models.team.team import Team
 from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
+    AssistantMessage,
     VisualizationMessage,
 )
 
@@ -123,7 +125,7 @@ class Assistant:
             generate_trends_node.router,
             path_map={
                 "tools": AssistantNodeName.TRENDS_GENERATOR_TOOLS,
-                "next": AssistantNodeName.END,
+                "next": AssistantNodeName.SUMMARIZER,
             },
         )
 
@@ -160,9 +162,13 @@ class Assistant:
             generate_trends_node.router,
             path_map={
                 "tools": AssistantNodeName.FUNNEL_GENERATOR_TOOLS,
-                "next": AssistantNodeName.END,
+                "next": AssistantNodeName.SUMMARIZER,
             },
         )
+
+        summarizer_node = SummarizerNode(self._team)
+        builder.add_node(AssistantNodeName.SUMMARIZER, summarizer_node.run)
+        builder.add_edge(AssistantNodeName.SUMMARIZER, AssistantNodeName.END)
 
         return builder.compile()
 
@@ -204,14 +210,21 @@ class Assistant:
                         yield state_update[node_name]["messages"][0]
                     elif state_update[node_name].get("intermediate_steps", []):
                         yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-
+                elif AssistantNodeName.SUMMARIZER in state_update:
+                    chunks = AIMessageChunk(content="")
+                    yield state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
             elif is_message_update(update):
                 langchain_message, langgraph_state = update[1]
-                for node_name, viz_node in VISUALIZATION_NODES.items():
-                    if langgraph_state["langgraph_node"] == node_name and isinstance(langchain_message, AIMessageChunk):
+                if isinstance(langchain_message, AIMessageChunk):
+                    if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
                         chunks += langchain_message  # type: ignore
-                        parsed_message = viz_node.parse_output(chunks.tool_calls[0]["args"])
+                        parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
+                            chunks.tool_calls[0]["args"]
+                        )
                         if parsed_message:
                             yield VisualizationMessage(
                                 reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
                             )
+                    elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
+                        chunks += langchain_message  # type: ignore
+                        yield AssistantMessage(content=chunks.content)

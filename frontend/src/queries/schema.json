@@ -739,6 +739,9 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai",
                     "type": "string"
@@ -5743,6 +5746,9 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
@@ -7059,12 +7065,17 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "const": true,
+                    "description": "Human messages are only appended when done.",
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "human",
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": ["type", "content", "done"],
             "type": "object"
         },
         "InsightActorsQuery": {
@@ -11128,12 +11139,17 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "const": true,
+                    "description": "Router messages are not streamed, so they can only be done.",
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai/router",
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": ["type", "content", "done"],
             "type": "object"
         },
         "SamplingRate": {
@@ -12277,6 +12293,12 @@
                             "$ref": "#/definitions/AssistantFunnelsQuery"
                         }
                     ]
+                },
+                "cache_key": {
+                    "type": "string"
+                },
+                "done": {
+                    "type": "boolean"
                 },
                 "plan": {
                     "type": "string"
