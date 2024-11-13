@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS posthog_errortrackingissuefingerprintv2 (
     id UUID PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     fingerprint TEXT NOT NULL,
-    version INTEGER NOT NULL,
+    version BIGINT NOT NULL,
     team_id INTEGER NOT NULL,
     issue_id UUID NOT NULL,
     UNIQUE(team_id, fingerprint)

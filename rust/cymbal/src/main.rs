@@ -9,8 +9,7 @@ use cymbal::{
     config::Config,
     error::Error,
     fingerprinting,
-    issue_resolution::{resolve_issue, resolve_issue_id},
-    issues::Issue,
+    issue_resolution::resolve_issue_id,
     metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
     types::{ErrProps, Stacktrace},
 };
