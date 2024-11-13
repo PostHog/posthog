@@ -14,7 +14,7 @@ let body := {
 	'event_source_id': inputs.pixelId,
 	'data': [
 		{
-			'event': event.event,
+			'event': inputs.eventName,
 			'event_time': toUnixTimestamp(event.timestamp),
 			'event_id': event.uuid,
 			'user': {},
@@ -67,6 +67,15 @@ if (res.status >= 400) {
             "type": "string",
             "label": "Pixel ID",
             "description": "You must obtain a Pixel ID to use the Conversions API. If you’ve already set up a Pixel for your website, we recommend that you use the same Pixel ID for your browser and server events.",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "eventName",
+            "type": "string",
+            "label": "Event name",
+            "description": "A standard event or custom event name.",
+            "default": "{event.event}",
             "secret": False,
             "required": True,
         },
