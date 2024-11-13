@@ -1,13 +1,17 @@
 import { IconFlag } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { EventType } from '~/types'
+import { stackFrameLogic } from './stackFrameLogic'
+import api from 'lib/api'
 
 interface StackFrame {
     filename: string
@@ -27,41 +31,47 @@ interface ExceptionTrace {
     value: string
 }
 
-function parseToFrames(rawTrace: string): StackFrame[] {
-    return JSON.parse(rawTrace)
-}
-
-function StackTrace({ rawTrace, showAllFrames }: { rawTrace: string; showAllFrames: boolean }): JSX.Element | null {
-    const frames = parseToFrames(rawTrace)
+function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFrames: boolean }): JSX.Element | null {
+    const { stackFrames } = useValues(stackFrameLogic)
+    const { loadFrames } = useActions(stackFrameLogic)
 
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
-    const panels = displayFrames.map(({ filename, lineno, colno, function: functionName, context_line }, index) => ({
-        key: index,
-        header: (
-            <div className="flex flex-wrap space-x-0.5">
-                <span>{filename}</span>
-                {functionName ? (
-                    <div className="flex space-x-0.5">
-                        <span className="text-muted">in</span>
-                        <span>{functionName}</span>
-                    </div>
-                ) : null}
-                {lineno && colno ? (
-                    <div className="flex space-x-0.5">
-                        <span className="text-muted">at line</span>
-                        <span>
-                            {lineno}:{colno}
-                            {context_line ? `:${context_line}` : ''}
-                        </span>
-                    </div>
-                ) : null}
-            </div>
-        ),
-        content: index % 2 == 0 ? 'THis is a test' : null,
-    }))
+    useEffect(() => {
+        const frameIds = frames.map((f) => f.raw_id)
+        loadFrames({ frameIds })
+    }, [frames, loadFrames])
 
-    console.log(panels)
+    const panels = displayFrames.map(
+        ({ filename, lineno, colno, function: functionName, context_line, raw_id }, index) => {
+            const stackFrame = stackFrames[raw_id]
+
+            return {
+                key: index,
+                header: (
+                    <div className="flex flex-wrap space-x-0.5">
+                        <span>{filename}</span>
+                        {functionName ? (
+                            <div className="flex space-x-0.5">
+                                <span className="text-muted">in</span>
+                                <span>{functionName}</span>
+                            </div>
+                        ) : null}
+                        {lineno && colno ? (
+                            <div className="flex space-x-0.5">
+                                <span className="text-muted">at line</span>
+                                <span>
+                                    {lineno}:{colno}
+                                    {context_line ? `:${context_line}` : ''}
+                                </span>
+                            </div>
+                        ) : null}
+                    </div>
+                ),
+                content: index % 2 == 0 ? 'THis is a test' : null,
+            }
+        }
+    )
 
     return <LemonCollapse defaultActiveKeys={[0]} multiple panels={panels} size="xsmall" />
 }
@@ -92,7 +102,7 @@ function ChainedStackTraces({ exceptionList }: { exceptionList: ExceptionTrace[]
                 return (
                     <div key={index} className="flex flex-col gap-1 mt-6">
                         <h3 className="mb-0">{value}</h3>
-                        <StackTrace rawTrace={JSON.stringify(frames || [])} showAllFrames={showAllFrames} />
+                        <StackTrace frames={frames || []} showAllFrames={showAllFrames} />
                     </div>
                 )
             })}
