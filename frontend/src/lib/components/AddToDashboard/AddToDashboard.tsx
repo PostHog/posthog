@@ -25,6 +25,7 @@ export function AddToDashboard({ insight, setOpenModal }: SaveToDashboardProps):
                         <IconDashboard />
                     </IconWithCount>
                 }
+                tooltip={dashboards.length === 0 ? 'Add to dashboard' : 'Manage dashboards'}
             >
                 Dashboards
             </LemonButton>
