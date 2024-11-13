@@ -8251,6 +8251,95 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "LabelConfigBase": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "enum": [
+                        "color-1",
+                        "color-2",
+                        "color-3",
+                        "color-4",
+                        "color-5",
+                        "color-6",
+                        "color-7",
+                        "color-8",
+                        "color-9",
+                        "color-10",
+                        "color-11",
+                        "color-12",
+                        "color-13",
+                        "color-14",
+                        "color-15"
+                    ],
+                    "type": "string"
+                }
+            },
+            "required": ["color"],
+            "type": "object"
+        },
+        "LabelConfigByKey": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "key",
+                    "type": "string"
+                },
+                "color": {
+                    "enum": [
+                        "color-1",
+                        "color-2",
+                        "color-3",
+                        "color-4",
+                        "color-5",
+                        "color-6",
+                        "color-7",
+                        "color-8",
+                        "color-9",
+                        "color-10",
+                        "color-11",
+                        "color-12",
+                        "color-13",
+                        "color-14",
+                        "color-15"
+                    ],
+                    "type": "string"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
+        },
+        "LabelConfigByPosition": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "position",
+                    "type": "string"
+                },
+                "color": {
+                    "enum": [
+                        "color-1",
+                        "color-2",
+                        "color-3",
+                        "color-4",
+                        "color-5",
+                        "color-6",
+                        "color-7",
+                        "color-8",
+                        "color-9",
+                        "color-10",
+                        "color-11",
+                        "color-12",
+                        "color-13",
+                        "color-14",
+                        "color-15"
+                    ],
+                    "type": "string"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
+        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12724,6 +12813,26 @@
                 "kind": {
                     "const": "TrendsQuery",
                     "type": "string"
+                },
+                "labels": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/LabelConfigByKey"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/LabelConfigByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "integer"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Configuration of labels"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
