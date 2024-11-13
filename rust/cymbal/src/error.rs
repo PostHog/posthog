@@ -21,7 +21,7 @@ pub enum UnhandledError {
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
     #[error(transparent)]
-    S3Error(#[from] aws_sdk_s3::Error),
+    S3Error(#[from] Box<aws_sdk_s3::Error>),
     #[error(transparent)]
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
     #[error("Unhandled serde error: {0}")]
@@ -130,5 +130,11 @@ impl From<reqwest::Error> for JsResolveErr {
 
         // Fallback for any other errors
         JsResolveErr::NetworkError(e.to_string())
+    }
+}
+
+impl From<aws_sdk_s3::Error> for UnhandledError {
+    fn from(e: aws_sdk_s3::Error) -> Self {
+        UnhandledError::S3Error(Box::new(e))
     }
 }
