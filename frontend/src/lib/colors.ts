@@ -25,7 +25,9 @@ const dataColorVars = [
     'color-13',
     'color-14',
     'color-15',
-]
+] as const
+
+export type DataColor = (typeof dataColorVars)[number]
 
 export const tagColors: LemonTagType[] = [
     'primary',
