@@ -4,24 +4,23 @@ import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'
 
-
 /* Insight series colors. */
 const dataColorVars = [
-    'color-1',
-    'color-2',
-    'color-3',
-    'color-4',
-    'color-5',
-    'color-6',
-    'color-7',
-    'color-8',
-    'color-9',
-    'color-10',
-    'color-11',
-    'color-12',
-    'color-13',
-    'color-14',
-    'color-15',
+    'data-color-1',
+    'data-color-2',
+    'data-color-3',
+    'data-color-4',
+    'data-color-5',
+    'data-color-6',
+    'data-color-7',
+    'data-color-8',
+    'data-color-9',
+    'data-color-10',
+    'data-color-11',
+    'data-color-12',
+    'data-color-13',
+    'data-color-14',
+    'data-color-15',
 ] as const
 
 export type DataColorToken = `preset-{1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}`
@@ -62,12 +61,12 @@ export function getDataThemeColor(theme: DataColorTheme, color: DataColorToken):
  */
 export function getSeriesColor(index: number = 0): string {
     const adjustedIndex = index % dataColorVars.length
-    return getColorVar(`data-${dataColorVars[adjustedIndex]}`)
+    return getColorVar(dataColorVars[adjustedIndex])
 }
 
 /** Returns all color options for series */
 export function getSeriesColorPalette(): string[] {
-    return dataColorVars.map((colorVar) => getColorVar(`data-${colorVar}`))
+    return dataColorVars.map((colorVar) => getColorVar(colorVar))
 }
 
 /** Return the background color for the given series index. */
