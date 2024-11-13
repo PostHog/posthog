@@ -1277,7 +1277,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return null
                     }
 
-                    if (experimentResults.filters?.insight === InsightType.FUNNELS) {
+                    if (experimentResults.filters && experimentResults.filters?.insight === InsightType.FUNNELS) {
                         const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
                             ({ key }) => key === 'control'
                         ) as FunnelExperimentVariant

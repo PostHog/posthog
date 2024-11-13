@@ -1761,9 +1761,6 @@ export interface ExperimentTrendsQueryResponse {
     significance_code: ExperimentSignificanceCode
     p_value: number
     credible_intervals: Record<string, [number, number]>
-    filters?: {
-        insight?: InsightType
-    }
 }
 
 export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
@@ -1778,9 +1775,6 @@ export interface ExperimentFunnelsQueryResponse {
     significance_code: ExperimentSignificanceCode
     expected_loss: number
     credible_intervals: Record<string, [number, number]>
-    filters?: {
-        insight?: InsightType
-    }
 }
 
 export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
