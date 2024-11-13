@@ -1438,8 +1438,17 @@ export function resolveWebhookService(webhookUrl: string): string {
 function hexToRGB(hex: string): { r: number; g: number; b: number } {
     const originalString = hex.trim()
     const hasPoundSign = originalString[0] === '#'
-    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
+    let originalColor = hasPoundSign ? originalString.slice(1) : originalString
 
+    // convert 3-digit hex colors to 6-digit
+    if (originalColor.length === 3) {
+        originalColor = originalColor
+            .split('')
+            .map((c) => c + c)
+            .join('')
+    }
+
+    // make sure we have a 6-digit color
     if (originalColor.length !== 6) {
         console.warn(`Incorrectly formatted color string: ${hex}.`)
         return { r: 0, g: 0, b: 0 }
