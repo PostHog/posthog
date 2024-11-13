@@ -4,7 +4,7 @@ use serde_json::Value;
 use sqlx::Executor;
 use uuid::Uuid;
 
-use crate::error::Error;
+use crate::error::UnhandledError;
 
 use super::Frame;
 
@@ -39,7 +39,7 @@ impl ErrorTrackingStackFrame {
         }
     }
 
-    pub async fn save<'c, E>(&self, e: E) -> Result<(), Error>
+    pub async fn save<'c, E>(&self, e: E) -> Result<(), UnhandledError>
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
@@ -66,7 +66,11 @@ impl ErrorTrackingStackFrame {
         Ok(())
     }
 
-    pub async fn load<'c, E>(e: E, team_id: i32, raw_id: &str) -> Result<Option<Self>, Error>
+    pub async fn load<'c, E>(
+        e: E,
+        team_id: i32,
+        raw_id: &str,
+    ) -> Result<Option<Self>, UnhandledError>
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
