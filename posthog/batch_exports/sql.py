@@ -102,6 +102,8 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
     WHERE
         p.team_id = {{team_id:Int64}} AND
         (p.id, p.version) IN (SELECT id, version FROM all_new_persons)
+    ORDER BY
+        _inserted_at
 )
 
 """
