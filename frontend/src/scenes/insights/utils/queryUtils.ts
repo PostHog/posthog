@@ -146,6 +146,7 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
+            colorAssignmentBy: undefined,
         }
 
         if (isInsightQueryWithSeries(cleanedQuery)) {
