@@ -12555,6 +12555,10 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
+                "colorAssignmentBy": {
+                    "enum": ["key", "position"],
+                    "type": "string"
+                },
                 "decimalPlaces": {
                     "type": "number"
                 },

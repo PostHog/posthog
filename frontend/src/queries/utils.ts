@@ -333,6 +333,13 @@ export const getYAxisScaleType = (query: InsightQueryNode): string | undefined =
     return undefined
 }
 
+export const getColorAssignmentBy = (query: InsightQueryNode): string | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.colorAssignmentBy
+    }
+    return undefined
+}
+
 export const supportsPercentStackView = (q: InsightQueryNode | null | undefined): boolean =>
     isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(q) || ChartDisplayType.ActionsLineGraph)
 

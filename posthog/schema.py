@@ -1617,6 +1617,11 @@ class TrendsAlertConfig(BaseModel):
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 
 
+class ColorAssignmentBy(StrEnum):
+    KEY = "key"
+    POSITION = "position"
+
+
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1625,6 +1630,7 @@ class TrendsFilter(BaseModel):
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
+    colorAssignmentBy: Optional[ColorAssignmentBy] = None
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None

@@ -12,6 +12,7 @@ import posthog from 'posthog-js'
 import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { ColorAssignmentByPicker } from 'scenes/insights/EditorFilters/ColorAssignmentByPicker'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
@@ -52,6 +53,7 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        supportsColorAssignmentBy,
         yAxisScaleType,
         isNonTimeSeriesDisplay,
         compareFilter,
@@ -74,7 +76,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
-        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend
+        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsColorAssignmentBy
             ? [
                   {
                       title: 'Display',
@@ -84,6 +86,14 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                           { label: () => <ShowAlertThresholdLinesFilter /> },
                       ],
+                  },
+              ]
+            : []),
+        ...(supportsColorAssignmentBy
+            ? [
+                  {
+                      title: 'Color assignment',
+                      items: [{ label: () => <ColorAssignmentByPicker /> }],
                   },
               ]
             : []),
