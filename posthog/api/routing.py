@@ -147,37 +147,47 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         raise NotImplementedError()
 
     def get_queryset(self) -> QuerySet:
+        # Add a recursion guard
+        if getattr(self, "_in_get_queryset", False):
+            return super().get_queryset()
+
         try:
-            return self.dangerously_get_queryset()
-        except NotImplementedError:
-            pass
+            self._in_get_queryset = True
 
-        queryset = super().get_queryset()
-        # First of all make sure we do the custom filters before applying our own
-        try:
-            queryset = self.safely_get_queryset(queryset)
-        except NotImplementedError:
-            pass
+            try:
+                return self.dangerously_get_queryset()
+            except NotImplementedError:
+                pass
 
-        queryset = self._filter_queryset_by_parents_lookups(queryset)
+            queryset = super().get_queryset()
+            # First of all make sure we do the custom filters before applying our own
+            try:
+                queryset = self.safely_get_queryset(queryset)
+            except NotImplementedError:
+                pass
 
-        if self.action != "list":
-            # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
-            # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            queryset = self._filter_queryset_by_parents_lookups(queryset)
+
+            if self.action != "list":
+                # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
+                # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+                return queryset
+
+            # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
+            include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
+
+            # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
+            if self.scope_object == "project":
+                include_all_if_admin = True
+
+            # Only apply access control filter if we're not already in a recursive call
+            queryset = self.user_access_control.filter_queryset_by_access_level(
+                queryset, include_all_if_admin=include_all_if_admin
+            )
+
             return queryset
-
-        # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
-        include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
-
-        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
-        if self.scope_object == "project":
-            include_all_if_admin = True
-
-        queryset = self.user_access_control.filter_queryset_by_access_level(
-            queryset, include_all_if_admin=include_all_if_admin
-        )
-
-        return queryset
+        finally:
+            self._in_get_queryset = False
 
     def dangerously_get_object(self) -> Any:
         """
