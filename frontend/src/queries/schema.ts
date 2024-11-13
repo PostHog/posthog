@@ -888,6 +888,18 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
+export type LabelConfigBase = {
+    color: `color-${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15}`
+}
+
+export interface LabelConfigByPosition extends LabelConfigBase {
+    assignmentBy: 'position'
+}
+
+export interface LabelConfigByKey extends LabelConfigBase {
+    assignmentBy: 'key'
+}
+
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
     /**
@@ -904,6 +916,8 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /** Configuration of labels */
+    labels?: Record<string, LabelConfigByKey> | Record<integer, LabelConfigByPosition>
 }
 
 export type AssistantPropertyFilter =

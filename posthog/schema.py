@@ -856,6 +856,47 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
+class Color(StrEnum):
+    COLOR_1 = "color-1"
+    COLOR_2 = "color-2"
+    COLOR_3 = "color-3"
+    COLOR_4 = "color-4"
+    COLOR_5 = "color-5"
+    COLOR_6 = "color-6"
+    COLOR_7 = "color-7"
+    COLOR_8 = "color-8"
+    COLOR_9 = "color-9"
+    COLOR_10 = "color-10"
+    COLOR_11 = "color-11"
+    COLOR_12 = "color-12"
+    COLOR_13 = "color-13"
+    COLOR_14 = "color-14"
+    COLOR_15 = "color-15"
+
+
+class LabelConfigBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: Color
+
+
+class LabelConfigByKey(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["key"] = "key"
+    color: Color
+
+
+class LabelConfigByPosition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["position"] = "position"
+    color: Color
+
+
 class LifecycleToggle(StrEnum):
     NEW = "new"
     RESURRECTING = "resurrecting"
@@ -5508,6 +5549,9 @@ class TrendsQuery(BaseModel):
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
+    labels: Optional[Union[dict[str, LabelConfigByKey], dict[str, LabelConfigByPosition]]] = Field(
+        default=None, description="Configuration of labels"
+    )
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
