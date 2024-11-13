@@ -3,6 +3,7 @@ import collections
 import collections.abc
 import dataclasses
 import datetime as dt
+import operator
 import typing
 import uuid
 from string import Template
@@ -475,18 +476,28 @@ def generate_query_ranges(
 ) -> typing.Iterator[tuple[dt.datetime | None, dt.datetime]]:
     """Recursively yield ranges of dates that need to be queried.
 
-    There are essentially 3 scenarios we are covering:
-    * The batch export just started, so we expect `done_ranges` to be an empty
-      list, and thus should return the `full_range`.
-    * The batch export crashed mid-execution, so we have some `done_ranges` that
-      do not completely add up to the full range. In this case we need to yield
-      ranges in between all the done ones.
-    * The batch export crashed right after we finish, so we have a full list of
-      `done_ranges` adding up to the `full_range`. In this case we should not
-      yield anything.
-    """
-    import operator
+    There are essentially 3 scenarios we are expecting:
+    1. The batch export just started, so we expect `done_ranges` to be an empty
+       list, and thus should return the `remaining_range`.
+    2. The batch export crashed mid-execution, so we have some `done_ranges` that
+       do not completely add up to the full range. In this case we need to yield
+       ranges in between all the done ones.
+    3. The batch export crashed right after we finish, so we have a full list of
+       `done_ranges` adding up to the `remaining_range`. In this case we should not
+       yield anything.
 
+    Case 1 is fairly trivial and we can simply return `remaining_range` if we get
+    an empty `done_ranges`.
+
+    Case 2 is more complicated and we can expect that the ranges produced by this
+    function will lead to duplicate events selected, as our batch export query is
+    inclusive in the lower bound. Since multiple rows may have the same
+    `inserted_at` we cannot simply skip an `inserted_at` value, as there may be a
+    row that hasn't been exported as it with the same `inserted_at` as a row that
+    has been exported. So this function will return ranges with `inserted_at`
+    values that were already exported for at least one event. Ideally, this is
+    *only* one event, but we can never be certain.
+    """
     if len(done_ranges) == 0:
         yield remaining_range
         return
@@ -518,14 +529,6 @@ def generate_query_ranges(
         if candidate_start_at is None and candidate_end_at == epoch:
             # We have landed within the first done range of a backfill.
             continue
-
-        if candidate_start_at is not None:
-            # ClickHouse uses `DateTime64(6, 'UTC')` to store `inserted_at` and
-            # we use an inclusive lower range (e.g. "WHERE inserted_at >= ...")
-            # We add a microsecond (smallest  unit with precision of 6) to avoid
-            # selecting the event that lands right on `candidate_start_at` more than
-            # once on follow-up runs.
-            candidate_start_at = candidate_start_at + dt.timedelta(microseconds=1)
 
         yield (candidate_start_at, candidate_end_at)
 

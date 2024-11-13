@@ -75,6 +75,7 @@ async def assert_clickhouse_records_in_bigquery(
     use_json_type: bool = False,
     sort_key: str = "event",
     is_backfill: bool = False,
+    expect_duplicates: bool = False,
 ) -> None:
     """Assert ClickHouse records are written to a given BigQuery table.
 
@@ -91,6 +92,7 @@ async def assert_clickhouse_records_in_bigquery(
         include_events: Event names to be included in the export.
         batch_export_schema: Custom schema used in the batch export.
         use_json_type: Whether to use JSON type for known fields.
+        expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
     """
     if use_json_type is True:
         json_columns = ["properties", "set", "set_once", "person_properties"]
@@ -170,6 +172,13 @@ async def assert_clickhouse_records_in_bigquery(
                         expected_record[k] = v
 
                 expected_records.append(expected_record)
+
+    if expect_duplicates:
+        seen = set()
+        # A bit of a hackish way to populate seen with unique values as we go.
+        inserted_records = [
+            record for record in inserted_records if record["uuid"] not in seen and seen.add(record["uuid"]) is None
+        ]
 
     assert len(inserted_records) == len(expected_records)
 
@@ -571,7 +580,8 @@ async def test_insert_into_bigquery_activity_completes_range(
     2. Second activity with a heartbeat detail matching the cutoff event.
 
     This simulates the batch export resuming from a failed execution. The full range
-    should be completed (without duplicates) after both activites are done.
+    should be completed (with a duplicate on the cutoff event) after both activities
+    are done.
     """
     batch_export_model = BatchExportModel(name="events", schema=None)
     now = dt.datetime.now(tz=dt.UTC)
@@ -589,10 +599,9 @@ async def test_insert_into_bigquery_activity_completes_range(
         table_id=f"test_insert_activity_table_{ateam.pk}",
         dataset_id=bigquery_dataset.dataset_id,
         data_interval_start=data_interval_start.isoformat(),
-        # The extra microsecond is because the upper range select is exclusive and
-        # we want cutoff to be the last event included. One microsecond is the smallest
-        # increment for a `DateTime64` with precision of 6.
-        data_interval_end=(cutoff_data_interval_end + dt.timedelta(microseconds=1)).isoformat(),
+        # The extra second is because the upper range select is exclusive and
+        # we want cutoff to be the last event included.
+        data_interval_end=(cutoff_data_interval_end + dt.timedelta(seconds=1)).isoformat(),
         use_json_type=True,
         batch_export_model=batch_export_model,
         **bigquery_config,
@@ -655,6 +664,7 @@ async def test_insert_into_bigquery_activity_completes_range(
         use_json_type=True,
         min_ingested_timestamp=now,
         sort_key="event",
+        expect_duplicates=True,
     )
 
 
