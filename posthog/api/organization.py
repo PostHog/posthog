@@ -16,6 +16,7 @@ from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
@@ -66,7 +67,9 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
-class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class OrganizationSerializer(
+    serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
+):
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     projects = serializers.SerializerMethodField()
@@ -127,7 +130,14 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        # Support new access control system
+        visible_teams = (
+            self.user_access_control.filter_queryset_by_access_level(instance.teams, include_all_if_admin=True)
+            if self.user_access_control
+            else instance.teams.none()
+        )
+        # Support old access control system
+        visible_teams = visible_teams.filter(id__in=self.user_access_level.team_ids_visible_for_user)
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
