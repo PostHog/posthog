@@ -62,7 +62,7 @@ class SummarizerNode(AssistantNode):
                 if isinstance(err.detail, dict):
                     err_message = ", ".join(f"{key}: {value}" for key, value in err.detail.items())
                 elif isinstance(err.detail, list):
-                    err_message = ", ".join(err.detail)
+                    err_message = ", ".join(map(str, err.detail))
             return {"messages": [FailureMessage(content=f"There was an error running this query: {err_message}")]}
         except Exception as err:
             capture_exception(err)
@@ -95,7 +95,7 @@ class SummarizerNode(AssistantNode):
             if message.type == "human":
                 conversation.append(LangchainHumanMessage(content=message.content))
             elif message.type in ("ai", "ai/failure"):
-                conversation.append(LangchainAssistantMessage(content=message.content))
+                conversation.append(LangchainAssistantMessage(content=message.content or "An error occurred."))
 
         conversation.append(LangchainHumanMessage(content=SUMMARIZER_INSTRUCTION_PROMPT))
         return conversation

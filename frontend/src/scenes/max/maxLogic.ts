@@ -36,6 +36,7 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
     content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
     status: 'error',
+    done: true,
 }
 
 export const maxLogic = kea<maxLogicType>([
