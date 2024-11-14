@@ -56,23 +56,6 @@ class FunnelsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
 
 def generate_funnel_schema() -> dict:
     schema = AssistantFunnelsQuery.model_json_schema()
-
-    # Patch `numeric` types
-    property_filters = (
-        "EventPropertyFilter",
-        "PersonPropertyFilter",
-        "SessionPropertyFilter",
-        "FeaturePropertyFilter",
-        "GroupPropertyFilter",
-    )
-
-    # Clean up the property filters
-    for key in property_filters:
-        property_schema = schema["$defs"][key]
-        property_schema["properties"]["key"]["description"] = (
-            f"Use one of the properties the user has provided in the plan."
-        )
-
     return {
         "name": "output_insight_schema",
         "description": "Outputs the JSON schema of a product analytics insight",
