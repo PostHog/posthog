@@ -5,7 +5,7 @@ from os import makedirs, path
 import structlog
 from django.core.management.base import BaseCommand
 
-from ee.hogai.eval.utils import EVAL_DATASETS, EvaluationTestCase, GeneratedEvaluationTestCase, build_and_evaluate_graph
+from ee.hogai.eval.utils import EVAL_DATASETS, build_and_evaluate_graph, load_test_cases
 from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -34,24 +34,16 @@ class Command(BaseCommand):
             makedirs(output_path, exist_ok=True)
 
         for node in options["nodes"]:
-            with open(path.join("ee", "hogai", "eval", "datasets", EVAL_DATASETS[node])) as f:
-                data = f.read()
-                parsed_json: list[EvaluationTestCase] = json.loads(data)
+            test_cases = load_test_cases(node, load_compiled=False)
 
-            dataset: list[GeneratedEvaluationTestCase] = []
-            for i in range(0, len(parsed_json), options["batch_size"]):
-                batch = parsed_json[i : i + options["batch_size"]]
+            dataset: list[dict] = []
+            for i in range(0, len(test_cases), options["batch_size"]):
+                batch = test_cases[i : i + options["batch_size"]]
                 res = await asyncio.gather(*[build_and_evaluate_graph(node, team, data) for data in batch])
                 for data, actual_output in zip(batch, res):
-                    dataset.append(
-                        {
-                            "title": data["title"],
-                            "query": data["query"],
-                            "expected_output": data["expected_output"],
-                            "actual_output": actual_output,
-                        }
-                    )
-
+                    for i, message in enumerate(data.messages):
+                        message.actual_output = actual_output[i]
+                    dataset.append(data.model_dump())
             with open(path.join(output_path, EVAL_DATASETS[node]), "w") as f:
                 json.dump(dataset, f, indent=4)
 

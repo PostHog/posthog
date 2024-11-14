@@ -1,29 +1,15 @@
-from os import path
-
 import pytest
 from deepeval import assert_test
-from deepeval.dataset import EvaluationDataset
 from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+from deepeval.test_case import LLMTestCaseParams
 
-from ee.hogai.eval.utils import EVAL_DATASETS
 from ee.hogai.utils import AssistantNodeName
 
-dataset = EvaluationDataset()
-
-dataset.add_test_cases_from_json_file(
-    file_path=path.join("ee", "hogai", "eval", "compiled_datasets", EVAL_DATASETS[AssistantNodeName.TRENDS_PLANNER]),
-    input_key_name="query",
-    actual_output_key_name="actual_output",
-    expected_output_key_name="expected_output",
-)
+from .utils import load_dataset
 
 
-@pytest.mark.parametrize(
-    "test_case",
-    dataset,
-)
-def test_trends_planner(test_case: LLMTestCase):
+@pytest.mark.parametrize("dataset", load_dataset(AssistantNodeName.TRENDS_PLANNER))
+def test_trends_planner(dataset):
     plan_correctness_metric = GEval(
         name="Correctness",
         criteria="You will be given expected and actual generated plans generated to provide a taxonomy to answer a user's question with a trends insight. Determine whether the taxonomy of actual plan matches the expected plan by only comparing the plans.",
@@ -41,8 +27,8 @@ def test_trends_planner(test_case: LLMTestCase):
             # We don't want to see in the output unnecessary property filters. The assistant tries to use them all the time.
             "Heavily penalize if the 'actual output' contains any excessive output that is not present in the 'expected output'. For example, the `is set` operator in filters should not be used unless the user explicitly asks for it.",
         ],
-        evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
+        evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.EXPECTED_OUTPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
         threshold=0.7,
     )
 
-    assert_test(test_case, [plan_correctness_metric])
+    assert_test(dataset, [plan_correctness_metric])

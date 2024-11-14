@@ -1,0 +1,20 @@
+[
+    {
+        "title": "Basic Trends Insight",
+        "messages": [
+            {
+                "query": "Show the $pageview trend",
+                "expected_output": "trends"
+            }
+        ]
+    },
+    {
+        "title": "Basic Funnel Insight",
+        "messages": [
+            {
+                "query": "What is the conversion rate of users who uploaded a file to users who paid for a plan?",
+                "expected_output": "funnel"
+            }
+        ]
+    }
+]
