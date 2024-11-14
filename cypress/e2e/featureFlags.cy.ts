@@ -308,6 +308,26 @@ describe('Feature Flags', () => {
         cy.get('.operator-value-option').contains('> after').should('not.exist')
     })
 
+    it('Allow setting multivariant rollout percentage to zero', () => {
+        // Start creating a multivariant flag
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-served-value-segmented-button]')
+            .contains('Multiple variants with rollout percentages')
+            .click()
+
+        // Clear out the default 100% rollout percentage
+        cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]')
+            .click()
+            .type(`{backspace}{backspace}{backspace}`)
+            .should('have.value', 0)
+        cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]').click().type(`25`).should('have.value', 25)
+        cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]')
+            .click()
+            .type(`{backspace}{backspace}`)
+            .should('have.value', 0)
+        cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]').click().type(`4.5`).should('have.value', 4)
+    })
+
     it('Renders flags in FlagSelector', () => {
         // Create flag name
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
