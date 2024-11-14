@@ -3751,7 +3751,8 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
-    password: string | null
+    password_required: boolean
+    password: string
 }
 
 export enum ExporterFormat {

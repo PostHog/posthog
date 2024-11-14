@@ -1,7 +1,7 @@
 import './SharingModal.scss'
 
-import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconCollapse, IconCopy, IconExpand, IconInfo, IconLock } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -16,6 +16,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { isInsightVizNode } from '~/queries/utils'
 import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -58,7 +59,6 @@ export function SharingModalContent({
     }
     const {
         whitelabelAvailable,
-        sharingPasswordProtectAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -66,12 +66,14 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, setPassword, setPasswordRequired, togglePreview } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
     const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
+
+    const setPasswordDebounced = useDebouncedCallback((value: string) => setPassword(value), 300)
 
     useEffect(() => {
         setIframeLoaded(false)
@@ -106,6 +108,39 @@ export function SharingModalContent({
                         {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="space-y-2">
+                                    <LemonSwitch
+                                        fullWidth
+                                        bordered
+                                        label={
+                                            <div className="flex items-center">
+                                                <span>Password protect</span>
+                                            </div>
+                                        }
+                                        onChange={setPasswordRequired}
+                                        checked={sharingConfiguration.password_required}
+                                    />
+                                    {sharingConfiguration.password_required && (
+                                        <LemonInput
+                                            type="password"
+                                            className="ph-ignore-input"
+                                            placeholder="••••••••••"
+                                            defaultValue={sharingConfiguration.password}
+                                            onChange={setPasswordDebounced}
+                                            suffix={
+                                                <LemonButton
+                                                    data-attr="copy-code-button"
+                                                    icon={<IconCopy />}
+                                                    onClick={() => {
+                                                        void copyToClipboard(
+                                                            sharingConfiguration.password,
+                                                            'password for shared ' + resource
+                                                        )
+                                                    }}
+                                                    noPadding
+                                                />
+                                            }
+                                        />
+                                    )}
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         type="secondary"
@@ -205,36 +240,6 @@ export function SharingModalContent({
                                             </LemonField>
                                         )}
                                     </div>
-
-                                    <LemonField name="passwordProtect">
-                                        {({ value, onChange }) => (
-                                            <div>
-                                                <LemonSwitch
-                                                    fullWidth
-                                                    bordered
-                                                    label={
-                                                        <div className="flex items-center">
-                                                            <span>Password protect</span>
-                                                        </div>
-                                                    }
-                                                    onChange={onChange}
-                                                    checked={value}
-                                                />
-                                                {value && (
-                                                    <LemonField name="password">
-                                                        <LemonInput
-                                                            type="password"
-                                                            // inputRef={passwordInputRef}
-                                                            className="ph-ignore-input"
-                                                            data-attr="password"
-                                                            placeholder="••••••••••"
-                                                            autoComplete="current-password"
-                                                        />
-                                                    </LemonField>
-                                                )}
-                                            </div>
-                                        )}
-                                    </LemonField>
 
                                     {previewIframe && (
                                         <div className="rounded border">

@@ -75,7 +75,7 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token"]
+        fields = ["created_at", "enabled", "access_token", "password", "password_required"]
         read_only_fields = ["created_at", "access_token"]
 
 
