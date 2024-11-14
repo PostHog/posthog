@@ -6,7 +6,7 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { formatBreakdownLabel, getTrendLegendEntryKey, getTrendsLegendEntry } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -153,17 +153,16 @@ export function InsightsTable({
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
             render: (_, item) => {
-                const legendEntryKey = getTrendLegendEntryKey(colorAssignmentBy, item)
-                const legendEntry = getTrendsLegendEntry(colorAssignmentBy, item, legendEntries)
                 return (
                     <BreakdownColumnItem
                         item={item}
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         isMainInsightView={isMainInsightView}
                         toggleHiddenLegendIndex={toggleHiddenLegendIndex}
-                        legendEntry={legendEntry}
-                        updateLegendEntry={(legendEntry) => updateLegendEntry(legendEntryKey, legendEntry)}
                         formatItemBreakdownLabel={formatItemBreakdownLabel}
+                        colorAssignmentBy={colorAssignmentBy}
+                        legendEntries={legendEntries}
+                        updateLegendEntry={updateLegendEntry}
                     />
                 )
             },
@@ -203,15 +202,20 @@ export function InsightsTable({
 
             columns.push({
                 title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
-                render: (_, item) => (
-                    <BreakdownColumnItem
-                        item={item}
-                        canCheckUncheckSeries={canCheckUncheckSeries}
-                        isMainInsightView={isMainInsightView}
-                        toggleHiddenLegendIndex={toggleHiddenLegendIndex}
-                        formatItemBreakdownLabel={formatItemBreakdownLabel}
-                    />
-                ),
+                render: (_, item) => {
+                    return (
+                        <BreakdownColumnItem
+                            item={item}
+                            canCheckUncheckSeries={canCheckUncheckSeries}
+                            isMainInsightView={isMainInsightView}
+                            toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                            formatItemBreakdownLabel={formatItemBreakdownLabel}
+                            colorAssignmentBy={colorAssignmentBy}
+                            legendEntries={legendEntries}
+                            updateLegendEntry={updateLegendEntry}
+                        />
+                    )
+                },
                 key: `breakdown-${breakdown.property?.toString() || index}`,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
