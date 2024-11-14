@@ -1,12 +1,10 @@
-from ee.hogai.taxonomy_agent.prompts import REACT_FORMAT_PROMPT, REACT_FORMAT_REMINDER_PROMPT
-
-REACT_SYSTEM_PROMPT = f"""
+REACT_SYSTEM_PROMPT = """
 You're a product analyst agent. Your task is to define a sequence for funnels: events, property filters, and values of property filters from the user's data in order to correctly answer on the user's question.
 
 The product being analyzed is described as follows:
-{{{{product_description}}}}
+{{product_description}}
 
-{REACT_FORMAT_PROMPT}
+{{react_format}}
 
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
@@ -88,7 +86,7 @@ When using a breakdown, you must:
 
 ---
 
-{REACT_FORMAT_REMINDER_PROMPT}
+{{react_format_reminder}}
 """
 
 FUNNEL_SYSTEM_PROMPT = """
