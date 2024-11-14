@@ -45,7 +45,7 @@ export function QueryWindow(): JSX.Element {
                 activeModelUri={activeModelUri}
             />
             {editingViewId && (
-                <div className="bg-warning-highlight p-1">
+                <div className="h-7 bg-warning-highlight p-1">
                     <span> Editing view "Sample view name"</span>
                 </div>
             )}

@@ -51,6 +51,7 @@ export function ResultPane({
             doNotLoad: !query,
         })
     )
+    const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     const columns = useMemo(() => {
@@ -93,6 +94,7 @@ export function ResultPane({
                     {editingViewId ? (
                         <>
                             <LemonButton
+                                loading={dataWarehouseSavedQueriesLoading}
                                 type="secondary"
                                 onClick={() =>
                                     updateDataWarehouseSavedQuery({
