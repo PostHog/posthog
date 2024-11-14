@@ -13,10 +13,13 @@ import { examples } from '~/queries/examples'
 import {
     ActionsNode,
     BreakdownFilter,
+    ColorAssignmentBy,
     DataWarehouseNode,
     EventsNode,
     InsightVizNode,
     LegendEntryConfig,
+    LegendEntryConfigByKey,
+    LegendEntryConfigByPosition,
     NodeKind,
     PathsFilter,
 } from '~/queries/schema'
@@ -451,7 +454,7 @@ export function getTrendDatasetPosition(dataset: GraphDataset): number {
 }
 
 export function getTrendLegendEntryKey(
-    colorAssignmentBy: 'position' | 'key' | null | undefined,
+    colorAssignmentBy: ColorAssignmentBy | null | undefined,
     dataset: GraphDataset
 ): string {
     const assignmentByPosition = colorAssignmentBy == null || colorAssignmentBy == 'position'
@@ -459,17 +462,25 @@ export function getTrendLegendEntryKey(
 }
 
 export function getTrendsLegendEntry(
-    colorAssignmentBy: 'position' | 'key' | null | undefined,
+    colorAssignmentBy: ColorAssignmentBy | null | undefined,
     dataset: GraphDataset,
-    legendEntries: LegendEntryConfig[] | undefined | null
+    legendEntries:
+        | Record<string, LegendEntryConfigByKey>
+        | Record<number, LegendEntryConfigByPosition>
+        | null
+        | undefined
 ): LegendEntryConfig | undefined {
     const legendKey = getTrendLegendEntryKey(colorAssignmentBy, dataset)
     return legendEntries && Object.keys(legendEntries).includes(legendKey) ? legendEntries[legendKey] : undefined
 }
 
 export function getTrendLegendColorToken(
-    colorAssignmentBy: 'position' | 'key' | null | undefined,
-    legendEntries: LegendEntryConfig[] | undefined,
+    colorAssignmentBy: ColorAssignmentBy | null | undefined,
+    legendEntries:
+        | Record<string, LegendEntryConfigByKey>
+        | Record<number, LegendEntryConfigByPosition>
+        | null
+        | undefined,
     theme: DataColorTheme,
     dataset: GraphDataset
 ): string {

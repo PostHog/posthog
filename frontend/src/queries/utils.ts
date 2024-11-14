@@ -7,6 +7,7 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
+    ColorAssignmentBy,
     CompareFilter,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -333,7 +334,7 @@ export const getYAxisScaleType = (query: InsightQueryNode): string | undefined =
     return undefined
 }
 
-export const getColorAssignmentBy = (query: InsightQueryNode): string | undefined => {
+export const getColorAssignmentBy = (query: InsightQueryNode): ColorAssignmentBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.colorAssignmentBy
     }
