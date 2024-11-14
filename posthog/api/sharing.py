@@ -250,6 +250,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
+        if isinstance(resource, SharingConfiguration):
+            return render_template(
+                "exporter.html",
+                request=request,
+                context={
+                    "exported_data": json.dumps(None, cls=DjangoJSONEncoder),
+                    "asset_title": "PW",
+                    "asset_description": "PW",
+                    "add_og_tags": None,
+                    "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
+                },
+            )
+
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token
             exported_asset = self.exported_asset_for_sharing_configuration(resource)
