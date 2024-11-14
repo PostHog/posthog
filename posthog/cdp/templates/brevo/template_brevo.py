@@ -60,7 +60,7 @@ if (res.status >= 400) {
             "key": "attributes",
             "type": "dictionary",
             "label": "Attributes",
-            "description": "For information on potential custom attributes, refer to the attribute type docs: https://help.brevo.com/hc/en-us/articles/10617359589906-Create-and-manage-contact-attributes",
+            "description": "For information on potential attributes, refer to the following page: https://help.brevo.com/hc/en-us/articles/10617359589906-Create-and-manage-contact-attributes",
             "default": {
                 "EMAIL": "{person.properties.email}",
                 "FIRSTNAME": "{person.properties.firstname}",
@@ -71,7 +71,10 @@ if (res.status >= 400) {
         },
     ],
     filters={
-        "events": [],
+        "events": [
+            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
+            {"id": "$set", "name": "$set", "type": "events", "order": 0},
+        ],
         "actions": [],
         "filter_test_accounts": True,
     },
