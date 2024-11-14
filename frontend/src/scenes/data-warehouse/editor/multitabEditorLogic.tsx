@@ -90,13 +90,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         modelMarkers: [
             [] as ModelMarker[],
             {
-                setMetadata: ({ metadata }) => {
+                setMetadata: (_, { query, metadata }) => {
                     const model = props.editor?.getModel()
                     if (!model || !metadata) {
                         return []
                     }
                     const markers: ModelMarker[] = []
-                    const [query, metadataResponse] = metadata
+                    const metadataResponse = metadata
 
                     function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
                         const start = model!.getPositionAt(error.start ?? 0)
