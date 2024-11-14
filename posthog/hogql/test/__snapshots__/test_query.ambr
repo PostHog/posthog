@@ -995,7 +995,7 @@
   
   -- HogQL
   
-  SELECT col_a, r 
+  SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r 
   FROM (
   SELECT col_a, arrayZip((sumMap((g).1, (g).2) AS x).1, x.2) AS r 
   FROM (
@@ -1032,9 +1032,9 @@
   
   -- HogQL
   
-  SELECT col_a, r 
+  SELECT final.col_a, final.r 
   FROM (
-  SELECT col_a, r 
+  SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r 
   FROM (
   SELECT col_a, arrayZip((sumMap((g).1, (g).2) AS x).1, x.2) AS r 
   FROM (
