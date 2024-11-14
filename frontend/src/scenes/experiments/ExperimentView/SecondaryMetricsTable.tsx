@@ -31,6 +31,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
         countDataForVariant,
         exposureCountDataForVariant,
         conversionRateForVariant,
+        credibleIntervalForVariant,
         experimentMathAggregationForTrends,
         getHighestProbabilityVariant,
         featureFlags,
@@ -155,6 +156,24 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         },
                     },
                     {
+                        title: 'Credible interval (95%)',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            if (item.variant === 'control') {
+                                return <em>Baseline</em>
+                            }
+                            const credibleInterval = credibleIntervalForVariant(targetResults || null, item.variant)
+                            if (!credibleInterval) {
+                                return <>—</>
+                            }
+                            const [lowerBound, upperBound] = credibleInterval
+                            return (
+                                <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(
+                                    2
+                                )}%, ${upperBound > 0 ? '+' : ''}${upperBound.toFixed(2)}%]`}</div>
+                            )
+                        },
+                    },
+                    {
                         title: 'Win probability',
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
@@ -184,6 +203,25 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                 return <>—</>
                             }
                             return <div>{`${conversionRate.toFixed(2)}%`}</div>
+                        },
+                    },
+                    {
+                        title: 'Credible interval (95%)',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            if (item.variant === 'control') {
+                                return <em>Baseline</em>
+                            }
+
+                            const credibleInterval = credibleIntervalForVariant(targetResults || null, item.variant)
+                            if (!credibleInterval) {
+                                return <>—</>
+                            }
+                            const [lowerBound, upperBound] = credibleInterval
+                            return (
+                                <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(
+                                    2
+                                )}%, ${upperBound > 0 ? '+' : ''}${upperBound.toFixed(2)}%]`}</div>
+                            )
                         },
                     },
                     {
