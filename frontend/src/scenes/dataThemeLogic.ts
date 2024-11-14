@@ -44,6 +44,11 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                 d3_category_10: D3_SCHEME_CATEGORY_10,
             }),
         ],
-        getTheme: [(s) => [s.themes], (themes) => (theme: string) => themes[theme]],
+        getTheme: [
+            (s) => [s.themes],
+            (themes) =>
+                (theme: string): DataColorTheme =>
+                    themes[theme],
+        ],
     }),
 ])

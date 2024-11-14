@@ -475,7 +475,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // legend entries
         updateLegendEntry: ({ key, config }) => {
-            actions.updateQuerySource({ [key]: config })
+            const update: Partial<TrendsQuery> = { legendEntries: { ...values.legendEntries, [key]: config } }
+            actions.updateQuerySource(update)
         },
 
         // data loading side effects i.e. diplaying loading screens for queries with longer duration
