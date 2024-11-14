@@ -40,6 +40,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     props(
         {} as {
             distinctId: string
+            groupTypeIndex?: number
             groups?: { [key: string]: string }
         }
     ),
@@ -93,8 +94,15 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                         .map((flag) => ({ ...relatedFlags[flag.key], ...flag }))
                         .filter((flag) => flag.evaluation !== undefined)
 
-                    // show non-group (person) flags if props.groups is empty
-                    if (!props.groups || Object.keys(props.groups).length === 0) {
+                    // return related feature flags for group property targeting or person property targeting, but not both
+                    if (props.groupTypeIndex && props.groups && Object.keys(props.groups).length > 0) {
+                        flags = flags.filter(
+                            (flag) =>
+                                flag.filters.aggregation_group_type_index !== undefined &&
+                                flag.filters.aggregation_group_type_index !== null &&
+                                flag.filters.aggregation_group_type_index === props.groupTypeIndex
+                        )
+                    } else {
                         flags = flags.filter(
                             (flag) =>
                                 flag.filters.aggregation_group_type_index === undefined ||
