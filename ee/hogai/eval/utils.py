@@ -3,7 +3,7 @@ from typing import TypedDict
 
 import structlog
 
-from ee.hogai.assistant import Assistant
+from ee.hogai.assistant import AssistantGraph
 from ee.hogai.utils import AssistantNodeName
 from posthog.models.team.team import Team
 from posthog.schema import HumanMessage
@@ -27,11 +27,10 @@ EVAL_DATASETS = {
 
 
 async def build_and_evaluate_graph(node: AssistantNodeName, team: Team, data: EvaluationTestCase):
-    assistant = Assistant(team)
-    assistant.add_edge(AssistantNodeName.START, node)
+    builder = AssistantGraph(team).add_edge(AssistantNodeName.START, node)
     if node == AssistantNodeName.TRENDS_PLANNER:
-        assistant.add_trends_planner_nodes(AssistantNodeName.END)
-    graph = assistant.compile_graph()
+        builder.add_trends_planner(AssistantNodeName.END)
+    graph = builder.compile()
     res = await asyncio.to_thread(
         graph.invoke,
         {"messages": [HumanMessage(content=data["query"])]},

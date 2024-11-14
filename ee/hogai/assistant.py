@@ -1,9 +1,9 @@
-from collections.abc import Generator
-from typing import Any, Literal, TypedDict, TypeGuard, Union
+from collections.abc import Generator, Hashable, Iterator
+from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
 
 from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
-from langgraph.graph.state import StateGraph
+from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import BaseModel
 
 from ee import settings
@@ -70,21 +70,48 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
 }
 
 
-class Assistant:
+class AssistantGraph:
     _team: Team
     _graph: StateGraph
 
     def __init__(self, team: Team):
         self._team = team
         self._graph = StateGraph(AssistantState)
+        self._has_start_node = False
 
     def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
+        if from_node == AssistantNodeName.START:
+            self._has_start_node = True
         self._graph.add_edge(from_node, to_node)
+        return self
 
-    def compile_graph(self):
+    def compile(self):
+        if not self._has_start_node:
+            raise ValueError("Start node not added to the graph")
         return self._graph.compile()
 
-    def add_trends_planner_nodes(self, next_node: AssistantNodeName):
+    def add_start(self):
+        return self.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
+
+    def add_router(
+        self,
+        path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
+    ):
+        builder = self._graph
+        path_map = path_map or {
+            "trends": AssistantNodeName.TRENDS_PLANNER,
+            "funnel": AssistantNodeName.FUNNEL_PLANNER,
+        }
+        router_node = RouterNode(self._team)
+        builder.add_node(AssistantNodeName.ROUTER, router_node.run)
+        builder.add_conditional_edges(
+            AssistantNodeName.ROUTER,
+            router_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
+        return self
+
+    def add_trends_planner(self, next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR):
         builder = self._graph
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
@@ -108,35 +135,31 @@ class Assistant:
             },
         )
 
-    def compile_full_graph(self):
+        return self
+
+    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
 
-        router_node = RouterNode(self._team)
-        builder.add_node(AssistantNodeName.ROUTER, router_node.run)
-        builder.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
-        builder.add_conditional_edges(
-            AssistantNodeName.ROUTER,
-            router_node.router,
-            path_map={"trends": AssistantNodeName.TRENDS_PLANNER, "funnel": AssistantNodeName.FUNNEL_PLANNER},
-        )
+        trends_generator = TrendsGeneratorNode(self._team)
+        builder.add_node(AssistantNodeName.TRENDS_GENERATOR, trends_generator.run)
 
-        self.add_trends_planner_nodes(builder, AssistantNodeName.TRENDS_GENERATOR)
-
-        generate_trends_node = TrendsGeneratorNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_GENERATOR, generate_trends_node.run)
-
-        generate_trends_tools_node = TrendsGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, generate_trends_tools_node.run)
+        trends_generator_tools = TrendsGeneratorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, trends_generator_tools.run)
 
         builder.add_edge(AssistantNodeName.TRENDS_GENERATOR_TOOLS, AssistantNodeName.TRENDS_GENERATOR)
         builder.add_conditional_edges(
             AssistantNodeName.TRENDS_GENERATOR,
-            generate_trends_node.router,
+            trends_generator.router,
             path_map={
                 "tools": AssistantNodeName.TRENDS_GENERATOR_TOOLS,
-                "next": AssistantNodeName.END,
+                "next": next_node,
             },
         )
+
+        return self
+
+    def add_funnel_planner(self, next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR):
+        builder = self._graph
 
         funnel_planner = FunnelPlannerNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner.run)
@@ -155,37 +178,61 @@ class Assistant:
             funnel_planner_tools.router,
             path_map={
                 "continue": AssistantNodeName.FUNNEL_PLANNER,
-                "plan_found": AssistantNodeName.FUNNEL_GENERATOR,
+                "plan_found": next_node,
             },
         )
+
+        return self
+
+    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
 
         funnel_generator = FunnelGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator.run)
 
-        funnel_generator_tools_node = FunnelGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools_node.run)
+        funnel_generator_tools = FunnelGeneratorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools.run)
 
         builder.add_edge(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, AssistantNodeName.FUNNEL_GENERATOR)
         builder.add_conditional_edges(
             AssistantNodeName.FUNNEL_GENERATOR,
-            generate_trends_node.router,
+            funnel_generator.router,
             path_map={
                 "tools": AssistantNodeName.FUNNEL_GENERATOR_TOOLS,
-                "next": AssistantNodeName.END,
+                "next": next_node,
             },
         )
 
-        return self.compile_graph()
+        return self
+
+    def compile_full_graph(self):
+        return (
+            self.add_start()
+            .add_router()
+            .add_trends_planner()
+            .add_trends_generator()
+            .add_funnel_planner()
+            .add_funnel_generator()
+            .compile()
+        )
+
+
+class Assistant:
+    _team: Team
+    _graph: CompiledStateGraph
+
+    def __init__(self, team: Team):
+        self._team = team
+        self._graph = AssistantGraph(team).compile_full_graph()
 
     def stream(self, conversation: Conversation) -> Generator[BaseModel, None, None]:
-        assistant_graph = self.compile_full_graph()
         callbacks = [langfuse_handler] if langfuse_handler else []
         messages = [message.root for message in conversation.messages]
 
         chunks = AIMessageChunk(content="")
         state: AssistantState = {"messages": messages, "intermediate_steps": None, "plan": None}
 
-        generator = assistant_graph.stream(
+        generator: Iterator[Any] = self._graph.stream(
             state,
             config={"recursion_limit": 24, "callbacks": callbacks},
             stream_mode=["messages", "values", "updates"],
