@@ -1286,6 +1286,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
             "result",
             "insight",
             "filters",
+            "exposure_filters",
         }
 
         self.assertEqual(result_data["result"]["control"], 2)
