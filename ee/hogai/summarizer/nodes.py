@@ -1,8 +1,8 @@
 import json
 from time import sleep
-from typing import Optional
+from django.conf import settings
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import HumanMessage as LangchainHumanMessage
+from langchain_core.messages import HumanMessage as LangchainHumanMessage, SystemMessage as LangchainSystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from django.core.serializers.json import DjangoJSONEncoder
@@ -32,7 +32,11 @@ class SummarizerNode(AssistantNode):
         results_response = process_query_dict(  # type: ignore
             self._team,  # TODO: Add user
             last_message.answer.model_dump(),
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            # Celery doesn't run in tests, so there we use force_blocking instead
+            # This does mean that the waiting logic is not tested
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+            if not settings.TEST
+            else ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         ).model_dump()
         if results_response.get("query_status") and not results_response["query_status"]["complete"]:
             query_id = results_response["query_status"]["id"]
@@ -46,29 +50,8 @@ class SummarizerNode(AssistantNode):
                     results_response = query_status.results
                     break
 
-        summarization_prompt = (
-            ChatPromptTemplate.from_messages(
-                [
-                    (
-                        "system",
-                        """
-Act as an expert product manager. Your task is to summarize query results in a a concise way.
-Offer actionable feedback if possible with your context.
-
-The product being analyzed is described as follows:
-{{product_description}}""",
-                    ),
-                ],
-                template_format="mustache",
-            )
-            + self._construct_messages(state)
-            + ChatPromptTemplate.from_messages(
-                [
-                    ("assistant", SUMMARIZER_RESULTS_PROMPT),
-                    ("user", SUMMARIZER_INSTRUCTION_PROMPT),
-                ],
-                template_format="mustache",
-            )
+        summarization_prompt = ChatPromptTemplate.from_messages(
+            self._construct_messages(state), template_format="mustache"
         )
 
         chain = summarization_prompt | self._model
@@ -76,7 +59,7 @@ The product being analyzed is described as follows:
         message = chain.invoke(
             {
                 "product_description": self._team.project.product_description,
-                "results": json.dumps(results_response["results"], indent=4, cls=DjangoJSONEncoder),  # type: ignore
+                "results": json.dumps(results_response["results"], indent=4, cls=DjangoJSONEncoder),
             },
             config,
         )
@@ -87,14 +70,19 @@ The product being analyzed is described as follows:
     def _model(self):
         return ChatOpenAI(model="gpt-4o", temperature=0.5, streaming=True)  # Slightly higher temp than earlier steps
 
-    def _construct_messages(
-        self, state: AssistantState, validation_error_message: Optional[str] = None
-    ) -> list[BaseMessage]:
-        messages = state.get("messages", [])
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+        conversation: list[BaseMessage] = [
+            LangchainSystemMessage(
+                content="""
+Act as an expert product manager. Your task is to summarize query results in a a concise way.
+Offer actionable feedback if possible with your context.
 
-        conversation: list[BaseMessage] = []
+The product being analyzed is described as follows:
+{{product_description}}"""
+            )
+        ]
 
-        for message in messages:
+        for message in state.get("messages", []):
             if message.type == "human":
                 conversation.append(LangchainHumanMessage(content=message.content))
             elif message.type == "ai":
@@ -104,4 +92,6 @@ The product being analyzed is described as follows:
                     LangchainAssistantMessage(content="Something went wrong while answering.")  # TODO: Better message
                 )
 
+        conversation.append(LangchainAssistantMessage(content=SUMMARIZER_RESULTS_PROMPT))
+        conversation.append(LangchainHumanMessage(content=SUMMARIZER_INSTRUCTION_PROMPT))
         return conversation
