@@ -20,7 +20,7 @@ from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.schema import AssistantMessage, FailureMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, VisualizationMessage
 
 
 class SummarizerNode(AssistantNode):
@@ -92,9 +92,9 @@ class SummarizerNode(AssistantNode):
         conversation: list[BaseMessage] = [LangchainSystemMessage(content=SUMMARIZER_SYSTEM_PROMPT)]
 
         for message in state.get("messages", []):
-            if message.type == "human":
+            if isinstance(message, HumanMessage):
                 conversation.append(LangchainHumanMessage(content=message.content))
-            elif message.type in ("ai", "ai/failure"):
+            elif isinstance(message, AssistantMessage | FailureMessage):
                 conversation.append(LangchainAssistantMessage(content=message.content or "An error occurred."))
 
         conversation.append(LangchainHumanMessage(content=SUMMARIZER_INSTRUCTION_PROMPT))
