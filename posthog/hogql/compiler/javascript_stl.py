@@ -1,6 +1,6 @@
 STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     "concat": [
-        """function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('') } """,
+        "function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('') }",
         ["__STLToString"],
     ],
     "match": [
