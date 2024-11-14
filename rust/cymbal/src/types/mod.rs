@@ -125,17 +125,18 @@ impl RawErrProps {
 
 impl FingerprintedErrProps {
     pub fn generate_new_issue_name(&self) -> String {
-        for exception in self.exception_list.iter() {
+        if let Some(exception) = self.exception_list.first() {
             // We just use the first exception in the list
-            return format!(
+            format!(
                 "{}: {}",
                 exception.exception_type, exception.exception_message
-            );
+            )
+        } else {
+            // We don't have a type-system way to assert that this is unreachable (or rather,
+            // to encode this in the type system would be cumbersome), but it if it's ever reached,
+            // we've got a bug.
+            unreachable!("Tried to generate issue name with no exception in exception list")
         }
-        // We don't have a type-system way to assert that this is unreachable (or rather,
-        // to encode this in the type system would be cumbersome), but it if it's ever reached,
-        // we've got a bug.
-        unreachable!("Tried to generate issue name with no exception in exception list")
     }
 
     pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
