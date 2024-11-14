@@ -35,6 +35,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { getTrendDatasetKey } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
@@ -289,7 +290,9 @@ export function LineGraph_({
     const { getTheme } = useValues(dataThemeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, legendEntries } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, legendEntries, colorAssignmentBy } = useValues(
+        insightVizDataLogic(insightProps)
+    )
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -320,14 +323,16 @@ export function LineGraph_({
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
+        const assignmentByPosition = colorAssignmentBy == null || colorAssignmentBy == 'position'
 
         const dataTheme = getTheme('posthog')
         const datasetIndex = dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index
         const colorIndex = (datasetIndex % Object.keys(dataTheme).length) + 1
+        const legendKey = assignmentByPosition ? datasetIndex.toString() : getTrendDatasetKey(dataset)
 
         const colorKey =
-            legendEntries && Object.keys(legendEntries).includes(datasetIndex.toString())
-                ? legendEntries[datasetIndex].color
+            legendEntries && Object.keys(legendEntries).includes(legendKey)
+                ? legendEntries[legendKey].color
                 : `preset-${colorIndex}`
 
         const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : dataTheme[colorKey]
