@@ -9,9 +9,7 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
-    CohortPropertyFilter,
     CountPerActorMathType,
-    DurationType,
     EventPropertyFilter,
     EventType,
     FeaturePropertyFilter,
@@ -100,8 +98,8 @@ export enum NodeKind {
     WebGoalsQuery = 'WebGoalsQuery',
 
     // Experiment queries
-    ExperimentFunnelQuery = 'ExperimentFunnelQuery',
-    ExperimentTrendQuery = 'ExperimentTrendQuery',
+    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentTrendsQuery = 'ExperimentTrendsQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -133,8 +131,8 @@ export type AnyDataNode =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentFunnelQuery
-    | ExperimentTrendQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
 
 /**
  * @discriminator kind
@@ -161,8 +159,8 @@ export type QuerySchema =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentFunnelQuery
-    | ExperimentTrendQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -184,6 +182,9 @@ export type QuerySchema =
 
     // AI
     | SuggestedQuestionsQuery
+    | TeamTaxonomyQuery
+    | EventTaxonomyQuery
+    | ActorsPropertyTaxonomyQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -311,6 +312,18 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
+export type RecordingOrder =
+    | 'duration'
+    | 'recording_duration'
+    | 'inactive_seconds'
+    | 'active_seconds'
+    | 'start_time'
+    | 'console_error_count'
+    | 'click_count'
+    | 'keypress_count'
+    | 'mouse_activity_count'
+    | 'activity_score'
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     date_from?: string | null
@@ -324,13 +337,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
-    order:
-        | DurationType
-        | 'start_time'
-        | 'console_error_count'
-        | 'click_count'
-        | 'keypress_count'
-        | 'mouse_activity_count'
+    order?: RecordingOrder
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>
@@ -352,6 +359,36 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
     query_status?: never
 }
+
+export type AutocompleteCompletionItemKind =
+    | 'Method'
+    | 'Function'
+    | 'Constructor'
+    | 'Field'
+    | 'Variable'
+    | 'Class'
+    | 'Struct'
+    | 'Interface'
+    | 'Module'
+    | 'Property'
+    | 'Event'
+    | 'Operator'
+    | 'Unit'
+    | 'Value'
+    | 'Constant'
+    | 'Enum'
+    | 'EnumMember'
+    | 'Keyword'
+    | 'Text'
+    | 'Color'
+    | 'File'
+    | 'Reference'
+    | 'Customcolor'
+    | 'Folder'
+    | 'TypeParameter'
+    | 'User'
+    | 'Issue'
+    | 'Snippet'
 
 export interface AutocompleteCompletionItem {
     /**
@@ -378,35 +415,7 @@ export interface AutocompleteCompletionItem {
      * The kind of this completion item. Based on the kind
      * an icon is chosen by the editor.
      */
-    kind:
-        | 'Method'
-        | 'Function'
-        | 'Constructor'
-        | 'Field'
-        | 'Variable'
-        | 'Class'
-        | 'Struct'
-        | 'Interface'
-        | 'Module'
-        | 'Property'
-        | 'Event'
-        | 'Operator'
-        | 'Unit'
-        | 'Value'
-        | 'Constant'
-        | 'Enum'
-        | 'EnumMember'
-        | 'Keyword'
-        | 'Text'
-        | 'Color'
-        | 'File'
-        | 'Reference'
-        | 'Customcolor'
-        | 'Folder'
-        | 'TypeParameter'
-        | 'User'
-        | 'Issue'
-        | 'Snippet'
+    kind: AutocompleteCompletionItemKind
 }
 
 export interface HogQLAutocompleteResponse {
@@ -479,6 +488,7 @@ export interface EntityNode extends Node {
     custom_name?: string
     math?: MathType
     math_property?: string
+    math_property_type?: string
     math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
@@ -610,8 +620,8 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
-                    | ExperimentFunnelQuery
-                    | ExperimentTrendQuery
+                    | ExperimentFunnelsQuery
+                    | ExperimentTrendsQuery
                 )['response']
             >
         >,
@@ -631,8 +641,8 @@ export interface DataTableNode
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-        | ExperimentFunnelQuery
-        | ExperimentTrendQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -660,6 +670,7 @@ export interface ChartSettingsFormatting {
 }
 
 export interface ChartSettingsDisplay {
+    color?: string
     label?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
@@ -681,6 +692,7 @@ export interface ChartSettings {
     rightYAxisSettings?: YAxisSettings
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
+    seriesBreakdownColumn?: string | null
 }
 
 export interface ConditionalFormattingRule {
@@ -834,6 +846,8 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /** @default false */
+    showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
@@ -891,56 +905,14 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
 }
 
-export type AIPropertyFilter =
+export type AssistantPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
-    // | ElementPropertyFilter
     | SessionPropertyFilter
-    | CohortPropertyFilter
-    // | RecordingPropertyFilter
-    // | LogEntryPropertyFilter
-    // | HogQLPropertyFilter
-    // | EmptyPropertyFilter
-    // | DataWarehousePropertyFilter
-    // | DataWarehousePersonPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
 
-export interface AIEventsNode
-    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
-    properties?: AIPropertyFilter[]
-    fixedProperties?: AIPropertyFilter[]
-}
-
-export interface AIActionsNode
-    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
-    properties?: AIPropertyFilter[]
-    fixedProperties?: AIPropertyFilter[]
-}
-
-export interface ExperimentalAITrendsQuery {
-    kind: NodeKind.TrendsQuery
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     *
-     * @default day
-     */
-    interval?: IntervalType
-    /** Events and actions to include */
-    series: (AIEventsNode | AIActionsNode)[]
-    /** Properties specific to the trends insight */
-    trendsFilter?: TrendsFilter
-    /** Breakdown of the events and actions */
-    breakdownFilter?: Omit<
-        BreakdownFilter,
-        | 'breakdown'
-        | 'breakdown_type'
-        | 'breakdown_normalize_url'
-        | 'histogram_bin_count'
-        | 'breakdown_group_type_index'
-    >
-    /** Compare to date range */
-    compareFilter?: CompareFilter
+export interface AssistantInsightsQueryBase {
     /** Date range for the query */
     dateRange?: InsightDateRange
     /**
@@ -954,14 +926,173 @@ export interface ExperimentalAITrendsQuery {
      *
      * @default []
      */
-    properties?: AIPropertyFilter[]
-
-    /**
-     * Groups aggregation
-     */
-    aggregation_group_type_index?: integer
+    properties?: AssistantPropertyFilter[]
     /** Sampling rate */
     samplingFactor?: number | null
+}
+
+export interface AssistantTrendsEventsNode
+    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
+    properties?: AssistantPropertyFilter[]
+}
+
+export type AssistantTrendsBreakdownFilter = Pick<
+    BreakdownFilter,
+    'breakdowns' | 'breakdown_limit' | 'breakdown_histogram_bin_count' | 'breakdown_hide_other_aggregation'
+>
+
+export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.TrendsQuery
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+    /** Events to include */
+    series: AssistantTrendsEventsNode[]
+    /** Properties specific to the trends insight */
+    trendsFilter?: TrendsFilter
+    /** Breakdown of the events */
+    breakdownFilter?: AssistantTrendsBreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
+}
+
+export type AssistantTrendsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
+
+export interface AssistantFunnelsEventsNode extends Node {
+    kind: NodeKind.EventsNode
+    /**
+     * Name of the event.
+     */
+    event: string
+    /**
+     * Optional custom name for the event if it is needed to be renamed.
+     */
+    custom_name?: string
+    /**
+     * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
+     * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
+     * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
+     */
+    math?: AssistantTrendsMath
+    properties?: AssistantPropertyFilter[]
+}
+
+/**
+ * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
+ */
+export interface AssistantFunnelsExclusionEventsNode extends FunnelExclusionSteps {
+    kind: NodeKind.EventsNode
+    event: string
+}
+
+export interface AssistantFunnelsFilter {
+    /**
+     * Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one.
+     * `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B.
+     * `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between.
+     * `any` - order doesn't matter. Steps can be completed in any sequence.
+     * @default ordered
+     */
+    funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    /**
+     * Defines the type of visualization to use. The `steps` option is recommended.
+     * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default).
+     * `time_to_convert` - shows a histogram of the time it took to complete the funnel. Use this if the user asks about the average time it takes to complete the funnel.
+     * `trends` - shows a trend of the whole sequence's conversion rate over time. Use this if the user wants to see how the conversion rate changes over time.
+     * @default steps
+     */
+    funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    /**
+     * Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence.
+     * You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel.
+     * For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3.
+     * @default []
+     */
+    exclusions?: AssistantFunnelsExclusionEventsNode[]
+    /**
+     * Controls how the funnel chart is displayed: vertically (preferred) or horizontally.
+     * @default vertical
+     */
+    layout?: FunnelsFilterLegacy['layout']
+    /**
+     * Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.
+     * @asType integer
+     */
+    binCount?: FunnelsFilterLegacy['bin_count']
+    /**
+     * Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.
+     * @default 14
+     */
+    funnelWindowInterval?: integer
+    /**
+     * Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days.
+     * @default day
+     */
+    funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
+    /**
+     * Whether conversion shown in the graph should be across all steps or just relative to the previous step.
+     * @default total
+     */
+    funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+    /**
+     * Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
+     */
+    funnelAggregateByHogQL?: 'properties.$session_id'
+}
+
+export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
+
+export interface AssistantFunnelsBreakdownFilter {
+    /**
+     * Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.
+     * @default event
+     */
+    breakdown_type: AssistantFunnelsBreakdownType
+    /**
+     * The entity property to break down by.
+     */
+    breakdown: string
+    /**
+     * How many distinct values to show.
+     * @default 25
+     */
+    breakdown_limit?: integer
+    /**
+     * If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.
+     */
+    breakdown_group_type_index?: integer | null
+    /**
+     * Number of bins to show in the histogram. Only applicable for the numeric properties.
+     * @default 10
+     */
+    breakdown_histogram_bin_count?: integer
+}
+
+export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.FunnelsQuery
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     */
+    interval?: IntervalType
+    /**
+     * Events to include
+     */
+    series: AssistantFunnelsEventsNode[]
+    /**
+     * Properties specific to the funnels insight
+     */
+    funnelsFilter?: AssistantFunnelsFilter
+    /**
+     * Breakdown the chart by a property
+     */
+    breakdownFilter?: AssistantFunnelsBreakdownFilter
+    /**
+     * Use this field to define the aggregation by a specific group from the group mapping that the user has provided.
+     */
+    aggregation_group_type_index?: integer
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -1101,7 +1232,7 @@ export type PathsFilter = {
     /** @default 5 */
     stepLimit?: integer
     pathReplacements?: PathsFilterLegacy['path_replacements']
-    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
+    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters'] | null
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
 
@@ -1180,6 +1311,7 @@ export type LifecycleFilter = {
 export type RefreshType =
     | boolean
     | 'async'
+    | 'async_except_on_cache_miss'
     | 'blocking'
     | 'force_async'
     | 'force_blocking'
@@ -1221,6 +1353,7 @@ export interface QueryRequest {
      */
     query: QuerySchema
     filters_override?: DashboardFilter
+    variables_override?: Record<string, Record<string, any>>
 }
 
 /**
@@ -1415,11 +1548,12 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     includeLCPScore?: boolean
 }
 
+export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage'
 export interface WebOverviewItem {
     key: string
     value?: number
     previous?: number
-    kind: 'unit' | 'duration_s' | 'percentage'
+    kind: WebOverviewItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
 }
@@ -1595,44 +1729,67 @@ export type InsightQueryNode =
     | StickinessQuery
     | LifecycleQuery
 
-export interface ExperimentVariantTrendResult {
+export interface ExperimentVariantTrendsBaseStats {
     key: string
     count: number
     exposure: number
     absolute_exposure: number
 }
 
-export interface ExperimentVariantFunnelResult {
+export interface ExperimentVariantFunnelsBaseStats {
     key: string
     success_count: number
     failure_count: number
 }
 
-export interface ExperimentTrendQueryResponse {
-    insight: InsightType.TRENDS
-    results: Record<string, ExperimentVariantTrendResult>
+export enum ExperimentSignificanceCode {
+    Significant = 'significant',
+    NotEnoughExposure = 'not_enough_exposure',
+    LowWinProbability = 'low_win_probability',
+    HighLoss = 'high_loss',
+    HighPValue = 'high_p_value',
 }
 
-export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
-
-export interface ExperimentFunnelQueryResponse {
-    insight: InsightType.FUNNELS
-    results: Record<string, ExperimentVariantFunnelResult>
+export interface ExperimentTrendsQueryResponse {
+    kind: NodeKind.ExperimentTrendsQuery
+    insight: Record<string, any>[]
+    count_query?: TrendsQuery
+    exposure_query?: TrendsQuery
+    variants: ExperimentVariantTrendsBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    p_value: number
+    credible_intervals: Record<string, [number, number]>
 }
 
-export type CachedExperimentFunnelQueryResponse = CachedQueryResponse<ExperimentFunnelQueryResponse>
+export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
 
-export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
-    kind: NodeKind.ExperimentFunnelQuery
-    source: FunnelsQuery
+export interface ExperimentFunnelsQueryResponse {
+    kind: NodeKind.ExperimentFunnelsQuery
+    insight: Record<string, any>[][]
+    funnels_query?: FunnelsQuery
+    variants: ExperimentVariantFunnelsBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    expected_loss: number
+    credible_intervals: Record<string, [number, number]>
+}
+
+export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
+
+export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
+    kind: NodeKind.ExperimentFunnelsQuery
+    funnels_query: FunnelsQuery
     experiment_id: integer
 }
 
-export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
-    kind: NodeKind.ExperimentTrendQuery
+export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
+    kind: NodeKind.ExperimentTrendsQuery
     count_query: TrendsQuery
     // Defaults to $feature_flag_called if not specified
-    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trend_query_runner.py
+    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
     experiment_id: integer
 }
@@ -1961,25 +2118,38 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
 }
 
-export interface InsightsThresholdAbsolute {
+export interface InsightsThresholdBounds {
     lower?: number
     upper?: number
 }
 
+export enum InsightThresholdType {
+    ABSOLUTE = 'absolute',
+    PERCENTAGE = 'percentage',
+}
+
 export interface InsightThreshold {
-    absoluteThreshold?: InsightsThresholdAbsolute
-    // More types of thresholds or conditions can be added here
+    type: InsightThresholdType
+    bounds?: InsightsThresholdBounds
+}
+
+export enum AlertConditionType {
+    ABSOLUTE_VALUE = 'absolute_value', // default alert, checks absolute value of current interval
+    RELATIVE_INCREASE = 'relative_increase', // checks increase in value during current interval compared to previous interval
+    RELATIVE_DECREASE = 'relative_decrease', // checks decrease in value during current interval compared to previous interval
 }
 
 export interface AlertCondition {
     // Conditions in addition to the separate threshold
     // TODO: Think about things like relative thresholds, rate of change, etc.
+    type: AlertConditionType
 }
 
 export enum AlertState {
     FIRING = 'Firing',
     NOT_FIRING = 'Not firing',
     ERRORED = 'Errored',
+    SNOOZED = 'Snoozed',
 }
 
 export enum AlertCalculationInterval {
@@ -1996,6 +2166,7 @@ export interface TrendsAlertConfig {
 
 export interface HogCompileResponse {
     bytecode: any[]
+    locals: any[]
 }
 
 export interface SuggestedQuestionsQuery extends DataNode<SuggestedQuestionsQueryResponse> {
@@ -2041,7 +2212,9 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    sample_values: string[]
+    // Values can be floats and integers. The comment below is to preserve the `integer` type.
+    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    sample_values: (string | number | boolean | integer)[]
     sample_count: integer
 }
 
@@ -2054,3 +2227,59 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
+
+export enum AssistantMessageType {
+    Human = 'human',
+    Assistant = 'ai',
+    Visualization = 'ai/viz',
+    Failure = 'ai/failure',
+    Router = 'ai/router',
+}
+
+export interface HumanMessage {
+    type: AssistantMessageType.Human
+    content: string
+}
+
+export interface AssistantMessage {
+    type: AssistantMessageType.Assistant
+    content: string
+}
+
+export interface VisualizationMessage {
+    type: AssistantMessageType.Visualization
+    plan?: string
+    reasoning_steps?: string[] | null
+    answer?: AssistantTrendsQuery | AssistantFunnelsQuery
+}
+
+export interface FailureMessage {
+    type: AssistantMessageType.Failure
+    content?: string
+}
+
+export interface RouterMessage {
+    type: AssistantMessageType.Router
+    content: string
+}
+
+export type RootAssistantMessage =
+    | VisualizationMessage
+    | AssistantMessage
+    | HumanMessage
+    | FailureMessage
+    | RouterMessage
+
+export enum AssistantEventType {
+    Status = 'status',
+    Message = 'message',
+}
+
+export enum AssistantGenerationStatusType {
+    Acknowledged = 'ack',
+    GenerationError = 'generation_error',
+}
+
+export interface AssistantGenerationStatusEvent {
+    type: AssistantGenerationStatusType
+}

@@ -100,7 +100,7 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
 interface HogDebugProps {
     queryKey: string
     query: HogQuery
-    setQuery?: (query: HogQuery) => void
+    setQuery: (query: HogQuery) => void
     debug?: boolean
 }
 

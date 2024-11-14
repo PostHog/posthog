@@ -81,13 +81,20 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 (state, props): Breadcrumb[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     const activeScene = s.activeScene(state, props)
+
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
-                        const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
-                        return activeSceneLogic.selectors.breadcrumbs(
-                            state,
-                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
-                        )
-                    } else if (activeScene) {
+                        try {
+                            const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                            return activeSceneLogic.selectors.breadcrumbs(
+                                state,
+                                activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                            )
+                        } catch (e) {
+                            // If the breadcrumb selector fails, we'll just ignore it and return an empty array below
+                        }
+                    }
+
+                    if (activeScene) {
                         const sceneConfig = s.sceneConfig(state, props)
                         return [{ name: sceneConfig?.name ?? identifierToHuman(activeScene), key: activeScene }]
                     }

@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicUsize;
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use crate::{
     config::{DEFAULT_QUEUE_DEPTH_LIMIT, DEFAULT_SHARD_HEALTH_CHECK_INTERVAL},
@@ -59,7 +60,7 @@ impl QueueManager {
         }
     }
 
-    pub async fn create_job(&self, init: JobInit) -> Result<(), QueueError> {
+    pub async fn create_job(&self, init: JobInit) -> Result<Uuid, QueueError> {
         // TODO - here is where a lot of shard health and failover logic will go, eventually.
         let next = self
             .next_shard
@@ -73,7 +74,7 @@ impl QueueManager {
         &self,
         init: JobInit,
         timeout: Option<Duration>,
-    ) -> Result<(), QueueError> {
+    ) -> Result<Uuid, QueueError> {
         let next = self
             .next_shard
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -82,7 +83,7 @@ impl QueueManager {
         shard.create_job_blocking(init, timeout).await
     }
 
-    pub async fn bulk_create_jobs(&self, inits: Vec<JobInit>) -> Result<(), QueueError> {
+    pub async fn bulk_create_jobs(&self, inits: Vec<JobInit>) -> Result<Vec<Uuid>, QueueError> {
         let next = self
             .next_shard
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -94,7 +95,7 @@ impl QueueManager {
         &self,
         inits: Vec<JobInit>,
         timeout: Option<Duration>,
-    ) -> Result<(), QueueError> {
+    ) -> Result<Vec<Uuid>, QueueError> {
         let next = self
             .next_shard
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -116,7 +117,7 @@ impl Shard {
     }
 
     // Inserts a job, failing if the shard is at capacity
-    pub async fn create_job(&self, init: JobInit) -> Result<(), QueueError> {
+    pub async fn create_job(&self, init: JobInit) -> Result<Uuid, QueueError> {
         self.insert_guard().await?;
         create_job(&self.pool, init).await
     }
@@ -124,7 +125,7 @@ impl Shard {
     // Inserts a vec of jobs, failing if the shard is at capacity. Note "capacity" here just
     // means "it isn't totally full" - if there's "capacity" for 1 job, and this is a vec of
     // 1000, we still insert all 1000.
-    pub async fn bulk_create_jobs(&self, inits: &[JobInit]) -> Result<(), QueueError> {
+    pub async fn bulk_create_jobs(&self, inits: &[JobInit]) -> Result<Vec<Uuid>, QueueError> {
         self.insert_guard().await?;
         bulk_create_jobs(&self.pool, inits).await
     }
@@ -134,7 +135,7 @@ impl Shard {
         &self,
         init: JobInit,
         timeout: Option<Duration>,
-    ) -> Result<(), QueueError> {
+    ) -> Result<Uuid, QueueError> {
         let start = Utc::now();
         while self.is_full().await? {
             tokio::time::sleep(Duration::milliseconds(100).to_std().unwrap()).await;
@@ -153,7 +154,7 @@ impl Shard {
         &self,
         inits: &[JobInit],
         timeout: Option<Duration>,
-    ) -> Result<(), QueueError> {
+    ) -> Result<Vec<Uuid>, QueueError> {
         let start = Utc::now();
         while self.is_full().await? {
             tokio::time::sleep(Duration::milliseconds(100).to_std().unwrap()).await;

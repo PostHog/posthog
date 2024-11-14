@@ -65,6 +65,8 @@ def sql_source_for_type(
     else:
         incremental = None
 
+    connect_args = []
+
     if source_type == ExternalDataSource.Type.POSTGRES:
         credentials = ConnectionStringCredentials(
             f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
@@ -76,6 +78,10 @@ def sql_source_for_type(
         credentials = ConnectionStringCredentials(
             f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}&ssl_verify_cert=false"
         )
+
+        # PlanetScale needs this to be set
+        if host.endswith("psdb.cloud"):
+            connect_args = ["SET workload = 'OLAP';"]
     elif source_type == ExternalDataSource.Type.MSSQL:
         credentials = ConnectionStringCredentials(
             f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
@@ -84,7 +90,12 @@ def sql_source_for_type(
         raise Exception("Unsupported source_type")
 
     db_source = sql_database(
-        credentials, schema=schema, table_names=table_names, incremental=incremental, team_id=team_id
+        credentials,
+        schema=schema,
+        table_names=table_names,
+        incremental=incremental,
+        team_id=team_id,
+        connect_args=connect_args,
     )
 
     return db_source
@@ -132,6 +143,7 @@ def bigquery_source(
     client_email: str,
     token_uri: str,
     table_name: str,
+    bq_destination_table_id: str,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
@@ -151,7 +163,10 @@ def bigquery_source(
         "token_uri": token_uri,
     }
 
-    engine = create_engine(f"bigquery://{project_id}/{dataset_id}", credentials_info=credentials_info)
+    engine = create_engine(
+        f"bigquery://{project_id}/{dataset_id}?create_disposition=CREATE_IF_NEEDED&allowLargeResults=true&destination={bq_destination_table_id}",
+        credentials_info=credentials_info,
+    )
 
     return sql_database(engine, schema=None, table_names=[table_name], incremental=incremental)
 
@@ -180,6 +195,7 @@ def sql_database(
     table_names: Optional[List[str]] = dlt.config.value,  # noqa: UP006
     incremental: Optional[dlt.sources.incremental] = None,
     team_id: Optional[int] = None,
+    connect_args: Optional[list[str]] = None,
 ) -> Iterable[DltResource]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -231,6 +247,7 @@ def sql_database(
                 engine=engine,
                 table=table,
                 incremental=incremental,
+                connect_args=connect_args,
             )
         )
 

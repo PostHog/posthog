@@ -104,6 +104,7 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
                 undefined,
                 undefined,
                 undefined,
+                undefined,
                 undefined
             )
         },
@@ -111,6 +112,7 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
             insightSceneLogic.actions.setSceneState(
                 String('new-dataWarehouse') as InsightShortId,
                 ItemMode.Edit,
+                undefined,
                 undefined,
                 undefined,
                 undefined,

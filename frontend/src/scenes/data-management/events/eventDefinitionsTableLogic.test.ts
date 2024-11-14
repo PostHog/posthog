@@ -98,7 +98,7 @@ describe('eventDefinitionsTableLogic', () => {
                         ]
                     }
                 },
-                '/api/projects/:team/events': (req) => {
+                '/api/environments/:team_id/events': (req) => {
                     if (
                         req.url.searchParams.get('limit') === '1' &&
                         req.url.searchParams.get('event') === 'event_with_example'
@@ -259,13 +259,13 @@ describe('eventDefinitionsTableLogic', () => {
                         [propertiesStartingUrl]: partial({
                             count: 5,
                         }),
-                        [`api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: partial(mockEvent.properties),
+                        [`api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: partial(mockEvent.properties),
                     }),
                 })
 
             expect(api.get).toHaveBeenCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)
-            expect(api.get).toHaveBeenNthCalledWith(2, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
+            expect(api.get).toHaveBeenNthCalledWith(2, `api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
             expect(api.get).toHaveBeenNthCalledWith(3, startingUrl)
 
             await expectLogic(logic, () => {

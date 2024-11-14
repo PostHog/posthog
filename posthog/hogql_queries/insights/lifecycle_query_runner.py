@@ -33,7 +33,7 @@ class LifecycleQueryRunner(QueryRunner):
     response: LifecycleQueryResponse
     cached_response: CachedLifecycleQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
             counts_with_sampling = ast.Constant(value=0)
         elif self.query.samplingFactor is not None and self.query.samplingFactor != 1:
@@ -95,7 +95,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_actors_query(
         self, day: Optional[str] = None, status: Optional[str] = None
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("actors_query"):
             exprs = []
             if day is not None:
@@ -181,7 +181,6 @@ class LifecycleQueryRunner(QueryRunner):
             action_object = {}
             label = "{} - {}".format("", val[2])
             if isinstance(self.query.series[0], ActionsNode):
-                assert self.team.project_id is not None
                 action = Action.objects.get(pk=int(self.query.series[0].id), team__project_id=self.team.project_id)
                 label = "{} - {}".format(action.name, val[2])
                 action_object = {
@@ -249,7 +248,6 @@ class LifecycleQueryRunner(QueryRunner):
         with self.timings.measure("series_filters"):
             for serie in self.query.series or []:
                 if isinstance(serie, ActionsNode):
-                    assert self.team.project_id is not None
                     action = Action.objects.get(pk=int(serie.id), team__project_id=self.team.project_id)
                     event_filters.append(action_to_expr(action))
                 elif isinstance(serie, EventsNode):

@@ -53,7 +53,7 @@ describe('Insights', () => {
     })
 
     it('Create new insight and save and continue editing', () => {
-        cy.intercept('PATCH', /\/api\/projects\/\d+\/insights\/\d+\/?/).as('patchInsight')
+        cy.intercept('PATCH', /\/api\/environments\/\d+\/insights\/\d+\/?/).as('patchInsight')
 
         const insightName = randomString('insight-name-')
         createInsight(insightName)

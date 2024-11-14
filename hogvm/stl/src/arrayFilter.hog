@@ -1,4 +1,4 @@
-fn arrayFilter(func, arr) {
+fun arrayFilter(func, arr) {
   let result := []
   for (let i in arr) {
     if (func(i)) {

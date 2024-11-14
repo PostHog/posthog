@@ -5,6 +5,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
+import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { AppMetricSparkLineV2 } from 'scenes/pipeline/metrics/AppMetricsV2Sparkline'
 import { urls } from 'scenes/urls'
 
@@ -72,11 +73,7 @@ export function HogFunctionList({
                             render: (_, hogFunction) => {
                                 return (
                                     <LemonTableLink
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            `hog-${hogFunction.id}`,
-                                            PipelineNodeTab.Configuration
-                                        )}
+                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">
@@ -91,11 +88,12 @@ export function HogFunctionList({
                         },
 
                         {
-                            title: 'Weekly volume',
+                            title: 'Last 7 days',
                             render: (_, hogFunction) => {
                                 return (
                                     <Link
                                         to={urls.pipelineNode(
+                                            // TODO: metrics page for emails
                                             PipelineStage.Destination,
                                             `hog-${hogFunction.id}`,
                                             PipelineNodeTab.Metrics

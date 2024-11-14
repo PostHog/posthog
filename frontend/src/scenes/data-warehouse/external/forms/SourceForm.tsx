@@ -1,5 +1,4 @@
 import { LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -8,22 +7,27 @@ import { SourceConfig, SourceFieldConfig } from '~/types'
 import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
 
-interface SourceFormProps {
+export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
-    showSourceFields?: boolean
+    jobInputs?: Record<string, any>
 }
 
-const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig): JSX.Element => {
+const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig, lastValue?: any): JSX.Element => {
     if (field.type === 'switch-group') {
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
                 {({ value, onChange }) => (
                     <>
-                        <LemonSwitch checked={value} onChange={onChange} />
+                        <LemonSwitch
+                            checked={value === undefined || value === null ? lastValue?.['enabled'] : value}
+                            onChange={onChange}
+                        />
                         {value && (
                             <Group name={field.name}>
-                                {field.fields.map((field) => sourceFieldToElement(field, sourceConfig))}
+                                {field.fields.map((field) =>
+                                    sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
+                                )}
                             </Group>
                         )}
                     </>
@@ -43,11 +47,21 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
             >
                 {({ value, onChange }) => (
                     <>
-                        <LemonSelect options={field.options} value={value ?? field.defaultValue} onChange={onChange} />
+                        <LemonSelect
+                            options={field.options}
+                            value={
+                                value === undefined || value === null
+                                    ? lastValue?.[field.name]
+                                    : value || field.defaultValue
+                            }
+                            onChange={onChange}
+                        />
                         <Group name={field.name}>
                             {field.options
                                 .find((n) => n.value === (value ?? field.defaultValue))
-                                ?.fields?.map((field) => sourceFieldToElement(field, sourceConfig))}
+                                ?.fields?.map((field) =>
+                                    sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
+                                )}
                         </Group>
                     </>
                 )}
@@ -63,6 +77,7 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
                     data-attr={field.name}
                     placeholder={field.placeholder}
                     minRows={4}
+                    defaultValue={lastValue}
                 />
             </LemonField>
         )
@@ -102,32 +117,33 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
                 data-attr={field.name}
                 placeholder={field.placeholder}
                 type={field.type}
+                defaultValue={lastValue}
             />
         </LemonField>
     )
 }
 
-export default function SourceForm({ sourceConfig }: SourceFormProps): JSX.Element {
-    const { source } = useValues(sourceWizardLogic)
-    const showSourceFields = SOURCE_DETAILS[sourceConfig.name].showSourceForm
-        ? SOURCE_DETAILS[sourceConfig.name].showSourceForm?.(source.payload)
-        : true
-    const showPrefix = SOURCE_DETAILS[sourceConfig.name].showPrefix
-        ? SOURCE_DETAILS[sourceConfig.name].showPrefix?.(source.payload)
-        : true
-
+export default function SourceFormContainer(props: SourceFormProps): JSX.Element {
     return (
-        <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" className="space-y-4" enableFormOnSubmit>
-            {showSourceFields && (
-                <Group name="payload">
-                    {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => sourceFieldToElement(field, sourceConfig))}
-                </Group>
-            )}
+        <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" enableFormOnSubmit>
+            <SourceFormComponent {...props} />
+        </Form>
+    )
+}
+
+export function SourceFormComponent({ sourceConfig, showPrefix = true, jobInputs }: SourceFormProps): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <Group name="payload">
+                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
+                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
+                )}
+            </Group>
             {showPrefix && (
                 <LemonField name="prefix" label="Table Prefix (optional)">
                     <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
                 </LemonField>
             )}
-        </Form>
+        </div>
     )
 }

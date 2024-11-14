@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -52,15 +52,20 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."person_processing_opt_out",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
@@ -85,7 +90,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -117,7 +122,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -142,15 +147,20 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."person_processing_opt_out",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
@@ -175,7 +185,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -208,7 +218,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.13
@@ -287,8 +297,8 @@
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
-         AND "posthog_action"."team_id" = 2
-         AND "posthog_team"."project_id" = 2)
+         AND "posthog_action"."team_id" = 99999
+         AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
@@ -324,7 +334,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.3
@@ -403,8 +413,8 @@
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
-         AND "posthog_action"."team_id" = 2
-         AND "posthog_team"."project_id" = 2)
+         AND "posthog_action"."team_id" = 99999
+         AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
@@ -439,7 +449,7 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
+  WHERE "posthog_user"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -464,15 +474,20 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."person_processing_opt_out",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
@@ -497,7 +512,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -530,7 +545,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.8
@@ -609,8 +624,8 @@
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
-         AND "posthog_action"."team_id" = 2
-         AND "posthog_team"."project_id" = 2)
+         AND "posthog_action"."team_id" = 99999
+         AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,

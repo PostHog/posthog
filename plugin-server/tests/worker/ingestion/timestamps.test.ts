@@ -145,6 +145,34 @@ describe('parseEventTimestamp()', () => {
         expect(timestamp.toUTC().toISO()).toEqual('2021-10-29T01:43:54.000Z')
     })
 
+    it('timestamps adjusted way out of bounds are ignored', () => {
+        const event = {
+            offset: 600000000000000,
+            timestamp: '2021-10-28T01:00:00.000Z',
+            sent_at: '2021-10-28T01:05:00.000Z',
+            now: '2021-10-28T01:10:00.000Z',
+            uuid: new UUIDT(),
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'ignored_invalid_timestamp',
+                {
+                    field: 'timestamp',
+                    eventUuid: event.uuid,
+                    offset: 600000000000000,
+                    parsed_year: -16992,
+                    reason: 'out of bounds',
+                    value: '2021-10-28T01:00:00.000Z',
+                },
+            ],
+        ])
+
+        expect(timestamp.toUTC().toISO()).toEqual('2020-08-12T01:02:00.000Z')
+    })
+
     it('reports timestamp parsing error and fallbacks to DateTime.utc', () => {
         const event = {
             team_id: 123,

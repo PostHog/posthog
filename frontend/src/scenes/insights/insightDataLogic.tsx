@@ -32,6 +32,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
+                filtersOverride: props.filtersOverride,
+                variablesOverride: props.variablesOverride,
             } as DataNodeLogicProps),
             [
                 'query as insightQuery',

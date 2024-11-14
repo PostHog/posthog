@@ -4,9 +4,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-
-from prometheus_client import Histogram
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import posthoganalytics
 import requests
@@ -15,7 +13,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
@@ -56,9 +54,6 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
-)
-from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
-    convert_original_version_lts_recording,
 )
 from posthog.storage import object_storage
 
@@ -142,6 +137,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
 
     ongoing = serializers.SerializerMethodField()
     viewed = serializers.SerializerMethodField()
+    activity_score = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -150,6 +146,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
     def get_viewed(self, obj: SessionRecording) -> bool:
         # viewed is a custom field that we load from PG Sql and merge into the model
         return getattr(obj, "viewed", False)
+
+    def get_activity_score(self, obj: SessionRecording) -> Optional[float]:
+        return getattr(obj, "activity_score", None)
 
     class Meta:
         model = SessionRecording
@@ -173,6 +172,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "storage",
             "snapshot_source",
             "ongoing",
+            "activity_score",
         ]
 
         read_only_fields = [
@@ -194,6 +194,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "storage",
             "snapshot_source",
             "ongoing",
+            "activity_score",
         ]
 
 
@@ -322,7 +323,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
-        self._maybe_report_recording_list_filters_changed(request)
+        self._maybe_report_recording_list_filters_changed(request, team=self.team)
         return list_recordings_response(filter, request, self.get_serializer_context())
 
     @extend_schema(
@@ -519,7 +520,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
 
-    def _maybe_report_recording_list_filters_changed(self, request: request.Request):
+    def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
         If the applied filters were modified by the user, capture only the partial filters
         applied (not the full filters object, since that's harder to search through in event props).
@@ -534,14 +535,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             current_url = request.headers.get("Referer")
             session_id = request.headers.get("X-POSTHOG-SESSION-ID")
 
-            posthoganalytics.capture(
-                str(cast(User, request.user).distinct_id),
-                "recording list filters changed",
-                {
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    **partial_filters,
-                },
+            report_user_action(
+                user=cast(User, request.user),
+                event="recording list filters changed",
+                properties={"$current_url": current_url, "$session_id": session_id, **partial_filters},
+                team=team,
             )
 
     def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:
@@ -553,21 +551,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_prefix = ""
 
         if recording.object_storage_path:
-            if recording.storage_version == "2023-08-01":
-                blob_prefix = recording.object_storage_path
-                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-            else:
-                # originally LTS files were in a single file
-                # TODO this branch can be deleted after 01-08-2024
-                sources.append(
-                    {
-                        "source": "blob",
-                        "start_timestamp": recording.start_time,
-                        "end_timestamp": recording.end_time,
-                        "blob_key": recording.object_storage_path,
-                    }
-                )
-                might_have_realtime = False
+            blob_prefix = recording.object_storage_path
+            blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+            might_have_realtime = False
         else:
             blob_prefix = recording.build_blob_ingestion_storage_path()
             blob_keys = object_storage.list_objects(blob_prefix)
@@ -770,11 +756,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 if recording.storage_version == "2023-08-01":
                     file_key = f"{recording.object_storage_path}/{blob_key}"
                 else:
-                    # this is a legacy recording, we need to load the file from the old path
-                    file_key = convert_original_version_lts_recording(recording)
+                    raise NotImplementedError(
+                        f"Unknown session replay object storage version {recording.storage_version}"
+                    )
             else:
                 blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+                file_key = f"{recording.build_blob_ingestion_storage_path(root_prefix=blob_prefix)}/{blob_key}"
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")

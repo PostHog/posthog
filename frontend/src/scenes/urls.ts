@@ -3,7 +3,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { HogQLFilters, Node } from '~/queries/schema'
+import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -89,8 +89,20 @@ export const urls = {
             }
         ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
-    insightView: (id: InsightShortId, dashboardId?: number): string =>
-        `/insights/${id}${dashboardId !== undefined ? `?dashboard=${dashboardId}` : ''}`,
+    insightView: (
+        id: InsightShortId,
+        dashboardId?: number,
+        variablesOverride?: Record<string, HogQLVariable>
+    ): string => {
+        const params = [
+            { param: 'dashboard', value: dashboardId },
+            { param: 'variables_override', value: variablesOverride },
+        ]
+            .filter((n) => Boolean(n.value))
+            .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
+            .join('&')
+        return `/insights/${id}${params.length ? `?${params}` : ''}`
+    },
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
@@ -98,10 +110,16 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>, sessionRecordingId?: string): string =>
+    replay: (
+        tab?: ReplayTabs,
+        filters?: Partial<RecordingUniversalFilters>,
+        sessionRecordingId?: string,
+        order?: string
+    ): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/home', {
             ...(filters ? { filters } : {}),
             ...(sessionRecordingId ? { sessionRecordingId } : {}),
+            ...(order ? { order } : {}),
         }).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
     replaySingle: (id: string): string => `/replay/${id}`,
@@ -125,6 +143,12 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
+    messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
+    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
+    messagingProviders: (): string => '/messaging/providers',
+    messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
+    messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -149,6 +173,7 @@ export const urls = {
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
+    sqlEditor: (): string => `/sql`,
     dataWarehouseView: (id: string): string => combineUrl(`/data-warehouse/view/${id}`).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
@@ -212,6 +237,7 @@ export const urls = {
         urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    debugHog: (): string => '/debug/hog',
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
     notebooks: (): string => '/notebooks',

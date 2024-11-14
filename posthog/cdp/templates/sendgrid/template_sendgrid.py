@@ -7,6 +7,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-sendgrid",
     name="Sendgrid",
     description="Update marketing contacts in Sendgrid",
@@ -57,7 +58,7 @@ let res := fetch('https://api.sendgrid.com/v3/marketing/contacts', {
 })
 
 if (res.status > 300) {
-    print('Error updating contact:', res.status, res.body)
+    throw Error(f'Error from api.sendgrid.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[

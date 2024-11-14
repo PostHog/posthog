@@ -109,7 +109,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
                 deleteNodeWebhook: async ({ destination }) => {
                     await deleteWithUndo({
-                        endpoint: `projects/${teamLogic.values.currentTeamId}/plugin_configs`,
+                        endpoint: `environments/${teamLogic.values.currentTeamId}/plugin_configs`,
                         object: {
                             id: destination.id,
                             name: destination.name,
@@ -166,7 +166,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
-                    return (await api.hogFunctions.list()).results
+                    return (await api.hogFunctions.list({ type: 'destination' })).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {

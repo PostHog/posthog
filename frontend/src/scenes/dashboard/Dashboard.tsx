@@ -12,6 +12,7 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardHeader } from './DashboardHeader'
@@ -124,6 +125,7 @@ function DashboardScene(): JSX.Element {
                             </div>
                         )}
                     </div>
+                    <VariablesForDashboard />
                     <DashboardItems />
                 </div>
             )}

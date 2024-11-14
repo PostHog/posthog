@@ -1,4 +1,6 @@
 .LemonCheckbox {
+    --lemon-checkbox-height: calc(2.125rem + 3px); // Medium size button height + button shadow height;
+
     display: flex;
     align-items: center;
     width: fit-content;
@@ -88,7 +90,7 @@
         line-height: 1.4;
 
         label {
-            min-height: 2.5rem;
+            min-height: var(--lemon-checkbox-height);
             padding: 0 0.75rem;
             background: var(--bg-light);
             border: 1px solid var(--border);

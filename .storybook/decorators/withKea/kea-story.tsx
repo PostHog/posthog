@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { worker } from '~/mocks/browser'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 export function resetKeaStory(): void {
     worker.resetHandlers()
@@ -18,6 +19,7 @@ export function resetKeaStory(): void {
     initKea({ routerLocation: history.location, routerHistory: history })
     featureFlagLogic.mount()
     teamLogic.mount()
+    projectLogic.mount()
     userLogic.mount()
     router.mount()
     const { store } = getContext()

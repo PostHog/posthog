@@ -49,7 +49,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             modifiers=self.modifiers,
         )
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         query = parse_select(
             """
                 SELECT
@@ -62,6 +62,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 WHERE {filter}
                 GROUP BY key
                 ORDER BY total_count DESC
+                LIMIT 500
             """,
             placeholders={"from_query": self._get_subquery(), "filter": self._get_omit_filter()},
         )

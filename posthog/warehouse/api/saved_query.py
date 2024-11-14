@@ -4,6 +4,7 @@ from django.conf import settings
 import structlog
 from asgiref.sync import async_to_sync
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 
@@ -155,8 +156,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
-        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
-        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
+
+        for join in DataWarehouseJoin.objects.filter(
+            Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
+        ).exclude(deleted=True):
+            join.soft_delete()
 
         if instance.table is not None:
             instance.table.soft_delete()

@@ -13,7 +13,7 @@ import {
     performanceEventDataLogic,
 } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     convertUniversalFiltersToRecordingsQuery,
     MatchingEventsMatchType,
@@ -191,7 +191,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     key((props: PlayerInspectorLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: PlayerInspectorLogicProps) => ({
         actions: [
-            playerSettingsLogic,
+            miniFiltersLogic,
             ['setTab', 'setMiniFilter', 'setSearchQuery'],
             eventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
@@ -199,8 +199,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['loadFullEventData'],
         ],
         values: [
-            playerSettingsLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
+            miniFiltersLogic,
+            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery', 'miniFiltersForTabByKey'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -652,13 +652,31 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         seekbarItems: [
-            (s) => [s.filteredItems, s.showOnlyMatching, s.showMatchingEventsFilter],
+            (s) => [
+                s.allItems,
+                s.miniFiltersForTabByKey,
+                s.showOnlyMatching,
+                s.showMatchingEventsFilter,
+                s.windowIdFilter,
+            ],
             (
-                filteredItems,
+                allItems,
+                miniFiltersForTabByKey,
                 showOnlyMatching,
-                showMatchingEventsFilter
+                showMatchingEventsFilter,
+                windowIdFilter
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
-                let items: (InspectorListItemEvent | InspectorListItemComment)[] = filteredItems.filter(
+                const eventsTabFilters = miniFiltersForTabByKey(SessionRecordingPlayerTab.EVENTS)
+                const eventTabFilteredItems = filterInspectorListItems({
+                    allItems,
+                    tab: SessionRecordingPlayerTab.EVENTS,
+                    miniFiltersByKey: eventsTabFilters,
+                    showMatchingEventsFilter,
+                    showOnlyMatching,
+                    windowIdFilter,
+                })
+
+                let items: (InspectorListItemEvent | InspectorListItemComment)[] = eventTabFilteredItems.filter(
                     (item): item is InspectorListItemEvent | InspectorListItemComment => {
                         if (item.type === SessionRecordingPlayerTab.EVENTS) {
                             return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')

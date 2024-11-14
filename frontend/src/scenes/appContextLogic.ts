@@ -7,6 +7,7 @@ import { UserType } from '~/types'
 
 import type { appContextLogicType } from './appContextLogicType'
 import { organizationLogic } from './organizationLogic'
+import { projectLogic } from './projectLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -19,7 +20,9 @@ export const appContextLogic = kea<appContextLogicType>([
             organizationLogic,
             ['loadCurrentOrganizationSuccess'],
             teamLogic,
-            ['loadCurrentTeam', 'loadCurrentTeamSuccess'],
+            ['loadCurrentTeam'],
+            projectLogic,
+            ['loadCurrentProject'],
         ],
     }),
     afterMount(({ actions }) => {
@@ -43,6 +46,7 @@ export const appContextLogic = kea<appContextLogicType>([
                     // NOTE: This doesn't fix the issue but removes the confusion of seeing incorrect user info in the UI
                     actions.loadUserSuccess(remoteUser)
                     actions.loadCurrentOrganizationSuccess(remoteUser.organization)
+                    actions.loadCurrentProject()
                     actions.loadCurrentTeam()
                 }
             })

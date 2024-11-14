@@ -21,7 +21,7 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
@@ -338,14 +338,14 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconVideoCamera,
         inMenu: false,
     },
-    [NodeKind.ExperimentTrendQuery]: {
-        name: 'Experiment Result',
+    [NodeKind.ExperimentTrendsQuery]: {
+        name: 'Experiment Trends Result',
         description: 'View experiment trend result',
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentFunnelQuery]: {
-        name: 'Experiment Funnel',
+    [NodeKind.ExperimentFunnelsQuery]: {
+        name: 'Experiment Funnels Result',
         description: 'View experiment funnel result',
         icon: IconFlask,
         inMenu: false,
@@ -622,7 +622,18 @@ export function SavedInsights(): JSX.Element {
                     { key: SavedInsightsTabs.Yours, label: 'Your insights' },
                     { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
                     { key: SavedInsightsTabs.History, label: 'History' },
-                    ...(showAlerts ? [{ key: SavedInsightsTabs.Alerts, label: 'Alerts' }] : []),
+                    ...(showAlerts
+                        ? [
+                              {
+                                  key: SavedInsightsTabs.Alerts,
+                                  label: (
+                                      <div className="flex items-center gap-2">
+                                          Alerts <LemonTag type="highlight">ALPHA</LemonTag>
+                                      </div>
+                                  ),
+                              },
+                          ]
+                        : []),
                 ]}
             />
 

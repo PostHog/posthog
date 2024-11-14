@@ -3,7 +3,7 @@ from unittest.mock import ANY
 
 from rest_framework import status
 
-from ee.models.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag

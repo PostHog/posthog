@@ -1,6 +1,6 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -19,7 +19,7 @@ export const projectLogic = kea<projectLogicType>([
         deleteProjectFailure: true,
     }),
     connect(() => ({
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser', 'switchTeam']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -75,12 +75,25 @@ export const projectLogic = kea<projectLogicType>([
                     return patchedProject
                 },
                 createProject: async ({ name }: { name: string }) => {
-                    return await api.create('api/projects/', { name })
+                    try {
+                        return await api.create('api/projects/', { name })
+                    } catch (error: any) {
+                        lemonToast.error('Failed to create project')
+                        return values.currentProject
+                    }
                 },
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    selectors({
+        currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
+    }),
+    listeners(({ actions, values }) => ({
+        loadCurrentProjectSuccess: ({ currentProject }) => {
+            if (currentProject) {
+                ApiConfig.setCurrentProjectId(currentProject.id)
+            }
+        },
         deleteProject: async ({ project }) => {
             try {
                 await api.delete(`api/projects/${project.id}`)
@@ -92,6 +105,11 @@ export const projectLogic = kea<projectLogicType>([
         },
         deleteProjectSuccess: () => {
             lemonToast.success('Project has been deleted')
+        },
+        createProjectSuccess: ({ currentProject }) => {
+            if (currentProject && currentProject.id !== values.currentProject?.id) {
+                actions.switchTeam(currentProject.id)
+            }
         },
     })),
     afterMount(({ actions }) => {

@@ -1,6 +1,10 @@
+import asyncio
 import typing
 
 import pyarrow as pa
+import structlog
+
+logger = structlog.get_logger()
 
 CONTINUATION_BYTES = b"\xff\xff\xff\xff"
 
@@ -30,7 +34,9 @@ class AsyncMessageReader:
         await self.read_until(4)
 
         if self._buffer[:4] != CONTINUATION_BYTES:
-            raise InvalidMessageFormat("Encapsulated IPC message format must begin with continuation bytes")
+            raise InvalidMessageFormat(
+                f"Encapsulated IPC message format must begin with continuation bytes, received: '{self._buffer}'"
+            )
 
         await self.read_until(8)
 
@@ -128,3 +134,24 @@ class AsyncRecordBatchReader:
             raise TypeError(f"Expected message of type 'schema' got '{message.type}'")
 
         return pa.ipc.read_schema(message)
+
+
+class AsyncRecordBatchProducer(AsyncRecordBatchReader):
+    def __init__(self, bytes_iter: typing.AsyncIterator[tuple[bytes, bool]]) -> None:
+        super().__init__(bytes_iter)
+
+    async def produce(self, queue: asyncio.Queue):
+        """Read all record batches and produce them to a queue for async processing."""
+        await logger.adebug("Starting record batch produce loop")
+
+        while True:
+            try:
+                record_batch = await self.read_next_record_batch()
+            except StopAsyncIteration:
+                await logger.adebug("No more record batches to produce, closing loop")
+                return
+            except Exception as e:
+                await logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                raise
+
+            await queue.put(record_batch)

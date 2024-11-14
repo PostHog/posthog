@@ -1,6 +1,4 @@
-import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
-
-import { LegacyRecordingFilters, RecordingUniversalFilters } from '~/types'
+import { LegacyRecordingFilters, RecordingUniversalFilters, UniversalFiltersGroup, UniversalFilterValue } from '~/types'
 
 export const isUniversalFilters = (
     filters: RecordingUniversalFilters | LegacyRecordingFilters

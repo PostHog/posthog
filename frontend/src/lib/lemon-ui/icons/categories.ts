@@ -198,7 +198,7 @@ export const TEAMS_AND_COMPANIES = {
         'IconRewindPlay',
         'IconVideoCamera',
     ],
-    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting'],
+    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
     Logos: ['IconLogomark', 'IconGithub'],

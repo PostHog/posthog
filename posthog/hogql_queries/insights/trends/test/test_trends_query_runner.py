@@ -227,8 +227,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         self._create_group(
             team_id=self.team.pk,
@@ -944,13 +948,14 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
 
         assert response.results[0]["label"] == "Formula (A+B)"
-        assert response.results[0]["breakdown_value"] == "all"
-        assert response.results[0]["count"] == 16
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 9
+        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
 
         assert response.results[1]["label"] == "Formula (A+B)"
-        assert response.results[1]["breakdown_value"] == cohort1.pk
-        assert response.results[1]["count"] == 9
-        assert response.results[1]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 16
+        assert response.results[1]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
@@ -1039,8 +1044,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response.results[1]["days"],
         )
 
-        self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[0]["labels"])
-        self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[1]["labels"])
+        self.assertEqual(
+            ["15-Jan-2020", "16-Jan-2020", "17-Jan-2020", "18-Jan-2020", "19-Jan-2020"],
+            response.results[0]["labels"],
+        )
+
+        self.assertEqual(
+            ["10-Jan-2020", "11-Jan-2020", "12-Jan-2020", "13-Jan-2020", "14-Jan-2020"],
+            response.results[1]["labels"],
+        )
 
     def test_trends_compare_weeks(self):
         self._create_test_events()
@@ -1091,10 +1103,31 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(
-                ["day 0", "day 1", "day 2", "day 3", "day 4", "day 5", "day 6", "day 7"], response.results[0]["labels"]
+                [
+                    "17-Jan-2020",
+                    "18-Jan-2020",
+                    "19-Jan-2020",
+                    "20-Jan-2020",
+                    "21-Jan-2020",
+                    "22-Jan-2020",
+                    "23-Jan-2020",
+                    "24-Jan-2020",
+                ],
+                response.results[0]["labels"],
             )
+
             self.assertEqual(
-                ["day 0", "day 1", "day 2", "day 3", "day 4", "day 5", "day 6", "day 7"], response.results[1]["labels"]
+                [
+                    "10-Jan-2020",
+                    "11-Jan-2020",
+                    "12-Jan-2020",
+                    "13-Jan-2020",
+                    "14-Jan-2020",
+                    "15-Jan-2020",
+                    "16-Jan-2020",
+                    "17-Jan-2020",
+                ],
+                response.results[1]["labels"],
             )
 
     def test_trends_breakdowns(self):

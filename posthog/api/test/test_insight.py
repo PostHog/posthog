@@ -33,6 +33,8 @@ from posthog.models import (
     User,
 )
 from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.project import Project
 from posthog.schema import (
     DataTableNode,
     DataVisualizationNode,
@@ -44,6 +46,7 @@ from posthog.schema import (
     HogQLFilters,
     HogQLQuery,
     InsightNodeKind,
+    InsightVizNode,
     NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -90,6 +93,43 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
         self.assertEqual(len(response["results"]), 1)
+
+    def test_get_insight_items_all_environments_included(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+
+        insight_a = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            created_by=self.user,
+        )
+        insight_b = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=other_team_in_project,
+            created_by=self.user,
+        )
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=team_in_other_project,
+            created_by=self.user,
+        )
+
+        # All of these three ways should return the same set of insights,
+        # i.e. all insights in the test project regardless of environment
+        response_project = self.client.get(f"/api/projects/{self.project.id}/insights/").json()
+        response_env_current = self.client.get(f"/api/environments/{self.team.id}/insights/").json()
+        response_env_other = self.client.get(f"/api/environments/{other_team_in_project.id}/insights/").json()
+
+        self.assertEqual({insight["id"] for insight in response_project["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_other["results"]}, {insight_a.id, insight_b.id})
 
     @patch("posthoganalytics.capture")
     def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
@@ -339,8 +379,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                team=self.team,
                 user=mock.ANY,
                 filters_override=None,
+                variables_override=None,
             )
 
         with patch(
@@ -351,8 +393,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                team=self.team,
                 user=mock.ANY,
                 filters_override=None,
+                variables_override=None,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -471,6 +515,37 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
+
+    def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "query": {
+                    "kind": "DataVisualizationNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "select * from events",
+                    },
+                },
+            }
+        )
+
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]},
+            }
+        )
+        self.dashboard_api.create_insight(
+            data={
+                "short_id": f"insight",
+                "query": InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+            }
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=TRENDS")
+
+        self.assertEqual(len(response.json()["results"]), 2)
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(
@@ -3556,3 +3631,60 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotIn("code", response)
         self.assertIsNotNone(response["results"][0]["types"])
+
+    def test_insight_variables_overrides(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+        )
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": dashboard.pk,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "override value!",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        assert isinstance(response["query"], dict)
+        assert isinstance(response["query"]["source"], dict)
+        assert isinstance(response["query"]["source"]["variables"], dict)
+
+        assert len(response["query"]["source"]["variables"].keys()) == 1
+        for key, value in response["query"]["source"]["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "override value!"

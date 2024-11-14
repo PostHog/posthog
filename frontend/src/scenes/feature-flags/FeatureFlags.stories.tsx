@@ -35,7 +35,7 @@ const meta: Meta = {
                 ],
             },
             post: {
-                '/api/projects/:team_id/query': {},
+                '/api/environments/:team_id/query': {},
                 // flag targeting has loaders, make sure they don't keep loading
                 '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [
                     200,

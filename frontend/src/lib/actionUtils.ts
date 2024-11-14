@@ -20,7 +20,6 @@ export const EXPERIMENT_TARGETS = [
     'del',
     'details',
     'dfn',
-    'div',
     'footer',
     'header',
     'ol',

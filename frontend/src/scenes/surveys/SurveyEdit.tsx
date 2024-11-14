@@ -512,6 +512,7 @@ export default function SurveyEdit(): JSX.Element {
                         {
                             key: SurveyEditSection.DisplayConditions,
                             header: 'Display conditions',
+                            dataAttr: 'survey-display-conditions',
                             content: (
                                 <LemonField.Pure>
                                     <LemonSelect
@@ -528,8 +529,13 @@ export default function SurveyEdit(): JSX.Element {
                                         value={!hasTargetingSet}
                                         options={[
                                             { label: 'All users', value: true },
-                                            { label: 'Users who match all of the following...', value: false },
+                                            {
+                                                label: 'Users who match all of the following...',
+                                                value: false,
+                                                'data-attr': 'survey-display-conditions-select-users',
+                                            },
                                         ]}
+                                        data-attr="survey-display-conditions-select"
                                     />
                                     {!hasTargetingSet ? (
                                         <span className="text-muted">
@@ -548,7 +554,10 @@ export default function SurveyEdit(): JSX.Element {
                                                 }
                                             >
                                                 {({ value, onChange }) => (
-                                                    <div className="flex">
+                                                    <div
+                                                        className="flex"
+                                                        data-attr="survey-display-conditions-linked-flag"
+                                                    >
                                                         <FlagSelector value={value} onChange={onChange} />
                                                         {value && (
                                                             <LemonButton
@@ -889,6 +898,9 @@ export default function SurveyEdit(): JSX.Element {
                                                         if (newValue === 'once') {
                                                             setSurveyValue('iteration_count', 0)
                                                             setSurveyValue('iteration_frequency_days', 0)
+                                                        } else if (newValue === 'recurring') {
+                                                            setSurveyValue('iteration_count', 1)
+                                                            setSurveyValue('iteration_frequency_days', 90)
                                                         }
                                                     }}
                                                     options={[
@@ -899,7 +911,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         },
                                                         {
                                                             value: 'recurring',
-                                                            label: 'Repeat on a Schedule',
+                                                            label: 'Repeat on a schedule',
                                                             'data-attr': 'survey-iteration-frequency-days',
                                                             disabledReason: surveysRecurringScheduleDisabledReason,
                                                         },

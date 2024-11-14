@@ -2,6 +2,137 @@ from django.conf import settings
 
 CREATE_PERSONS_BATCH_EXPORT_VIEW = f"""
 CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUSTER} AS (
+    with new_persons as (
+        select
+            id,
+            max(version) as version,
+            argMax(_timestamp, person.version) AS _timestamp2
+        from
+            person
+        where
+            team_id = {{team_id:Int64}}
+            and id in (
+                select
+                    id
+                from
+                    person
+                where
+                    team_id = {{team_id:Int64}}
+                    and _timestamp >= {{interval_start:DateTime64}}
+                    AND _timestamp < {{interval_end:DateTime64}}
+            )
+        group by
+            id
+        having
+            (
+                _timestamp2 >= {{interval_start:DateTime64}}
+                AND _timestamp2 < {{interval_end:DateTime64}}
+            )
+    ),
+    new_distinct_ids as (
+        SELECT
+            argMax(person_id, person_distinct_id2.version) as person_id
+        from
+            person_distinct_id2
+        where
+            team_id = {{team_id:Int64}}
+            and distinct_id in (
+                select
+                    distinct_id
+                from
+                    person_distinct_id2
+                where
+                    team_id = {{team_id:Int64}}
+                    and _timestamp >= {{interval_start:DateTime64}}
+                    AND _timestamp < {{interval_end:DateTime64}}
+            )
+        group by
+            distinct_id
+        having
+            (
+                argMax(_timestamp, person_distinct_id2.version) >= {{interval_start:DateTime64}}
+                AND argMax(_timestamp, person_distinct_id2.version) < {{interval_end:DateTime64}}
+            )
+    ),
+    all_new_persons as (
+        select
+            id,
+            version
+        from
+            new_persons
+        UNION
+        ALL
+        select
+            id,
+            max(version)
+        from
+            person
+        where
+            team_id = {{team_id:Int64}}
+            and id in new_distinct_ids
+        group by
+            id
+    )
+    select
+        p.team_id AS team_id,
+        pd.distinct_id AS distinct_id,
+        toString(p.id) AS person_id,
+        p.properties AS properties,
+        pd.version AS person_distinct_id_version,
+        p.version AS person_version,
+        multiIf(
+            (
+                pd._timestamp >= {{interval_start:DateTime64}}
+                AND pd._timestamp < {{interval_end:DateTime64}}
+            )
+            AND NOT (
+                p._timestamp >= {{interval_start:DateTime64}}
+                AND p._timestamp < {{interval_end:DateTime64}}
+            ),
+            pd._timestamp,
+            (
+                p._timestamp >= {{interval_start:DateTime64}}
+                AND p._timestamp < {{interval_end:DateTime64}}
+            )
+            AND NOT (
+                pd._timestamp >= {{interval_start:DateTime64}}
+                AND pd._timestamp < {{interval_end:DateTime64}}
+            ),
+            p._timestamp,
+            least(p._timestamp, pd._timestamp)
+        ) AS _inserted_at
+    from
+        person p
+        INNER JOIN (
+            SELECT
+                distinct_id,
+                max(version) AS version,
+                argMax(person_id, person_distinct_id2.version) AS person_id2,
+                argMax(_timestamp, person_distinct_id2.version) AS _timestamp
+            FROM
+                person_distinct_id2
+            WHERE
+                team_id = {{team_id:Int64}}
+                and person_id IN (
+                    select
+                        id
+                    from
+                        all_new_persons
+                )
+            GROUP BY
+                distinct_id
+        ) AS pd ON p.id = pd.person_id2
+    where
+        team_id = {{team_id:Int64}}
+        and (id, version) in all_new_persons
+    ORDER BY
+        _inserted_at
+)
+
+"""
+
+CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL = f"""
+CREATE OR REPLACE VIEW persons_batch_export_backfill ON CLUSTER {settings.CLICKHOUSE_CLUSTER} AS (
     SELECT
         pd.team_id AS team_id,
         pd.distinct_id AS distinct_id,
@@ -10,30 +141,15 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
         multiIf(
-            (pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
-                AND NOT (p._timestamp >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}}),
+            pd._timestamp < {{interval_end:DateTime64}}
+                AND NOT p._timestamp < {{interval_end:DateTime64}},
             pd._timestamp,
-            (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}})
-                AND NOT (pd._timestamp >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}}),
+            p._timestamp < {{interval_end:DateTime64}}
+                AND NOT pd._timestamp < {{interval_end:DateTime64}},
             p._timestamp,
             least(p._timestamp, pd._timestamp)
         ) AS _inserted_at
     FROM (
-        SELECT
-            team_id,
-            id,
-            max(version) AS version,
-            argMax(properties, person.version) AS properties,
-            argMax(_timestamp, person.version) AS _timestamp
-        FROM
-            person
-        PREWHERE
-            team_id = {{team_id:Int64}}
-        GROUP BY
-            team_id,
-            id
-    ) AS p
-    INNER JOIN (
         SELECT
             team_id,
             distinct_id,
@@ -47,12 +163,29 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         GROUP BY
             team_id,
             distinct_id
-    ) AS pd ON p.id = pd.person_id AND p.team_id = pd.team_id
+    ) AS pd
+    INNER JOIN (
+        SELECT
+            team_id,
+            id,
+            max(version) AS version,
+            argMax(properties, person.version) AS properties,
+            argMax(_timestamp, person.version) AS _timestamp
+        FROM
+            person
+        PREWHERE
+            team_id = {{team_id:Int64}}
+        GROUP BY
+            team_id,
+            id
+    ) AS p ON p.id = pd.person_id AND p.team_id = pd.team_id
     WHERE
         pd.team_id = {{team_id:Int64}}
         AND p.team_id = {{team_id:Int64}}
-        AND ((pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
-            OR (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}}))
+        AND (
+            pd._timestamp < {{interval_end:DateTime64}}
+            OR p._timestamp < {{interval_end:DateTime64}}
+        )
     ORDER BY
         _inserted_at
 )
@@ -77,8 +210,8 @@ CREATE OR REPLACE VIEW events_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUST
     FROM
         events
     PREWHERE
-        events.inserted_at >= {{interval_start:DateTime64}}
-        AND events.inserted_at < {{interval_end:DateTime64}}
+        COALESCE(events.inserted_at, events._timestamp) >= {{interval_start:DateTime64}}
+        AND COALESCE(events.inserted_at, events._timestamp) < {{interval_end:DateTime64}}
     WHERE
         team_id = {{team_id:Int64}}
         AND events.timestamp >= {{interval_start:DateTime64}} - INTERVAL {{lookback_days:Int32}} DAY
@@ -110,8 +243,8 @@ CREATE OR REPLACE VIEW events_batch_export_unbounded ON CLUSTER {settings.CLICKH
     FROM
         events
     PREWHERE
-        events.inserted_at >= {{interval_start:DateTime64}}
-        AND events.inserted_at < {{interval_end:DateTime64}}
+        COALESCE(events.inserted_at, events._timestamp) >= {{interval_start:DateTime64}}
+        AND COALESCE(events.inserted_at, events._timestamp) < {{interval_end:DateTime64}}
     WHERE
         team_id = {{team_id:Int64}}
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})

@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
@@ -11,7 +12,7 @@ import pyarrow as pa
 import requests
 from django.conf import settings
 
-from posthog.temporal.common.asyncpa import AsyncRecordBatchReader
+import posthog.temporal.common.asyncpa as asyncpa
 
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
@@ -383,12 +384,29 @@ class ClickHouseClient:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
-        As pyarrow doesn't support async/await buffers, this method is sync and utilizes requests instead of aiohttp.
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            reader = AsyncRecordBatchReader(response.content.iter_chunks())
+            reader = asyncpa.AsyncRecordBatchReader(response.content.iter_chunks())
             async for batch in reader:
                 yield batch
+
+    async def aproduce_query_as_arrow_record_batches(
+        self,
+        query,
+        *data,
+        queue: asyncio.Queue,
+        query_parameters=None,
+        query_id: str | None = None,
+    ) -> None:
+        """Execute the given query in ClickHouse and produce Arrow record batches to given buffer queue.
+
+        This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
+        This method is intended to be ran as a background task, producing record batches continuously, while other
+        downstream consumer tasks process them from the queue.
+        """
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            reader = asyncpa.AsyncRecordBatchProducer(response.content.iter_chunks())
+            await reader.produce(queue=queue)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
@@ -442,7 +460,7 @@ async def get_client(
     #        ssl_context.load_verify_locations(settings.CLICKHOUSE_CA)
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
-    timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
+    timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=30, sock_read=None)
 
     if team_id is None:
         max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT

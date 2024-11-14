@@ -15,7 +15,7 @@ export function VariantScreenshot({
     rolloutPercentage: number
 }): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-    const { updateExperimentVariantImages } = useActions(experimentLogic)
+    const { updateExperimentVariantImages, reportExperimentVariantScreenshotUploaded } = useActions(experimentLogic)
 
     const [mediaId, setMediaId] = useState(experiment.parameters?.variant_screenshot_media_ids?.[variantKey] || null)
     const [isLoadingImage, setIsLoadingImage] = useState(true)
@@ -30,6 +30,7 @@ export function VariantScreenshot({
                     [variantKey]: id,
                 }
                 updateExperimentVariantImages(updatedVariantImages)
+                reportExperimentVariantScreenshotUploaded(experiment.id)
             }
         },
         onError: (detail) => {

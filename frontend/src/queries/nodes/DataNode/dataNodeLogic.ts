@@ -28,7 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
-import { DashboardFilter, QueryStatus } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, QueryStatus } from '~/queries/schema'
 import {
     ActorsQuery,
     ActorsQueryResponse,
@@ -66,6 +66,8 @@ export interface DataNodeLogicProps {
 
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -99,7 +101,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             ],
         ],
     })),
-    props({ query: {} } as DataNodeLogicProps),
+    props({ query: {}, variablesOverride: undefined } as DataNodeLogicProps),
     propsChanged(({ actions, props }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
@@ -214,6 +216,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             queryId,
                                             actions.setPollResponse,
                                             props.filtersOverride,
+                                            props.variablesOverride,
                                             pollOnly
                                         )) ?? null
                                     const duration = performance.now() - now
@@ -451,6 +454,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     selectors(({ cache }) => ({
+        variableOverridesAreSet: [
+            (_, p) => [p.variablesOverride ?? (() => ({}))],
+            (variablesOverride) => !!variablesOverride,
+        ],
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
             (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
@@ -652,7 +659,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortQuery: async ({ queryId }) => {
             try {
                 const { currentTeamId } = values
-                await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
+                await api.delete(`api/environments/${currentTeamId}/query/${queryId}/`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }
