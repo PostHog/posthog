@@ -10,18 +10,18 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     category=["Advertisement"],
     hog="""
 let body := {
-	'event_source': 'web',
-	'event_source_id': inputs.pixelId,
-	'data': [
-		{
-			'event': inputs.eventName,
-			'event_time': toUnixTimestamp(event.timestamp),
-			'event_id': event.uuid,
-			'user': {},
-			'properties': {},
-			'page': {}
-		}
-	]
+    'event_source': 'web',
+    'event_source_id': inputs.pixelId,
+    'data': [
+        {
+            'event': inputs.eventName,
+            'event_time': toUnixTimestamp(event.timestamp),
+            'event_id': event.uuid,
+            'user': {},
+            'properties': {},
+            'page': {}
+        }
+    ]
 }
 
 for (let key, value in inputs.userProperties) {
