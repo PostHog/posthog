@@ -3799,6 +3799,10 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "ColorAssignmentBy": {
+            "enum": ["key", "position"],
+            "type": "string"
+        },
         "CompareFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12624,8 +12628,7 @@
                     "type": "number"
                 },
                 "colorAssignmentBy": {
-                    "enum": ["key", "position"],
-                    "type": "string"
+                    "$ref": "#/definitions/ColorAssignmentBy"
                 },
                 "decimalPlaces": {
                     "type": "number"

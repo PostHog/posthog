@@ -2,6 +2,8 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { ColorAssignmentBy } from '~/queries/schema'
+
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
 export function ColorAssignmentByPicker(): JSX.Element | null {
@@ -12,11 +14,11 @@ export function ColorAssignmentByPicker(): JSX.Element | null {
     return (
         <LemonSegmentedButton
             className="pb-2 px-2"
-            onChange={(value) => updateInsightFilter({ colorAssignmentBy: value as 'key' | 'position' })}
-            value={colorAssignmentBy || 'key'}
+            onChange={(value) => updateInsightFilter({ colorAssignmentBy: value as ColorAssignmentBy })}
+            value={colorAssignmentBy || ColorAssignmentBy.Position}
             options={[
-                { value: 'key', label: 'By key' },
-                { value: 'position', label: 'By position' },
+                { value: ColorAssignmentBy.Key, label: 'By key' },
+                { value: ColorAssignmentBy.Position, label: 'By position' },
             ]}
             size="small"
             fullWidth

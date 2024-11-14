@@ -535,6 +535,11 @@ class ClickhouseQueryProgress(BaseModel):
     time_elapsed: int
 
 
+class ColorAssignmentBy(StrEnum):
+    KEY = "key"
+    POSITION = "position"
+
+
 class CompareFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1656,11 +1661,6 @@ class TrendsAlertConfig(BaseModel):
     )
     series_index: int
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
-
-
-class ColorAssignmentBy(StrEnum):
-    KEY = "key"
-    POSITION = "position"
 
 
 class TrendsFilter(BaseModel):
