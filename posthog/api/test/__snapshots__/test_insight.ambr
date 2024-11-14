@@ -114,7 +114,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -189,7 +189,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_local_filters
@@ -265,7 +265,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown
