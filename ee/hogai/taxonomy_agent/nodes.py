@@ -1,5 +1,6 @@
 import itertools
 import xml.etree.ElementTree as ET
+from abc import ABC
 from functools import cached_property
 from typing import cast
 
@@ -19,14 +20,16 @@ from ee.hogai.taxonomy_agent.parsers import (
     parse_react_agent_output,
 )
 from ee.hogai.taxonomy_agent.prompts import (
-    react_definitions_prompt,
-    react_follow_up_prompt,
-    react_malformed_json_prompt,
-    react_missing_action_correction_prompt,
-    react_missing_action_prompt,
-    react_pydantic_validation_exception_prompt,
-    react_scratchpad_prompt,
-    react_user_prompt,
+    REACT_DEFINITIONS_PROMPT,
+    REACT_FOLLOW_UP_PROMPT,
+    REACT_FORMAT_PROMPT,
+    REACT_FORMAT_REMINDER_PROMPT,
+    REACT_MALFORMED_JSON_PROMPT,
+    REACT_MISSING_ACTION_CORRECTION_PROMPT,
+    REACT_MISSING_ACTION_PROMPT,
+    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+    REACT_SCRATCHPAD_PROMPT,
+    REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
 from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation, remove_line_breaks
@@ -40,7 +43,7 @@ from posthog.schema import (
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
-    def _run(
+    def _run_with_prompt_and_toolkit(
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
@@ -52,14 +55,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             prompt
             + ChatPromptTemplate.from_messages(
                 [
-                    ("user", react_definitions_prompt),
+                    ("user", REACT_DEFINITIONS_PROMPT),
                 ],
                 template_format="mustache",
             )
-            + self._reconstruct_conversation(state)
+            + self._construct_messages(state)
             + ChatPromptTemplate.from_messages(
                 [
-                    ("user", react_scratchpad_prompt),
+                    ("user", REACT_SCRATCHPAD_PROMPT),
                 ],
                 template_format="mustache",
             )
@@ -72,6 +75,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 AgentAction,
                 agent.invoke(
                     {
+                        "react_format": REACT_FORMAT_PROMPT,
+                        "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
                         "product_description": self._team.project.product_description,
@@ -87,19 +92,19 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 # When the agent doesn't output the "Action:" block, we need to correct the log and append the action block,
                 # so that it has a higher chance to recover.
                 corrected_log = str(
-                    ChatPromptTemplate.from_template(react_missing_action_correction_prompt, template_format="mustache")
+                    ChatPromptTemplate.from_template(REACT_MISSING_ACTION_CORRECTION_PROMPT, template_format="mustache")
                     .format_messages(output=e.llm_output)[0]
                     .content
                 )
                 result = AgentAction(
                     "handle_incorrect_response",
-                    react_missing_action_prompt,
+                    REACT_MISSING_ACTION_PROMPT,
                     corrected_log,
                 )
             else:
                 result = AgentAction(
                     "handle_incorrect_response",
-                    react_malformed_json_prompt,
+                    REACT_MALFORMED_JSON_PROMPT,
                     e.llm_output,
                 )
 
@@ -125,27 +130,31 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
             raise ValueError("Failed to generate events prompt.")
 
-        events: list[str] = []
+        events: list[str] = [
+            # Add "All Events" to the mapping
+            "All Events",
+        ]
         for item in response.results:
             if len(response.results) > 25 and item.count <= 3:
                 continue
             events.append(item.event)
 
-        # default for null in the
-        tags: list[str] = ["all events"]
-
+        root = ET.Element("defined_events")
         for event_name in events:
-            event_tag = event_name
+            event_tag = ET.SubElement(root, "event")
+            name_tag = ET.SubElement(event_tag, "name")
+            name_tag.text = event_name
+
             if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
                 if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
                     continue  # Skip irrelevant events
-                event_tag += f" - {event_core_definition['label']}. {event_core_definition['description']}"
-                if "examples" in event_core_definition:
-                    event_tag += f" Examples: {event_core_definition['examples']}."
-            tags.append(remove_line_breaks(event_tag))
-
-        root = ET.Element("list of available events for filtering")
-        root.text = "\n" + "\n".join(tags) + "\n"
+                if description := event_core_definition.get("description"):
+                    desc_tag = ET.SubElement(event_tag, "description")
+                    if label := event_core_definition.get("label"):
+                        desc_tag.text = f"{label}. {description}"
+                    else:
+                        desc_tag.text = description
+                    desc_tag.text = remove_line_breaks(desc_tag.text)
         return ET.tostring(root, encoding="unicode")
 
     @cached_property
@@ -156,7 +165,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .values_list("group_type", flat=True)
         )
 
-    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
@@ -173,14 +182,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             if human_message:
                 if idx == 0:
                     conversation.append(
-                        HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
+                        HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
                             question=human_message.content
                         )
                     )
                 else:
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(
-                            react_follow_up_prompt,
+                            REACT_FOLLOW_UP_PROMPT,
                             template_format="mustache",
                         ).format(feedback=human_message.content)
                     )
@@ -199,8 +208,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         return format_log_to_str(actions)
 
 
-class TaxonomyAgentPlannerToolsNode(AssistantNode):
-    def _run(
+class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
+    def _run_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps") or []
@@ -210,7 +219,7 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode):
             input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
             observation = (
-                ChatPromptTemplate.from_template(react_pydantic_validation_exception_prompt, template_format="mustache")
+                ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
             )

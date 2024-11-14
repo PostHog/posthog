@@ -63,6 +63,55 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AssistantArrayPropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+
+
+class AssistantBaseMultipleBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name from the plan to break down by.")
+
+
+class AssistantBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
+
+
+class AssistantCompareFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[bool] = Field(
+        default=False, description="Whether to compare the current date range to a previous date range."
+    )
+    compare_to: Optional[str] = Field(
+        default="-7d",
+        description=(
+            "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1"
+            " year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30"
+            " hours ago."
+        ),
+    )
+
+
+class AssistantDateTimePropertyFilterOperator(StrEnum):
+    IS_DATE_EXACT = "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before"
+    IS_DATE_AFTER = "is_date_after"
+
+
+class AssistantEventMultipleBreakdownFilterType(StrEnum):
+    PERSON = "person"
+    EVENT = "event"
+    SESSION = "session"
+    HOGQL = "hogql"
+
+
 class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
@@ -90,6 +139,109 @@ class AssistantGenerationStatusType(StrEnum):
     GENERATION_ERROR = "generation_error"
 
 
+class AssistantGenericMultipleBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name from the plan to break down by.")
+    type: AssistantEventMultipleBreakdownFilterType
+
+
+class Type(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+    FEATURE = "feature"
+
+
+class AssistantGenericPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    type: Type
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantGenericPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantDateTimePropertyFilterOperator
+    type: Type
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
+class AssistantGroupMultipleBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: Optional[int] = Field(default=None, description="Index of the group type from the group mapping.")
+    property: str = Field(..., description="Property name from the plan to break down by.")
+    type: Literal["group"] = "group"
+
+
+class AssistantGroupPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    type: Literal["group"] = "group"
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantGroupPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantDateTimePropertyFilterOperator
+    type: Literal["group"] = "group"
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
+class AssistantInsightDateRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = Field(
+        default="-7d",
+        description=(
+            "Start date. The value can be:\n- a relative date. Examples of relative dates are: `-1y` for 1 year ago,"
+            " `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.\n- an"
+            " absolute ISO 8601 date string. a constant `yStart` for the current year start. a constant `mStart` for"
+            " the current month start. a constant `dStart` for the current day start. Prefer using relative dates."
+        ),
+    )
+    date_to: Optional[str] = Field(
+        default=None,
+        description=(
+            "Right boundary of the date range. Use `null` for the current date. You can not use relative dates here."
+        ),
+    )
+
+
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -104,6 +256,116 @@ class AssistantMessageType(StrEnum):
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
+
+
+class AssistantSetPropertyFilterOperator(StrEnum):
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+class AssistantSingleValuePropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+
+
+class AssistantTrendsBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
+    breakdowns: list[Union[AssistantGroupMultipleBreakdownFilter, AssistantGenericMultipleBreakdownFilter]] = Field(
+        ..., description="Use this field to define breakdowns.", max_length=3
+    )
+
+
+class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
+    root: Union[str, Any]
+
+
+class Display(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
+    ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
+    BOLD_NUMBER = "BoldNumber"
+    ACTIONS_PIE = "ActionsPie"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
+    ACTIONS_TABLE = "ActionsTable"
+    WORLD_MAP = "WorldMap"
+
+
+class YAxisScaleType(StrEnum):
+    LOG10 = "log10"
+    LINEAR = "linear"
+
+
+class AssistantTrendsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregationAxisFormat: Optional[AggregationAxisFormat] = Field(
+        default=AggregationAxisFormat.NUMERIC,
+        description=(
+            "Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting"
+            " will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the"
+            " value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this"
+            " option only if you are sure that the values are in seconds. `duration_ms` - formats the value in"
+            " miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this"
+            " option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to"
+            " the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to"
+            " 0-100, e.g., `0.5` becomes `50%`."
+        ),
+    )
+    aggregationAxisPostfix: Optional[str] = Field(
+        default=None,
+        description=(
+            "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to"
+            " add a space before postfix."
+        ),
+    )
+    aggregationAxisPrefix: Optional[str] = Field(
+        default=None,
+        description=(
+            "Custom prefix to add to the aggregation axis, e.g., `$` for USD dollars. You may need to add a space after"
+            " prefix."
+        ),
+    )
+    decimalPlaces: Optional[float] = Field(
+        default=None,
+        description=(
+            "Number of decimal places to show. Do not add this unless you are sure that values will have a decimal"
+            " point."
+        ),
+    )
+    display: Optional[Display] = Field(
+        default=Display.ACTIONS_LINE_GRAPH,
+        description=(
+            "Changes the visualization type. `ActionsLineGraph` - if the user wants to see dynamics in time like a line"
+            " graph. Prefer this option. `ActionsLineGraphCumulative` - if the user wants to see cumulative dynamics"
+            " across time. `ActionsBarValue` - if the data is categorical and needs to be visualized as a bar chart."
+            " `ActionsBar` - if the data is categorical and can be visualized as a stacked bar chart. `ActionsPie` - if"
+            " the data is easy to understand in a pie chart. `BoldNumber` - if the user asks a question where you can"
+            " answer with a single number. You can't use this option with breakdowns. `ActionsTable` - if the user"
+            " wants to see a table. `ActionsAreaGraph` - if the data is better visualized in an area graph. `WorldMap`"
+            " - if the user has only one series and wants to see data from particular countries. It can only be used"
+            " with the `$geoip_country_name` breakdown."
+        ),
+    )
+    formula: Optional[str] = Field(default=None, description="If the formula is provided, apply it here.")
+    showLegend: Optional[bool] = Field(
+        default=False, description="Whether to show the legend describing series and breakdowns."
+    )
+    showPercentStackView: Optional[bool] = Field(
+        default=False, description="Whether to show a percentage of each series. Use only with"
+    )
+    showValuesOnSeries: Optional[bool] = Field(default=False, description="Whether to show a value on each data point.")
+    yAxisScaleType: Optional[YAxisScaleType] = Field(
+        default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
+    )
 
 
 class AssistantTrendsMath(StrEnum):
@@ -339,7 +601,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(StrEnum):
+class Type4(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -1416,11 +1678,6 @@ class TrendsAlertConfig(BaseModel):
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 
 
-class YAxisScaleType(StrEnum):
-    LOG10 = "log10"
-    LINEAR = "linear"
-
-
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1439,7 +1696,7 @@ class TrendsFilter(BaseModel):
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
-    yAxisScaleType: Optional[YAxisScaleType] = None
+    yAxisScaleType: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -1462,7 +1719,7 @@ class TrendsFilterLegacy(BaseModel):
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
-    y_axis_scale_type: Optional[YAxisScaleType] = None
+    y_axis_scale_type: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
 
 
 class TrendsQueryResponse(BaseModel):
@@ -1720,6 +1977,30 @@ class AlertCondition(BaseModel):
     type: AlertConditionType
 
 
+class AssistantArrayPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantDateTimePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantDateTimePropertyFilterOperator
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
 class AssistantFunnelsBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1730,9 +2011,6 @@ class AssistantFunnelsBreakdownFilter(BaseModel):
         description=(
             "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping."
         ),
-    )
-    breakdown_histogram_bin_count: Optional[int] = Field(
-        default=10, description="Number of bins to show in the histogram. Only applicable for the numeric properties."
     )
     breakdown_limit: Optional[int] = Field(default=25, description="How many distinct values to show.")
     breakdown_type: Optional[AssistantFunnelsBreakdownType] = Field(
@@ -1821,6 +2099,118 @@ class AssistantGenerationStatusEvent(BaseModel):
         extra="forbid",
     )
     type: AssistantGenerationStatusType
+
+
+class AssistantGenericPropertyFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
+            " matches the regex pattern. `not_regex` - does not match the regex pattern."
+        ),
+    )
+    type: Type
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
+            " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
+            " matched against the property value."
+        ),
+    )
+
+
+class AssistantGenericPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
+            " collected."
+        ),
+    )
+    type: Type
+
+
+class AssistantGroupPropertyFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
+            " matches the regex pattern. `not_regex` - does not match the regex pattern."
+        ),
+    )
+    type: Literal["group"] = "group"
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
+            " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
+            " matched against the property value."
+        ),
+    )
+
+
+class AssistantGroupPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
+            " collected."
+        ),
+    )
+    type: Literal["group"] = "group"
+
+
+class AssistantSetPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't"
+            " collected."
+        ),
+    )
+
+
+class AssistantSingleValuePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantSingleValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
+            " matches the regex pattern. `not_regex` - does not match the regex pattern."
+        ),
+    )
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
+            " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
+            " matched against the property value."
+        ),
+    )
 
 
 class AutocompleteCompletionItem(BaseModel):
@@ -2778,7 +3168,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type
+    type: Type4
 
 
 class ElementPropertyFilter(BaseModel):
@@ -4175,14 +4565,139 @@ class AnyResponseType(
     ]
 
 
-class AssistantTrendsBreakdownFilter(BaseModel):
+class AssistantBasePropertyFilter(
+    RootModel[
+        Union[
+            AssistantDateTimePropertyFilter,
+            AssistantSetPropertyFilter,
+            Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
+        ]
+    ]
+):
+    root: Union[
+        AssistantDateTimePropertyFilter,
+        AssistantSetPropertyFilter,
+        Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
+    ]
+
+
+class AssistantFunnelsEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_histogram_bin_count: Optional[int] = None
-    breakdown_limit: Optional[int] = None
-    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
+    custom_name: Optional[str] = Field(
+        default=None, description="Optional custom name for the event if it is needed to be renamed."
+    )
+    event: str = Field(..., description="Name of the event.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: Optional[AssistantTrendsMath] = Field(
+        default=None,
+        description=(
+            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
+            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
+            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
+            " specified filters for the first time."
+        ),
+    )
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = None
+    response: Optional[dict[str, Any]] = None
+
+
+class AssistantFunnelsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(
+        default=None,
+        description=(
+            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
+            " provided."
+        ),
+    )
+    breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
+        default=None, description="Breakdown the chart by a property"
+    )
+    dateRange: Optional[AssistantInsightDateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    funnelsFilter: Optional[AssistantFunnelsFilter] = Field(
+        default=None, description="Properties specific to the funnels insight"
+    )
+    interval: Optional[IntervalType] = Field(
+        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+    )
+    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(
+        default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
+    )
+    series: list[AssistantFunnelsEventsNode] = Field(..., description="Events to include")
+
+
+class AssistantInsightsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[AssistantInsightDateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(
+        default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
+    )
 
 
 class AssistantTrendsEventsNode(BaseModel):
@@ -4210,11 +4725,18 @@ class AssistantTrendsEventsNode(BaseModel):
     properties: Optional[
         list[
             Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
             ]
         ]
     ] = None
@@ -4229,7 +4751,7 @@ class AssistantTrendsQuery(BaseModel):
         default=None, description="Breakdown of the events"
     )
     compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[AssistantInsightDateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=False, description="Exclude internal and test users by applying the respective filters"
     )
@@ -4241,17 +4763,28 @@ class AssistantTrendsQuery(BaseModel):
     properties: Optional[
         list[
             Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
             ]
         ]
     ] = Field(default=[], description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    samplingFactor: Optional[float] = Field(
+        default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
+    )
     series: list[AssistantTrendsEventsNode] = Field(..., description="Events to include")
-    trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+    trendsFilter: Optional[AssistantTrendsFilter] = Field(
+        default=None, description="Properties specific to the trends insight"
+    )
 
 
 class CachedHogQLQueryResponse(BaseModel):
@@ -5086,6 +5619,16 @@ class TeamTaxonomyQuery(BaseModel):
     response: Optional[TeamTaxonomyQueryResponse] = None
 
 
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
+    plan: Optional[str] = None
+    reasoning_steps: Optional[list[str]] = None
+    type: Literal["ai/viz"] = "ai/viz"
+
+
 class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5169,100 +5712,6 @@ class ActionsNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
-
-
-class AssistantFunnelsEventsNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: Optional[str] = Field(
-        default=None, description="Optional custom name for the event if it is needed to be renamed."
-    )
-    event: str = Field(..., description="Name of the event.")
-    kind: Literal["EventsNode"] = "EventsNode"
-    math: Optional[AssistantTrendsMath] = Field(
-        default=None,
-        description=(
-            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
-            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
-            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
-            " specified filters for the first time."
-        ),
-    )
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = None
-    response: Optional[dict[str, Any]] = None
-
-
-class AssistantFunnelsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: Optional[int] = Field(
-        default=None,
-        description=(
-            "Use this field to define the aggregation by a specific group from the group mapping that the user has"
-            " provided."
-        ),
-    )
-    breakdownFilter: Optional[AssistantFunnelsBreakdownFilter] = Field(
-        default=None, description="Breakdown the chart by a property"
-    )
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    funnelsFilter: Optional[AssistantFunnelsFilter] = Field(
-        default=None, description="Properties specific to the funnels insight"
-    )
-    interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
-    )
-    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = Field(default=[], description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[AssistantFunnelsEventsNode] = Field(..., description="Events to include")
-
-
-class AssistantInsightsQueryBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                SessionPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-            ]
-        ]
-    ] = Field(default=[], description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
 class DataVisualizationNode(BaseModel):
@@ -5437,6 +5886,12 @@ class RetentionQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
+class RootAssistantMessage(
+    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
+):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+
+
 class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5533,16 +5988,6 @@ class TrendsQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
-
-
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
-    plan: Optional[str] = None
-    reasoning_steps: Optional[list[str]] = None
-    type: Literal["ai/viz"] = "ai/viz"
 
 
 class CachedExperimentTrendsQueryResponse(BaseModel):
@@ -6151,12 +6596,6 @@ class QueryResponseAlternative(
         QueryResponseAlternative40,
         QueryResponseAlternative41,
     ]
-
-
-class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
-):
-    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

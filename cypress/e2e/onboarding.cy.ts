@@ -19,6 +19,9 @@ describe('Onboarding', () => {
         // Get started on product analytics onboarding
         cy.get('[data-attr=product_analytics-onboarding-card]').click()
 
+        // Click "Get started" button
+        cy.get('[data-attr=onboarding-continue]').click()
+
         // Confirm product intro is not included as the first step in the upper right breadcrumbs
         cy.get('[data-attr=onboarding-breadcrumbs] > :first-child > * span').should('not.contain', 'Product intro')
 
