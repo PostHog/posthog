@@ -286,6 +286,7 @@ class ClickhouseFunnelBase(ABC):
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
+            settings={"allow_experimental_analyzer": 0},
         )
 
     def _get_timestamp_outer_select(self) -> str:

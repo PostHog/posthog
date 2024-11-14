@@ -1167,7 +1167,7 @@ class FunnelBase(ABC):
                 )
             ),
             group_by=group_by_columns,
-            having=parse_expr("steps = max(max_steps)"),
+            having=parse_expr("steps = max_steps"),
         )
 
     def actor_query(
