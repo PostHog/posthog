@@ -31,6 +31,7 @@ from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     calculation_interval_to_order,
     send_notifications_for_breaches,
+    send_notifications_for_errors,
     WRAPPER_NODE_KINDS,
     alert_calculation_interval_to_relativedelta,
 )
@@ -309,7 +310,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
             case AlertState.ERRORED:
                 logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
                 # TODO: uncomment this after checking errors sent
-                # send_notifications_for_errors(alert, alert_check.error)
+                send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
                 assert breaches is not None
                 send_notifications_for_breaches(alert, breaches)
