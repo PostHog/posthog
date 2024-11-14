@@ -167,8 +167,6 @@ posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredent
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/queries/util.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/models/cohort/cohort.py:0: error: Need type annotation for "people"  [var-annotated]
-posthog/hogql/database/schema/sessions_v2.py:0: error: Argument after ** must be a mapping, not "CustomChannelRule"  [arg-type]
-posthog/hogql/database/schema/sessions_v2.py:0: error: Subclass of "CustomChannelRule" and "dict[Any, Any]" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "dict[str, int] | None" has no attribute "get"  [union-attr]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Unsupported operand types for * ("object" and "int")  [operator]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible return value type (got "int", expected "timedelta")  [return-value]

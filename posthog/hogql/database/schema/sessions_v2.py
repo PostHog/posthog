@@ -499,10 +499,7 @@ def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team:
         modifiers = create_default_modifiers_for_team(team)
         custom_channel_type_rules: Optional[list[CustomChannelRule]] = modifiers.customChannelTypeRules
         if custom_channel_type_rules:
-            custom_channel_types = [
-                (CustomChannelRule(**rule) if isinstance(rule, dict) else rule).channel_type
-                for rule in custom_channel_type_rules
-            ]
+            custom_channel_types = [rule.channel_type for rule in custom_channel_type_rules]
         else:
             custom_channel_types = []
         default_channel_types = [
