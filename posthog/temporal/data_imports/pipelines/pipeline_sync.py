@@ -42,7 +42,7 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.temporal.data_imports.util import is_posthog_team, prepare_s3_files_for_querying
+from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 
 @dataclass
@@ -153,18 +153,14 @@ class DataImportPipelineSync:
                 yield lst[i : i + n]
 
         # Monkey patch to fix large memory consumption until https://github.com/dlt-hub/dlt/pull/2031 gets merged in
-        if (
-            is_posthog_team(self.inputs.team_id)
-            and str(self.inputs.source_id) == "01932521-63e7-0000-087c-527af4a2bc4d"  # toms test source in prod
-        ):
-            FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
-            FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
-            FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
+        FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
+        FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
+        FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
 
-            dlt.config["data_writer.file_max_items"] = 500_000
-            dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
-            dlt.config["parallelism_strategy"] = "table-sequential"
-            dlt.config["delta_jobs_per_write"] = 1
+        dlt.config["data_writer.file_max_items"] = 500_000
+        dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
+        dlt.config["parallelism_strategy"] = "table-sequential"
+        dlt.config["delta_jobs_per_write"] = 1
 
         dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
         dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
@@ -193,22 +189,18 @@ class DataImportPipelineSync:
         pipeline = self._create_pipeline()
 
         # Workaround for full refresh schemas while we wait for Rust to fix memory issue
-        if (
-            is_posthog_team(self.inputs.team_id)
-            and str(self.inputs.source_id) == "01932521-63e7-0000-087c-527af4a2bc4d"  # toms test source in prod
-        ):
-            for name, resource in self.source._resources.items():
-                if resource.write_disposition == "replace":
-                    delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{name}"
-                    storage_options = self._get_credentials()
+        for name, resource in self.source._resources.items():
+            if resource.write_disposition == "replace":
+                delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{name}"
+                storage_options = self._get_credentials()
 
-                    if DeltaTable.is_deltatable(delta_uri, storage_options):
-                        delta_table = DeltaTable(delta_uri, storage_options=self._get_credentials())
-                        self.logger.debug("Deleting existing delta table")
-                        delta_table.delete()
+                if DeltaTable.is_deltatable(delta_uri, storage_options):
+                    delta_table = DeltaTable(delta_uri, storage_options=self._get_credentials())
+                    self.logger.debug("Deleting existing delta table")
+                    delta_table.delete()
 
-                    self.logger.debug("Updating table write_disposition to append")
-                    resource.apply_hints(write_disposition="append")
+                self.logger.debug("Updating table write_disposition to append")
+                resource.apply_hints(write_disposition="append")
 
         total_counts: Counter[str] = Counter({})
 
