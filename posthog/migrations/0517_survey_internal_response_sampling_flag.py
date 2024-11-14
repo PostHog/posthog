@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
     atomic = False
     dependencies = [
-        ("posthog", "0517_survey_response_sampling_fields"),
+        ("posthog", "0516_survey_response_sampling_fields"),
     ]
 
     operations = [
