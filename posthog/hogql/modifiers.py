@@ -51,8 +51,8 @@ def create_default_modifiers_for_team(
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
             if getattr(modifiers, key) is None:
-                if key == "customChannelTypeRules":
-                    value = [CustomChannelRule(**rule) for rule in value]
+                if key == "customChannelTypeRules" and isinstance(value, list):
+                    value = [CustomChannelRule(**rule) if isinstance(rule, dict) else rule for rule in value]
                 setattr(modifiers, key, value)
 
     set_default_modifier_values(modifiers, team)
