@@ -19,16 +19,20 @@ from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.mapping import (
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    compare_types,
+    validate_function_args,
+)
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
+    extract_select_queries,
     lookup_cte_by_name,
     lookup_field_by_name,
-    extract_select_queries,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -147,7 +151,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -259,6 +262,10 @@ class Resolver(CloningVisitor):
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
             database_fields = table.get_asterisk()
+            if isinstance(asterisk.table_type, ast.TableAliasType):
+                # if we have an alias, we want to use this to prevent ambiguous column names
+                table_alias = asterisk.table_type.alias
+                return [ast.Field(chain=[table_alias, key]) for key in database_fields.keys()]
             return [ast.Field(chain=[key]) for key in database_fields.keys()]
         elif (
             isinstance(asterisk.table_type, ast.SelectSetQueryType)
@@ -267,11 +274,16 @@ class Resolver(CloningVisitor):
             or isinstance(asterisk.table_type, ast.SelectViewType)
         ):
             select = asterisk.table_type
+            alias = None
             while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
+                alias = select.alias
                 select = select.select_query_type
             if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
+                # if we have an alias, we want to use this to prevent ambiguous column names
+                if alias:
+                    return [ast.Field(chain=[alias, key]) for key in select.columns.keys()]
                 return [ast.Field(chain=[key]) for key in select.columns.keys()]
             else:
                 raise QueryError("Can't expand asterisk (*) on subquery")
