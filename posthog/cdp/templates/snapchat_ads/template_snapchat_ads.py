@@ -45,7 +45,7 @@ let res := fetch(f'https://tr.snapchat.com/v3/{inputs.pixelId}/events?access_tok
     'body': body
 })
 if (res.status >= 400) {
-    throw Error(f'Error from graph.facebook.com (status {res.status}): {res.body}')
+    throw Error(f'Error from tr.snapchat.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[
@@ -114,7 +114,7 @@ if (res.status >= 400) {
             "default": {
                 "em": "{sha256Hex(person.properties.email ?? '')}",
                 "ph": "{sha256Hex(person.properties.phone ?? '')}",
-                "sc_click_id": "{person.properties.sccid ?? person.properties.$initial_sccid}",
+                "sc_click_id": "{person.properties.sccid ?? person.properties.$initial_sccid ?? ''}",
             },
             "secret": False,
             "required": True,
