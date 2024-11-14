@@ -845,7 +845,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                             const response: ExperimentResults = await api.create(
                                 `api/projects/${values.currentTeamId}/query`,
-                                { query: queryWithExperimentId }
+                                { query: queryWithExperimentId, refresh: 'lazy_async' }
                             )
 
                             return {
