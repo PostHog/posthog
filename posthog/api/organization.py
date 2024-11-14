@@ -3,7 +3,6 @@ from typing import Any, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from django.views import View
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
@@ -53,7 +52,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
-    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
@@ -132,7 +131,7 @@ class OrganizationSerializer(
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         # Support new access control system
         visible_teams = (
-            self.user_access_control.filter_queryset_by_access_level(instance.teams, include_all_if_admin=True)
+            self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
             if self.user_access_control
             else instance.teams.none()
         )
