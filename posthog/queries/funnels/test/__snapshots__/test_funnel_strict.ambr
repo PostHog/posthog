@@ -84,10 +84,10 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
+     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop
-     HAVING steps = max_steps)
+              prop)
   GROUP BY prop
   '''
 # ---
@@ -158,8 +158,8 @@
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS prop_basic,
                            if(step_0 = 1, prop_basic, []) as prop_0,
                            if(step_1 = 1, prop_basic, []) as prop_1,
-                           prop_1 as prop,
-                           groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals
+                           prop_1 as prop_final,
+                           groupUniqArray(prop_final) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -181,10 +181,10 @@
                  JOIN prop_vals as prop
                  WHERE prop != [] ))
            WHERE step_0 = 1 ))
+     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop
-     HAVING steps = max_steps)
+              prop)
   GROUP BY prop
   '''
 # ---
@@ -272,10 +272,10 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
+     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop
-     HAVING steps = max_steps)
+              prop)
   GROUP BY prop
   '''
 # ---

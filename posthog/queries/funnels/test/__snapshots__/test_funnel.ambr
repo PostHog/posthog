@@ -1244,8 +1244,8 @@
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS prop_basic,
                            if(step_0 = 1, prop_basic, []) as prop_0,
                            if(step_1 = 1, prop_basic, []) as prop_1,
-                           prop_1 as prop,
-                           groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals
+                           prop_1 as prop_final,
+                           groupUniqArray(prop_final) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,

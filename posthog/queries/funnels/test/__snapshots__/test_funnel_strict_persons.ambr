@@ -121,9 +121,9 @@
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
+     WHERE steps = max_steps
      GROUP BY aggregation_target,
-              steps
-     HAVING steps = max_steps)
+              steps)
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
@@ -264,9 +264,9 @@
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
+     WHERE steps = max_steps
      GROUP BY aggregation_target,
-              steps
-     HAVING steps = max_steps)
+              steps)
   WHERE steps IN [2, 3]
   ORDER BY aggregation_target
   LIMIT 100
@@ -407,9 +407,9 @@
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
+     WHERE steps = max_steps
      GROUP BY aggregation_target,
-              steps
-     HAVING steps = max_steps)
+              steps)
   WHERE steps = 2
   ORDER BY aggregation_target
   LIMIT 100
