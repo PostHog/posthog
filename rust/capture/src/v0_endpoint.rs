@@ -339,6 +339,10 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$snapshot_source")
         .unwrap_or(Value::String(String::from("web")));
+    let snapshot_lib = events[0]
+        .properties
+        .remove("$lib")
+        .unwrap_or(Value::String(String::from("js"))); // TODO: confirm
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {
@@ -380,6 +384,7 @@ pub async fn process_replay_events<'a>(
                 "$window_id": window_id,
                 "$snapshot_source": snapshot_source,
                 "$snapshot_items": snapshot_items,
+                "$lib": snapshot_lib,
             }
         })
         .to_string(),

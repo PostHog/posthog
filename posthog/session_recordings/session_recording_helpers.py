@@ -135,6 +135,7 @@ def preprocess_replay_events(
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
     snapshot_source = events[0]["properties"].get("$snapshot_source", "web")
+    snapshot_lib = events[0]["properties"].get("$lib", "js")  # TODO: confirm js
 
     def new_event(items: list[dict] | None = None) -> Event:
         return {
@@ -147,6 +148,7 @@ def preprocess_replay_events(
                 # We instantiate here instead of in the arg to avoid mutable default args
                 "$snapshot_items": items or [],
                 "$snapshot_source": snapshot_source,
+                "$lib": snapshot_lib,
             },
         }
 
