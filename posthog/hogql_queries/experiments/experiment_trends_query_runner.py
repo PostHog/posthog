@@ -191,8 +191,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         else:
             prepared_exposure_query = TrendsQuery(
                 dateRange=self._get_insight_date_range(),
-                breakdownFilter=self._get_breakdown_filter(),
                 trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$feature_flag_response",
+                    breakdown_type="event",
+                ),
                 series=[
                     EventsNode(
                         event="$feature_flag_called",
