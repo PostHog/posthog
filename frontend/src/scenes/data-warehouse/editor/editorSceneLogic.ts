@@ -4,7 +4,7 @@ import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema'
 import { DataWarehouseSavedQuery } from '~/types'
 
-import { editorSceneLogicType } from './editorSceneLogicType'
+import type { editorSceneLogicType } from './editorSceneLogicType'
 
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'editorSceneLogic']),
