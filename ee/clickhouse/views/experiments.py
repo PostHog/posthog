@@ -372,6 +372,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if (
             not instance.filters.get("events")
             and not instance.filters.get("actions")
+            and not instance.filters.get("data_warehouse")
             and validated_data.get("start_date")
             and not validated_data.get("filters")
         ):
