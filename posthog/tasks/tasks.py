@@ -785,21 +785,21 @@ def verify_persons_data_in_sync() -> None:
     verify()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def update_survey_iteration() -> None:
     from posthog.tasks.update_survey_iteration import update_survey_iteration
 
     update_survey_iteration()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def update_survey_adaptive_sampling() -> None:
     from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
 

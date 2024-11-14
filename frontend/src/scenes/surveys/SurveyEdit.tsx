@@ -520,6 +520,7 @@ export default function SurveyEdit(): JSX.Element {
                         {
                             key: SurveyEditSection.DisplayConditions,
                             header: 'Display conditions',
+                            dataAttr: 'survey-display-conditions',
                             content: (
                                 <LemonField.Pure>
                                     <LemonSelect
@@ -536,8 +537,13 @@ export default function SurveyEdit(): JSX.Element {
                                         value={!hasTargetingSet}
                                         options={[
                                             { label: 'All users', value: true },
-                                            { label: 'Users who match all of the following...', value: false },
+                                            {
+                                                label: 'Users who match all of the following...',
+                                                value: false,
+                                                'data-attr': 'survey-display-conditions-select-users',
+                                            },
                                         ]}
+                                        data-attr="survey-display-conditions-select"
                                     />
                                     {!hasTargetingSet ? (
                                         <span className="text-muted">
@@ -556,7 +562,10 @@ export default function SurveyEdit(): JSX.Element {
                                                 }
                                             >
                                                 {({ value, onChange }) => (
-                                                    <div className="flex">
+                                                    <div
+                                                        className="flex"
+                                                        data-attr="survey-display-conditions-linked-flag"
+                                                    >
                                                         <FlagSelector value={value} onChange={onChange} />
                                                         {value && (
                                                             <LemonButton

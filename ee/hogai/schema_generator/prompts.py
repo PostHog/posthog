@@ -1,23 +1,23 @@
-group_mapping_prompt = """
+GROUP_MAPPING_PROMPT = """
 Here is the group mapping:
 {{group_mapping}}
 """
 
-plan_prompt = """
+PLAN_PROMPT = """
 Here is the plan:
 {{plan}}
 """
 
-new_plan_prompt = """
+NEW_PLAN_PROMPT = """
 Here is the new plan:
 {{plan}}
 """
 
-question_prompt = """
+QUESTION_PROMPT = """
 Answer to this question: {{question}}
 """
 
-failover_output_prompt = """
+FAILOVER_OUTPUT_PROMPT = """
 Generation output:
 ```
 {{output}}
@@ -29,7 +29,7 @@ Exception message:
 ```
 """
 
-failover_prompt = """
+FAILOVER_PROMPT = """
 The result of the previous generation raised the Pydantic validation exception.
 
 {{validation_error_message}}
