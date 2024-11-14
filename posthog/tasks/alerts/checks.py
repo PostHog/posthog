@@ -126,8 +126,13 @@ def reset_stuck_alerts_task() -> None:
     # the finally block below isn't run and the alert gets stuck with is_calculating = True
     # hence when checking is_calculating, we also need to check if task has been stuck in is_calculating for too long
     stuck_alerts = AlertConfiguration.objects.filter(
-        Q(enabled=True, is_calculating=True, last_checked_at__isnull=now - relativedelta(minutes=45))
-        | Q(enabled=True, is_calculating=True, last_checked_at__isnull=True)
+        Q(enabled=True, is_calculating=True, last_checked_at__lte=now - relativedelta(minutes=45))
+        | Q(
+            enabled=True,
+            is_calculating=True,
+            last_checked_at__isnull=True,
+            created_at__lte=now - relativedelta(minutes=45),
+        )
     )
 
     for alert in stuck_alerts:
