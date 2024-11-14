@@ -16,6 +16,7 @@ import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import type { editorSidebarLogicType } from './editorSidebarLogicType'
+import { multitabEditorLogic } from './multitabEditorLogic'
 
 const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], {
     keys: [{ name: 'name', weight: 2 }],
@@ -125,6 +126,16 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         onClick: () => {
                             actions.selectSchema(savedQuery)
                         },
+                        menuItems: [
+                            {
+                                label: 'Edit view definition',
+                                onClick: () => {
+                                    multitabEditorLogic({
+                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                    }).actions.createTab(savedQuery.query.query, savedQuery.id)
+                                },
+                            },
+                        ],
                     })),
                 } as SidebarCategory,
             ],

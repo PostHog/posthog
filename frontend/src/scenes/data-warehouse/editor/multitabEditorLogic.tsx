@@ -1,6 +1,6 @@
 import { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { actions, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ModelMarker } from 'lib/monaco/codeEditorLogic'
@@ -21,21 +21,28 @@ export interface MultitabEditorLogicProps {
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
 export const activemodelStateKey = (key: string | number): string => `${key}/activeModelUri`
+export const activeViewIdStateKey = (key: string | number): string => `${key}/activeViewId`
+
+export interface QueryTab {
+    uri: Uri
+    viewId?: string | undefined
+}
 
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
+    key((props) => props.key),
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: true,
         runQuery: (queryOverride?: string) => ({ queryOverride }),
         setActiveQuery: (query: string) => ({ query }),
-        setTabs: (tabs: Uri[]) => ({ tabs }),
-        addTab: (tab: Uri) => ({ tab }),
-        createTab: () => null,
-        deleteTab: (tab: Uri) => ({ tab }),
-        removeTab: (tab: Uri) => ({ tab }),
-        selectTab: (tab: Uri) => ({ tab }),
+        setTabs: (tabs: QueryTab[]) => ({ tabs }),
+        addTab: (tab: QueryTab) => ({ tab }),
+        createTab: (query?: string, viewId?: string) => ({ query, viewId }),
+        deleteTab: (tab: QueryTab) => ({ tab }),
+        removeTab: (tab: QueryTab) => ({ tab }),
+        selectTab: (tab: QueryTab) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
         initialize: true,
         saveAsView: true,
@@ -43,8 +50,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         reloadMetadata: true,
         setMetadata: (query: string, metadata: HogQLMetadataResponse) => ({ query, metadata }),
     }),
-    propsChanged(({ actions }, oldProps) => {
-        if (!oldProps.monaco && !oldProps.editor) {
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
             actions.initialize()
         }
     }),
@@ -62,20 +69,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         activeModelUri: [
-            null as Uri | null,
+            null as QueryTab | null,
             {
                 selectTab: (_, { tab }) => tab,
             },
         ],
+        editingViewId: [
+            null as string | null,
+            {
+                selectTab: (_, { tab }) => tab.viewId ?? null,
+            },
+        ],
         allTabs: [
-            [] as Uri[],
+            [] as QueryTab[],
             {
                 addTab: (state, { tab }) => {
                     const newTabs = [...state, tab]
                     return newTabs
                 },
                 removeTab: (state, { tab: tabToRemove }) => {
-                    const newModels = state.filter((tab) => tab.toString() !== tabToRemove.toString())
+                    const newModels = state.filter((tab) => tab.uri.toString() !== tabToRemove.uri.toString())
                     return newModels
                 },
                 setTabs: (_, { tabs }) => tabs,
@@ -131,24 +144,31 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions }) => ({
-        createTab: () => {
+        createTab: ({ query = '', viewId }) => {
             let currentModelCount = 1
-            const allNumbers = values.allTabs.map((tab) => parseInt(tab.path.split('/').pop() || '0'))
+            const allNumbers = values.allTabs.map((tab) => parseInt(tab.uri.path.split('/').pop() || '0'))
             while (allNumbers.includes(currentModelCount)) {
                 currentModelCount++
             }
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
-                const model = props.monaco.editor.createModel('', 'hogQL', uri)
+                const model = props.monaco.editor.createModel(query, 'hogQL', uri)
                 props.editor?.setModel(model)
-                actions.addTab(uri)
-                actions.selectTab(uri)
+                actions.addTab({
+                    uri,
+                    viewId,
+                })
+                actions.selectTab({
+                    uri,
+                    viewId,
+                })
 
                 const queries = values.allTabs.map((tab) => {
                     return {
-                        query: props.monaco?.editor.getModel(tab)?.getValue() || '',
-                        path: tab.path.split('/').pop(),
+                        query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
+                        path: tab.uri.path.split('/').pop(),
+                        viewId: uri.path === tab.uri.path ? viewId : tab.viewId,
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
@@ -156,18 +176,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         selectTab: ({ tab }) => {
             if (props.monaco) {
-                const model = props.monaco.editor.getModel(tab)
+                const model = props.monaco.editor.getModel(tab.uri)
                 props.editor?.setModel(model)
             }
 
-            const path = tab.path.split('/').pop()
+            const path = tab.uri.path.split('/').pop()
             path && actions.setLocalState(activemodelStateKey(props.key), path)
+            actions.setLocalState(activeViewIdStateKey(props.key), tab.viewId)
         },
         deleteTab: ({ tab: tabToRemove }) => {
             if (props.monaco) {
-                const model = props.monaco.editor.getModel(tabToRemove)
-                if (tabToRemove == values.activeModelUri) {
-                    const indexOfModel = values.allTabs.findIndex((tab) => tab.toString() === tabToRemove.toString())
+                const model = props.monaco.editor.getModel(tabToRemove.uri)
+                if (tabToRemove.uri.toString() === values.activeModelUri?.uri.toString()) {
+                    const indexOfModel = values.allTabs.findIndex(
+                        (tab) => tab.uri.toString() === tabToRemove.uri.toString()
+                    )
                     const nextModel =
                         values.allTabs[indexOfModel + 1] || values.allTabs[indexOfModel - 1] || values.allTabs[0] // there will always be one
                     actions.selectTab(nextModel)
@@ -176,8 +199,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.removeTab(tabToRemove)
                 const queries = values.allTabs.map((tab) => {
                     return {
-                        query: props.monaco?.editor.getModel(tab)?.getValue() || '',
-                        path: tab.path.split('/').pop(),
+                        query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
+                        path: tab.uri.path.split('/').pop(),
+                        viewId: tab.viewId,
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
@@ -189,6 +213,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: () => {
             const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
             const activeModelUri = localStorage.getItem(activemodelStateKey(props.key))
+            const activeViewId = localStorage.getItem(activeViewIdStateKey(props.key))
 
             if (allModelQueries) {
                 // clear existing models
@@ -197,14 +222,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
 
                 const models = JSON.parse(allModelQueries || '[]')
-                const newModels: Uri[] = []
+                const newModels: QueryTab[] = []
 
                 models.forEach((model: Record<string, any>) => {
                     if (props.monaco) {
                         const uri = props.monaco.Uri.parse(model.path)
                         const newModel = props.monaco.editor.createModel(model.query, 'hogQL', uri)
                         props.editor?.setModel(newModel)
-                        newModels.push(uri)
+                        newModels.push({
+                            uri,
+                            viewId: model.viewId,
+                        })
                     }
                 })
 
@@ -221,9 +249,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.setQueryInput(val)
                         actions.runQuery()
                     }
-                    uri && actions.selectTab(uri)
+                    uri &&
+                        actions.selectTab({
+                            uri,
+                            viewId: activeViewId === 'undefined' ? undefined : activeViewId,
+                        })
                 } else if (newModels.length) {
-                    actions.selectTab(newModels[0])
+                    actions.selectTab({
+                        uri: newModels[0].uri,
+                    })
                 }
             } else {
                 const model = props.editor?.getModel()
@@ -240,8 +274,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             await breakpoint(100)
             const queries = values.allTabs.map((model) => {
                 return {
-                    query: props.monaco?.editor.getModel(model)?.getValue() || '',
-                    path: model.path.split('/').pop(),
+                    query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
+                    path: model.uri.path.split('/').pop(),
+                    viewId: model.viewId,
                 }
             })
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
@@ -294,7 +329,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     subscriptions(({ props, actions, values }) => ({
         activeModelUri: (activeModelUri) => {
             if (props.monaco) {
-                const _model = props.monaco.editor.getModel(activeModelUri)
+                const _model = props.monaco.editor.getModel(activeModelUri.uri)
                 const val = _model?.getValue()
                 actions.setQueryInput(val ?? '')
                 actions.runQuery()
@@ -313,7 +348,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     selectors({
-        activeTabKey: [(s) => [s.activeModelUri], (activeModelUri) => `hogQLQueryEditor/${activeModelUri?.path}`],
+        activeTabKey: [(s) => [s.activeModelUri], (activeModelUri) => `hogQLQueryEditor/${activeModelUri?.uri.path}`],
         isValidView: [(s) => [s.metadata], (metadata) => !!(metadata && metadata[1]?.isValidView)],
         hasErrors: [
             (s) => [s.modelMarkers],

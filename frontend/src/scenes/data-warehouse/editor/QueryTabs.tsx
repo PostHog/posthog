@@ -1,41 +1,42 @@
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { Uri } from 'monaco-editor'
+
+import { QueryTab } from './multitabEditorLogic'
 
 interface QueryTabsProps {
-    models: Uri[]
-    onClick: (model: Uri) => void
-    onClear: (model: Uri) => void
+    models: QueryTab[]
+    onClick: (model: QueryTab) => void
+    onClear: (model: QueryTab) => void
     onAdd: () => void
-    activeModelUri: Uri | null
+    activeModelUri: QueryTab | null
 }
 
 export function QueryTabs({ models, onClear, onClick, onAdd, activeModelUri }: QueryTabsProps): JSX.Element {
     return (
         <div className="flex flex-row overflow-scroll hide-scrollbar h-10">
-            {models.map((model: Uri) => (
-                <QueryTab
-                    key={model.path}
+            {models.map((model: QueryTab) => (
+                <QueryTabComponent
+                    key={model.uri.path}
                     model={model}
                     onClear={models.length > 1 ? onClear : undefined}
                     onClick={onClick}
-                    active={activeModelUri?.path === model.path}
+                    active={activeModelUri?.uri.path === model.uri.path}
                 />
             ))}
-            <LemonButton onClick={onAdd} icon={<IconPlus fontSize={14} />} />
+            <LemonButton onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
         </div>
     )
 }
 
 interface QueryTabProps {
-    model: Uri
-    onClick: (model: Uri) => void
-    onClear?: (model: Uri) => void
+    model: QueryTab
+    onClick: (model: QueryTab) => void
+    onClear?: (model: QueryTab) => void
     active: boolean
 }
 
-function QueryTab({ model, active, onClear, onClick }: QueryTabProps): JSX.Element {
+function QueryTabComponent({ model, active, onClear, onClick }: QueryTabProps): JSX.Element {
     return (
         <button
             onClick={() => onClick?.(model)}
