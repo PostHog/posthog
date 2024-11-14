@@ -119,6 +119,28 @@ def alerts_backlog_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
+def reset_stuck_alerts_task() -> None:
+    now = datetime.now(UTC)
+
+    # TRICKY: When celery task exits due to timeout/insight calc taking too long
+    # the finally block below isn't run and the alert gets stuck with is_calculating = True
+    # hence when checking is_calculating, we also need to check if task has been stuck in is_calculating for too long
+    stuck_alerts = AlertConfiguration.objects.filter(
+        Q(enabled=True, is_calculating=True, last_checked_at__isnull=now - relativedelta(minutes=45))
+        | Q(enabled=True, is_calculating=True, last_checked_at__isnull=True)
+    )
+
+    for alert in stuck_alerts:
+        # we need to check the alert, reset is_calculating
+        logger.info(f"Alert {alert.id} is stuck in is_calculating for too long, resetting is_calculating")
+        alert.is_calculating = False
+        alert.save()
+
+
+@shared_task(
+    ignore_result=True,
+    expires=60 * 60,
+)
 def check_alerts_task() -> None:
     """
     This runs every 2min to check for alerts that are due to recalculate
@@ -187,19 +209,11 @@ def check_alert(alert_id: str) -> None:
         return
 
     if alert.is_calculating:
-        # TRICKY: When celery task exits due to timeout/insight calc taking too long
-        # the finally block below isn't run and the alert gets stuck with is_calculating = True
-        # hence when checking is_calculating, we also need to check if task has been stuck in is_calculating for too long
-        if alert.last_checked_at < now - relativedelta(minutes=45):
-            # we need to check the alert, reset is_calculating
-            alert.is_calculating = False
-            alert.save()
-        else:
-            logger.info(
-                "Alert is already being computed so skipping checking it now",
-                alert=alert,
-            )
-            return
+        logger.info(
+            "Alert is already being computed so skipping checking it now",
+            alert=alert,
+        )
+        return
 
     if alert.snoozed_until:
         if alert.snoozed_until > now:

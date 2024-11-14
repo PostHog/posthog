@@ -12,6 +12,7 @@ from posthog.tasks.alerts.checks import (
     check_alerts_task,
     checks_cleanup_task,
     alerts_backlog_task,
+    reset_stuck_alerts_task,
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
@@ -265,6 +266,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="*/12"),
         alerts_backlog_task.s(),
         name="alerts_backlog_task",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/15"),
+        reset_stuck_alerts_task.s(),
+        name="reset_stuck_alerts_task",
     )
 
     sender.add_periodic_task(
