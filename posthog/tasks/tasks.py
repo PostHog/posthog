@@ -799,6 +799,13 @@ def update_survey_iteration() -> None:
     update_survey_iteration()
 
 
+@shared_task(ignrore_result=True)
+def update_survey_adaptive_sampling() -> None:
+    from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
+
+    update_survey_adaptive_sampling()
+
+
 def recompute_materialized_columns_enabled() -> bool:
     from posthog.models.instance_setting import get_instance_setting
 
