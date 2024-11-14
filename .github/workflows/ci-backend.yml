@@ -250,13 +250,13 @@ jobs:
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.6.19'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.5.115'
                       python-version: '3.11.9'
                       concurrency: 3
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.6.19'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.5.115'
                       python-version: '3.11.9'
                       concurrency: 3
                       group: 3
