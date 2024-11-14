@@ -1,7 +1,7 @@
 import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -58,6 +58,7 @@ export function SharingModalContent({
     }
     const {
         whitelabelAvailable,
+        sharingPasswordProtectAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -204,6 +205,36 @@ export function SharingModalContent({
                                             </LemonField>
                                         )}
                                     </div>
+
+                                    <LemonField name="passwordProtect">
+                                        {({ value, onChange }) => (
+                                            <div>
+                                                <LemonSwitch
+                                                    fullWidth
+                                                    bordered
+                                                    label={
+                                                        <div className="flex items-center">
+                                                            <span>Password protect</span>
+                                                        </div>
+                                                    }
+                                                    onChange={onChange}
+                                                    checked={value}
+                                                />
+                                                {value && (
+                                                    <LemonField name="password">
+                                                        <LemonInput
+                                                            type="password"
+                                                            // inputRef={passwordInputRef}
+                                                            className="ph-ignore-input"
+                                                            data-attr="password"
+                                                            placeholder="••••••••••"
+                                                            autoComplete="current-password"
+                                                        />
+                                                    </LemonField>
+                                                )}
+                                            </div>
+                                        )}
+                                    </LemonField>
 
                                     {previewIframe && (
                                         <div className="rounded border">

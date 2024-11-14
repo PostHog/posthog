@@ -109,6 +109,7 @@ export enum AvailableFeature {
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
+    SHARING_PASSWORD_PROTECT = 'sharing_password_protect',
     COMMUNITY_SUPPORT = 'community_support',
     DEDICATED_SUPPORT = 'dedicated_support',
     EMAIL_SUPPORT = 'email_support',
@@ -3750,6 +3751,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    password: string | null
 }
 
 export enum ExporterFormat {
