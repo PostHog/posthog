@@ -3545,7 +3545,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
         personUrl?: string
         /** Action/event filter defition */
-        action?: ActionFilter
+        action?: ActionFilter | null
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }

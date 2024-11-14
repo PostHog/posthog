@@ -28,6 +28,7 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
+    GraphDataset,
     GroupTypeIndex,
     InsightShortId,
     InsightType,
@@ -432,4 +433,14 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     }
 
     return query ? urls.insightNew(undefined, undefined, query) : undefined
+}
+
+export function getTrendDatasetKey(dataset: GraphDataset): string {
+    const payload = {
+        series: Number.isInteger(dataset.action?.order) ? dataset.action?.order : 'formula',
+        breakdown_value: dataset.breakdown_value,
+        compare_label: dataset.compare_label,
+    }
+
+    return JSON.stringify(payload)
 }
