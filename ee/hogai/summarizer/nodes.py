@@ -6,17 +6,21 @@ from langchain_core.messages import HumanMessage as LangchainHumanMessage, Syste
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from django.core.serializers.json import DjangoJSONEncoder
+from rest_framework.exceptions import APIException
+from sentry_sdk import capture_exception
 
 from ee.hogai.schema_generator.nodes import (
     BaseMessage,
     LangchainAssistantMessage,
 )
-from ee.hogai.summarizer.prompts import SUMMARIZER_RESULTS_PROMPT, SUMMARIZER_INSTRUCTION_PROMPT
+from ee.hogai.summarizer.prompts import SUMMARIZER_SYSTEM_PROMPT, SUMMARIZER_INSTRUCTION_PROMPT
 from ee.hogai.utils import AssistantNode, AssistantNodeName, AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.schema import AssistantMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, FailureMessage, VisualizationMessage
 
 
 class SummarizerNode(AssistantNode):
@@ -25,30 +29,44 @@ class SummarizerNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig):
         last_message = state["messages"][-1]
         if not isinstance(last_message, VisualizationMessage):
-            raise Exception()  # TODO: Better exception
+            raise ValueError("Can only run summarization with a visualization message as the last one in the state")
         if last_message.answer is None:
-            raise Exception()  # TODO: Better exception
+            raise ValueError("Did not found query in the visualization message")
 
-        results_response = process_query_dict(  # type: ignore
-            self._team,  # TODO: Add user
-            last_message.answer.model_dump(),
-            # Celery doesn't run in tests, so there we use force_blocking instead
-            # This does mean that the waiting logic is not tested
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-            if not settings.TEST
-            else ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-        ).model_dump()
-        if results_response.get("query_status") and not results_response["query_status"]["complete"]:
-            query_id = results_response["query_status"]["id"]
-            for i in range(0, 999):
-                sleep(i / 2)  # We start at 0.5s and every iteration we wait 0.5s more
-                query_status = get_query_status(team_id=self._team.pk, query_id=query_id)
-                if query_status.error:
-                    # TODO: Handle calculation error gracefully in the assistant
-                    break
-                if query_status.complete:
-                    results_response = query_status.results
-                    break
+        try:
+            results_response = process_query_dict(  # type: ignore
+                self._team,  # TODO: Add user
+                last_message.answer.model_dump(),
+                # Celery doesn't run in tests, so there we use force_blocking instead
+                # This does mean that the waiting logic is not tested
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                if not settings.TEST
+                else ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ).model_dump()
+            if results_response.get("query_status") and not results_response["query_status"]["complete"]:
+                query_id = results_response["query_status"]["id"]
+                for i in range(0, 999):
+                    sleep(i / 2)  # We start at 0.5s and every iteration we wait 0.5s more
+                    query_status = get_query_status(team_id=self._team.pk, query_id=query_id)
+                    if query_status.error:
+                        if query_status.error_message:
+                            raise APIException(query_status.error_message)
+                        else:
+                            raise ValueError("Query failed")
+                    if query_status.complete:
+                        results_response = query_status.results
+                        break
+        except (APIException, ExposedHogQLError, ExposedCHQueryError) as err:
+            err_message = str(err)
+            if isinstance(err, APIException):
+                if isinstance(err.detail, dict):
+                    err_message = ", ".join(f"{key}: {value}" for key, value in err.detail.items())
+                elif isinstance(err.detail, list):
+                    err_message = ", ".join(err.detail)
+            return {"messages": [FailureMessage(content=f"There was an error running this query: {err_message}")]}
+        except Exception as err:
+            capture_exception(err)
+            return {"messages": [FailureMessage(content="There was an unknown error running this query.")]}
 
         summarization_prompt = ChatPromptTemplate.from_messages(
             self._construct_messages(state), template_format="mustache"
@@ -71,27 +89,13 @@ class SummarizerNode(AssistantNode):
         return ChatOpenAI(model="gpt-4o", temperature=0.5, streaming=True)  # Slightly higher temp than earlier steps
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
-        conversation: list[BaseMessage] = [
-            LangchainSystemMessage(
-                content="""
-Act as an expert product manager. Your task is to summarize query results in a a concise way.
-Offer actionable feedback if possible with your context.
-
-The product being analyzed is described as follows:
-{{product_description}}"""
-            )
-        ]
+        conversation: list[BaseMessage] = [LangchainSystemMessage(content=SUMMARIZER_SYSTEM_PROMPT)]
 
         for message in state.get("messages", []):
             if message.type == "human":
                 conversation.append(LangchainHumanMessage(content=message.content))
-            elif message.type == "ai":
+            elif message.type in ("ai", "ai/failure"):
                 conversation.append(LangchainAssistantMessage(content=message.content))
-            elif message.type == "ai/failure":
-                conversation.append(
-                    LangchainAssistantMessage(content="Something went wrong while answering.")  # TODO: Better message
-                )
 
-        conversation.append(LangchainAssistantMessage(content=SUMMARIZER_RESULTS_PROMPT))
         conversation.append(LangchainHumanMessage(content=SUMMARIZER_INSTRUCTION_PROMPT))
         return conversation

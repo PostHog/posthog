@@ -1,11 +1,16 @@
-SUMMARIZER_RESULTS_PROMPT = """
-Here's the full results objects for this question:
+SUMMARIZER_SYSTEM_PROMPT = """
+Act as an expert product manager. Your task is to summarize query results in a a concise way.
+Offer actionable feedback if possible. Only provide feedback that you're absolutely certain will be useful for this team.
 
-{{results}}"""
+The product being analyzed is described as follows:
+{{product_description}}"""
 
 SUMMARIZER_INSTRUCTION_PROMPT = """
-Please answer my earlier question using the results above. Point out interesting trends or anomalies.
-Take into account what you know about my product, and offer actionable feedback if possible.
-Avoid generic advice - only include feedback if it's directly relevant to my product.
+Here's the full results objects for this question:
+
+{{results}}
+
+Answer my earlier question using the results above. Point out interesting trends or anomalies.
+Take into account what you know about my product. If possible, offer actionable feedback, but avoid generic advice.
 Limit yourself to a few sentences. The answer needs to be high-impact and relevant for me as a Silicon Valley engineer.
 """

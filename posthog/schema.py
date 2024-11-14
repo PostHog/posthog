@@ -572,7 +572,7 @@ class FailureMessage(BaseModel):
         extra="forbid",
     )
     content: Optional[str] = None
-    done: Optional[bool] = None
+    done: Literal[True] = True
     type: Literal["ai/failure"] = "ai/failure"
 
 
@@ -5545,7 +5545,6 @@ class VisualizationMessage(BaseModel):
         extra="forbid",
     )
     answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
-    cache_key: Optional[str] = None
     done: Optional[bool] = None
     plan: Optional[str] = None
     reasoning_steps: Optional[list[str]] = None

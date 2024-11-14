@@ -2254,14 +2254,13 @@ export interface VisualizationMessage {
     plan?: string
     reasoning_steps?: string[] | null
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
-    cache_key?: string
     done?: boolean
 }
 
 export interface FailureMessage {
     type: AssistantMessageType.Failure
     content?: string
-    done?: boolean
+    done: true
 }
 
 export interface RouterMessage {

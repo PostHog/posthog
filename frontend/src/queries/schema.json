@@ -5747,6 +5747,7 @@
                     "type": "string"
                 },
                 "done": {
+                    "const": true,
                     "type": "boolean"
                 },
                 "type": {
@@ -5754,7 +5755,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["type", "done"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -12293,9 +12294,6 @@
                             "$ref": "#/definitions/AssistantFunnelsQuery"
                         }
                     ]
-                },
-                "cache_key": {
-                    "type": "string"
                 },
                 "done": {
                     "type": "boolean"
