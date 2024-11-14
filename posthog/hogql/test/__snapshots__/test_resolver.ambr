@@ -4495,7 +4495,6 @@
         alias: "uuid"
         expr: {
           chain: [
-            "e",
             "uuid"
           ]
           type: {
@@ -4557,7 +4556,6 @@
         alias: "event"
         expr: {
           chain: [
-            "e",
             "event"
           ]
           type: {
@@ -4575,7 +4573,6 @@
         alias: "properties"
         expr: {
           chain: [
-            "e",
             "properties"
           ]
           type: {
@@ -4593,7 +4590,6 @@
         alias: "timestamp"
         expr: {
           chain: [
-            "e",
             "timestamp"
           ]
           type: {
@@ -4611,7 +4607,6 @@
         alias: "distinct_id"
         expr: {
           chain: [
-            "e",
             "distinct_id"
           ]
           type: {
@@ -4629,7 +4624,6 @@
         alias: "elements_chain"
         expr: {
           chain: [
-            "e",
             "elements_chain"
           ]
           type: {
@@ -4647,7 +4641,6 @@
         alias: "created_at"
         expr: {
           chain: [
-            "e",
             "created_at"
           ]
           type: {
@@ -4665,7 +4658,6 @@
         alias: "$session_id"
         expr: {
           chain: [
-            "e",
             "$session_id"
           ]
           type: {
@@ -4683,7 +4675,6 @@
         alias: "$window_id"
         expr: {
           chain: [
-            "e",
             "$window_id"
           ]
           type: {
@@ -4857,7 +4848,6 @@
         alias: "$group_0"
         expr: {
           chain: [
-            "e",
             "$group_0"
           ]
           type: {
@@ -4875,7 +4865,6 @@
         alias: "$group_1"
         expr: {
           chain: [
-            "e",
             "$group_1"
           ]
           type: {
@@ -4893,7 +4882,6 @@
         alias: "$group_2"
         expr: {
           chain: [
-            "e",
             "$group_2"
           ]
           type: {
@@ -4911,7 +4899,6 @@
         alias: "$group_3"
         expr: {
           chain: [
-            "e",
             "$group_3"
           ]
           type: {
@@ -4929,7 +4916,6 @@
         alias: "$group_4"
         expr: {
           chain: [
-            "e",
             "$group_4"
           ]
           type: {
@@ -4947,7 +4933,6 @@
         alias: "elements_chain_href"
         expr: {
           chain: [
-            "e",
             "elements_chain_href"
           ]
           type: {
@@ -4965,7 +4950,6 @@
         alias: "elements_chain_texts"
         expr: {
           chain: [
-            "e",
             "elements_chain_texts"
           ]
           type: {
@@ -4983,7 +4967,6 @@
         alias: "elements_chain_ids"
         expr: {
           chain: [
-            "e",
             "elements_chain_ids"
           ]
           type: {
@@ -5001,7 +4984,6 @@
         alias: "elements_chain_elements"
         expr: {
           chain: [
-            "e",
             "elements_chain_elements"
           ]
           type: {
@@ -5019,7 +5001,6 @@
         alias: "event_person_id"
         expr: {
           chain: [
-            "e",
             "event_person_id"
           ]
           type: {

@@ -194,7 +194,7 @@ class Resolver(CloningVisitor):
         for expr in node.select or []:
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
-                columns = self._asterisk_columns(new_expr.type)
+                columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 select_nodes.extend([self.visit(expr) for expr in columns])
             else:
                 select_nodes.append(new_expr)
@@ -257,16 +257,15 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> list[ast.Expr]:
-        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
+    def _asterisk_columns(self, asterisk: ast.AsteriskType, chain_prefix: list[str]) -> list[ast.Field]:
+        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields.
+
+        If we have a chain prefix (for example, in the case of a table alias), we prepend it to the chain of the new fields.
+        """
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
             database_fields = table.get_asterisk()
-            if isinstance(asterisk.table_type, ast.TableAliasType):
-                # if we have an alias, we want to use this to prevent ambiguous column names
-                table_alias = asterisk.table_type.alias
-                return [ast.Field(chain=[table_alias, key]) for key in database_fields.keys()]
-            return [ast.Field(chain=[key]) for key in database_fields.keys()]
+            return [ast.Field(chain=[*chain_prefix, key]) for key in database_fields.keys()]
         elif (
             isinstance(asterisk.table_type, ast.SelectSetQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
@@ -274,17 +273,12 @@ class Resolver(CloningVisitor):
             or isinstance(asterisk.table_type, ast.SelectViewType)
         ):
             select = asterisk.table_type
-            alias = None
             while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
-                alias = select.alias
                 select = select.select_query_type
             if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
-                # if we have an alias, we want to use this to prevent ambiguous column names
-                if alias:
-                    return [ast.Field(chain=[alias, key]) for key in select.columns.keys()]
-                return [ast.Field(chain=[key]) for key in select.columns.keys()]
+                return [ast.Field(chain=[*chain_prefix, key]) for key in select.columns.keys()]
             else:
                 raise QueryError("Can't expand asterisk (*) on subquery")
         else:
