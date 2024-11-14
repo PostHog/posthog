@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -78,4 +81,23 @@ pub struct ClickHouseEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group4_created_at: Option<String>,
     pub person_mode: PersonMode,
+}
+
+impl ClickHouseEvent {
+    pub fn take_raw_properties(&mut self) -> Result<HashMap<String, Value>, serde_json::Error> {
+        // Sometimes properties are REALLY big, so we may as well do this.
+        let props = self.properties.take();
+        match props {
+            Some(properties) => serde_json::from_str(&properties),
+            None => Ok(HashMap::new()),
+        }
+    }
+
+    pub fn set_raw_properties(
+        &mut self,
+        properties: HashMap<String, Value>,
+    ) -> Result<(), serde_json::Error> {
+        self.properties = Some(serde_json::to_string(&properties)?);
+        Ok(())
+    }
 }

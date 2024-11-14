@@ -185,7 +185,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value for previous week increased (2) more than upper threshold (1.0)"]
+            ANY, ["The insight value for previous week (2) increased more than upper threshold (1.0)"]
         )
 
     def test_relative_increase_upper_threshold_breached(
@@ -346,7 +346,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value for previous week increased (-1) less than lower threshold (2.0)"]
+            ANY, ["The insight value for previous week (-1) increased less than lower threshold (2.0)"]
         )
 
         # check percentage alert
@@ -363,7 +363,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_with(
-            ANY, ["The insight value for previous week increased (-50.00%) less than lower threshold (50.00%)"]
+            ANY, ["The insight value for previous week (-50.00%) increased less than lower threshold (50.00%)"]
         )
 
     def test_relative_increase_lower_threshold_breached_2(
@@ -524,7 +524,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value for previous week decreased (2) more than upper threshold (1.0)"]
+            ANY, ["The insight value for previous week (2) decreased more than upper threshold (1.0)"]
         )
 
         check_alert(percentage_alert["id"])
@@ -540,7 +540,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_with(
-            ANY, ["The insight value for previous week decreased (66.67%) more than upper threshold (20.00%)"]
+            ANY, ["The insight value for previous week (66.67%) decreased more than upper threshold (20.00%)"]
         )
 
     def test_relative_decrease_lower_threshold_breached(
@@ -613,7 +613,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value for previous week decreased (1) less than lower threshold (2.0)"]
+            ANY, ["The insight value for previous week (1) decreased less than lower threshold (2.0)"]
         )
 
         check_alert(percentage_alert["id"])
@@ -629,7 +629,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_with(
-            ANY, ["The insight value for previous week decreased (50.00%) less than lower threshold (80.00%)"]
+            ANY, ["The insight value for previous week (50.00%) decreased less than lower threshold (80.00%)"]
         )
 
     def test_relative_increase_no_threshold_breached(

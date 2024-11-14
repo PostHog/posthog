@@ -105,6 +105,18 @@ export interface ExperimentResultCalculationError {
     statusCode: number
 }
 
+export interface CachedSecondaryMetricExperimentFunnelsQueryResponse extends CachedExperimentFunnelsQueryResponse {
+    filters?: {
+        insight?: InsightType
+    }
+}
+
+export interface CachedSecondaryMetricExperimentTrendsQueryResponse extends CachedExperimentTrendsQueryResponse {
+    filters?: {
+        insight?: InsightType
+    }
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -159,6 +171,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
+        setExperimentFeatureFlagKeyFromName: true,
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setExperimentType: (type?: string) => ({ type }),
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
@@ -943,6 +956,16 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        dynamicFeatureFlagKey: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string => {
+                return experiment.name
+                    .toLowerCase()
+                    .replace(/[^A-Za-z0-9-_]+/g, '-')
+                    .replace(/-+$/, '')
+                    .replace(/^-+/, '')
+            },
+        ],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
@@ -1248,6 +1271,53 @@ export const experimentLogic = kea<experimentLogicType>([
                         return null
                     }
                     return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
+                },
+        ],
+        credibleIntervalForVariant: [
+            () => [],
+            () =>
+                (
+                    experimentResults:
+                        | Partial<ExperimentResults['result']>
+                        | CachedSecondaryMetricExperimentFunnelsQueryResponse
+                        | CachedSecondaryMetricExperimentTrendsQueryResponse
+                        | null,
+                    variantKey: string
+                ): [number, number] | null => {
+                    const credibleInterval = experimentResults?.credible_intervals?.[variantKey]
+                    if (!credibleInterval) {
+                        return null
+                    }
+
+                    if (experimentResults.filters?.insight === InsightType.FUNNELS) {
+                        const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
+                            ({ key }) => key === 'control'
+                        ) as FunnelExperimentVariant
+                        const controlConversionRate =
+                            controlVariant.success_count / (controlVariant.success_count + controlVariant.failure_count)
+
+                        if (!controlConversionRate) {
+                            return null
+                        }
+
+                        // Calculate the percentage difference between the credible interval bounds of the variant and the control's conversion rate.
+                        // This represents the range in which the true percentage change relative to the control is likely to fall.
+                        const lowerBound = ((credibleInterval[0] - controlConversionRate) / controlConversionRate) * 100
+                        const upperBound = ((credibleInterval[1] - controlConversionRate) / controlConversionRate) * 100
+                        return [lowerBound, upperBound]
+                    }
+
+                    const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
+                        ({ key }) => key === 'control'
+                    ) as TrendExperimentVariant
+
+                    const controlMean = controlVariant.count / controlVariant.absolute_exposure
+
+                    // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
+                    // This represents the range in which the true percentage change relative to the control is likely to fall.
+                    const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
+                    const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
+                    return [lowerBound, upperBound]
                 },
         ],
         getIndexForVariant: [
