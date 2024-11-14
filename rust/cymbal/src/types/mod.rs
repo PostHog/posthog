@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{digest::Update, Sha512};
+use uuid::Uuid;
 
 use crate::frames::{Frame, RawFrame};
 
@@ -53,6 +54,11 @@ pub struct ErrProps {
         skip_serializing_if = "Option::is_none"
     )]
     pub fingerprint: Option<String>, // We expect this not to exist when the event is received, and we populate it as part of processing
+    #[serde(
+        rename = "$exception_issue_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub resolved_issue_id: Option<Uuid>, // We populate the exception issue id as part of processing
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,

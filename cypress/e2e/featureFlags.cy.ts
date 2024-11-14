@@ -16,6 +16,13 @@ describe('Feature Flags', () => {
         cy.visit('/feature_flags')
     })
 
+    it('Display product introduction when no feature flags exist', () => {
+        // ensure unique names to avoid clashes
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.contains('Create your first feature flag').should('exist')
+    })
+
     it('Create feature flag', () => {
         // ensure unique names to avoid clashes
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
@@ -173,13 +180,6 @@ describe('Feature Flags', () => {
     it('Filter and sort feature flags', () => {
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
 
-        cy.get('[data-attr=feature-flag-select-type').click()
-        cy.get('[data-attr=feature-flag-select-type-option-multiple-variants]').click()
-        cy.url().should('include', 'type=multivariant')
-
-        // Make sure filtered empty state is shown
-        cy.get('[data-attr=feature-flag-empty-state-filtered]').should('exist')
-
         // Create a disabled flag
         const disabledPrefixFlagName = `disabled-${name}`
         cy.get('[data-attr=new-feature-flag]').click()
@@ -212,15 +212,23 @@ describe('Feature Flags', () => {
         cy.get(`[data-row-key=${disabledPrefixFlagName}]`).parent().first().contains('Disabled')
     })
 
-    it('Enable and disable feature flags from list', () => {
+    it('Show empty state when filters are too restrictive', () => {
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
 
-        cy.get('[data-attr=feature-flag-select-type').click()
-        cy.get('[data-attr=feature-flag-select-type-option-multiple-variants]').click()
-        cy.url().should('include', 'type=multivariant')
+        const noResultsSearchTerm = 'zzzzzzzzzzz_no_flags_with_this_name_zzzzzzzzzzz'
+        cy.get('[data-attr=feature-flag-search]')
+            .focus()
+            .type(noResultsSearchTerm)
+            .should('have.value', noResultsSearchTerm)
+        cy.get('[data-attr=feature-flag-table]').should(
+            'contain',
+            'No results for this filter, change filter or create a new flag.'
+        )
+        cy.get('[data-attr=feature-flag-table]').should('not.contain', noResultsSearchTerm)
+    })
 
-        // Make sure filtered empty state is shown
-        cy.get('[data-attr=feature-flag-empty-state-filtered]').should('exist')
+    it('Enable and disable feature flags from list', () => {
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
 
         // Create an enabled flag
         const togglablePrefixFlagName = `to-toggle-${name}`
@@ -298,6 +306,26 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=prop-filter-person_properties-1]').click({ force: true })
         cy.get('[data-attr=taxonomic-operator]').contains('= equals').click({ force: true })
         cy.get('.operator-value-option').contains('> after').should('not.exist')
+    })
+
+    it('Allow setting multivariant rollout percentage to zero', () => {
+        // Start creating a multivariant flag
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-served-value-segmented-button]')
+            .contains('Multiple variants with rollout percentages')
+            .click()
+
+        // Clear out the default 100% rollout percentage
+        cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]')
+            .click()
+            .type(`{backspace}{backspace}{backspace}`)
+            .should('have.value', 0)
+        cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]').click().type(`25`).should('have.value', 25)
+        cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]')
+            .click()
+            .type(`{backspace}{backspace}`)
+            .should('have.value', 0)
+        cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]').click().type(`4.5`).should('have.value', 4)
     })
 
     it('Renders flags in FlagSelector', () => {
