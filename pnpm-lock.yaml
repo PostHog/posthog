@@ -14,9 +14,9 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
-  rrweb@2.0.0-alpha.17:
-    hash: rasuulgucjqilfs2w4z4kcobfu
-    path: patches/rrweb@2.0.0-alpha.17.patch
+  rrweb@2.0.0-alpha.13:
+    hash: e2gmypqces37eklplr5o3rvywa
+    path: patches/rrweb@2.0.0-alpha.13.patch
 
 dependencies:
   '@babel/runtime':
@@ -62,8 +62,8 @@ dependencies:
     specifier: ^2.1.2
     version: 2.1.2(react@18.2.0)
   '@rrweb/types':
-    specifier: 2.0.0-alpha.17
-    version: 2.0.0-alpha.17
+    specifier: 2.0.0-alpha.13
+    version: 2.0.0-alpha.13
   '@sentry/react':
     specifier: 7.112.1
     version: 7.112.1(react@18.2.0)
@@ -284,8 +284,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.181.0
-    version: 1.181.0
+    specifier: 1.184.0
+    version: 1.184.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -365,8 +365,8 @@ dependencies:
     specifier: ^1.5.1
     version: 1.5.1
   rrweb:
-    specifier: 2.0.0-alpha.17
-    version: 2.0.0-alpha.17(patch_hash=rasuulgucjqilfs2w4z4kcobfu)
+    specifier: 2.0.0-alpha.13
+    version: 2.0.0-alpha.13(patch_hash=e2gmypqces37eklplr5o3rvywa)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -428,9 +428,6 @@ devDependencies:
   '@playwright/test':
     specifier: 1.45.0
     version: 1.45.0
-  '@rrweb/rrweb-plugin-console-record':
-    specifier: ^2.0.0-alpha.17
-    version: 2.0.0-alpha.17(rrweb@2.0.0-alpha.17)
   '@sentry/types':
     specifier: 7.112.1
     version: 7.112.1
@@ -6123,21 +6120,11 @@ packages:
       type-fest: 2.19.0
     dev: false
 
-  /@rrweb/rrweb-plugin-console-record@2.0.0-alpha.17(rrweb@2.0.0-alpha.17):
-    resolution: {integrity: sha512-tjNJ3wWUDMMf275xr4Rb5tVYF2UR+wXvSxnyS9tRKnRa574PQQvx7sGbqM/O9AytYjnbiTrAMqNR7OFysGCMwQ==}
-    peerDependencies:
-      rrweb: ^2.0.0-alpha.17
+  /@rrweb/types@2.0.0-alpha.13:
+    resolution: {integrity: sha512-ytq+MeVm/vP2ybw+gTAN3Xvt7HN2yS+wlbfnwHpQMftxrwzq0kEZHdw+Jp5WUvvpONWzXriNAUU9dW0qLGkzNg==}
     dependencies:
-      rrweb: 2.0.0-alpha.17(patch_hash=rasuulgucjqilfs2w4z4kcobfu)
-    dev: true
-
-  /@rrweb/types@2.0.0-alpha.17:
-    resolution: {integrity: sha512-AfDTVUuCyCaIG0lTSqYtrZqJX39ZEYzs4fYKnexhQ+id+kbZIpIJtaut5cto6dWZbB3SEe4fW0o90Po3LvTmfg==}
-    dependencies:
-      rrweb-snapshot: 2.0.0-alpha.17
-
-  /@rrweb/utils@2.0.0-alpha.17:
-    resolution: {integrity: sha512-HCsasPERBwOS9/LQeOytO2ETKTCqRj1wORBuxiy3t41hKhmi225DdrUPiWnyDdTQm1GdVbOymMRknJVPnZaSXw==}
+      rrweb-snapshot: 2.0.0-alpha.13
+    dev: false
 
   /@sentry-internal/feedback@7.112.1:
     resolution: {integrity: sha512-ejE4eRXLqv5emxVWudBkRQCv5Q7s21thei7gqSxGLBXe8AUrCjTiD0qA1ToJAKcleIyRRf/TQvGb/T7U6vwAAw==}
@@ -7102,7 +7089,7 @@ packages:
       '@storybook/csf': 0.1.11
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.20
-      '@types/qs': 6.9.16
+      '@types/qs': 6.9.17
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
@@ -8031,6 +8018,7 @@ packages:
 
   /@types/css-font-loading-module@0.0.7:
     resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
+    dev: false
 
   /@types/d3-array@3.0.3:
     resolution: {integrity: sha512-Reoy+pKnvsksN0lQUlcH6dOGjRZ/3WRwXR//m+/8lt1BXeI4xyaUZoqULNjyXXRuh0Mj4LNpkCvhUpQlY3X5xQ==}
@@ -8548,8 +8536,8 @@ packages:
     resolution: {integrity: sha512-bZcOkJ6uWrL0Qb2NAWKa7TBU+mJHPzhx9jjLL1KHF+XpzEcR7EXHvjbHlGtR/IsP1vyPrehuS6XqkmaePy//mg==}
     dev: false
 
-  /@types/qs@6.9.16:
-    resolution: {integrity: sha512-7i+zxXdPD0T4cKDuxCUXJ4wHcsJLwENa6Z3dCu8cfCK743OGy5Nu1RmAGqDPsoTDINVEcdXKRvR/zre+P2Ku1A==}
+  /@types/qs@6.9.17:
+    resolution: {integrity: sha512-rX4/bPcfmvxHDv0XjfJELTTr+iB+tn032nPILqHm5wbthUUUuVtNGGqzhya9XUxjTP8Fpr0qYgSZZKxGY++svQ==}
     dev: true
 
   /@types/query-selector-shadow-dom@1.0.0:
@@ -9080,6 +9068,7 @@ packages:
 
   /@xstate/fsm@1.6.5:
     resolution: {integrity: sha512-b5o1I6aLNeYlU/3CPlj/Z91ybk1gUsKT+5NAJI+2W4UjvS5KLG28K9v5UvNoFVjHV8PajVZ00RH3vnjyQO7ZAw==}
+    dev: false
 
   /@xtuc/ieee754@1.2.0:
     resolution: {integrity: sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA==}
@@ -9876,6 +9865,7 @@ packages:
   /base64-arraybuffer@1.0.2:
     resolution: {integrity: sha512-I3yl4r9QB5ZRY3XuJVEPfc2XhZO6YweFPI+UovAzn+8/hb3oJ6lnysaFcjVpkCPfVWFUDvoZ8kmVDP7WyRtYtQ==}
     engines: {node: '>= 0.6.0'}
+    dev: false
 
   /base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
@@ -16121,6 +16111,7 @@ packages:
 
   /mitt@3.0.0:
     resolution: {integrity: sha512-7dX2/10ITVyqh4aOSVI9gdape+t9l2/8QxHrFmUXu4EEUpdlxl6RudZUPZoc+zuY2hk1j7XxVroIVIan/pD/SQ==}
+    dev: false
 
   /mkdirp-classic@0.5.3:
     resolution: {integrity: sha512-gKLcREMhtuZRwRAfqP3RFW+TK4JqApVBtOIftVgjuABpAtpxhPGaDcfvbhNvD0B8iD1oUr/txX35NjcaY6Ns/A==}
@@ -16251,11 +16242,6 @@ packages:
 
   /nanoid@3.3.6:
     resolution: {integrity: sha512-BGcqMMJuToF7i1rt+2PWSNVnWIkGCU78jBG3RxO/bZlnZPK2Cmi2QaffxGO/2RvWi9sL+FAiRiXMgsyxQ1DIDA==}
-    engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
-    hasBin: true
-
-  /nanoid@3.3.7:
-    resolution: {integrity: sha512-eSRppjcPIatRIMC1U6UngP8XFcz8MQWGQdt1MTBQ7NaAmvXDfvNxbvWV3x2y6CdEUciCSsDHDQZbhYaB8QEo2g==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -16876,9 +16862,6 @@ packages:
 
   /picocolors@1.0.0:
     resolution: {integrity: sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==}
-
-  /picocolors@1.1.1:
-    resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
   /picomatch@2.3.1:
     resolution: {integrity: sha512-JU3teHTNjmE2VCGFzuY8EXzCDVwEqB2a8fsIvwaStHhAWJEeVd1o1QD80CU6+ZdEXXSLbSsuLwJjkCBWqRQUVA==}
@@ -17802,20 +17785,12 @@ packages:
       picocolors: 1.0.0
       source-map-js: 1.0.2
 
-  /postcss@8.4.47:
-    resolution: {integrity: sha512-56rxCq7G/XfB4EkXq9Egn5GCqugWvDFjafDOThIdMBsI15iqPqR5r15TfSr1YPYeEI19YeaXMCbY6u88Y76GLQ==}
-    engines: {node: ^10 || ^12 || >=14}
-    dependencies:
-      nanoid: 3.3.7
-      picocolors: 1.1.1
-      source-map-js: 1.2.1
-
   /posthog-js-lite@3.0.0:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.181.0:
-    resolution: {integrity: sha512-bI+J+f4E8x4JwbGtG6LReQv1Xvss01F6cs7UDlvffHySpVhNq4ptkNjV88B92IVEsrCtNYhy/TjFnGxk6RN0Qw==}
+  /posthog-js@1.184.0:
+    resolution: {integrity: sha512-SYnvdIsLXnq4/+IgxlRGrSfD+RbTETHAExNWZqXJ04HMXKWfYefXP3Z3WjxCrRA7TkSo7BCJxbxqtYZfgUp75w==}
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
@@ -19107,27 +19082,28 @@ packages:
     resolution: {integrity: sha512-85aZYCxweiD5J8yTEbw+E6A27zSnLPNDL0WfPdw3YYodq7WjnTKo0q4dtyQ2gz23iPT8Q9CUyJtAaUNcTxRf5Q==}
     dev: false
 
-  /rrdom@2.0.0-alpha.17:
-    resolution: {integrity: sha512-b6caDiNcFO96Opp7TGdcVd4OLGSXu5dJe+A0IDiAu8mk7OmhqZCSDlgQdTKmdO5wMf4zPsUTgb8H/aNvR3kDHA==}
+  /rrdom@2.0.0-alpha.13:
+    resolution: {integrity: sha512-GJD3L2MPbIg3+VgCwwfujB4HRXyMfDdg8o3djPjSB9rMX2b52Hx2tBUmwmdnWfgWKtYGDJ2wVX9Dng3tZEBHVA==}
     dependencies:
-      rrweb-snapshot: 2.0.0-alpha.17
+      rrweb-snapshot: 2.0.0-alpha.13
+    dev: false
 
-  /rrweb-snapshot@2.0.0-alpha.17:
-    resolution: {integrity: sha512-GBg5pV8LHOTbeVmH2VHLEFR0mc2QpQMzAvcoxEGfPNWgWHc8UvKCyq7pqN1vA+fDZ+yXXbixeO0kB2pzVvFCBw==}
-    dependencies:
-      postcss: 8.4.47
+  /rrweb-snapshot@2.0.0-alpha.13:
+    resolution: {integrity: sha512-slbhNBCYjxLGCeH95a67ECCy5a22nloXp1F5wF7DCzUNw80FN7tF9Lef1sRGLNo32g3mNqTc2sWLATlKejMxYw==}
+    dev: false
 
-  /rrweb@2.0.0-alpha.17(patch_hash=rasuulgucjqilfs2w4z4kcobfu):
-    resolution: {integrity: sha512-GQxBkCC4r9XL2bwSdv7iIS49M3cEA8OtObVq0rrQ4GUT4+h7omucGQ4x7m5YN5Vq1oalStBaBlYqF7yRnfG3JA==}
+  /rrweb@2.0.0-alpha.13(patch_hash=e2gmypqces37eklplr5o3rvywa):
+    resolution: {integrity: sha512-a8GXOCnzWHNaVZPa7hsrLZtNZ3CGjiL+YrkpLo0TfmxGLhjNZbWY2r7pE06p+FcjFNlgUVTmFrSJbK3kO7yxvw==}
     dependencies:
-      '@rrweb/types': 2.0.0-alpha.17
-      '@rrweb/utils': 2.0.0-alpha.17
+      '@rrweb/types': 2.0.0-alpha.13
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
       base64-arraybuffer: 1.0.2
+      fflate: 0.4.8
       mitt: 3.0.0
-      rrdom: 2.0.0-alpha.17
-      rrweb-snapshot: 2.0.0-alpha.17
+      rrdom: 2.0.0-alpha.13
+      rrweb-snapshot: 2.0.0-alpha.13
+    dev: false
     patched: true
 
   /run-async@2.4.1:
@@ -19687,10 +19663,6 @@ packages:
 
   /source-map-js@1.0.2:
     resolution: {integrity: sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==}
-    engines: {node: '>=0.10.0'}
-
-  /source-map-js@1.2.1:
-    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
   /source-map-support@0.5.13:

@@ -1,6 +1,6 @@
 from langchain_core.messages import AIMessage as LangchainAIMessage
 
-from ee.hogai.trends.parsers import (
+from ee.hogai.taxonomy_agent.parsers import (
     ReActParserMalformedJsonException,
     ReActParserMissingActionException,
     parse_react_agent_output,
@@ -8,7 +8,7 @@ from ee.hogai.trends.parsers import (
 from posthog.test.base import BaseTest
 
 
-class TestParsers(BaseTest):
+class TestTaxonomyAgentParsers(BaseTest):
     def test_parse_react_agent_output(self):
         res = parse_react_agent_output(
             LangchainAIMessage(

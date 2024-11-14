@@ -77,6 +77,7 @@ class TestDataImportPipeline(APIBaseTest):
             ) as mock_validate_schema_and_update_table,
             patch("posthog.temporal.data_imports.pipelines.pipeline_sync.get_delta_tables"),
             patch("posthog.temporal.data_imports.pipelines.pipeline_sync.update_last_synced_at_sync"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline_sync.is_posthog_team", return_value=False),
         ):
             pipeline = self._create_pipeline("Customer", False)
             res = pipeline.run()
@@ -98,6 +99,7 @@ class TestDataImportPipeline(APIBaseTest):
             ) as mock_validate_schema_and_update_table,
             patch("posthog.temporal.data_imports.pipelines.pipeline_sync.get_delta_tables"),
             patch("posthog.temporal.data_imports.pipelines.pipeline_sync.update_last_synced_at_sync"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline_sync.is_posthog_team", return_value=False),
         ):
             pipeline = self._create_pipeline("Customer", True)
             res = pipeline.run()
