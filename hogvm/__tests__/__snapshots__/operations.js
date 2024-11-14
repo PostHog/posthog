@@ -1,7 +1,6 @@
-function like (str, pattern) { return __like(str, pattern, false) }
-function match (str, pattern) { return new RegExp(pattern).test(str) }
-function toUUID (value) { return __STLToString([value]) }
+function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('') }
 function ilike (str, pattern) { return __like(str, pattern, true) }
+function like (str, pattern) { return __like(str, pattern, false) }
 function jsonStringify (value, spacing) {
     function convert(x, marked) {
         if (!marked) {
@@ -46,7 +45,16 @@ function jsonStringify (value, spacing) {
     }
     return JSON.stringify(convert(value))
 }
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function toInt (value) {
+    if (__isHogDateTime(value)) {
+        return Math.floor(value.dt)
+    } else if (__isHogDate(value)) {
+        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
+        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+        return Math.floor(day.diff(epoch, 'days').days)
+    }
+    return !isNaN(parseInt(value)) ? parseInt(value) : null
+}
 function toString (value) { return __STLToString([value]) }
 function __like(str, pattern, caseInsensitive = false) {
     if (caseInsensitive) {
@@ -59,26 +67,7 @@ function __like(str, pattern, caseInsensitive = false) {
         .replaceAll('_', '.')
     return new RegExp(pattern).test(str)
 }
-function toInt (value) {
-    if (__isHogDateTime(value)) {
-        return Math.floor(value.dt)
-    } else if (__isHogDate(value)) {
-        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
-        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
-        return Math.floor(day.diff(epoch, 'days').days)
-    }
-    return !isNaN(parseInt(value)) ? parseInt(value) : null
-}
-function toFloat (value) {
-    if (__isHogDateTime(value)) {
-        return value.dt
-    } else if (__isHogDate(value)) {
-        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
-        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
-        return Math.floor(day.diff(epoch, 'days').days)
-    }
-    return !isNaN(parseFloat(value)) ? parseFloat(value) : null}
-function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('') }
+function toUUID (value) { return __STLToString([value]) }
 function __STLToString(args) {
     if (__isHogDate(args[0])) {
         const month = args[0].month
@@ -90,6 +79,17 @@ function __STLToString(args) {
     }
     return __printHogStringOutput(args[0])
 }
+function match (str, pattern) { return new RegExp(pattern).test(str) }
+function toFloat (value) {
+    if (__isHogDateTime(value)) {
+        return value.dt
+    } else if (__isHogDate(value)) {
+        const day = DateTime.fromObject({ year: value.year, month: value.month, day: value.day })
+        const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+        return Math.floor(day.diff(epoch, 'days').days)
+    }
+    return !isNaN(parseFloat(value)) ? parseFloat(value) : null}
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
@@ -137,10 +137,10 @@ function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
-function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
-function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
-function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
+function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
+function __isHogError(obj) {return obj && obj.__hogError__ === true}
+function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 
 function test(val) {
@@ -181,6 +181,9 @@ test(!ilike("a", "b"));
 test(("car".includes("a")));
 test(("foo".includes("a")));
 test((!"car".includes("a")));
+test(like("bax", "b_x"));
+test(!like("baax", "b_x"));
+test(like("baax", "b%x"));
 test(concat("arg", "another"));
 test(concat(1, null));
 test(concat(true, false));
