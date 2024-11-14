@@ -17,7 +17,7 @@ export interface RelatedFeatureFlag extends FeatureFlagType {
 }
 
 export interface FeatureFlagEvaluationType {
-    reason: string
+    reason: FeatureFlagMatchReason
     condition_index?: number
 }
 

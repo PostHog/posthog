@@ -124,11 +124,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                 const matchesSet = featureFlag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
                 return (
                     <div>
-                        {featureFlag.active ? (
-                            <>{featureFlagMatchMapping[featureFlag.evaluation.reason as FeatureFlagMatchReason]}</>
-                        ) : (
-                            '--'
-                        )}
+                        {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
 
                         {matchesSet && <LemonSnack>Set {(featureFlag.evaluation.condition_index ?? 0) + 1}</LemonSnack>}
                     </div>
