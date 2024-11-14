@@ -146,7 +146,8 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings.1
@@ -308,7 +309,8 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off.1
@@ -469,7 +471,8 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step.1

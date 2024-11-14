@@ -187,7 +187,8 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
@@ -699,7 +700,8 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
@@ -814,7 +816,8 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
@@ -929,7 +932,8 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
