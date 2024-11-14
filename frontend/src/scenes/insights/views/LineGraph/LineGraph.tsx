@@ -35,7 +35,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { getTrendDatasetKey } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
@@ -45,6 +44,7 @@ import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+import { getTrendDatasetKey, getTrendLegendColorToken } from 'scenes/insights/utils'
 
 let tooltipRoot: Root
 
@@ -323,19 +323,11 @@ export function LineGraph_({
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
-        const assignmentByPosition = colorAssignmentBy == null || colorAssignmentBy == 'position'
 
-        const dataTheme = getTheme('posthog')
-        const datasetIndex = dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index
-        const colorIndex = (datasetIndex % Object.keys(dataTheme).length) + 1
-        const legendKey = assignmentByPosition ? datasetIndex.toString() : getTrendDatasetKey(dataset)
+        const theme = getTheme('posthog')
+        const colorToken = getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, dataset)
 
-        const colorKey =
-            legendEntries && Object.keys(legendEntries).includes(legendKey)
-                ? legendEntries[legendKey].color
-                : `preset-${colorIndex}`
-
-        const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : dataTheme[colorKey]
+        const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : theme[colorToken]
         const applyTransparency = isPrevious && !isArea
         const mainColor = applyTransparency ? `${themeColor}80` : themeColor
 

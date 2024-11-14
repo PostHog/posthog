@@ -30,6 +30,7 @@ import {
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
+    LegendEntryConfig,
     Node,
     NodeKind,
     TrendsFilter,
@@ -100,6 +101,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
+        updateLegendEntry: (key: number | string, config: LegendEntryConfig) => ({ key, config }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
 
@@ -452,6 +454,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
             actions.updateInsightFilter({ hiddenLegendIndexes })
+        },
+
+        // legend entries
+        updateLegendEntry: ({ key, config }) => {
+            actions.updateQuerySource({ [key]: config })
         },
 
         // data loading side effects i.e. diplaying loading screens for queries with longer duration

@@ -905,6 +905,8 @@ export interface LegendEntryConfigByKey extends LegendEntryConfigBase {
     assignmentBy: 'key'
 }
 
+export type LegendEntryConfig = LegendEntryConfigByKey | LegendEntryConfigByPosition
+
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
     /**
