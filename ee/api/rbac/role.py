@@ -4,15 +4,15 @@ from django.db import IntegrityError
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from ee.models.rbac.role import Role, RoleMembership
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.user import User
+from posthog.constants import AvailableFeature
+from posthog.permissions import PremiumFeaturePermission
 
 
 class RolePermissions(BasePermission):
@@ -38,7 +38,6 @@ class RolePermissions(BasePermission):
 class RoleSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     members = serializers.SerializerMethodField()
-    associated_flags = serializers.SerializerMethodField()
 
     class Meta:
         model = Role
@@ -49,7 +48,6 @@ class RoleSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "members",
-            "associated_flags",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -75,29 +73,13 @@ class RoleSerializer(serializers.ModelSerializer):
         members = RoleMembership.objects.filter(role=role)
         return RoleMembershipSerializer(members, many=True).data
 
-    def get_associated_flags(self, role: Role):
-        associated_flags: list[dict] = []
 
-        role_access_objects = FeatureFlagRoleAccess.objects.filter(role=role).values_list("feature_flag_id")
-        flags = FeatureFlag.objects.filter(id__in=role_access_objects)
-        for flag in flags:
-            associated_flags.append({"id": flag.id, "key": flag.key})
-        return associated_flags
-
-
-class RoleViewSet(
-    TeamAndOrgViewSetMixin,
-    mixins.ListModelMixin,
-    mixins.CreateModelMixin,
-    mixins.RetrieveModelMixin,
-    mixins.UpdateModelMixin,
-    mixins.DestroyModelMixin,
-    viewsets.GenericViewSet,
-):
+class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
-    permission_classes = [RolePermissions]
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
+    permission_classes = [RolePermissions, PremiumFeaturePermission]
+    premium_feature = AvailableFeature.ROLE_BASED_ACCESS
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(**self.request.GET.dict())
@@ -139,7 +121,8 @@ class RoleMembershipViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "organization"
-    permission_classes = [RolePermissions]
+    permission_classes = [RolePermissions, PremiumFeaturePermission]
+    premium_feature = AvailableFeature.ROLE_BASED_ACCESS
     serializer_class = RoleMembershipSerializer
     queryset = RoleMembership.objects.select_related("role")
     filter_rewrite_rules = {"organization_id": "role__organization_id"}
