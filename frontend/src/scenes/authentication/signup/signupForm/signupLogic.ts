@@ -95,9 +95,13 @@ export const signupLogic = kea<signupLogicType>([
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
+                        role_at_organization: payload.organization_name || undefined,
                     })
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')
+                    }
+                    if (!payload.role_at_organization) {
+                        posthog.capture('role at organization not provided')
                     }
                     location.href = res.redirect_url || '/'
                 } catch (e) {
