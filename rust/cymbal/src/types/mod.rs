@@ -48,7 +48,7 @@ pub struct Exception {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RawErrProps {
     #[serde(rename = "$exception_list")]
-    pub exception_list: Vec<Exception>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
+    pub exception_list: Vec<Exception>,
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
