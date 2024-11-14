@@ -1,5 +1,5 @@
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
-from ee.hogai.utils import flatten_schema
+from ee.hogai.utils import dereference_schema
 from posthog.schema import (
     AssistantTrendsQuery,
 )
@@ -88,7 +88,7 @@ def generate_trends_schema() -> dict:
                     "items": {"type": "string"},
                     "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
                 },
-                "answer": flatten_schema(schema),
+                "answer": dereference_schema(schema),
             },
             "additionalProperties": False,
             "required": ["reasoning_steps", "answer"],
