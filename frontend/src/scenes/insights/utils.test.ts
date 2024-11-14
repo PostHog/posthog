@@ -6,11 +6,12 @@ import {
     formatBreakdownType,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
+    getTrendDatasetKey,
 } from 'scenes/insights/utils'
 
 import { ActionsNode, BreakdownFilter, EventsNode, NodeKind } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
-import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { CompareLabelType, Entity, EntityFilter, FilterType, GraphDataset, InsightType } from '~/types'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -469,5 +470,58 @@ describe('formatBreakdownType()', () => {
         }
 
         expect(formatBreakdownType(breakdownFilter)).toEqual('Cohort')
+    })
+})
+
+describe('getTrendDatasetKey()', () => {
+    it('handles a simple insight', () => {
+        const dataset: Partial<GraphDataset> = {
+            label: '$pageview',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+        }
+
+        expect(getTrendDatasetKey(dataset as GraphDataset)).toEqual('{"series":0}')
+    })
+
+    it('handles insights with breakdowns', () => {
+        const dataset: Partial<GraphDataset> = {
+            label: 'Opera::US',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            breakdown_value: ['Opera', 'US'],
+        }
+
+        expect(getTrendDatasetKey(dataset as GraphDataset)).toEqual('{"series":0,"breakdown_value":["Opera","US"]}')
+    })
+
+    it('handles insights with compare against previous', () => {
+        const dataset: Partial<GraphDataset> = {
+            label: '$pageview',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            compare: true,
+            compare_label: CompareLabelType.Current,
+        }
+
+        expect(getTrendDatasetKey(dataset as GraphDataset)).toEqual('{"series":0,"compare_label":"current"}')
+    })
+
+    it('handles insights with formulas', () => {
+        const dataset: Partial<GraphDataset> = {
+            label: 'Formula (A+B)',
+            action: null,
+        }
+
+        expect(getTrendDatasetKey(dataset as GraphDataset)).toEqual('{"series":"formula"}')
     })
 })
