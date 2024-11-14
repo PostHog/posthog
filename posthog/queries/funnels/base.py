@@ -795,9 +795,9 @@ class ClickhouseFunnelBase(ABC):
                 prop_alias = f"prop_{index}"
                 select_columns.append(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as {prop_alias}")
                 prop_aliases.append(prop_alias)
-            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop"
+            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop_final"
 
-            prop_window = "groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals"
+            prop_window = "groupUniqArray(prop_final) over (PARTITION by aggregation_target) as prop_vals"
 
             return ",".join([basic_prop_selector, *select_columns, final_select, prop_window]), basic_prop_params
         elif self._filter.breakdown_attribution_type in [
