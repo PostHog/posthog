@@ -96,7 +96,7 @@ export const signupLogic = kea<signupLogicType>([
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
-                        role_at_organization: payload.organization_name || undefined,
+                        role_at_organization: payload.role_at_organization || undefined,
                     })
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')
