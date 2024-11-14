@@ -50,7 +50,7 @@ export function ActionsLineGraph({
     const labels =
         (indexedResults.length === 2 &&
             indexedResults.every((x) => x.compare) &&
-            indexedResults.find((x) => x.compare_label === 'current')?.days) ||
+            indexedResults.find((x) => x.compare_label === 'current')?.labels) ||
         (indexedResults[0] && indexedResults[0].labels) ||
         []
 

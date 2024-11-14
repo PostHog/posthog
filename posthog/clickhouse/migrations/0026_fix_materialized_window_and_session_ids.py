@@ -1,9 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.clickhouse.materialized_columns import (
-    get_materialized_columns,
-    materialize,
-)
+from posthog.clickhouse.materialized_columns import get_materialized_columns
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -41,9 +38,14 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
 
 
 def materialize_session_and_window_id(database):
+    try:
+        from ee.clickhouse.materialized_columns.columns import materialize
+    except ImportError:
+        return
+
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
-        materialized_columns = get_materialized_columns("events", use_cache=False)
+        materialized_columns = get_materialized_columns("events")
         # If the column is not materialized, materialize it
         if (property_name, "properties") not in materialized_columns:
             materialize("events", property_name, property_name)
