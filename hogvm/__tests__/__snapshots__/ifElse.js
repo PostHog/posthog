@@ -46,11 +46,11 @@ function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
-function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
 function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
-function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
+function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
+function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 
 print("-- test if else --");
 {

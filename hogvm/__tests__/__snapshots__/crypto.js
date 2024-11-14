@@ -1,6 +1,3 @@
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
-function sha256Hex (str, options) { return 'SHA256 not implemented' }
 function md5Hex(string) {
     function cmn(q, a, b, x, s, t) { a = (((a + q) + (x >>> 0) + t) >>> 0); return (((a << s) | (a >>> (32 - s))) + b) >>> 0; }
     function ff(a, b, c, d, x, s, t) { return cmn((b & c) | (~b & d), a, b, x, s, t); }
@@ -83,6 +80,9 @@ function md5Hex(string) {
     }
     return toHex(a) + toHex(b) + toHex(c) + toHex(d);
 }
+function sha256HmacChainHex (data, options) { return 'sha256HmacChainHex not implemented' }
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
         if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj) && !__isHogClosure(obj) && !__isHogCallable(obj)) {
@@ -134,7 +134,7 @@ function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
-function sha256HmacChainHex (data, options) { return 'sha256HmacChainHex not implemented' }
+function sha256Hex (str, options) { return 'SHA256 not implemented' }
 
 let string = "this is a secure string";
 print("string:", string);

@@ -1,3 +1,4 @@
+function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
 function values (obj) {
     if (typeof obj === 'object' && obj !== null) {
         if (Array.isArray(obj)) {
@@ -10,7 +11,17 @@ function values (obj) {
     return []
 }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
+function keys (obj) {
+    if (typeof obj === 'object' && obj !== null) {
+        if (Array.isArray(obj)) {
+            return Array.from(obj.keys())
+        } else if (obj instanceof Map) {
+            return Array.from(obj.keys())
+        }
+        return Object.keys(obj)
+    }
+    return []
+}
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
@@ -48,32 +59,21 @@ function __printHogValue(obj, marked = new Set()) {
             if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
-function __escapeString(value) {
-    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
-    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
-}
-function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
-function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
-function keys (obj) {
-    if (typeof obj === 'object' && obj !== null) {
-        if (Array.isArray(obj)) {
-            return Array.from(obj.keys())
-        } else if (obj instanceof Map) {
-            return Array.from(obj.keys())
-        }
-        return Object.keys(obj)
-    }
-    return []
-}
-function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
-function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __escapeIdentifier(identifier) {
     const backquoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', '`': '\\`' }
     if (typeof identifier === 'number') return identifier.toString();
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
+function __escapeString(value) {
+    const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
+    return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
+}
 function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
+function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
+function __isHogError(obj) {return obj && obj.__hogError__ === true}
+function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
+function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 
 let a = [3, 4, 5];
 let b = tuple(3, 4, 5);

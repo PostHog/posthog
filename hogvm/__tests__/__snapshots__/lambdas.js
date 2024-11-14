@@ -1,3 +1,49 @@
+function __lambda (fn) { return fn }
+function jsonStringify (value, spacing) {
+    function convert(x, marked) {
+        if (!marked) {
+            marked = new Set()
+        }
+        if (typeof x === 'object' && x !== null) {
+            if (marked.has(x)) {
+                return null
+            }
+            marked.add(x)
+            try {
+                if (x instanceof Map) {
+                    const obj = {}
+                    x.forEach((value, key) => {
+                        obj[convert(key, marked)] = convert(value, marked)
+                    })
+                    return obj
+                }
+                if (Array.isArray(x)) {
+                    return x.map((v) => convert(v, marked))
+                }
+                if (__isHogDateTime(x) || __isHogDate(x) || __isHogError(x)) {
+                    return x
+                }
+                if (__isHogCallable(x) || __isHogClosure(x)) {
+                    const callable = __isHogCallable(x) ? x : x.callable
+                    return `fn<${callable.name || 'lambda'}(${callable.argCount})>`
+                }
+                const obj = {}
+                for (const key in x) {
+                    obj[key] = convert(x[key], marked)
+                }
+                return obj
+            } finally {
+                marked.delete(x)
+            }
+        }
+        return x
+    }
+    if (spacing && typeof spacing === 'number' && spacing > 0) {
+        return JSON.stringify(convert(value), null, spacing)
+    }
+    return JSON.stringify(convert(value))
+}
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function __getProperty(objectOrArray, key, nullish) {
     if ((nullish && !objectOrArray) || key === 0) { return null }
     if (Array.isArray(objectOrArray)) {
@@ -28,8 +74,36 @@ function jsonParse (str) {
     }
     return convert(JSON.parse(str))
 }
-function __lambda (fn) { return fn }
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __newHogError(type, message, payload) {
+    let error = new Error(message || 'An error occurred');
+    error.__hogError__ = true
+    error.type = type
+    error.payload = payload
+    return error
+}
+function __toHogDate(year, month, day) { return { __hogDate__: true, year: year, month: month, day: day, } }
+function __toHogDateTime(timestamp, zone) {
+    if (__isHogDate(timestamp)) {
+        const dateTime = DateTime.fromObject(
+            {
+                year: timestamp.year,
+                month: timestamp.month,
+                day: timestamp.day,
+            },
+            { zone: zone || 'UTC' }
+        )
+        return {
+            __hogDateTime__: true,
+            dt: dateTime.toSeconds(),
+            zone: dateTime.zoneName || 'UTC',
+        }
+    }
+    return {
+        __hogDateTime__: true,
+        dt: timestamp,
+        zone: zone || 'UTC',
+    }
+}
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
@@ -77,85 +151,11 @@ function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
-function __toHogDate(year, month, day) { return { __hogDate__: true, year: year, month: month, day: day, } }
-function jsonStringify (value, spacing) {
-    function convert(x, marked) {
-        if (!marked) {
-            marked = new Set()
-        }
-        if (typeof x === 'object' && x !== null) {
-            if (marked.has(x)) {
-                return null
-            }
-            marked.add(x)
-            try {
-                if (x instanceof Map) {
-                    const obj = {}
-                    x.forEach((value, key) => {
-                        obj[convert(key, marked)] = convert(value, marked)
-                    })
-                    return obj
-                }
-                if (Array.isArray(x)) {
-                    return x.map((v) => convert(v, marked))
-                }
-                if (__isHogDateTime(x) || __isHogDate(x) || __isHogError(x)) {
-                    return x
-                }
-                if (__isHogCallable(x) || __isHogClosure(x)) {
-                    const callable = __isHogCallable(x) ? x : x.callable
-                    return `fn<${callable.name || 'lambda'}(${callable.argCount})>`
-                }
-                const obj = {}
-                for (const key in x) {
-                    obj[key] = convert(x[key], marked)
-                }
-                return obj
-            } finally {
-                marked.delete(x)
-            }
-        }
-        return x
-    }
-    if (spacing && typeof spacing === 'number' && spacing > 0) {
-        return JSON.stringify(convert(value), null, spacing)
-    }
-    return JSON.stringify(convert(value))
-}
-function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
+function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
-function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
-function __newHogError(type, message, payload) {
-    let error = new Error(message || 'An error occurred');
-    error.__hogError__ = true
-    error.type = type
-    error.payload = payload
-    return error
-}
-function __toHogDateTime(timestamp, zone) {
-    if (__isHogDate(timestamp)) {
-        const dateTime = DateTime.fromObject(
-            {
-                year: timestamp.year,
-                month: timestamp.month,
-                day: timestamp.day,
-            },
-            { zone: zone || 'UTC' }
-        )
-        return {
-            __hogDateTime__: true,
-            dt: dateTime.toSeconds(),
-            zone: dateTime.zoneName || 'UTC',
-        }
-    }
-    return {
-        __hogDateTime__: true,
-        dt: timestamp,
-        zone: zone || 'UTC',
-    }
-}
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
+function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 
 let b = __lambda((x) => (x * 2));
 print(b);

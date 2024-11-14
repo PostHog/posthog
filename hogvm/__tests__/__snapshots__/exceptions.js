@@ -1,5 +1,13 @@
-function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('') }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __x_Error (message, payload) { return __newHogError('Error', message, payload) }
+function __newHogError(type, message, payload) {
+    let error = new Error(message || 'An error occurred');
+    error.__hogError__ = true
+    error.type = type
+    error.payload = payload
+    return error
+}
+function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('') }
 function __STLToString(args) {
     if (__isHogDate(args[0])) {
         const month = args[0].month
@@ -63,14 +71,6 @@ function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
-function __x_Error (message, payload) { return __newHogError('Error', message, payload) }
-function __newHogError(type, message, payload) {
-    let error = new Error(message || 'An error occurred');
-    error.__hogError__ = true
-    error.type = type
-    error.payload = payload
-    return error
-}
 
 print("start");
 try {

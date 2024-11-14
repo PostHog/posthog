@@ -1,4 +1,9 @@
-function toDateTime (input, zone) { return __toDateTime(input, zone) }
+function __x_Error (message, payload) { return __newHogError('Error', message, payload) }
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
+function __lambda (fn) { return fn }
+function toDate (input) { return __toDate(input) }
+function __toDate(input) { const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input); return { __hogDate__: true, year: dt.year, month: dt.month, day: dt.day, } }
 function __x_typeof (value) {
     if (value === null || value === undefined) {
         return 'null'
@@ -26,16 +31,6 @@ function __x_typeof (value) {
     }
     return 'unknown'
 }
-function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
-function __toDateTime(input, zone) {
-    const dt = typeof input === 'number' ? input : DateTime.fromISO(input, { zone: zone || 'UTC' }).toSeconds()
-    return {
-        __hogDateTime__: true,
-        dt: dt,
-        zone: zone || 'UTC',
-    }
-}
-function __x_Error (message, payload) { return __newHogError('Error', message, payload) }
 function __newHogError(type, message, payload) {
     let error = new Error(message || 'An error occurred');
     error.__hogError__ = true
@@ -43,11 +38,7 @@ function __newHogError(type, message, payload) {
     error.payload = payload
     return error
 }
-function toDate (input) { return __toDate(input) }
-function __lambda (fn) { return fn }
-function __toDate(input) { const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input); return { __hogDate__: true, year: dt.year, month: dt.month, day: dt.day, } }
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
+function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
         if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj) && !__isHogClosure(obj) && !__isHogCallable(obj)) {
@@ -99,6 +90,15 @@ function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
+function toDateTime (input, zone) { return __toDateTime(input, zone) }
+function __toDateTime(input, zone) {
+    const dt = typeof input === 'number' ? input : DateTime.fromISO(input, { zone: zone || 'UTC' }).toSeconds()
+    return {
+        __hogDateTime__: true,
+        dt: dt,
+        zone: zone || 'UTC',
+    }
+}
 
 function test(obj) {
     print(__x_typeof(obj));

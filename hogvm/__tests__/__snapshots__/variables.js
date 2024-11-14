@@ -47,10 +47,10 @@ function __escapeString(value) {
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
 function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
-function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
+function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 
 print("-- test variables --");
 {

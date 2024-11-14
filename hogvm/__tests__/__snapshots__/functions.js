@@ -1,5 +1,4 @@
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
+function __lambda (fn) { return fn }
 function empty (value) {
     if (typeof value === 'object') {
         if (Array.isArray(value)) {
@@ -15,6 +14,8 @@ function empty (value) {
     }
     return !value
 }
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
         if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj) && !__isHogClosure(obj) && !__isHogCallable(obj)) {
@@ -66,7 +67,6 @@ function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
-function __lambda (fn) { return fn }
 
 print("-- test functions --");
 function add(a, b) {
