@@ -1,4 +1,3 @@
-import math
 import time
 import traceback
 
@@ -8,7 +7,6 @@ from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
 from celery.canvas import chain
-from django.conf import settings
 from django.db import transaction
 import structlog
 from sentry_sdk import capture_exception, set_tag
@@ -32,7 +30,6 @@ from collections import defaultdict
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     calculation_interval_to_order,
-    send_notifications_for_errors,
     send_notifications_for_breaches,
     WRAPPER_NODE_KINDS,
     alert_calculation_interval_to_relativedelta,
@@ -173,8 +170,6 @@ def check_alert_task(alert_id: str) -> None:
 
 
 def check_alert(alert_id: str) -> None:
-    task_start_time = time.time()
-
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -182,8 +177,9 @@ def check_alert(alert_id: str) -> None:
         return
 
     now = datetime.now(UTC)
+
     if alert.next_check_at and alert.next_check_at > now:
-        logger.warning(
+        logger.info(
             """Alert took too long to compute or was queued too long during which it already got computed.
             So not attempting to compute it again until it's due next""",
             alert=alert,
@@ -191,15 +187,23 @@ def check_alert(alert_id: str) -> None:
         return
 
     if alert.is_calculating:
-        logger.warning(
-            "Alert is already being computed so skipping checking it now",
-            alert=alert,
-        )
-        return
+        # TRICKY: When celery task exits due to timeout/insight calc taking too long
+        # the finally block below isn't run and the alert gets stuck with is_calculating = True
+        # hence when checking is_calculating, we also need to check if task has been stuck in is_calculating for too long
+        if alert.last_checked_at < now - relativedelta(minutes=45):
+            # we need to check the alert, reset is_calculating
+            alert.is_calculating = False
+            alert.save()
+        else:
+            logger.info(
+                "Alert is already being computed so skipping checking it now",
+                alert=alert,
+            )
+            return
 
     if alert.snoozed_until:
         if alert.snoozed_until > now:
-            logger.warning(
+            logger.info(
                 "Alert has been snoozed so skipping checking it now",
                 alert=alert,
             )
@@ -209,6 +213,9 @@ def check_alert(alert_id: str) -> None:
             alert.snoozed_until = None
             alert.state = AlertState.NOT_FIRING
 
+    # we will attempt to check alert
+    logger.info(f"Checking alert id = {alert.id}")
+    alert.last_checked_at = datetime.now(UTC)
     alert.is_calculating = True
     alert.save()
 
@@ -228,19 +235,14 @@ def check_alert(alert_id: str) -> None:
         # raise again so alert check is retried depending on error type
         raise
     finally:
+        # TRICKY: When celery task exits due to timeout/insight calc taking too long
+        # this finally block isn't run and the alert gets stuck with is_calculating = True
+        # hence when checking is_calculating, we also need to check if task has been stuck in is_calculating for too long
+
         # Get all updates with alert checks
         alert.refresh_from_db()
         alert.is_calculating = False
         alert.save()
-
-        # only in PROD
-        if not settings.DEBUG and not settings.TEST:
-            task_duration = time.time() - task_start_time
-
-            # Ensure task runs at least 40s
-            # for prometheus to pick up the metrics sent during task
-            time_left_to_run = 40 - math.floor(task_duration)
-            time.sleep(time_left_to_run)
 
 
 @transaction.atomic
@@ -251,6 +253,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     TODO: Later separate notification mechanism from alert checking mechanism (when we move to CDP)
         so we can retry notification without re-computing insight.
     """
+    set_tag("alert_config_id", alert.id)
+
     ALERT_COMPUTED_COUNTER.inc()
     value = breaches = error = None
 
@@ -264,7 +268,10 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         # as celery task can be retried according to config
         raise
     except Exception as err:
+        logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
+        set_tag("evaluation_error_message", traceback.format_exc())
         capture_exception(AlertCheckException(err))
+
         # error can be on user side (incorrectly configured insight/alert)
         # we won't retry and set alert to errored state
         error = {"message": str(err), "traceback": traceback.format_exc()}
@@ -281,17 +288,17 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
             case AlertState.NOT_FIRING:
                 logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
             case AlertState.ERRORED:
-                send_notifications_for_errors(alert, alert_check.error)
+                logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
+                # TODO: uncomment this after checking errors sent
+                # send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
                 assert breaches is not None
                 send_notifications_for_breaches(alert, breaches)
-    except Exception:
+    except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
-        logger.exception(error_message)
+        logger.exception(error_message, exc_info=err)
 
-        set_tag("alert_config_id", alert.id)
         set_tag("evaluation_error_message", traceback.format_exc())
-
         capture_exception(Exception(error_message))
 
         # don't want alert state to be updated (so that it's retried as next_check_at won't be updated)
