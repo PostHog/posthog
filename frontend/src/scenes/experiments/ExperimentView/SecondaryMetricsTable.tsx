@@ -9,7 +9,12 @@ import { useState } from 'react'
 
 import { Experiment, InsightType } from '~/types'
 
-import { experimentLogic, getDefaultFunnelsMetric, TabularSecondaryMetricResults } from '../experimentLogic'
+import {
+    experimentLogic,
+    getDefaultFilters,
+    getDefaultFunnelsMetric,
+    TabularSecondaryMetricResults,
+} from '../experimentLogic'
 import { SecondaryMetricChartModal } from '../Metrics/SecondaryMetricChartModal'
 import { SecondaryMetricModal } from '../Metrics/SecondaryMetricModal'
 import { VariantTag } from './components'
@@ -36,7 +41,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
         getHighestProbabilityVariant,
         featureFlags,
     } = useValues(experimentLogic({ experimentId }))
-    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+    const { loadExperiment } = useActions(experimentLogic({ experimentId }))
 
     const openEditModal = (idx: number): void => {
         setModalMetricIdx(idx)
@@ -46,6 +51,7 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
     const closeEditModal = (): void => {
         setIsEditModalOpen(false)
         setModalMetricIdx(null)
+        loadExperiment()
     }
 
     const openChartModal = (idx: number): void => {
@@ -263,26 +269,11 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                         <div className="ml-auto">
                             {metrics && metrics.length > 0 && (
                                 <div className="mb-2 mt-4 justify-end">
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => {
-                                            setExperiment({
-                                                metrics_secondary: [
-                                                    ...experiment.metrics_secondary,
-                                                    getDefaultFunnelsMetric(),
-                                                ],
-                                            })
-                                            openEditModal(experiment.metrics_secondary.length - 1)
-                                        }}
-                                        disabledReason={
-                                            metrics.length >= MAX_SECONDARY_METRICS
-                                                ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
-                                                : undefined
-                                        }
-                                    >
-                                        Add metric
-                                    </LemonButton>
+                                    <AddSecondaryMetricButton
+                                        experimentId={experimentId}
+                                        metrics={metrics}
+                                        openEditModal={openEditModal}
+                                    />
                                 </div>
                             )}
                         </div>
@@ -304,19 +295,11 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                 Add up to {MAX_SECONDARY_METRICS} secondary metrics to monitor side effects of your
                                 experiment.
                             </div>
-                            <LemonButton
-                                icon={<IconPlus />}
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    setExperiment({
-                                        metrics_secondary: [...experiment.metrics_secondary, getDefaultFunnelsMetric()],
-                                    })
-                                    openEditModal(experiment.metrics_secondary.length - 1)
-                                }}
-                            >
-                                Add metric
-                            </LemonButton>
+                            <AddSecondaryMetricButton
+                                experimentId={experimentId}
+                                metrics={metrics}
+                                openEditModal={openEditModal}
+                            />
                         </div>
                     </div>
                 )}
@@ -334,5 +317,52 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                 onClose={closeChartModal}
             />
         </>
+    )
+}
+
+const AddSecondaryMetricButton = ({
+    experimentId,
+    metrics,
+    openEditModal,
+}: {
+    experimentId: Experiment['id']
+    metrics: any
+    openEditModal: (metricIdx: number) => void
+}): JSX.Element => {
+    const { experiment, featureFlags } = useValues(experimentLogic({ experimentId }))
+    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+    return (
+        <LemonButton
+            icon={<IconPlus />}
+            type="secondary"
+            size="small"
+            onClick={() => {
+                // :FLAG: CLEAN UP AFTER MIGRATION
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    setExperiment({
+                        metrics_secondary: [...experiment.metrics_secondary, getDefaultFunnelsMetric()],
+                    })
+                    openEditModal(experiment.metrics_secondary.length - 1)
+                } else {
+                    setExperiment({
+                        secondary_metrics: [
+                            ...experiment.secondary_metrics,
+                            {
+                                name: '',
+                                filters: getDefaultFilters(InsightType.FUNNELS, undefined),
+                            },
+                        ],
+                    })
+                    openEditModal(experiment.secondary_metrics.length - 1)
+                }
+            }}
+            disabledReason={
+                metrics.length >= MAX_SECONDARY_METRICS
+                    ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
+                    : undefined
+            }
+        >
+            Add metric
+        </LemonButton>
     )
 }

@@ -652,7 +652,10 @@ export const experimentLogic = kea<experimentLogicType>([
             })
         },
         updateExperimentSecondaryMetrics: async ({ metrics }) => {
-            actions.updateExperiment({ secondary_metrics: metrics })
+            actions.updateExperiment({
+                secondary_metrics: metrics,
+                metrics_secondary: values.experiment.metrics_secondary,
+            })
         },
         closeExperimentCollectionGoalModal: () => {
             if (values.experimentValuesChangedLocally) {
@@ -845,7 +848,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                             const response: ExperimentResults = await api.create(
                                 `api/projects/${values.currentTeamId}/query`,
-                                { query: queryWithExperimentId, refresh: 'lazy_async' }
+                                { query: queryWithExperimentId, refresh: refresh ? 'force_async' : 'lazy_async' }
                             )
 
                             return {

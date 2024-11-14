@@ -128,10 +128,20 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         )
                     })()}
                     onChange={(value) => {
-                        setFunnelsMetric({
-                            metricIdx: 0,
-                            funnelAggregateByHogQL: value,
-                        })
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            setFunnelsMetric({
+                                metricIdx: 0,
+                                funnelAggregateByHogQL: value,
+                            })
+                        } else {
+                            setExperiment({
+                                filters: {
+                                    ...experiment.filters,
+                                    funnel_aggregate_by_hogql: value,
+                                },
+                            })
+                        }
                     }}
                 />
                 <FunnelConversionWindowFilter

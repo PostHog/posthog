@@ -36,13 +36,27 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
             <div className="mb-4">
                 <LemonLabel>Name (optional)</LemonLabel>
                 <LemonInput
-                    value={currentMetric.name}
+                    value={(() => {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            return currentMetric.name
+                        }
+                        return experiment.secondary_metrics[metricIdx].name
+                    })()}
                     onChange={(newName) => {
-                        setFunnelsMetric({
-                            metricIdx: 0,
-                            name: newName,
-                            isSecondary: true,
-                        })
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            setFunnelsMetric({
+                                metricIdx,
+                                name: newName,
+                                isSecondary: true,
+                            })
+                        } else {
+                            setExperiment({
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx ? { ...metric, name: newName } : metric
+                                ),
+                            })
+                        }
                     }}
                 />
             </div>
@@ -53,7 +67,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                         return queryNodeToFilter(currentMetric.funnels_query)
                     }
-                    return experiment.filters
+                    return experiment.secondary_metrics[metricIdx].filters
                 })()}
                 setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
                     // :FLAG: CLEAN UP AFTER MIGRATION
@@ -72,30 +86,51 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                     } else {
                         if (actions?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    actions,
-                                    events: undefined,
-                                    data_warehouse: undefined,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  actions,
+                                                  events: undefined,
+                                                  data_warehouse: undefined,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         } else if (events?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    events,
-                                    actions: undefined,
-                                    data_warehouse: undefined,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  events,
+                                                  actions: undefined,
+                                                  data_warehouse: undefined,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         } else if (data_warehouse?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    data_warehouse,
-                                    actions: undefined,
-                                    events: undefined,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  data_warehouse,
+                                                  actions: undefined,
+                                                  events: undefined,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         }
                     }
@@ -120,16 +155,34 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             )
                         }
                         return getHogQLValue(
-                            experiment.filters.aggregation_group_type_index,
-                            (experiment.filters as FunnelsFilterType).funnel_aggregate_by_hogql
+                            experiment.secondary_metrics[metricIdx].filters.aggregation_group_type_index,
+                            (experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType)
+                                .funnel_aggregate_by_hogql
                         )
                     })()}
                     onChange={(value) => {
-                        setFunnelsMetric({
-                            metricIdx: 0,
-                            funnelAggregateByHogQL: value,
-                            isSecondary: true,
-                        })
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            setFunnelsMetric({
+                                metricIdx,
+                                funnelAggregateByHogQL: value,
+                                isSecondary: true,
+                            })
+                        } else {
+                            setExperiment({
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  funnel_aggregate_by_hogql: value,
+                                              },
+                                          }
+                                        : metric
+                                ),
+                            })
+                        }
                     }}
                 />
                 <FunnelConversionWindowFilter
@@ -138,14 +191,16 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             return currentMetric.funnels_query?.funnelsFilter?.funnelWindowInterval
                         }
-                        return (experiment.filters as FunnelsFilterType).funnel_window_interval
+                        return (experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType)
+                            .funnel_window_interval
                     })()}
                     funnelWindowIntervalUnit={(() => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             return currentMetric.funnels_query?.funnelsFilter?.funnelWindowIntervalUnit
                         }
-                        return (experiment.filters as FunnelsFilterType).funnel_window_interval_unit
+                        return (experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType)
+                            .funnel_window_interval_unit
                     })()}
                     onFunnelWindowIntervalChange={(funnelWindowInterval) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
@@ -157,10 +212,17 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             })
                         } else {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    funnel_window_interval: funnelWindowInterval,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  funnel_window_interval: funnelWindowInterval,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         }
                     }}
@@ -174,10 +236,17 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             })
                         } else {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    funnel_window_interval_unit: funnelWindowIntervalUnit || undefined,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  funnel_window_interval_unit: funnelWindowIntervalUnit || undefined,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         }
                     }}
@@ -193,10 +262,12 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             breakdownAttributionValue =
                                 currentMetric.funnels_query?.funnelsFilter?.breakdownAttributionValue
                         } else {
-                            breakdownAttributionType = (experiment.filters as FunnelsFilterType)
-                                .breakdown_attribution_type
-                            breakdownAttributionValue = (experiment.filters as FunnelsFilterType)
-                                .breakdown_attribution_value
+                            breakdownAttributionType = (
+                                experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType
+                            ).breakdown_attribution_type
+                            breakdownAttributionValue = (
+                                experiment.secondary_metrics[metricIdx].filters as FunnelsFilterType
+                            ).breakdown_attribution_value
                         }
 
                         const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
@@ -222,13 +293,21 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             })
                         } else {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    breakdown_attribution_type: breakdownAttributionType as BreakdownAttributionType,
-                                    breakdown_attribution_value: breakdownAttributionValue
-                                        ? parseInt(breakdownAttributionValue)
-                                        : 0,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  breakdown_attribution_type:
+                                                      breakdownAttributionType as BreakdownAttributionType,
+                                                  breakdown_attribution_value: breakdownAttributionValue
+                                                      ? parseInt(breakdownAttributionValue)
+                                                      : 0,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         }
                     }}
@@ -238,9 +317,9 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             return currentMetric.funnels_query?.series?.length
                         }
                         return Math.max(
-                            experiment.filters.actions?.length ?? 0,
-                            experiment.filters.events?.length ?? 0,
-                            experiment.filters.data_warehouse?.length ?? 0
+                            experiment.secondary_metrics[metricIdx].filters.actions?.length ?? 0,
+                            experiment.secondary_metrics[metricIdx].filters.events?.length ?? 0,
+                            experiment.secondary_metrics[metricIdx].filters.data_warehouse?.length ?? 0
                         )
                     })()}
                 />
@@ -252,7 +331,9 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                                 ?.filterTestAccounts
                             return hasFilters ? !!val : false
                         }
-                        return hasFilters ? !!experiment.filters.filter_test_accounts : false
+                        return hasFilters
+                            ? !!experiment.secondary_metrics[metricIdx].filters.filter_test_accounts
+                            : false
                     })()}
                     onChange={(checked: boolean) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
@@ -264,10 +345,17 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             })
                         } else {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    filter_test_accounts: checked,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  filter_test_accounts: checked,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         }
                     }}
@@ -290,7 +378,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                             if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                                 return currentMetric.funnels_query
                             }
-                            return filtersToQueryNode(experiment.filters)
+                            return filtersToQueryNode(experiment.secondary_metrics[metricIdx].filters)
                         })(),
                         showTable: false,
                         showLastComputation: true,

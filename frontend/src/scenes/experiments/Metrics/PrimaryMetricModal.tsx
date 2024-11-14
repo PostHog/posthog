@@ -1,9 +1,10 @@
 import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { Experiment, InsightType } from '~/types'
 
-import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
+import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
 import { PrimaryGoalFunnels } from '../Metrics/PrimaryGoalFunnels'
 import { PrimaryGoalTrends } from '../Metrics/PrimaryGoalTrends'
 
@@ -16,8 +17,14 @@ export function PrimaryMetricModal({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element {
-    const { experiment, experimentLoading, getMetricType, trendMetricInsightLoading, funnelMetricInsightLoading } =
-        useValues(experimentLogic({ experimentId }))
+    const {
+        experiment,
+        experimentLoading,
+        getMetricType,
+        trendMetricInsightLoading,
+        funnelMetricInsightLoading,
+        featureFlags,
+    } = useValues(experimentLogic({ experimentId }))
     const { updateExperimentGoal, setExperiment } = useActions(experimentLogic({ experimentId }))
 
     const experimentFiltersLength =
@@ -65,17 +72,23 @@ export function PrimaryMetricModal({
                     data-attr="metrics-selector"
                     value={metricType}
                     onChange={(newMetricType) => {
-                        const defaultMetric =
-                            newMetricType === InsightType.TRENDS ? getDefaultTrendsMetric() : getDefaultFunnelsMetric()
-
-                        setExperiment({
-                            ...experiment,
-                            metrics: [
-                                ...experiment.metrics.slice(0, metricIdx),
-                                defaultMetric,
-                                ...experiment.metrics.slice(metricIdx + 1),
-                            ],
-                        })
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            setExperiment({
+                                ...experiment,
+                                metrics: [
+                                    ...experiment.metrics.slice(0, metricIdx),
+                                    newMetricType === InsightType.TRENDS
+                                        ? getDefaultTrendsMetric()
+                                        : getDefaultFunnelsMetric(),
+                                    ...experiment.metrics.slice(metricIdx + 1),
+                                ],
+                            })
+                        } else {
+                            setExperiment({
+                                ...experiment,
+                                filters: getDefaultFilters(newMetricType, undefined),
+                            })
+                        }
                     }}
                     options={[
                         { value: InsightType.TRENDS, label: <b>Trends</b> },

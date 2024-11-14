@@ -30,13 +30,27 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
             <div className="mb-4">
                 <LemonLabel>Name (optional)</LemonLabel>
                 <LemonInput
-                    value={currentMetric.name}
+                    value={(() => {
+                        // :FLAG: CLEAN UP AFTER MIGRATION
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            return currentMetric.name
+                        }
+                        return experiment.secondary_metrics[metricIdx].name
+                    })()}
                     onChange={(newName) => {
-                        setTrendsMetric({
-                            metricIdx: 0,
-                            name: newName,
-                            isSecondary: true,
-                        })
+                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            setTrendsMetric({
+                                metricIdx: 0,
+                                name: newName,
+                                isSecondary: true,
+                            })
+                        } else {
+                            setExperiment({
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx ? { ...metric, name: newName } : metric
+                                ),
+                            })
+                        }
                     }}
                 />
             </div>
@@ -47,7 +61,7 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                     if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                         return queryNodeToFilter(currentMetric.count_query)
                     }
-                    return experiment.filters
+                    return experiment.secondary_metrics[metricIdx].filters
                 })()}
                 setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
                     // :FLAG: CLEAN UP AFTER MIGRATION
@@ -66,30 +80,51 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                     } else {
                         if (actions?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    actions,
-                                    events: undefined,
-                                    data_warehouse: undefined,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  actions,
+                                                  events: undefined,
+                                                  data_warehouse: undefined,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         } else if (events?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    events,
-                                    actions: undefined,
-                                    data_warehouse: undefined,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  events,
+                                                  actions: undefined,
+                                                  data_warehouse: undefined,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         } else if (data_warehouse?.length) {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    data_warehouse,
-                                    actions: undefined,
-                                    events: undefined,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  data_warehouse,
+                                                  actions: undefined,
+                                                  events: undefined,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         }
                     }
@@ -109,7 +144,9 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                             const val = currentMetric.count_query?.filterTestAccounts
                             return hasFilters ? !!val : false
                         }
-                        return hasFilters ? !!experiment.filters.filter_test_accounts : false
+                        return hasFilters
+                            ? !!experiment.secondary_metrics[metricIdx].filters.filter_test_accounts
+                            : false
                     })()}
                     onChange={(checked: boolean) => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
@@ -121,10 +158,17 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                             })
                         } else {
                             setExperiment({
-                                filters: {
-                                    ...experiment.filters,
-                                    filter_test_accounts: checked,
-                                },
+                                secondary_metrics: experiment.secondary_metrics.map((metric, idx) =>
+                                    idx === metricIdx
+                                        ? {
+                                              ...metric,
+                                              filters: {
+                                                  ...metric.filters,
+                                                  filter_test_accounts: checked,
+                                              },
+                                          }
+                                        : metric
+                                ),
                             })
                         }
                     }}
@@ -147,7 +191,7 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                             if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                                 return currentMetric.count_query
                             }
-                            return filtersToQueryNode(experiment.filters)
+                            return filtersToQueryNode(experiment.secondary_metrics[metricIdx].filters)
                         })(),
                         showTable: false,
                         showLastComputation: true,

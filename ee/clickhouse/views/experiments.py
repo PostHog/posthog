@@ -409,6 +409,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "secondary_metrics",
             "holdout",
             "metrics",
+            "metrics_secondary",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
