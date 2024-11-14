@@ -5,7 +5,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter, LegendEntryConfig } from '~/queries/schema'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter
@@ -29,6 +29,8 @@ type BreakdownColumnItemProps = {
     isMainInsightView: boolean
     toggleHiddenLegendIndex: (index: number) => void
     formatItemBreakdownLabel: (item: IndexedTrendResult) => string
+    legendEntry?: LegendEntryConfig
+    updateLegendEntry: (update: LegendEntryConfig) => void
 }
 
 export function BreakdownColumnItem({
@@ -37,6 +39,8 @@ export function BreakdownColumnItem({
     isMainInsightView,
     toggleHiddenLegendIndex,
     formatItemBreakdownLabel,
+    legendEntry,
+    updateLegendEntry,
 }: BreakdownColumnItemProps): JSX.Element {
     const breakdownLabel = formatItemBreakdownLabel(item)
     const formattedLabel = stringWithWBR(breakdownLabel, 20)

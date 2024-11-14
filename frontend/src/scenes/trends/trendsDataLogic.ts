@@ -77,11 +77,19 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'showLegend',
                 'vizSpecificOptions',
                 'yAxisScaleType',
+                'legendEntries',
+                'colorAssignmentBy',
             ],
         ],
         actions: [
             insightVizDataLogic(props),
-            ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter', 'updateHiddenLegendIndexes'],
+            [
+                'setInsightData',
+                'updateInsightFilter',
+                'updateBreakdownFilter',
+                'updateHiddenLegendIndexes',
+                'updateLegendEntry',
+            ],
         ],
     })),
 

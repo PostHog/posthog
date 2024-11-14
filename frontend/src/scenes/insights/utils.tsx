@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { DataColorTheme } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
@@ -15,6 +16,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightVizNode,
+    LegendEntryConfig,
     NodeKind,
     PathsFilter,
 } from '~/queries/schema'
@@ -443,4 +445,41 @@ export function getTrendDatasetKey(dataset: GraphDataset): string {
     }
 
     return JSON.stringify(payload)
+}
+export function getTrendDatasetPosition(dataset: GraphDataset): number {
+    return dataset.colorIndex ?? dataset.seriesIndex ?? dataset.index
+}
+
+export function getTrendLegendEntryKey(
+    colorAssignmentBy: 'position' | 'key' | null | undefined,
+    dataset: GraphDataset
+): string {
+    const assignmentByPosition = colorAssignmentBy == null || colorAssignmentBy == 'position'
+    return assignmentByPosition ? getTrendDatasetPosition(dataset).toString() : getTrendDatasetKey(dataset)
+}
+
+export function getTrendsLegendEntry(
+    colorAssignmentBy: 'position' | 'key' | null | undefined,
+    dataset: GraphDataset,
+    legendEntries: LegendEntryConfig[] | undefined | null
+): LegendEntryConfig | undefined {
+    const legendKey = getTrendLegendEntryKey(colorAssignmentBy, dataset)
+    return legendEntries && Object.keys(legendEntries).includes(legendKey) ? legendEntries[legendKey] : undefined
+}
+
+export function getTrendLegendColorToken(
+    colorAssignmentBy: 'position' | 'key' | null | undefined,
+    legendEntries: LegendEntryConfig[] | undefined,
+    theme: DataColorTheme,
+    dataset: GraphDataset
+): string {
+    const legendEntry = getTrendsLegendEntry(colorAssignmentBy, dataset, legendEntries)
+
+    // for legend entries without a configuration, the color is determined
+    // by the position in the dataset. colors repeat after all options
+    // have been exhausted.
+    const datasetPosition = getTrendDatasetPosition(dataset)
+    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+
+    return legendEntry ? legendEntry.color : `preset-${tokenIndex}`
 }

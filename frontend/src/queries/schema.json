@@ -8271,6 +8271,16 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "LegendEntryConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/LegendEntryConfigByKey"
+                },
+                {
+                    "$ref": "#/definitions/LegendEntryConfigByPosition"
+                }
+            ]
+        },
         "LegendEntryConfigBase": {
             "additionalProperties": false,
             "properties": {

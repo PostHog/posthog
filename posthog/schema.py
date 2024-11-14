@@ -2420,6 +2420,10 @@ class InsightThreshold(BaseModel):
     type: InsightThresholdType
 
 
+class LegendEntryConfig(RootModel[Union[LegendEntryConfigByKey, LegendEntryConfigByPosition]]):
+    root: Union[LegendEntryConfigByKey, LegendEntryConfigByPosition]
+
+
 class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
