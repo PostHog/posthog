@@ -1,6 +1,6 @@
 {
     "db_name": "PostgreSQL",
-    "query": "\n            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, fingerprint, issue_id, version)\n            VALUES ($1, $2, $3, $4, 0)\n            ON CONFLICT (team_id, fingerprint) DO UPDATE SET version = posthog_errortrackingissuefingerprintv2.version + 1\n            RETURNING id, team_id, fingerprint, issue_id, version\n        ",
+    "query": "\n            SELECT id, team_id, issue_id, fingerprint, version FROM posthog_errortrackingissuefingerprintv2\n            WHERE team_id = $1 AND fingerprint = $2\n            ",
     "describe": {
         "columns": [
             {
@@ -15,13 +15,13 @@
             },
             {
                 "ordinal": 2,
-                "name": "fingerprint",
-                "type_info": "Text"
+                "name": "issue_id",
+                "type_info": "Uuid"
             },
             {
                 "ordinal": 3,
-                "name": "issue_id",
-                "type_info": "Uuid"
+                "name": "fingerprint",
+                "type_info": "Text"
             },
             {
                 "ordinal": 4,
@@ -30,9 +30,9 @@
             }
         ],
         "parameters": {
-            "Left": ["Uuid", "Int4", "Text", "Uuid"]
+            "Left": ["Int4", "Text"]
         },
         "nullable": [false, false, false, false, false]
     },
-    "hash": "aad6ffeb5986f1d6e7a0a0db1e17c806ad852413c59351c19be9758ccf6e3eb8"
+    "hash": "14332a535d61ab0144d1f4dbb1cf68cd3acdf4dabc1eff87ae7bce49cee9328a"
 }
