@@ -44,6 +44,10 @@ export { ChartDisplayCategory }
 /** @asType integer */
 type integer = number
 
+// Type alias for a numerical key. Needs to be reflected as string in json-schema, as JSON only supports string keys.
+/** @asType string */
+export type numerical_key = number
+
 /**
  * PostHog Query Schema definition.
  *
@@ -889,8 +893,16 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
-export type LegendEntryConfig = {
+export type LegendEntryConfigBase = {
     color: DataColorToken
+}
+
+export interface LegendEntryConfigByPosition extends LegendEntryConfigBase {
+    assignmentBy: 'position'
+}
+
+export interface LegendEntryConfigByKey extends LegendEntryConfigBase {
+    assignmentBy: 'key'
 }
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
@@ -910,7 +922,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     /** Compare to date range */
     compareFilter?: CompareFilter
     /** Display configuration for the result datasets. */
-    legendEntries?: Record<string, LegendEntryConfig>
+    legendEntries?: Record<string, LegendEntryConfigByKey> | Record<numerical_key, LegendEntryConfigByPosition>
 }
 
 export type AssistantPropertyFilter =
