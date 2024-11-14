@@ -63,7 +63,8 @@ def _as_block(node: ast.Statement) -> ast.Block:
     return ast.Block(declarations=[node])
 
 
-def _sanitize_var_name(name: str) -> str:
+def _sanitize_var_name(name: str | int) -> str:
+    name = str(name)
     if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
         if name in _JS_KEYWORDS:
             return f"__x_{name}"
@@ -89,7 +90,7 @@ class JavaScriptCompiler(Visitor):
         self.args = args or []
         self.context = context or HogQLContext(team_id=None)
         self.indent_level = 0
-        self.inlined_stl = set()
+        self.inlined_stl: set[str] = set()
 
         # Initialize locals with function arguments
         for arg in self.args:
