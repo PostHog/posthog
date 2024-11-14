@@ -6,8 +6,7 @@ use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
 use issue_resolution::resolve_issue;
 use tracing::warn;
-use types::{ErrProps, Exception, Stacktrace};
-use uuid::Uuid;
+use types::{Exception, RawErrProps, Stacktrace};
 
 pub mod app_context;
 pub mod config;
@@ -33,16 +32,13 @@ pub async fn handle_event(
         }
     };
 
-    let exceptions = match take_exception_list(event.uuid, &mut props) {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("Failed to take exception list: {}", e);
-            // Add an error message, and patch the event properties back up.
-            props.add_error_message(format!("Failed to take exception list: {}", e));
-            event.properties = Some(serde_json::to_string(&props).unwrap());
-            return Ok(Some(event));
-        }
-    };
+    let exceptions = std::mem::take(&mut props.exception_list);
+
+    if exceptions.is_empty() {
+        props.add_error_message("No exceptions found on exception event");
+        event.properties = Some(serde_json::to_string(&props).unwrap());
+        return Ok(Some(event));
+    }
 
     let mut results = Vec::new();
     for exception in exceptions.into_iter() {
@@ -53,19 +49,17 @@ pub async fn handle_event(
     }
 
     let fingerprint = generate_fingerprint(&results);
+    props.exception_list = results;
+    let fingerprinted = props.to_fingerprinted(fingerprint.clone());
 
-    let issue_override = resolve_issue(&context.pool, &fingerprint, event.team_id).await?;
+    let output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
 
-    props.fingerprint = Some(fingerprint);
-    props.resolved_issue_id = Some(issue_override.issue_id);
-    props.exception_list = Some(results);
-
-    event.properties = Some(serde_json::to_string(&props).unwrap());
+    event.properties = Some(serde_json::to_string(&output).unwrap());
 
     Ok(Some(event))
 }
 
-fn get_props(event: &ClickHouseEvent) -> Result<ErrProps, EventError> {
+fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
     if event.event != "$exception" {
         return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
     }
@@ -74,7 +68,7 @@ fn get_props(event: &ClickHouseEvent) -> Result<ErrProps, EventError> {
         return Err(EventError::NoProperties(event.uuid));
     };
 
-    let properties: ErrProps = match serde_json::from_str(properties) {
+    let properties: RawErrProps = match serde_json::from_str(properties) {
         Ok(r) => r,
         Err(e) => {
             return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
@@ -82,18 +76,6 @@ fn get_props(event: &ClickHouseEvent) -> Result<ErrProps, EventError> {
     };
 
     Ok(properties)
-}
-
-fn take_exception_list(event_id: Uuid, props: &mut ErrProps) -> Result<Vec<Exception>, EventError> {
-    let Some(exception_list) = props.exception_list.as_mut() else {
-        return Err(EventError::NoExceptionList(event_id));
-    };
-
-    if exception_list.is_empty() {
-        return Err(EventError::EmptyExceptionList(event_id));
-    }
-
-    Ok(std::mem::take(exception_list))
 }
 
 async fn process_exception(

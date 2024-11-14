@@ -1,7 +1,10 @@
 use sqlx::postgres::any::AnyConnectionBackend;
 use uuid::Uuid;
 
-use crate::error::UnhandledError;
+use crate::{
+    error::UnhandledError,
+    types::{FingerprintedErrProps, OutputErrProps},
+};
 
 pub struct IssueFingerprintOverride {
     pub id: Uuid,
@@ -15,14 +18,18 @@ pub struct Issue {
     pub id: Uuid,
     pub team_id: i32,
     pub status: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
 }
 
 impl Issue {
-    pub fn new(team_id: i32) -> Self {
+    pub fn new(team_id: i32, name: String) -> Self {
         Self {
             id: Uuid::new_v4(),
             team_id,
             status: "active".to_string(), // TODO - we should at some point use an enum here
+            name: Some(name),
+            description: None,
         }
     }
 
@@ -37,7 +44,7 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT id, team_id, status FROM posthog_errortrackingissue
+            SELECT id, team_id, status, name, description FROM posthog_errortrackingissue
             WHERE team_id = $1 AND id = $2
             "#,
             team_id,
@@ -55,14 +62,16 @@ impl Issue {
     {
         let did_insert = sqlx::query_scalar!(
             r#"
-            INSERT INTO posthog_errortrackingissue (id, team_id, status, created_at)
-            VALUES ($1, $2, $3, NOW())
+            INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
+            VALUES ($1, $2, $3, $4, $5, NOW())
             ON CONFLICT (id) DO NOTHING
             RETURNING (xmax = 0) AS was_inserted
             "#,
             self.id,
             self.team_id,
-            self.status
+            self.status,
+            self.name,
+            self.description
         )
         .fetch_one(executor)
         .await?;
@@ -127,30 +136,35 @@ impl IssueFingerprintOverride {
 
 pub async fn resolve_issue<'c, A>(
     con: A,
-    fingerprint: &str,
     team_id: i32,
-) -> Result<IssueFingerprintOverride, UnhandledError>
+    fingerprinted: FingerprintedErrProps,
+) -> Result<OutputErrProps, UnhandledError>
 where
     A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
 {
     let mut conn = con.acquire().await?;
     // If an override already exists, just fast-path, skipping the transaction
     if let Some(issue_override) =
-        IssueFingerprintOverride::load(&mut *conn, team_id, fingerprint).await?
+        IssueFingerprintOverride::load(&mut *conn, team_id, &fingerprinted.fingerprint).await?
     {
-        return Ok(issue_override);
+        return Ok(fingerprinted.to_output(issue_override.issue_id));
     }
 
     // Start a transaction, so we can roll it back on override insert failure
     conn.begin().await?;
     // Insert a new issue
-    let issue = Issue::new(team_id);
+    let issue = Issue::new(team_id, fingerprinted.generate_new_issue_name());
     // We don't actually care if we insert the issue here or not - conflicts aren't possible at
     // this stage.
     issue.insert(&mut *conn).await?;
     // Insert the fingerprint override
-    let issue_override =
-        IssueFingerprintOverride::create_or_load(&mut *conn, team_id, fingerprint, &issue).await?;
+    let issue_override = IssueFingerprintOverride::create_or_load(
+        &mut *conn,
+        team_id,
+        &fingerprinted.fingerprint,
+        &issue,
+    )
+    .await?;
 
     // If we actually inserted a new row for the issue override, commit the transaction,
     // saving both the issue and the override. Otherwise, rollback the transaction, and
@@ -162,5 +176,7 @@ where
         conn.commit().await?;
     }
 
-    Ok(issue_override)
+    // TODO - write the new issue and override to kafka
+
+    Ok(fingerprinted.to_output(issue_override.issue_id))
 }

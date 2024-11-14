@@ -46,21 +46,28 @@ pub struct Exception {
 // of only a small subset. This struct is used to give us a strongly-typed
 // "view" of those event properties we care about.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ErrProps {
+pub struct RawErrProps {
     #[serde(rename = "$exception_list")]
-    pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
-    #[serde(
-        rename = "$exception_fingerprint",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub fingerprint: Option<String>, // We expect this not to exist when the event is received, and we populate it as part of processing
-    #[serde(
-        rename = "$exception_issue_id",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub resolved_issue_id: Option<Uuid>, // We populate the exception issue id as part of processing
+    pub exception_list: Vec<Exception>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
+    pub other: HashMap<String, Value>,
+}
+
+pub struct FingerprintedErrProps {
+    pub exception_list: Vec<Exception>,
+    pub fingerprint: String,
+    pub other: HashMap<String, Value>,
+}
+
+// We emit this
+#[derive(Debug, Serialize, Clone)]
+pub struct OutputErrProps {
+    #[serde(rename = "$exception_list")]
+    pub exception_list: Vec<Exception>,
+    pub fingerprint: String,
+    pub issue_id: Uuid,
+    #[serde(flatten)]
     pub other: HashMap<String, Value>,
 }
 
@@ -92,7 +99,7 @@ impl Exception {
     }
 }
 
-impl ErrProps {
+impl RawErrProps {
     pub fn add_error_message(&mut self, msg: impl ToString) {
         let mut errors = match self.other.remove("$cymbal_errors") {
             Some(serde_json::Value::Array(errors)) => errors,
@@ -106,6 +113,39 @@ impl ErrProps {
             serde_json::Value::Array(errors),
         );
     }
+
+    pub fn to_fingerprinted(self, fingerprint: String) -> FingerprintedErrProps {
+        FingerprintedErrProps {
+            exception_list: self.exception_list,
+            fingerprint,
+            other: self.other,
+        }
+    }
+}
+
+impl FingerprintedErrProps {
+    pub fn generate_new_issue_name(&self) -> String {
+        for exception in self.exception_list.iter() {
+            // We just use the first exception in the list
+            return format!(
+                "{}: {}",
+                exception.exception_type, exception.exception_message
+            );
+        }
+        // We don't have a type-system way to assert that this is unreachable (or rather,
+        // to encode this in the type system would be cumbersome), but it if it's ever reached,
+        // we've got a bug.
+        unreachable!("Tried to generate issue name with no exception in exception list")
+    }
+
+    pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
+        OutputErrProps {
+            exception_list: self.exception_list,
+            fingerprint: self.fingerprint,
+            issue_id,
+            other: self.other,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -115,7 +155,7 @@ mod test {
 
     use crate::{frames::RawFrame, types::Stacktrace};
 
-    use super::ErrProps;
+    use super::RawErrProps;
 
     #[test]
     fn it_deserialises_error_props() {
@@ -123,8 +163,8 @@ mod test {
 
         let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
-        let props: ErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
-        let exception_list = &props.exception_list.unwrap();
+        let props: RawErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
+        let exception_list = &props.exception_list;
 
         assert_eq!(exception_list.len(), 1);
         assert_eq!(
@@ -173,9 +213,9 @@ mod test {
             "$exception_list": []
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_ok());
-        assert_eq!(props.unwrap().exception_list.unwrap().len(), 0);
+        assert_eq!(props.unwrap().exception_list.len(), 0);
 
         let raw: &'static str = r#"{
             "$exception_list": [{
@@ -183,7 +223,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
@@ -197,7 +237,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
