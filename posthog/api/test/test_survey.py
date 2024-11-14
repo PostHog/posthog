@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime, timedelta, UTC
 from typing import Any
@@ -1048,6 +1049,11 @@ class TestSurvey(APIBaseTest):
                     "iteration_start_dates": [],
                     "current_iteration": None,
                     "current_iteration_start_date": None,
+                    "response_sampling_start_date": None,
+                    "response_sampling_interval_type": "week",
+                    "response_sampling_interval": None,
+                    "response_sampling_limit": None,
+                    "response_sampling_daily_limits": None,
                 }
             ],
         }
@@ -2308,6 +2314,71 @@ class TestSurveyWithActions(APIBaseTest):
         survey = Survey.objects.get(id=response_data["id"])
         assert survey is not None
         assert len(survey.actions.all()) == 0
+
+
+class TestSurveyResponseSampling(APIBaseTest):
+    def _create_survey_with_sampling_limits(
+        self,
+        response_sampling_interval_type,
+        response_sampling_interval,
+        response_sampling_limit,
+        response_sampling_start_date,
+    ) -> Survey:
+        random_id = generate("1234567890abcdef", 10)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": f"Survey with adaptive response collection {random_id}",
+                "description": "Collect survey responses over a period of time",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                    }
+                ],
+                "response_sampling_interval_type": response_sampling_interval_type,
+                "response_sampling_interval": response_sampling_interval,
+                "response_sampling_limit": response_sampling_limit,
+                "response_sampling_start_date": response_sampling_start_date,
+            },
+        )
+
+        response_data = response.json()
+        survey = Survey.objects.get(id=response_data["id"])
+        return survey
+
+    def test_can_create_survey_with_adaptive_responses(self):
+        survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
+        assert survey.response_sampling_daily_limits is not None
+        schedule = json.loads(survey.response_sampling_daily_limits)
+        self.assertEqual(len(schedule), 10)
+        for day, entry in enumerate(schedule):
+            self.assertEqual(entry["daily_response_limit"], 50 * (day + 1))
+            self.assertEqual(entry["rollout_percentage"], 10 * (day + 1))
+
+    def test_can_remove_adaptive_response_sampling(self):
+        survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
+        assert survey.response_sampling_daily_limits is not None
+        schedule = json.loads(survey.response_sampling_daily_limits)
+        self.assertEqual(len(schedule), 10)
+        for day, entry in enumerate(schedule):
+            self.assertEqual(entry["daily_response_limit"], 50 * (day + 1))
+            self.assertEqual(entry["rollout_percentage"], 10 * (day + 1))
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "response_sampling_interval_type": None,
+                "response_sampling_interval": None,
+                "response_sampling_limit": None,
+                "response_sampling_start_date": None,
+            },
+        )
+        response_data = response.json()
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey.response_sampling_daily_limits is None
 
 
 class TestSurveysRecurringIterations(APIBaseTest):
