@@ -12,7 +12,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import Visitor
 
 # TODO: make sure _JS_GET_GLOBAL is unique!
-_JS_GET_GLOBAL = "get_global"
+_JS_GET_GLOBAL = "__getGlobal"
 _JS_KEYWORDS = ["var", "let", "const", "function", "typeof", "Error"]
 
 
@@ -52,7 +52,7 @@ def create_javascript(
     supported_functions = supported_functions or set()
     compiler = JavaScriptCompiler(supported_functions, args, context, in_repl, locals)
     base_code = compiler.visit(expr)
-    import_code = import_stl_functions(compiler.inlined_stl)
+    import_code = compiler.get_inlined_stl()
     code = import_code + ("\n\n" if import_code else "") + base_code
     return CompiledJavaScript(code=code, locals=compiler.locals)
 
@@ -94,6 +94,9 @@ class JavaScriptCompiler(Visitor):
         # Initialize locals with function arguments
         for arg in self.args:
             self._declare_local(arg)
+
+    def get_inlined_stl(self) -> str:
+        return import_stl_functions(self.inlined_stl)
 
     def _start_scope(self):
         self.scope_depth += 1
