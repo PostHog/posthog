@@ -1,5 +1,5 @@
 import re
-from typing import cast, Optional, TYPE_CHECKING, Union
+from typing import cast, Optional, TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -497,7 +497,7 @@ def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team:
 
     if key == "$channel_type":
         modifiers = create_default_modifiers_for_team(team)
-        custom_channel_type_rules: Optional[list[Union[CustomChannelRule, dict]]] = modifiers.customChannelTypeRules
+        custom_channel_type_rules: Optional[list[CustomChannelRule]] = modifiers.customChannelTypeRules
         if custom_channel_type_rules:
             custom_channel_types = [
                 (CustomChannelRule(**rule) if isinstance(rule, dict) else rule).channel_type

@@ -11,6 +11,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     PropertyGroupsMode,
     SessionTableVersion,
+    CustomChannelRule,
 )
 
 if TYPE_CHECKING:
@@ -50,6 +51,8 @@ def create_default_modifiers_for_team(
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
             if getattr(modifiers, key) is None:
+                if key == "customChannelTypeRules":
+                    value = [CustomChannelRule(**rule) for rule in value]
                 setattr(modifiers, key, value)
 
     set_default_modifier_values(modifiers, team)
