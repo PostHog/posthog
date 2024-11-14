@@ -398,14 +398,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    def test_is_valid_view_is_false_when_not_all_fields_have_aliases(self):
+    def test_is_valid_view_is_true_when_not_all_fields_have_aliases(self):
         metadata = self._select("SELECT event AS event, uuid FROM events")
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
+                "isValidView": True,
                 "query": "SELECT event AS event, uuid FROM events",
                 "errors": [],
             },
@@ -435,6 +435,19 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": True,
                 "isValidView": True,
                 "query": "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_false_when_using_asterisk(self):
+        metadata = self._select("SELECT * FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "query": "SELECT * FROM events",
                 "errors": [],
             },
         )
