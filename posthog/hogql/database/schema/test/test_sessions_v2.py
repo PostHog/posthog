@@ -13,7 +13,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers, SessionTableVersion, BounceRatePageViewMode
+from posthog.schema import HogQLQueryModifiers, SessionTableVersion, BounceRatePageViewMode, FilterLogicalOperator
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -705,9 +705,9 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_custom_channel_types(self):
         self.team.modifiers = {
             "customChannelTypeRules": [
-                {"conditions": [], "combiner": "and", "channel_type": "Test Channel Type"},
-                {"conditions": [], "combiner": "and", "channel_type": "Paid Social"},
-                {"conditions": [], "combiner": "and", "channel_type": "Test Channel Type"},
+                {"conditions": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type"},
+                {"conditions": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Paid Social"},
+                {"conditions": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type"},
             ]
         }
         self.team.save()

@@ -3912,10 +3912,6 @@
             ],
             "type": "string"
         },
-        "CustomChannelCombiner": {
-            "enum": ["and", "or"],
-            "type": "string"
-        },
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
@@ -3957,7 +3953,7 @@
                     "type": "string"
                 },
                 "combiner": {
-                    "$ref": "#/definitions/CustomChannelCombiner"
+                    "$ref": "#/definitions/FilterLogicalOperator"
                 },
                 "conditions": {
                     "items": {

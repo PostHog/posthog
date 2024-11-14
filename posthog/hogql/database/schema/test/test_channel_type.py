@@ -5,7 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers, CustomChannelRule, CustomChannelCondition
+from posthog.schema import HogQLQueryModifiers, CustomChannelRule, CustomChannelCondition, FilterLogicalOperator
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -341,7 +341,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                     CustomChannelRule(
                         conditions=[CustomChannelCondition(key="utm_source", op="exact", value="test")],
                         channel_type="Test",
-                        combiner="and",
+                        combiner=FilterLogicalOperator.AND_,
                     )
                 ],
             )
@@ -357,7 +357,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                     CustomChannelRule(
                         conditions=[CustomChannelCondition(key="utm_source", op="exact", value=["test", "test2"])],
                         channel_type="Test",
-                        combiner="and",
+                        combiner=FilterLogicalOperator.AND_,
                     )
                 ],
             )
@@ -373,7 +373,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                     CustomChannelRule(
                         conditions=[CustomChannelCondition(key="utm_source", op="exact", value=["test"])],
                         channel_type="Test",
-                        combiner="and",
+                        combiner=FilterLogicalOperator.AND_,
                     )
                 ],
             )
@@ -393,7 +393,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                             CustomChannelCondition(key="utm_medium", op="exact", value="m"),
                         ],
                         channel_type="Test",
-                        combiner="and",
+                        combiner=FilterLogicalOperator.AND_,
                     )
                 ],
             )
@@ -409,12 +409,12 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                     CustomChannelRule(
                         conditions=[CustomChannelCondition(key="utm_source", op="exact", value="1")],
                         channel_type="Test1",
-                        combiner="and",
+                        combiner=FilterLogicalOperator.AND_,
                     ),
                     CustomChannelRule(
                         conditions=[CustomChannelCondition(key="utm_source", op="exact", value="2")],
                         channel_type="Test2",
-                        combiner="and",
+                        combiner=FilterLogicalOperator.AND_,
                     ),
                 ],
             )

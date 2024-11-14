@@ -175,7 +175,7 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
     elif len(conditions) == 1:
         return conditions[0]
     else:
-        return ast.Call(name=custom_rule.combiner, args=conditions)
+        return ast.Call(name=custom_rule.combiner.lower(), args=conditions)
 
 
 def create_channel_type_expr(

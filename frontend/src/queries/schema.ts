@@ -29,6 +29,7 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyMathType,
+    PropertyOperator,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -2546,13 +2547,8 @@ export interface CustomChannelCondition {
     op: CustomChannelOperator
 }
 
-export enum CustomChannelCombiner {
-    And = 'and',
-    Or = 'or',
-}
-
 export interface CustomChannelRule {
     conditions: CustomChannelCondition[]
-    combiner: CustomChannelCombiner
+    combiner: FilterLogicalOperator
     channel_type: string
 }
