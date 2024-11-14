@@ -1044,6 +1044,15 @@ class TestSurvey(APIBaseTest):
                     "start_date": None,
                     "end_date": None,
                     "responses_limit": None,
+                    "feature_flag_keys": [
+                        {"key": "linked_flag_key", "value": None},
+                        {"key": "targeting_flag_key", "value": None},
+                        {
+                            "key": "internal_targeting_flag_key",
+                            "value": survey.internal_targeting_flag.key if survey.internal_targeting_flag else None,
+                        },
+                        {"key": "internal_response_sampling_flag_key", "value": None},
+                    ],
                     "iteration_count": None,
                     "iteration_frequency_days": None,
                     "iteration_start_dates": [],
@@ -2379,6 +2388,14 @@ class TestSurveyResponseSampling(APIBaseTest):
         response_data = response.json()
         survey = Survey.objects.get(id=response_data["id"])
         assert survey.response_sampling_daily_limits is None
+
+    def test_can_create_targeting_flag_if_does_not_exist(self):
+        survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
+        assert survey.response_sampling_daily_limits is not None
+        assert survey.internal_response_sampling_flag is not None
+        assert survey.internal_response_sampling_flag.filters == {
+            "groups": [{"properties": [], "rollout_percentage": 100, "variant": ""}]
+        }
 
 
 class TestSurveysRecurringIterations(APIBaseTest):

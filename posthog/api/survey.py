@@ -59,6 +59,21 @@ class SurveySerializer(serializers.ModelSerializer):
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
+    feature_flag_keys = serializers.SerializerMethodField()
+
+    def get_feature_flag_keys(self, survey: Survey) -> list:
+        return [
+            {"key": "linked_flag_key", "value": survey.linked_flag.key if survey.linked_flag else None},
+            {"key": "targeting_flag_key", "value": survey.targeting_flag.key if survey.targeting_flag else None},
+            {
+                "key": "internal_targeting_flag_key",
+                "value": survey.internal_targeting_flag.key if survey.internal_targeting_flag else None,
+            },
+            {
+                "key": "internal_response_sampling_flag_key",
+                "value": survey.internal_response_sampling_flag.key if survey.internal_response_sampling_flag else None,
+            },
+        ]
 
     class Meta:
         model = Survey
@@ -80,6 +95,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "feature_flag_keys",
             "iteration_count",
             "iteration_frequency_days",
             "iteration_start_dates",
@@ -353,6 +369,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
+        self._add_internal_response_sampling_filters(instance)
 
         team = Team.objects.get(id=self.context["team_id"])
         log_activity(
@@ -504,7 +521,29 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
+        self._add_internal_response_sampling_filters(instance)
         return instance
+
+    def _add_internal_response_sampling_filters(self, instance: Survey):
+        if instance.response_sampling_daily_limits is None:
+            return
+        if instance.internal_response_sampling_flag is not None:
+            return
+
+        sampling_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [],
+                }
+            ]
+        }
+
+        instance.internal_response_sampling_flag = self._create_or_update_targeting_flag(
+            None, sampling_filters, instance.name, bool(instance.start_date), flag_name_suffix="-sampling"
+        )
+        instance.save()
 
     def _associate_actions(self, instance: Survey, conditions):
         if conditions is None:

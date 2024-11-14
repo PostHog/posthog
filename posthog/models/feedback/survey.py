@@ -62,6 +62,14 @@ class Survey(UUIDModel):
         related_name="surveys_internal_targeting_flag",
         related_query_name="survey_internal_targeting_flag",
     )
+    internal_response_sampling_flag = models.ForeignKey(
+        "posthog.FeatureFlag",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="surveys_internal_response_sampling_flag",
+        related_query_name="surveys_internal_response_sampling_flag",
+    )
     type = models.CharField(max_length=40, choices=SurveyType.choices)
     conditions = models.JSONField(blank=True, null=True)
     questions = models.JSONField(
