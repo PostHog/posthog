@@ -325,7 +325,12 @@ export function LineGraph_({
         const datasetIndex = dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index
         const colorIndex = (datasetIndex % Object.keys(dataTheme).length) + 1
 
-        const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : dataTheme[`preset-${colorIndex}`]
+        const colorKey =
+            legendEntries && Object.keys(legendEntries).includes(datasetIndex.toString())
+                ? legendEntries[datasetIndex].color
+                : `preset-${colorIndex}`
+
+        const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : dataTheme[colorKey]
         const applyTransparency = isPrevious && !isArea
         const mainColor = applyTransparency ? `${themeColor}80` : themeColor
 
