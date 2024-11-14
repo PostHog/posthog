@@ -8271,7 +8271,7 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
-        "LegendEntryConfig": {
+        "LegendEntryConfigBase": {
             "additionalProperties": false,
             "properties": {
                 "color": {
@@ -8279,6 +8279,34 @@
                 }
             },
             "required": ["color"],
+            "type": "object"
+        },
+        "LegendEntryConfigByKey": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "key",
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
+        },
+        "LegendEntryConfigByPosition": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "position",
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["assignmentBy", "color"],
             "type": "object"
         },
         "LifecycleFilter": {
@@ -12756,11 +12784,24 @@
                     "type": "string"
                 },
                 "legendEntries": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/LegendEntryConfig"
-                    },
-                    "description": "Display configuration for the result datasets.",
-                    "type": "object"
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/LegendEntryConfigByKey"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/LegendEntryConfigByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Display configuration for the result datasets."
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -13466,6 +13507,9 @@
                 }
             },
             "type": "object"
+        },
+        "numerical_key": {
+            "type": "string"
         }
     }
 }

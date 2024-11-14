@@ -1167,10 +1167,26 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
-class LegendEntryConfig(BaseModel):
+class LegendEntryConfigBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    color: DataColorToken
+
+
+class LegendEntryConfigByKey(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["key"] = "key"
+    color: DataColorToken
+
+
+class LegendEntryConfigByPosition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["position"] = "position"
     color: DataColorToken
 
 
@@ -1765,6 +1781,10 @@ class YAxisSettings(BaseModel):
     )
     scale: Optional[Scale] = None
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
+
+
+class NumericalKey(RootModel[str]):
+    root: str
 
 
 class AlertCondition(BaseModel):
@@ -5867,7 +5887,7 @@ class TrendsQuery(BaseModel):
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
-    legendEntries: Optional[dict[str, LegendEntryConfig]] = Field(
+    legendEntries: Optional[Union[dict[str, LegendEntryConfigByKey], dict[str, LegendEntryConfigByPosition]]] = Field(
         default=None, description="Display configuration for the result datasets."
     )
     modifiers: Optional[HogQLQueryModifiers] = Field(
