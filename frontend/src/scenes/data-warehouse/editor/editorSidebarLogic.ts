@@ -1,18 +1,21 @@
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { SidebarCategory } from '~/layout/navigation-3000/types'
 import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema'
-import { DataWarehouseSavedQuery } from '~/types'
+import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { editorSidebarLogicType } from './editorSidebarLogicType'
+import { editorSceneLogic } from './editorSceneLogic'
+import type { editorSidebarLogicType } from './editorSidebarLogicType'
 
 const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], {
     keys: [{ name: 'name', weight: 2 }],
@@ -46,8 +49,9 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             databaseTableListLogic,
             ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
+        actions: [editorSceneLogic, ['selectSchema']],
     }),
-    selectors({
+    selectors(({ actions }) => ({
         contents: [
             (s) => [
                 s.relevantSavedQueries,
@@ -65,7 +69,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             ) => [
                 {
                     key: 'data-warehouse-sources',
-                    noun: ['source', 'sources'],
+                    noun: ['source', 'external source'],
                     loading: databaseLoading,
                     items: relevantDataWarehouseTables.map(([table, matches]) => ({
                         key: table.id,
@@ -77,7 +81,13 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                   nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
                               }
                             : null,
+                        onClick: () => {
+                            actions.selectSchema(table)
+                        },
                     })),
+                    onAdd: () => {
+                        router.actions.push(urls.pipeline(PipelineTab.Sources))
+                    },
                 } as SidebarCategory,
                 {
                     key: 'data-warehouse-tables',
@@ -93,6 +103,9 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                   nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
                               }
                             : null,
+                        onClick: () => {
+                            actions.selectSchema(table)
+                        },
                     })),
                 } as SidebarCategory,
                 {
@@ -109,6 +122,9 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                   nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
                               }
                             : null,
+                        onClick: () => {
+                            actions.selectSchema(savedQuery)
+                        },
                     })),
                 } as SidebarCategory,
             ],
@@ -154,7 +170,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 return dataWarehouseSavedQueries.map((savedQuery) => [savedQuery, null])
             },
         ],
-    }),
+    })),
     subscriptions({
         dataWarehouseTables: (dataWarehouseTables) => {
             dataWarehouseTablesfuse.setCollection(dataWarehouseTables)

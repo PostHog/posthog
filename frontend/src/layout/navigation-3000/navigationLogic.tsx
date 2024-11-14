@@ -105,9 +105,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         isSidebarShown: [
             true,
             {
-                persist: true,
-            },
-            {
                 hideSidebar: () => false,
                 showSidebar: () => true,
                 toggleSidebar: (isSidebarShown) => !isSidebarShown,
@@ -515,7 +512,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.SQL_EDITOR]
                             ? {
                                   identifier: Scene.SQLEditor,
-                                  label: 'SQL editor',
+                                  label: 'Data warehouse',
                                   icon: <IconServer />,
                                   to: urls.sqlEditor(),
                                   logic: editorSidebarLogic,

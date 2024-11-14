@@ -13,7 +13,7 @@ interface QueryTabsProps {
 
 export function QueryTabs({ models, onClear, onClick, onAdd, activeModelUri }: QueryTabsProps): JSX.Element {
     return (
-        <div className="flex flex-row overflow-scroll hide-scrollbar">
+        <div className="flex flex-row overflow-scroll hide-scrollbar h-10">
             {models.map((model: Uri) => (
                 <QueryTab
                     key={model.path}
