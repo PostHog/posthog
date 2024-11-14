@@ -791,10 +791,15 @@ export function determineDifferenceType(
 }
 
 const DATE_FORMAT = 'MMMM D, YYYY'
+const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
 const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
+}
+
+export const formatDateTime = (date: dayjs.Dayjs, format?: string): string => {
+    return date.format(format ?? DATE_TIME_FORMAT)
 }
 
 export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, format?: string): string => {

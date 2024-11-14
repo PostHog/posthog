@@ -196,7 +196,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     yield f"event: {AssistantEventType.STATUS}\n"
                 else:
                     yield f"event: {AssistantEventType.MESSAGE}\n"
-                yield f"data: {message.model_dump_json()}\n\n"
+                yield f"data: {message.model_dump_json(exclude_none=True)}\n\n"
 
             human_message = validated_body.messages[-1].root
             if isinstance(human_message, HumanMessage):
