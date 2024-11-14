@@ -84,10 +84,10 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
-     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop)
+              prop
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -181,10 +181,10 @@
                  JOIN prop_vals as prop
                  WHERE prop != [] ))
            WHERE step_0 = 1 ))
-     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop)
+              prop
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -272,10 +272,10 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
-     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop)
+              prop
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
