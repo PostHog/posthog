@@ -163,7 +163,7 @@ class DataImportPipelineSync:
 
             dlt.config["data_writer.file_max_items"] = 500_000
             dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
-            dlt.config["loader_parallelism_strategy"] = "table-sequential"
+            dlt.config["parallelism_strategy"] = "table-sequential"
             dlt.config["delta_jobs_per_write"] = 1
 
         dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
