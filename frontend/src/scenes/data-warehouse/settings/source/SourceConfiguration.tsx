@@ -43,7 +43,7 @@ function UpdateSourceConnectionFormContainer(props: UpdateSourceConnectionFormCo
         <>
             <span className="block mb-2">Overwrite your existing configuration here</span>
             <Form logic={dataWarehouseSourceSettingsLogic} formKey="sourceConfig" enableFormOnSubmit>
-                <SourceFormComponent {...props} />
+                <SourceFormComponent {...props} jobInputs={source?.job_inputs} />
                 <div className="mt-4 flex flex-row justify-end gap-2">
                     <LemonButton
                         loading={sourceLoading && !source}
