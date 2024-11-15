@@ -1,44 +1,56 @@
-import pytest
-from deepeval import assert_test
-from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
+from ee.hogai.eval.utils import EvalBaseTest
 from ee.hogai.utils import AssistantNodeName
-from posthog.schema import HumanMessage
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-router_correctness_metric = GEval(
-    name="Classification Correctness (message)",
-    criteria="Determine if the detected visualization type in 'actual output' matches the expected visualization type in 'expected output'. Output is a single string of visualization type.",
-    evaluation_steps=[
-        "Do not apply general knowledge about analytics insights.",
-        "Compare 'actual output' and 'expected output'. Heavily penalize if they don't match.",
-    ],
-    evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.EXPECTED_OUTPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-    threshold=0.7,
-)
+from posthog.schema import HumanMessage, RouterMessage
 
 
-@pytest.mark.django_db(transaction=True)
-# @pytest.mark.parametrize("dataset", load_dataset(AssistantNodeName.ROUTER, load_filter="all"))
-class TestRouterEval(ClickhouseTestMixin, APIBaseTest):
-    def _call_node(self, query):
+class TestRouterEval(EvalBaseTest):
+    def _call_node(self, query: str | list):
         graph: CompiledStateGraph = (
             AssistantGraph(self.team)
             .add_start()
             .add_router(path_map={"trends": AssistantNodeName.END, "funnel": AssistantNodeName.END})
             .compile()
         )
-        state = graph.invoke({"messages": [HumanMessage(content=query)]})
+        messages = [HumanMessage(content=query)] if isinstance(query, str) else query
+        state = graph.invoke({"messages": messages})
         return state["messages"][-1].content
 
-    def test_router_switches_insight_type(self):
+    def test_outputs_basic_trends_insight(self):
+        query = "Show the $pageview trend"
+        res = self._call_node(query)
+        self.assertEqual(res, "trends")
+
+    def test_outputs_basic_funnel_insight(self):
+        query = "What is the conversion rate of users who uploaded a file to users who paid for a plan?"
+        res = self._call_node(query)
+        self.assertEqual(res, "funnel")
+
+    def test_converts_trends_to_funnel(self):
+        conversation = [
+            HumanMessage(content="Show trends of $pageview and $identify"),
+            RouterMessage(content="trends"),
+            HumanMessage(content="Convert this insight to a funnel"),
+        ]
+        res = self._call_node(conversation[:1])
+        self.assertEqual(res, "trends")
+        res = self._call_node(conversation)
+        self.assertEqual(res, "funnel")
+
+    def test_converts_funnel_to_trends(self):
+        conversation = [
+            HumanMessage(content="What is the conversion from a page view to a sign up?"),
+            RouterMessage(content="funnel"),
+            HumanMessage(content="Convert this insight to a trends"),
+        ]
+        res = self._call_node(conversation[:1])
+        self.assertEqual(res, "funnel")
+        res = self._call_node(conversation)
+        self.assertEqual(res, "trends")
+
+    def test_outputs_single_trends_insight(self):
         query = "how many users upgraded their plan to personal pro?"
-        test_case = LLMTestCase(
-            input=query,
-            expected_output="trends",
-            actual_output=self._call_node(query),
-        )
-        assert_test(test_case, [router_correctness_metric])
+        res = self._call_node(query)
+        self.assertEqual(res, "trends")
