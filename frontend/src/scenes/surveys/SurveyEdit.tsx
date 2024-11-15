@@ -30,7 +30,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -72,6 +72,8 @@ export default function SurveyEdit(): JSX.Element {
     const {
         setSurveyValue,
         resetTargeting,
+        resetSurveyResponseLimits,
+        resetSurveyAdaptiveSampling,
         setSelectedPageIndex,
         setSelectedSection,
         setFlagPropertyErrors,
@@ -86,12 +88,28 @@ export default function SurveyEdit(): JSX.Element {
         surveysActionsAvailable,
     } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const [visible, setVisible] = useState(true)
+    const [visible, setVisible] = useState(false)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
         : 'Upgrade your plan to use repeating surveys'
+
+    useMemo(() => {
+        if (survey.responses_limit && survey.responses_limit > 0) {
+            setDataCollectionType('until_limit')
+        } else if (
+            survey.response_sampling_interval &&
+            survey.response_sampling_interval > 0 &&
+            survey.response_sampling_interval_type !== '' &&
+            survey.response_sampling_limit &&
+            survey.response_sampling_limit > 0
+        ) {
+            setDataCollectionType('until_adaptive_limit')
+        } else {
+            setDataCollectionType('until_stopped')
+        }
+    }, [survey, setDataCollectionType])
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
@@ -872,6 +890,34 @@ export default function SurveyEdit(): JSX.Element {
                                                             | 'until_limit'
                                                             | 'until_adaptive_limit'
                                                     ) => {
+                                                        if (newValue === 'until_limit') {
+                                                            resetSurveyAdaptiveSampling()
+                                                            setSurveyValue(
+                                                                'responses_limit',
+                                                                survey.responses_limit || 100
+                                                            )
+                                                        } else if (newValue === 'until_adaptive_limit') {
+                                                            resetSurveyResponseLimits()
+                                                            setSurveyValue(
+                                                                'response_sampling_interval',
+                                                                survey.response_sampling_interval || 1
+                                                            )
+                                                            setSurveyValue(
+                                                                'response_sampling_interval_type',
+                                                                survey.response_sampling_interval_type || 'month'
+                                                            )
+                                                            setSurveyValue(
+                                                                'response_sampling_limit',
+                                                                survey.response_sampling_limit || 100
+                                                            )
+                                                            setSurveyValue(
+                                                                'response_sampling_start_date',
+                                                                survey.response_sampling_start_date || dayjs()
+                                                            )
+                                                        } else {
+                                                            resetSurveyResponseLimits()
+                                                            resetSurveyAdaptiveSampling()
+                                                        }
                                                         setDataCollectionType(newValue)
                                                     }}
                                                     options={[
@@ -905,9 +951,10 @@ export default function SurveyEdit(): JSX.Element {
                                                     actionable
                                                     overlay={
                                                         <LemonCalendarSelect
-                                                            value={survey.response_sampling_start_date}
+                                                            value={dayjs(survey.response_sampling_start_date)}
                                                             onChange={(value) => {
                                                                 setSurveyValue('response_sampling_start_date', value)
+                                                                setVisible(false)
                                                             }}
                                                             showTimeToggle={false}
                                                             onClose={() => setVisible(false)}
@@ -962,13 +1009,6 @@ export default function SurveyEdit(): JSX.Element {
                                             {({ onChange, value }) => {
                                                 return (
                                                     <div className="flex flex-row gap-2 items-center">
-                                                        <LemonCheckbox
-                                                            checked={!!value}
-                                                            onChange={(checked) => {
-                                                                const newResponsesLimit = checked ? 100 : null
-                                                                onChange(newResponsesLimit)
-                                                            }}
-                                                        />
                                                         Stop the survey once
                                                         <LemonInput
                                                             type="number"

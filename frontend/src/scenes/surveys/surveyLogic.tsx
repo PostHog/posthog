@@ -181,6 +181,8 @@ export const surveyLogic = kea<surveyLogicType>([
 
         setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
+        resetSurveyAdaptiveSampling: true,
+        resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
     loaders(({ props, actions, values }) => ({
@@ -611,6 +613,19 @@ export const surveyLogic = kea<surveyLogicType>([
         loadSurveySuccess: () => {
             actions.loadSurveyUserStats()
         },
+        resetSurveyResponseLimits: () => {
+            actions.setSurveyValue('responses_limit', null)
+        },
+
+        resetSurveyAdaptiveSampling: () => {
+            actions.setSurveyValues({
+                response_sampling_interval: null,
+                response_sampling_interval_type: null,
+                response_sampling_limit: null,
+                response_sampling_start_date: null,
+                response_sampling_daily_limits: null,
+            })
+        },
         resetTargeting: () => {
             actions.setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
             actions.setSurveyValue('targeting_flag_filters', NEW_SURVEY.targeting_flag_filters)
@@ -1031,6 +1046,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         ],
+
         getBranchingDropdownValue: [
             (s) => [s.survey],
             (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
