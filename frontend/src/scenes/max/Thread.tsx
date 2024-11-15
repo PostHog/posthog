@@ -18,17 +18,10 @@ import React, { useMemo, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import {
-    AssistantMessageType,
-    HumanMessage,
-    InsightVizNode,
-    NodeKind,
-    TrendsQuery,
-    VisualizationMessage,
-} from '~/queries/schema'
+import { AssistantMessageType, HumanMessage, InsightVizNode, NodeKind, VisualizationMessage } from '~/queries/schema'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
-import { isFailureMessage, isHumanMessage, isVisualizationMessage } from './utils'
+import { castAssistantQuery, isFailureMessage, isHumanMessage, isVisualizationMessage } from './utils'
 
 export function Thread(): JSX.Element | null {
     const { thread, threadLoading } = useValues(maxLogic)
@@ -134,7 +127,7 @@ function Answer({
         if (message.answer) {
             return {
                 kind: NodeKind.InsightVizNode,
-                source: message.answer as TrendsQuery,
+                source: castAssistantQuery(message.answer),
                 showHeader: true,
             }
         }

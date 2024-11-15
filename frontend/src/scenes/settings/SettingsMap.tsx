@@ -1,4 +1,5 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { ChannelType } from 'scenes/settings/environment/ChannelType'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
@@ -51,7 +52,7 @@ import { OrganizationLogo } from './organization/OrgLogo'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
-import { ProjectDisplayName } from './project/ProjectSettings'
+import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
@@ -73,6 +74,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <TeamDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: '!ENVIRONMENTS',
             },
             {
                 id: 'snippet',
@@ -201,6 +210,20 @@ export const SETTINGS_MAP: SettingSection[] = [
 
     {
         level: 'environment',
+        id: 'environment-web-analytics',
+        title: 'Web analytics',
+        settings: [
+            {
+                id: 'channel-type',
+                title: 'Channel type',
+                component: <ChannelType />,
+            },
+        ],
+        flag: 'CUSTOM_CHANNEL_TYPE_RULES',
+    },
+
+    {
+        level: 'environment',
         id: 'environment-replay',
         title: 'Session replay',
         settings: [
@@ -319,6 +342,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <ProjectDisplayName />,
+            },
+            {
+                id: 'product-description',
+                title: 'Product description',
+                description:
+                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
+                component: <ProjectProductDescription />,
+                flag: 'ARTIFICIAL_HOG',
             },
         ],
     },

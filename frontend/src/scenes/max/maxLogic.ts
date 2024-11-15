@@ -1,10 +1,11 @@
 import { captureException } from '@sentry/react'
 import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { isHumanMessage, isRouterMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { projectLogic } from 'scenes/projectLogic'
 
 import {
     AssistantEventType,
@@ -13,6 +14,7 @@ import {
     AssistantMessageType,
     FailureMessage,
     NodeKind,
+    RefreshType,
     RootAssistantMessage,
     SuggestedQuestionsQuery,
 } from '~/queries/schema'
@@ -38,6 +40,9 @@ export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
     key(({ sessionId }) => sessionId),
+    connect({
+        values: [projectLogic, ['currentProject']],
+    }),
     actions({
         askMax: (prompt: string) => ({ prompt }),
         setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
@@ -83,12 +88,6 @@ export const maxLogic = kea<maxLogicType>([
                 setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
             },
         ],
-        wasSuggestionLoadingInitiated: [
-            false,
-            {
-                loadSuggestions: () => true,
-            },
-        ],
         visibleSuggestions: [
             null as string[] | null,
             {
@@ -100,12 +99,12 @@ export const maxLogic = kea<maxLogicType>([
         allSuggestions: [
             null as string[] | null,
             {
-                loadSuggestions: async () => {
+                loadSuggestions: async ({ refresh }: { refresh: RefreshType }) => {
                     const response = await api.query<SuggestedQuestionsQuery>(
                         { kind: NodeKind.SuggestedQuestionsQuery },
                         undefined,
                         undefined,
-                        'async_except_on_cache_miss'
+                        refresh
                     )
                     return response.questions
                 },
@@ -113,6 +112,22 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
+            // Load suggestions anew after product description is changed on the project
+            // Most important when description is set for the first time, but also when updated,
+            // which is why we always want to load fresh suggestions here
+            if (payload?.product_description) {
+                actions.loadSuggestions({ refresh: 'blocking' })
+            }
+        },
+        [projectLogic.actionTypes.loadCurrentProjectSuccess]: ({ currentProject }) => {
+            // Load cached suggestions if we have just loaded the current project. This should not occur
+            // _normally_ in production, as the current project is preloaded in POSTHOG_APP_CONTEXT,
+            // but necessary in e.g. Storybook
+            if (currentProject?.product_description) {
+                actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
+            }
+        },
         loadSuggestionsSuccess: () => {
             actions.shuffleVisibleSuggestions()
         },
@@ -127,11 +142,15 @@ export const maxLogic = kea<maxLogicType>([
                 // Randomize order, except in Storybook where we want to keep the order consistent for snapshots
                 shuffle(allSuggestionsWithoutCurrentlyVisible)
             }
-            actions.setVisibleSuggestions(allSuggestionsWithoutCurrentlyVisible.slice(0, 3))
+            actions.setVisibleSuggestions(
+                // We show 3 suggestions, and put the longest one last, so that the suggestions _as a whole_
+                // look pleasant when the 3rd is wrapped to the next line (character count is imperfect but okay)
+                allSuggestionsWithoutCurrentlyVisible.slice(0, 3).sort((a, b) => a.length - b.length)
+            )
         },
         askMax: async ({ prompt }) => {
             actions.addMessage({ type: AssistantMessageType.Human, content: prompt })
-            const newIndex = values.thread.length
+            let generatingMessageIndex: number = -1
 
             try {
                 const response = await api.chat({
@@ -146,8 +165,6 @@ export const maxLogic = kea<maxLogicType>([
 
                 const decoder = new TextDecoder()
 
-                let firstChunk = true
-
                 const parser = createParser({
                     onEvent: ({ data, event }) => {
                         if (event === AssistantEventType.Message) {
@@ -156,16 +173,21 @@ export const maxLogic = kea<maxLogicType>([
                                 return
                             }
 
-                            if (firstChunk) {
-                                firstChunk = false
+                            if (isRouterMessage(parsedResponse)) {
+                                actions.addMessage({
+                                    ...parsedResponse,
+                                    status: 'completed',
+                                })
+                            } else if (generatingMessageIndex === -1) {
+                                generatingMessageIndex = values.thread.length
 
                                 if (parsedResponse) {
                                     actions.addMessage({ ...parsedResponse, status: 'loading' })
                                 }
                             } else if (parsedResponse) {
-                                actions.replaceMessage(newIndex, {
+                                actions.replaceMessage(generatingMessageIndex, {
                                     ...parsedResponse,
-                                    status: values.thread[newIndex].status,
+                                    status: values.thread[generatingMessageIndex].status,
                                 })
                             }
                         } else if (event === AssistantEventType.Status) {
@@ -175,7 +197,7 @@ export const maxLogic = kea<maxLogicType>([
                             }
 
                             if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
-                                actions.setMessageStatus(newIndex, 'error')
+                                actions.setMessageStatus(generatingMessageIndex, 'error')
                             }
                         }
                     },
@@ -187,11 +209,15 @@ export const maxLogic = kea<maxLogicType>([
                     parser.feed(decoder.decode(value))
 
                     if (done) {
-                        const generatedMessage = values.thread[newIndex]
+                        if (generatingMessageIndex === -1) {
+                            break
+                        }
+
+                        const generatedMessage = values.thread[generatingMessageIndex]
                         if (generatedMessage && isVisualizationMessage(generatedMessage) && generatedMessage.plan) {
-                            actions.setMessageStatus(newIndex, 'completed')
+                            actions.setMessageStatus(generatingMessageIndex, 'completed')
                         } else if (generatedMessage) {
-                            actions.replaceMessage(newIndex, FAILURE_MESSAGE)
+                            actions.replaceMessage(generatingMessageIndex, FAILURE_MESSAGE)
                         } else {
                             actions.addMessage({
                                 ...FAILURE_MESSAGE,
@@ -204,13 +230,15 @@ export const maxLogic = kea<maxLogicType>([
             } catch (e) {
                 captureException(e)
 
-                if (values.thread[newIndex]) {
-                    actions.replaceMessage(newIndex, FAILURE_MESSAGE)
-                } else {
-                    actions.addMessage({
-                        ...FAILURE_MESSAGE,
-                        status: 'completed',
-                    })
+                if (generatingMessageIndex !== -1) {
+                    if (values.thread[generatingMessageIndex]) {
+                        actions.replaceMessage(generatingMessageIndex, FAILURE_MESSAGE)
+                    } else {
+                        actions.addMessage({
+                            ...FAILURE_MESSAGE,
+                            status: 'completed',
+                        })
+                    }
                 }
             }
 
@@ -225,6 +253,13 @@ export const maxLogic = kea<maxLogicType>([
     })),
     selectors({
         sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
+    }),
+    afterMount(({ actions, values }) => {
+        // We only load suggestions on mount if the product description is already set
+        if (values.currentProject?.product_description) {
+            // In this case we're fine with even really old cached values
+            actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
+        }
     }),
 ])
 

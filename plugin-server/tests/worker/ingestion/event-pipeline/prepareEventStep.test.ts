@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, Team } from '../../../../src/types'
+import { Hub, Person, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
@@ -40,6 +40,7 @@ const person: Person = {
 
 const teamTwo: Team = {
     id: 2,
+    project_id: 1 as ProjectId,
     uuid: 'af95d312-1a0a-4208-b80f-562ddafc9bcd',
     organization_id: '66f3f7bf-44e2-45dd-9901-5dbd93744e3a',
     name: 'testTeam',
@@ -90,6 +91,7 @@ describe('prepareEventStep()', () => {
                 $ip: '127.0.0.1',
             },
             teamId: 2,
+            projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
@@ -108,6 +110,7 @@ describe('prepareEventStep()', () => {
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
             properties: {},
             teamId: 2,
+            projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()

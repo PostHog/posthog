@@ -52,6 +52,22 @@ from posthog.test.base import (
 )
 
 
+def make_session_recording_config(overrides: dict | None = None) -> dict:
+    return {
+        "endpoint": "/s/",
+        "recorderVersion": "v2",
+        "consoleLogRecordingEnabled": True,
+        "sampleRate": None,
+        "linkedFlag": None,
+        "minimumDurationMilliseconds": None,
+        "networkPayloadCapture": None,
+        "urlTriggers": [],
+        "urlBlocklist": [],
+        "eventTriggers": [],
+        **(overrides or {}),
+    }
+
+
 @patch(
     "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
     return_value=True,
@@ -166,17 +182,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config()
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
     def test_user_console_log_opt_in(self, *args):
@@ -187,17 +193,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config()
 
     def test_user_performance_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
@@ -323,17 +319,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [{"url": "/replay-examples/", "matching": "regex"}],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config(
+            {
+                "urlTriggers": [{"url": "/replay-examples/", "matching": "regex"}],
+            }
+        )
 
     def test_session_recording_url_blocklist_patterns(self, *args):
         self._update_team(
@@ -344,17 +334,24 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [{"url": "/replay-examples/iframe", "matching": "regex"}],
-        }
+        assert response["sessionRecording"] == make_session_recording_config(
+            {
+                "urlBlocklist": [{"url": "/replay-examples/iframe", "matching": "regex"}],
+            }
+        )
+
+    def test_session_recording_event_triggers(self, *args):
+        self._update_team(
+            {
+                "session_recording_event_trigger_config": ["$pageview", "$exception"],
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_config(
+            {"eventTriggers": ["$pageview", "$exception"]}
+        )
 
     def test_session_recording_network_payload_capture_config(self, *args):
         # :TRICKY: Test for regression around caching
@@ -476,17 +473,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="https://random.example.com").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config()
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
         # Make sure the domain matches exactly
@@ -505,17 +492,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] is False
 
         response = self._post_decide(origin="https://example.com").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config()
 
     def test_user_autocapture_opt_out(self, *args):
         # :TRICKY: Test for regression around caching
@@ -551,49 +528,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
         response = self._post_decide(origin="any.site.com").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config()
 
     def test_user_session_recording_allowed_for_android(self, *args) -> None:
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
 
         response = self._post_decide(origin="any.site.com", user_agent="posthog-android/3.1.0").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config()
 
     def test_user_session_recording_allowed_for_ios(self, *args) -> None:
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
 
         response = self._post_decide(origin="any.site.com", user_agent="posthog-ios/3.1.0").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config()
 
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
         self._update_team(
@@ -604,17 +551,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response["sessionRecording"] == {
-            "endpoint": "/s/",
-            "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": True,
-            "sampleRate": None,
-            "linkedFlag": None,
-            "minimumDurationMilliseconds": None,
-            "networkPayloadCapture": None,
-            "urlTriggers": [],
-            "urlBlocklist": [],
-        }
+        assert response["sessionRecording"] == make_session_recording_config()
 
     @snapshot_postgres_queries
     def test_web_app_queries(self, *args):
@@ -2206,7 +2143,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
         Person.objects.create(
             team=self.team,
             distinct_ids=["example_id"],
@@ -2967,20 +2906,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-        self.assertEqual(
-            response["sessionRecording"],
+        assert response["sessionRecording"] == make_session_recording_config(
             {
-                "endpoint": "/s/",
-                "recorderVersion": "v2",
-                "consoleLogRecordingEnabled": True,
                 "sampleRate": "0.20",
-                "linkedFlag": None,
-                "minimumDurationMilliseconds": None,
-                "networkPayloadCapture": None,
-                "urlTriggers": [],
-                "urlBlocklist": [],
-            },
+            }
         )
+
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
         self.assertEqual(
@@ -2997,20 +2928,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with connection.execute_wrapper(QueryTimeoutWrapper()):
             response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-            self.assertEqual(
-                response["sessionRecording"],
+            assert response["sessionRecording"] == make_session_recording_config(
                 {
-                    "endpoint": "/s/",
-                    "recorderVersion": "v2",
-                    "consoleLogRecordingEnabled": True,
                     "sampleRate": "0.20",
-                    "linkedFlag": None,
-                    "minimumDurationMilliseconds": None,
-                    "networkPayloadCapture": None,
-                    "urlTriggers": [],
-                    "urlBlocklist": [],
-                },
+                }
             )
+
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(
@@ -3807,20 +3730,8 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
 
-            self.assertEqual(
-                response["sessionRecording"],
-                {
-                    "endpoint": "/s/",
-                    "recorderVersion": "v2",
-                    "consoleLogRecordingEnabled": True,
-                    "sampleRate": "0.40",
-                    "linkedFlag": None,
-                    "minimumDurationMilliseconds": None,
-                    "networkPayloadCapture": None,
-                    "urlTriggers": [],
-                    "urlBlocklist": [],
-                },
-            )
+            assert response["sessionRecording"] == make_session_recording_config({"sampleRate": "0.40"})
+
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(
@@ -4594,9 +4505,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.setup_flags_in_db("replica", team, user, flags, persons)
 
         GroupTypeMapping.objects.db_manager("replica").create(
-            team=self.team, group_type="organization", group_type_index=0
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.db_manager("default").create(team=self.team, group_type="project", group_type_index=1)
+        GroupTypeMapping.objects.db_manager("default").create(
+            team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
+        )
 
         Group.objects.db_manager("replica").create(
             team_id=self.team.pk,
@@ -4694,8 +4607,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
 
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
 
         client = APIClient()
         client.force_login(self.user)
