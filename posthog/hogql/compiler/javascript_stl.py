@@ -35,30 +35,16 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     ],
     "toInt": [
         """function toInt(value) {
-    if (__isHogDateTime(value)) {
-        return Math.floor(value.dt);
-    } else if (__isHogDate(value)) {
-        const date = new Date(Date.UTC(value.year, value.month - 1, value.day));
-        const epoch = new Date(Date.UTC(1970, 0, 1));
-        const diffInDays = Math.floor((date - epoch) / (1000 * 60 * 60 * 24));
-        return diffInDays;
-    }
-    return !isNaN(parseInt(value)) ? parseInt(value) : null;
-}""",
+    if (__isHogDateTime(value)) { return Math.floor(value.dt); }
+    else if (__isHogDate(value)) { const date = new Date(Date.UTC(value.year, value.month - 1, value.day)); const epoch = new Date(Date.UTC(1970, 0, 1)); const diffInDays = Math.floor((date - epoch) / (1000 * 60 * 60 * 24)); return diffInDays; }
+    return !isNaN(parseInt(value)) ? parseInt(value) : null; }""",
         ["__isHogDateTime", "__isHogDate"],
     ],
     "toFloat": [
         """function toFloat(value) {
-    if (__isHogDateTime(value)) {
-        return value.dt;
-    } else if (__isHogDate(value)) {
-        const date = new Date(Date.UTC(value.year, value.month - 1, value.day));
-        const epoch = new Date(Date.UTC(1970, 0, 1));
-        const diffInDays = (date - epoch) / (1000 * 60 * 60 * 24);
-        return diffInDays;
-    }
-    return !isNaN(parseFloat(value)) ? parseFloat(value) : null;
-}""",
+    if (__isHogDateTime(value)) { return value.dt; }
+    else if (__isHogDate(value)) { const date = new Date(Date.UTC(value.year, value.month - 1, value.day)); const epoch = new Date(Date.UTC(1970, 0, 1)); const diffInDays = (date - epoch) / (1000 * 60 * 60 * 24); return diffInDays; }
+    return !isNaN(parseFloat(value)) ? parseFloat(value) : null; }""",
         ["__isHogDateTime", "__isHogDate"],
     ],
     "ifNull": [
@@ -72,19 +58,10 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     "empty": [
         """function empty (value) {
     if (typeof value === 'object') {
-        if (Array.isArray(value)) {
-            return value.length === 0
-        } else if (value === null) {
-            return true
-        } else if (value instanceof Map) {
-            return value.size === 0
-        }
+        if (Array.isArray(value)) { return value.length === 0 } else if (value === null) { return true } else if (value instanceof Map) { return value.size === 0 }
         return Object.keys(value).length === 0
-    } else if (typeof value === 'number' || typeof value === 'boolean') {
-        return false
-    }
-    return !value
-}""",
+    } else if (typeof value === 'number' || typeof value === 'boolean') { return false }
+    return !value }""",
         [],
     ],
     "notEmpty": [
@@ -114,60 +91,33 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     "jsonParse": [
         """function jsonParse (str) {
     function convert(x) {
-        if (Array.isArray(x)) {
-            return x.map(convert)
-        } else if (typeof x === 'object' && x !== null) {
-            if (x.__hogDateTime__) {
-                return __toHogDateTime(x.dt, x.zone)
-            } else if (x.__hogDate__) {
-                return __toHogDate(x.year, x.month, x.day)
-            } else if (x.__hogError__) {
-                return __newHogError(x.type, x.message, x.payload)
-            }
-            const map = new Map()
-            for (const key in x) {
-                map.set(key, convert(x[key]))
-            }
-            return map
-        }
-        return x
-    }
-    return convert(JSON.parse(str))
-}""",
+        if (Array.isArray(x)) { return x.map(convert) }
+        else if (typeof x === 'object' && x !== null) {
+            if (x.__hogDateTime__) { return __toHogDateTime(x.dt, x.zone)
+            } else if (x.__hogDate__) { return __toHogDate(x.year, x.month, x.day)
+            } else if (x.__hogError__) { return __newHogError(x.type, x.message, x.payload) }
+            const obj = {}; for (const key in x) { obj[key] = convert(x[key]) }; return obj }
+        return x }
+    return convert(JSON.parse(str)) }""",
         ["__toHogDateTime", "__toHogDate", "__newHogError"],
     ],
     "jsonStringify": [
         """function jsonStringify (value, spacing) {
     function convert(x, marked) {
-        if (!marked) {
-            marked = new Set()
-        }
+        if (!marked) { marked = new Set() }
         if (typeof x === 'object' && x !== null) {
-            if (marked.has(x)) {
-                return null
-            }
+            if (marked.has(x)) { return null }
             marked.add(x)
             try {
                 if (x instanceof Map) {
                     const obj = {}
-                    x.forEach((value, key) => {
-                        obj[convert(key, marked)] = convert(value, marked)
-                    })
+                    x.forEach((value, key) => { obj[convert(key, marked)] = convert(value, marked) })
                     return obj
                 }
-                if (Array.isArray(x)) {
-                    return x.map((v) => convert(v, marked))
-                }
-                if (__isHogDateTime(x) || __isHogDate(x) || __isHogError(x)) {
-                    return x
-                }
-                if (typeof x === 'function') {
-                    return `fn<${x.name || 'lambda'}(${x.length})>`
-                }
-                const obj = {}
-                for (const key in x) {
-                    obj[key] = convert(x[key], marked)
-                }
+                if (Array.isArray(x)) { return x.map((v) => convert(v, marked)) }
+                if (__isHogDateTime(x) || __isHogDate(x) || __isHogError(x)) { return x }
+                if (typeof x === 'function') { return `fn<${x.name || 'lambda'}(${x.length})>` }
+                const obj = {}; for (const key in x) { obj[key] = convert(x[key], marked) }
                 return obj
             } finally {
                 marked.delete(x)
@@ -187,49 +137,22 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     let current = obj
     for (const key of path) {
         let currentParsed = current
-        if (typeof current === 'string') {
-            try {
-                currentParsed = JSON.parse(current)
-            } catch (e) {
-                return false
-            }
-        }
-        if (currentParsed instanceof Map) {
-            if (!currentParsed.has(key)) {
-                return false
-            }
-            current = currentParsed.get(key)
-        } else if (typeof currentParsed === 'object' && currentParsed !== null) {
+        if (typeof current === 'string') { try { currentParsed = JSON.parse(current) } catch (e) { return false } }
+        if (currentParsed instanceof Map) { if (!currentParsed.has(key)) { return false }; current = currentParsed.get(key) }
+        else if (typeof currentParsed === 'object' && currentParsed !== null) {
             if (typeof key === 'number') {
                 if (Array.isArray(currentParsed)) {
-                    if (key < 0) {
-                        if (key < -currentParsed.length) {
-                            return false
-                        }
-                        current = currentParsed[currentParsed.length + key]
-                    } else if (key === 0) {
-                        return false
-                    } else {
-                        if (key > currentParsed.length) {
-                            return false
-                        }
-                        current = currentParsed[key - 1]
-                    }
-                } else {
-                    return false
-                }
+                    if (key < 0) { if (key < -currentParsed.length) { return false }; current = currentParsed[currentParsed.length + key] }
+                    else if (key === 0) { return false }
+                    else { if (key > currentParsed.length) { return false }; current = currentParsed[key - 1] }
+                } else { return false }
             } else {
-                if (!(key in currentParsed)) {
-                    return false
-                }
+                if (!(key in currentParsed)) { return false }
                 current = currentParsed[key]
             }
-        } else {
-            return false
-        }
+        } else { return false }
     }
-    return true
-}""",
+    return true }""",
         [],
     ],
     "isValidJSON": [
@@ -238,13 +161,7 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     ],
     "JSONLength": [
         """function JSONLength (obj, ...path) {
-    try {
-        if (typeof obj === 'string') {
-            obj = JSON.parse(obj)
-        }
-    } catch (e) {
-        return 0
-    }
+    try { if (typeof obj === 'string') { obj = JSON.parse(obj) } } catch (e) { return 0 }
     if (typeof obj === 'object' && obj !== null) {
         const value = __getNestedValue(obj, path, true)
         if (Array.isArray(value)) {
@@ -255,8 +172,7 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
             return Object.keys(value).length
         }
     }
-    return 0
-}""",
+    return 0 }""",
         ["__getNestedValue"],
     ],
     "JSONExtractBool": [
@@ -471,31 +387,11 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "keys": [
-        """function keys (obj) {
-    if (typeof obj === 'object' && obj !== null) {
-        if (Array.isArray(obj)) {
-            return Array.from(obj.keys())
-        } else if (obj instanceof Map) {
-            return Array.from(obj.keys())
-        }
-        return Object.keys(obj)
-    }
-    return []
-}""",
+        """function keys (obj) { if (typeof obj === 'object' && obj !== null) { if (Array.isArray(obj)) { return Array.from(obj.keys()) } else if (obj instanceof Map) { return Array.from(obj.keys()) } return Object.keys(obj) } return [] }""",
         [],
     ],
     "values": [
-        """function values (obj) {
-    if (typeof obj === 'object' && obj !== null) {
-        if (Array.isArray(obj)) {
-            return [...obj]
-        } else if (obj instanceof Map) {
-            return Array.from(obj.values())
-        }
-        return Object.values(obj)
-    }
-    return []
-}""",
+        """function values (obj) { if (typeof obj === 'object' && obj !== null) { if (Array.isArray(obj)) { return [...obj] } else if (obj instanceof Map) { return Array.from(obj.values()) } return Object.values(obj) } return [] }""",
         [],
     ],
     "indexOf": [
@@ -608,60 +504,30 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     ],
     "typeof": [
         """function __x_typeof (value) {
-    if (value === null || value === undefined) {
-        return 'null'
-    } else if (__isHogDateTime(value)) {
-        return 'datetime'
-    } else if (__isHogDate(value)) {
-        return 'date'
-    } else if (__isHogError(value)) {
-        return 'error'
-    } else if (typeof value === 'function') {
-        return 'function'
-    } else if (Array.isArray(value)) {
-        if (value.__isHogTuple) {
-            return 'tuple'
-        }
-        return 'array'
-    } else if (typeof value === 'object') {
-        return 'object'
-    } else if (typeof value === 'number') {
-        return Number.isInteger(value) ? 'integer' : 'float'
-    } else if (typeof value === 'string') {
-        return 'string'
-    } else if (typeof value === 'boolean') {
-        return 'boolean'
-    }
+    if (value === null || value === undefined) { return 'null'
+    } else if (__isHogDateTime(value)) { return 'datetime'
+    } else if (__isHogDate(value)) { return 'date'
+    } else if (__isHogError(value)) { return 'error'
+    } else if (typeof value === 'function') { return 'function'
+    } else if (Array.isArray(value)) { if (value.__isHogTuple) { return 'tuple' } return 'array'
+    } else if (typeof value === 'object') { return 'object'
+    } else if (typeof value === 'number') { return Number.isInteger(value) ? 'integer' : 'float'
+    } else if (typeof value === 'string') { return 'string'
+    } else if (typeof value === 'boolean') { return 'boolean' }
     return 'unknown'
 }
 """,
         ["__isHogDateTime", "__isHogDate", "__isHogError"],
     ],
-    "__STLToString": [
-        r"""function __STLToString(arg) {
-    if (arg && __isHogDate(arg)) {
-        // Handle HogDate objects
-        const month = arg.month.toString().padStart(2, '0');
-        const day = arg.day.toString().padStart(2, '0');
-        return `${arg.year}-${month}-${day}`;
-    }
-    if (arg && __isHogDateTime(arg)) {
-        // Handle HogDateTime objects
-        const dt = arg;
+    "__DateTimeToString": [
+        r"""function __DateTimeToString (dt) {
+        if (__isHogDateTime(dt)) {
         const date = new Date(dt.dt * 1000);
         const timeZone = dt.zone || 'UTC';
-
-        // Determine if milliseconds are present
         const milliseconds = Math.floor(dt.dt * 1000 % 1000);
-
-        // Formatting options for date and time components
         const options = { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
-
-        // Create a formatter for the specified time zone
         const formatter = new Intl.DateTimeFormat('en-US', options);
         const parts = formatter.formatToParts(date);
-
-        // Extract date and time components
         let year, month, day, hour, minute, second;
         for (const part of parts) {
             switch (part.type) {
@@ -674,49 +540,34 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
                 default: break;
             }
         }
-
-        // Get time zone offset
         let offset = 'Z';
-        if (timeZone === 'UTC') {
-            offset = 'Z';
-        } else {
+        if (timeZone !== 'UTC') {
             const tzOptions = { timeZone, timeZoneName: 'shortOffset' };
             const tzFormatter = new Intl.DateTimeFormat('en-US', tzOptions);
             const tzParts = tzFormatter.formatToParts(date);
             const timeZoneNamePart = tzParts.find(part => part.type === 'timeZoneName');
-
             if (timeZoneNamePart && timeZoneNamePart.value) {
                 const offsetString = timeZoneNamePart.value;
                 const match = offsetString.match(/GMT([+-]\d{2})(?::?(\d{2}))?/);
-                if (match) {
-                    const sign = match[1][0];
-                    const hours = match[1].slice(1).padStart(2, '0');
-                    const minutes = (match[2] || '00').padStart(2, '0');
-                    offset = `${sign}${hours}:${minutes}`;
-                } else if (offsetString === 'GMT') {
-                    offset = '+00:00';
-                } else {
-                    // Fallback for time zones with names instead of offsets
-                    offset = '';
-                }
+                offset = match ? `${match[1][0]}${match[1].slice(1).padStart(2, '0')}:${(match[2] || '00').padStart(2, '0')}` : offsetString === 'GMT' ? '+00:00' : '';
             }
         }
-
-        // Build ISO 8601 string with time zone offset
         let isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
         if (milliseconds !== null) {
             isoString += `.${milliseconds.toString().padStart(3, '0')}`;
         }
         isoString += offset;
-
         return isoString;
-    }
-    // For other types, use default string representation
-    return __printHogStringOutput(arg);
-}
-
-""",
-        ["__isHogDate", "__isHogDateTime", "__printHogStringOutput"],
+    }}
+    """,
+        [],
+    ],
+    "__STLToString": [
+        r"""function __STLToString(arg) {
+    if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
+    else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
+    return __printHogStringOutput(arg); }""",
+        ["__isHogDate", "__isHogDateTime", "__printHogStringOutput", "__DateTimeToString"],
     ],
     "__isHogDate": [
         """function __isHogDate(obj) { return obj && obj.__hogDate__ === true }""",
@@ -735,19 +586,9 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     if (__isHogDate(timestamp)) {
         const date = new Date(Date.UTC(timestamp.year, timestamp.month - 1, timestamp.day));
         const dt = date.getTime() / 1000;
-        return {
-            __hogDateTime__: true,
-            dt: dt,
-            zone: zone || 'UTC',
-        };
+        return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' };
     }
-    return {
-        __hogDateTime__: true,
-        dt: timestamp,
-        zone: zone || 'UTC',
-    };
-}
-""",
+    return { __hogDateTime__: true, dt: timestamp, zone: zone || 'UTC' }; }""",
         ["__isHogDate"],
     ],
     "__now": [
@@ -756,18 +597,11 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
     ],
     "__toUnixTimestamp": [
         """function __toUnixTimestamp(input, zone) {
-    if (__isHogDateTime(input)) {
-        return input.dt;
-    }
-    if (__isHogDate(input)) {
-        return __toHogDateTime(input).dt;
-    }
+    if (__isHogDateTime(input)) { return input.dt; }
+    if (__isHogDate(input)) { return __toHogDateTime(input).dt; }
     const date = new Date(input);
-    if (isNaN(date.getTime())) {
-        throw new Error('Invalid date input');
-    }
-    return Math.floor(date.getTime() / 1000);
-}""",
+    if (isNaN(date.getTime())) { throw new Error('Invalid date input'); }
+    return Math.floor(date.getTime() / 1000);}""",
         ["__isHogDateTime", "__isHogDate", "__toHogDateTime"],
     ],
     "__fromUnixTimestamp": [
@@ -787,81 +621,38 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         ["__isHogDateTime"],
     ],
     "__toDate": [
-        """function __toDate(input) {
-    let date;
-    if (typeof input === 'number') {
-        date = new Date(input * 1000);
-    } else {
-        date = new Date(input);
-    }
-    if (isNaN(date.getTime())) {
-        throw new Error('Invalid date input');
-    }
-    return {
-        __hogDate__: true,
-        year: date.getUTCFullYear(),
-        month: date.getUTCMonth() + 1,
-        day: date.getUTCDate(),
-    };
-}
-""",
+        """function __toDate(input) { let date;
+    if (typeof input === 'number') { date = new Date(input * 1000); } else { date = new Date(input); }
+    if (isNaN(date.getTime())) { throw new Error('Invalid date input'); }
+    return { __hogDate__: true, year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() }; }""",
         [],
     ],
     "__toDateTime": [
-        """function __toDateTime(input, zone) {
-    let dt;
-    if (typeof input === 'number') {
-        dt = input;
-    } else {
-        const date = new Date(input);
-        if (isNaN(date.getTime())) {
-            throw new Error('Invalid date input');
-        }
-        dt = date.getTime() / 1000;
-    }
-    return {
-        __hogDateTime__: true,
-        dt: dt,
-        zone: zone || 'UTC',
-    };
-}
-""",
+        """function __toDateTime(input, zone) { let dt;
+    if (typeof input === 'number') { dt = input; }
+    else { const date = new Date(input); if (isNaN(date.getTime())) { throw new Error('Invalid date input'); } dt = date.getTime() / 1000; }
+    return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' }; }""",
         [],
     ],
     "__formatDateTime": [
         """function __formatDateTime(input, format, zone) {
-    if (!__isHogDateTime(input)) {
-        throw new Error('Expected a DateTime');
-    }
-    if (!format) {
-        throw new Error('formatDateTime requires at least 2 arguments');
-    }
-
-    // Convert timestamp to milliseconds
+    if (!__isHogDateTime(input)) { throw new Error('Expected a DateTime'); }
+    if (!format) { throw new Error('formatDateTime requires at least 2 arguments'); }
     const timestamp = input.dt * 1000;
     let date = new Date(timestamp);
-
-    // Use 'UTC' if no zone is specified
-    if (!zone) {
-        zone = 'UTC';
-    }
-
-    // Helper functions
+    if (!zone) { zone = 'UTC'; }
     const padZero = (num, len = 2) => String(num).padStart(len, '0');
     const padSpace = (num, len = 2) => String(num).padStart(len, ' ');
-
     const getDateComponent = (type, options = {}) => {
         const formatter = new Intl.DateTimeFormat('en-US', { ...options, timeZone: zone });
         const parts = formatter.formatToParts(date);
         const part = parts.find(p => p.type === type);
         return part ? part.value : '';
     };
-
     const getNumericComponent = (type, options = {}) => {
         const value = getDateComponent(type, options);
         return parseInt(value, 10);
     };
-
     const getWeekNumber = (d) => {
         const dateInZone = new Date(d.toLocaleString('en-US', { timeZone: zone }));
         const target = new Date(Date.UTC(dateInZone.getFullYear(), dateInZone.getMonth(), dateInZone.getDate()));
@@ -871,14 +662,12 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         const weekNumber = 1 + Math.round(((target - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
         return weekNumber;
     };
-
     const getDayOfYear = (d) => {
         const startOfYear = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
         const dateInZone = new Date(d.toLocaleString('en-US', { timeZone: zone }));
         const diff = dateInZone - startOfYear;
         return Math.floor(diff / 86400000) + 1;
     };
-
     // Token mapping with corrections
     const tokens = {
         '%a': () => getDateComponent('weekday', { weekday: 'short' }),
@@ -1006,28 +795,17 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         """
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
-        if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj)) {
-            return 'null';
-        }
+        if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj)) { return 'null'; }
         marked.add(obj);
         try {
             if (Array.isArray(obj)) {
-                if (obj.__isHogTuple) {
-                    return obj.length < 2 ? `tuple(${obj.map((o) => __printHogValue(o, marked)).join(', ')})` : `(${obj.map((o) => __printHogValue(o, marked)).join(', ')})`;
-                }
+                if (obj.__isHogTuple) { return obj.length < 2 ? `tuple(${obj.map((o) => __printHogValue(o, marked)).join(', ')})` : `(${obj.map((o) => __printHogValue(o, marked)).join(', ')})`; }
                 return `[${obj.map((o) => __printHogValue(o, marked)).join(', ')}]`;
             }
-            if (__isHogDateTime(obj)) {
-                const millis = String(obj.dt);
-                return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${__escapeString(obj.zone)})`;
-            }
+            if (__isHogDateTime(obj)) { const millis = String(obj.dt); return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${__escapeString(obj.zone)})`; }
             if (__isHogDate(obj)) return `Date(${obj.year}, ${obj.month}, ${obj.day})`;
-            if (__isHogError(obj)) {
-                return `${String(obj.type)}(${__escapeString(obj.message)}${obj.payload ? `, ${__printHogValue(obj.payload, marked)}` : ''})`;
-            }
-            if (obj instanceof Map) {
-                return `{${Array.from(obj.entries()).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`;
-            }
+            if (__isHogError(obj)) { return `${String(obj.type)}(${__escapeString(obj.message)}${obj.payload ? `, ${__printHogValue(obj.payload, marked)}` : ''})`; }
+            if (obj instanceof Map) { return `{${Array.from(obj.entries()).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`; }
             return `{${Object.entries(obj).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`;
         } finally {
             marked.delete(obj);
@@ -1178,7 +956,7 @@ def import_stl_functions(requested_functions):
         if func_name not in STL_FUNCTIONS:
             raise ValueError(f"Function '{func_name}' is not defined.")
         _, dependencies = STL_FUNCTIONS[func_name]
-        for dep in dependencies:
+        for dep in sorted(dependencies):
             dfs(dep)
         required_functions.add(func_name)
 
@@ -1188,7 +966,7 @@ def import_stl_functions(requested_functions):
 
     # Build the dependency graph
     dependency_graph = {}
-    for func in required_functions:
+    for func in sorted(required_functions):
         _, dependencies = STL_FUNCTIONS[func]
         dependency_graph[func] = dependencies
 
@@ -1204,13 +982,13 @@ def import_stl_functions(requested_functions):
             if node in temp_mark:
                 raise ValueError("Circular dependency detected")
             temp_mark.add(node)
-            for neighbor in graph.get(node, []):
+            for neighbor in sorted(graph.get(node, [])):
                 visit(neighbor)
             temp_mark.remove(node)
             visited.add(node)
             result.append(node)
 
-        for node in graph:
+        for node in sorted(graph):
             visit(node)
         return result[::-1]  # reverse the list to get correct order
 
