@@ -1,18 +1,22 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ReactNode } from 'react'
+import { urls } from 'scenes/urls'
+
+import { PipelineStage } from '~/types'
 
 export function overlayForNewPipelineMenu(dataAttr: string): ReactNode[] {
-    const menuEntries = [
-        { name: 'Source', url: 'pipeline/new/source' },
-        { name: 'Transformation', url: 'pipeline/new/transformation' },
-        { name: 'Destination', url: 'pipeline/new/destination' },
-    ]
-
-    return menuEntries.map(({ name, url }) => (
-        <LemonButton key="pipelineType" to={url} data-attr={dataAttr} data-attr-pipeline-type="pipelineType">
-            <div className="flex flex-col text-sm py-1">
-                <strong>{name}</strong>
-            </div>
-        </LemonButton>
-    ))
+    return Object.entries(PipelineStage)
+        .filter(([_, value]) => value != 'site-app' && value != 'legacy-source')
+        .map(([key, value]) => (
+            <LemonButton
+                key={value}
+                to={urls.pipelineNodeNew(value)}
+                data-attr={dataAttr}
+                data-attr-pipeline-type={value}
+            >
+                <div className="flex flex-col text-sm py-1">
+                    <strong>{key}</strong>
+                </div>
+            </LemonButton>
+        ))
 }
