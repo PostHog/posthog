@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use app_context::AppContext;
 use common_types::ClickHouseEvent;
@@ -105,11 +105,10 @@ async fn process_exception(
         // ensure this kind of concurrency is fine, although this "throw it at the wall"
         // data flow structure is pretty questionable. Tokio really do go brrr though
         handles.push(tokio::spawn(async move {
-            let res = context
+            context
                 .resolver
                 .resolve(&frame, team_id, &context.pool, &context.catalog)
-                .await;
-            return res;
+                .await
         }));
     }
 
