@@ -12,6 +12,7 @@ import { ERROR_MESSAGES } from 'scenes/authentication/Login'
 import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
 
 import { Exporter } from '~/exporter/Exporter'
+import { ExportedData } from '~/exporter/types'
 
 import type { loginLogicType } from './ExporterLoginType'
 
@@ -28,7 +29,7 @@ export const loginLogic = kea<loginLogicType>([
     }),
     reducers({
         data: [
-            null as any,
+            null as ExportedData | null,
             {
                 setData: (_, { data }) => data,
             },
@@ -68,11 +69,74 @@ export const loginLogic = kea<loginLogicType>([
     })),
 ])
 
-export function ExporterLogin(): JSX.Element {
+export interface ExporterLoginProps {
+    whitelabel?: boolean
+}
+
+export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
     const { data, isLoginSubmitting, generalError } = useValues(loginLogic())
 
     if (data) {
         return <Exporter {...data} />
+    }
+
+    const login = (
+        <div className="space-y-4">
+            <h2>Access share</h2>
+            {generalError && (
+                <LemonBanner type="error">
+                    {generalError.detail || ERROR_MESSAGES[generalError.code] || (
+                        <>
+                            Could not complete your login.
+                            <br />
+                            Please try again.
+                        </>
+                    )}
+                </LemonBanner>
+            )}
+            <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
+                <div className={clsx('PasswordWrapper')}>
+                    <LemonField
+                        name="password"
+                        label={
+                            <div className="flex flex-1 items-center justify-between gap-2">
+                                <span>Password</span>
+                            </div>
+                        }
+                    >
+                        <LemonInput
+                            type="password"
+                            className="ph-ignore-input"
+                            data-attr="password"
+                            placeholder="••••••••••"
+                            autoComplete="current-password"
+                        />
+                    </LemonField>
+                </div>
+
+                <LemonButton
+                    type="primary"
+                    status="alt"
+                    htmlType="submit"
+                    data-attr="password-login"
+                    fullWidth
+                    center
+                    loading={isLoginSubmitting}
+                    size="large"
+                >
+                    Log in
+                </LemonButton>
+            </Form>
+            <div className="text-center mt-4">Don't have a password? Ask the person who shared this with you!</div>
+        </div>
+    )
+
+    if (props.whitelabel) {
+        return (
+            <BridgePage noLogo view="login" footer={<SupportModalButton />}>
+                {login}
+            </BridgePage>
+        )
     }
 
     return (
@@ -87,54 +151,7 @@ export function ExporterLogin(): JSX.Element {
             }
             footer={<SupportModalButton />}
         >
-            <div className="space-y-4">
-                <h2>Access share</h2>
-                {generalError && (
-                    <LemonBanner type="error">
-                        {generalError.detail || ERROR_MESSAGES[generalError.code] || (
-                            <>
-                                Could not complete your login.
-                                <br />
-                                Please try again.
-                            </>
-                        )}
-                    </LemonBanner>
-                )}
-                <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
-                    <div className={clsx('PasswordWrapper')}>
-                        <LemonField
-                            name="password"
-                            label={
-                                <div className="flex flex-1 items-center justify-between gap-2">
-                                    <span>Password</span>
-                                </div>
-                            }
-                        >
-                            <LemonInput
-                                type="password"
-                                className="ph-ignore-input"
-                                data-attr="password"
-                                placeholder="••••••••••"
-                                autoComplete="current-password"
-                            />
-                        </LemonField>
-                    </div>
-
-                    <LemonButton
-                        type="primary"
-                        status="alt"
-                        htmlType="submit"
-                        data-attr="password-login"
-                        fullWidth
-                        center
-                        loading={isLoginSubmitting}
-                        size="large"
-                    >
-                        Log in
-                    </LemonButton>
-                </Form>
-                <div className="text-center mt-4">Don't have a password? Ask the person who shared this with you!</div>
-            </div>
+            {login}
         </BridgePage>
     )
 }

@@ -4,6 +4,7 @@ export enum ExportType {
     Image = 'image',
     Embed = 'embed',
     Scene = 'scene',
+    Login = 'login',
 }
 
 export interface ExportOptions {

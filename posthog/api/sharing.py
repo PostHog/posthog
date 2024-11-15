@@ -253,13 +253,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
+        if "whitelabel" in request.GET and "white_labelling" in [
+            feature["key"] for feature in resource.team.organization.available_product_features
+        ]:
+            exported_data.update({"whitelabel": True})
+
         if isinstance(resource, SharingConfiguration) and resource.password_required:
             if request.method == "GET":
+                exported_data["type"] = "login"
                 return render_template(
                     "exporter.html",
                     request=request,
                     context={
-                        "exported_data": json.dumps(None, cls=DjangoJSONEncoder),
+                        "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
                         "add_og_tags": None,
                     },
                 )
@@ -308,10 +314,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and "white_labelling" in [
-            feature["key"] for feature in resource.team.organization.available_product_features
-        ]:
-            exported_data.update({"whitelabel": True})
         if "noHeader" in request.GET:
             exported_data.update({"noHeader": True})
         if "showInspector" in request.GET:

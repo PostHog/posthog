@@ -25,7 +25,13 @@ export function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
         createRoot(root).render(
-            <ErrorBoundary>{exportedData === null ? <ExporterLogin /> : <Exporter {...exportedData} />}</ErrorBoundary>
+            <ErrorBoundary>
+                {exportedData.type === 'login' ? (
+                    <ExporterLogin whitelabel={exportedData.whitelabel} />
+                ) : (
+                    <Exporter {...exportedData} />
+                )}
+            </ErrorBoundary>
         )
     } else {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
