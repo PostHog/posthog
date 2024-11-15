@@ -5,7 +5,11 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useState } from 'react'
 
-import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import {
+    ElementSelectorButtonTypes,
+    ElementSelectorType,
+    experimentsTabLogic,
+} from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
@@ -22,18 +26,52 @@ export function WebExperimentTransformField({
     const [transformSelected, setTransformSelected] = useState(
         transform.html && transform.html.length > 0 ? 'html' : 'text'
     )
-    const { experimentForm, inspectingElement, selectedVariant } = useValues(experimentsTabLogic)
-    const { setExperimentFormValue, selectVariant, inspectForElementWithIndex } = useActions(experimentsTabLogic)
+    const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
+    const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
+        useActions(experimentsTabLogic)
+
     return (
         <>
             <div className="flex-1 mb-2">
                 <LemonButton
                     size="small"
                     type={inspectingElement === tIndex && selectedVariant === variant ? 'primary' : 'secondary'}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        selectVariant(variant)
-                        inspectForElementWithIndex(variant, inspectingElement === tIndex ? null : tIndex)
+                    sideAction={{
+                        dropdown: {
+                            overlay: (
+                                <>
+                                    {Object.entries(ElementSelectorButtonTypes).map(([key, value]) => {
+                                        return (
+                                            <LemonButton
+                                                key={'element-selector-' + key}
+                                                fullWidth
+                                                type={
+                                                    inspectingElement === tIndex &&
+                                                    selectedVariant === variant &&
+                                                    selectedElementType === key
+                                                        ? 'primary'
+                                                        : 'tertiary'
+                                                }
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    selectVariant(variant)
+                                                    selectElementType(key as ElementSelectorType)
+                                                    inspectForElementWithIndex(
+                                                        variant,
+                                                        key as ElementSelectorType,
+                                                        inspectingElement === tIndex ? null : tIndex
+                                                    )
+                                                }}
+                                            >
+                                                {value}
+                                            </LemonButton>
+                                        )
+                                    })}
+                                </>
+                            ),
+                            placement: 'bottom',
+                            matchWidth: true,
+                        },
                     }}
                 >
                     {transform.selector ? 'Change element' : 'Select element'}
@@ -155,7 +193,7 @@ export function WebExperimentTransformField({
                         }
                         setExperimentFormValue('variants', experimentForm.variants)
                     }}
-                    value={transform.css}
+                    value={transform.css || ''}
                 />
             )}
         </>

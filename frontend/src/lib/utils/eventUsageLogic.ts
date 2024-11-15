@@ -46,6 +46,7 @@ import {
     DashboardType,
     EntityType,
     Experiment,
+    ExperimentIdType,
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
@@ -480,10 +481,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentInsightLoadFailed: true,
         reportExperimentVariantShipped: (experiment: Experiment) => ({ experiment }),
-        reportExperimentVariantScreenshotUploaded: (experimentId: number | 'new') => ({ experimentId }),
-        reportExperimentResultsLoadingTimeout: (experimentId: number | 'new') => ({ experimentId }),
-        reportExperimentReleaseConditionsViewed: (experimentId: number | 'new') => ({ experimentId }),
-        reportExperimentReleaseConditionsUpdated: (experimentId: number | 'new') => ({ experimentId }),
+        reportExperimentVariantScreenshotUploaded: (experimentId: ExperimentIdType) => ({ experimentId }),
+        reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => ({ experimentId }),
+        reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => ({ experimentId }),
+        reportExperimentReleaseConditionsUpdated: (experimentId: ExperimentIdType) => ({ experimentId }),
 
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -987,6 +988,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment created', {
                 name: experiment.name,
                 id: experiment.id,
+                type: experiment.type,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,

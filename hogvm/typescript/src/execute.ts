@@ -43,12 +43,12 @@ export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOp
     throw new HogVMException('Unexpected async function call: ' + response.asyncFunctionName)
 }
 
-export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): Promise<any> {
+export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): Promise<ExecResult> {
     let vmState: VMState | undefined = undefined
     while (true) {
         const response = exec(vmState ?? bytecode, options)
         if (response.finished) {
-            return response.result
+            return response
         }
         if (response.error) {
             throw response.error
@@ -334,14 +334,13 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
             // Return or jump back to the previous call frame if ran out of bytecode to execute in this one
             if (frame.ip >= chunkBytecode.length) {
                 const lastCallFrame = callStack.pop()
+                // Also ran out of call frames. We're done.
                 if (!lastCallFrame || callStack.length === 0) {
-                    if (stack.length > 1) {
-                        throw new HogVMException('Invalid bytecode. More than one value left on stack')
-                    }
                     return {
-                        result: stack.length > 0 ? popStack() : null,
+                        // Don't pop the stack if we're in repl mode
+                        result: options?.repl ? undefined : stack.length > 0 ? popStack() : null,
                         finished: true,
-                        state: { ...getVMState(), bytecodes: {}, stack: [], callStack: [], upvalues: [] },
+                        state: getVMState(),
                     } satisfies ExecResult
                 }
                 stackKeepFirstElements(lastCallFrame.stackStart)

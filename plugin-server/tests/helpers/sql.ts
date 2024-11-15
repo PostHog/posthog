@@ -8,11 +8,13 @@ import {
     PluginAttachmentDB,
     PluginConfig,
     PluginsServerConfig,
+    ProjectId,
     PropertyOperator,
     RawAction,
     RawOrganization,
     RawPerson,
     Team,
+    TeamId,
 } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
@@ -324,20 +326,40 @@ export const createOrganization = async (pg: PostgresRouter) => {
     return organizationId
 }
 
-export const createTeam = async (pg: PostgresRouter, organizationId: string, token?: string) => {
+export const createTeam = async (
+    pg: PostgresRouter,
+    projectOrOrganizationId: ProjectId | string,
+    token?: string
+): Promise<TeamId> => {
     // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
     const id = Math.round(Math.random() * 1000000000)
-    await insertRow(pg, 'posthog_project', {
-        // Every team (aka environment) must be a child of a project
-        id,
-        organization_id: organizationId,
-        name: 'TEST PROJECT',
-        created_at: new Date().toISOString(),
-    })
+    let organizationId: string
+    let projectId: ProjectId
+    if (typeof projectOrOrganizationId === 'number') {
+        projectId = projectOrOrganizationId
+        organizationId = await pg
+            .query<{ organization_id: string }>(
+                PostgresUse.COMMON_READ,
+                'SELECT organization_id FROM posthog_project WHERE id = $1',
+                [projectId],
+                'fetchOrganizationId'
+            )
+            .then((result) => result.rows[0].organization_id)
+    } else {
+        projectId = id as ProjectId
+        organizationId = projectOrOrganizationId
+        await insertRow(pg, 'posthog_project', {
+            // Every team (aka environment) must be a child of a project
+            id,
+            organization_id: organizationId,
+            name: 'TEST PROJECT',
+            created_at: new Date().toISOString(),
+        })
+    }
     await insertRow(pg, 'posthog_team', {
         id,
         organization_id: organizationId,
-        project_id: id,
+        project_id: projectId,
         app_urls: [],
         name: 'TEST PROJECT',
         event_names: [],
