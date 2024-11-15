@@ -321,6 +321,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
     permission_classes = [PluginsAccessLevelPermission]
+    hide_api_docs = True
 
     def dangerously_get_permissions(self):
         # We have one very specific case to override - if the object we are getting is a global plugin, we need to
@@ -744,6 +745,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
+    hide_api_docs = True
 
     def safely_get_queryset(self, queryset):
         if not can_configure_plugins(self.team.organization_id):
