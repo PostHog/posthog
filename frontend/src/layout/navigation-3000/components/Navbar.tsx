@@ -27,7 +27,7 @@ export function Navbar(): JSX.Element {
     const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
-    const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
+    const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
 
@@ -54,20 +54,6 @@ export function Navbar(): JSX.Element {
                                             sideAction={item.sideAction}
                                             tag={item.tag}
                                             to={'to' in item ? item.to : undefined}
-                                            onClick={
-                                                'logic' in item
-                                                    ? () => {
-                                                          if (
-                                                              activeNavbarItemId === item.identifier &&
-                                                              isSidebarShown
-                                                          ) {
-                                                              hideSidebar()
-                                                          } else {
-                                                              showSidebar(item.identifier)
-                                                          }
-                                                      }
-                                                    : undefined
-                                            }
                                             active={activeNavbarItemId === item.identifier && isSidebarShown}
                                         />
                                     )
