@@ -1,7 +1,7 @@
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
@@ -57,18 +57,24 @@ interface PaymentEntryModalProps {
     redirectPath?: string | null
 }
 
-export const PaymentEntryModal = async ({
-    redirectPath = null,
-}: PaymentEntryModalProps): Promise<JSX.Element | null> => {
+export const PaymentEntryModal = ({ redirectPath = null }: PaymentEntryModalProps): JSX.Element => {
     const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
-    const { loadStripe } = await stripeJs()
-    const publicKey = window.STRIPE_PUBLIC_KEY!
-    const stripePromise = await loadStripe(publicKey)
+    const [stripePromise, setStripePromise] = useState<any>(null)
+
+    useEffect(() => {
+        // Load Stripe.js asynchronously
+        const loadStripeJs = async (): Promise<void> => {
+            const { loadStripe } = await stripeJs()
+            const publicKey = window.STRIPE_PUBLIC_KEY!
+            setStripePromise(await loadStripe(publicKey))
+        }
+        void loadStripeJs()
+    }, [])
 
     useEffect(() => {
         initiateAuthorization(redirectPath)
-    }, [redirectPath])
+    }, [initiateAuthorization, redirectPath])
 
     return (
         <LemonModal
