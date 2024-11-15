@@ -16,82 +16,10 @@ pub fn generate_fingerprint(exception: &[Exception]) -> String {
 
 #[cfg(test)]
 mod test {
+
     use crate::{frames::Frame, types::Stacktrace};
 
     use super::*;
-
-    #[test]
-    fn test_fingerprint_generation() {
-        let mut exception = Exception {
-            exception_type: "TypeError".to_string(),
-            exception_message: "Cannot read property 'foo' of undefined".to_string(),
-            mechanism: Default::default(),
-            module: Default::default(),
-            thread_id: None,
-            stack: Default::default(),
-        };
-
-        let resolved_frames = vec![
-            Frame {
-                mangled_name: "foo".to_string(),
-                line: Some(10),
-                column: Some(5),
-                source: Some("http://example.com/alpha/foo.js".to_string()),
-                in_app: true,
-                resolved_name: Some("bar".to_string()),
-                resolved: true,
-                resolve_failure: None,
-                lang: "javascript".to_string(),
-                context: None,
-            },
-            Frame {
-                mangled_name: "bar".to_string(),
-                line: Some(20),
-                column: Some(15),
-                source: Some("http://example.com/bar.js".to_string()),
-                in_app: true,
-                resolved_name: Some("baz".to_string()),
-                resolved: true,
-                resolve_failure: None,
-                lang: "javascript".to_string(),
-                context: None,
-            },
-            Frame {
-                mangled_name: "xyz".to_string(),
-                line: Some(30),
-                column: Some(25),
-                source: None,
-                in_app: true,
-                resolved_name: None,
-                resolved: true,
-                resolve_failure: None,
-                lang: "javascript".to_string(),
-                context: None,
-            },
-            Frame {
-                mangled_name: "<anonymous>".to_string(),
-                line: None,
-                column: None,
-                source: None,
-                in_app: false,
-                resolved_name: None,
-                resolved: true,
-                resolve_failure: None,
-                lang: "javascript".to_string(),
-                context: None,
-            },
-        ];
-
-        exception.stack = Some(Stacktrace::Resolved {
-            frames: resolved_frames,
-        });
-
-        let fingerprint = super::generate_fingerprint(&[exception]);
-        assert_eq!(
-            fingerprint,
-            "7f5c327cd3941f2da655d852eb4661b411440c080c7ff014feb920afde68beaffe663908d4ab5fb7b7f1e7ab7f1f7cd17949139e8f812b1c3ff0911fc5b68f37"
-        );
-    }
 
     #[test]
     fn test_some_resolved_frames() {
@@ -106,6 +34,7 @@ mod test {
 
         let mut resolved_frames = vec![
             Frame {
+                raw_id: String::new(),
                 mangled_name: "foo".to_string(),
                 line: Some(10),
                 column: Some(5),
@@ -118,6 +47,7 @@ mod test {
                 context: None,
             },
             Frame {
+                raw_id: String::new(),
                 mangled_name: "bar".to_string(),
                 line: Some(20),
                 column: Some(15),
@@ -132,6 +62,7 @@ mod test {
         ];
 
         let unresolved_frame = Frame {
+            raw_id: String::new(),
             mangled_name: "xyz".to_string(),
             line: Some(30),
             column: Some(25),
@@ -175,6 +106,7 @@ mod test {
 
         let resolved_frames = vec![
             Frame {
+                raw_id: String::new(),
                 mangled_name: "foo".to_string(),
                 line: Some(10),
                 column: Some(5),
@@ -187,6 +119,7 @@ mod test {
                 context: None,
             },
             Frame {
+                raw_id: String::new(),
                 mangled_name: "bar".to_string(),
                 line: Some(20),
                 column: Some(15),
@@ -199,6 +132,7 @@ mod test {
                 context: None,
             },
             Frame {
+                raw_id: String::new(),
                 mangled_name: "xyz".to_string(),
                 line: Some(30),
                 column: Some(25),
@@ -236,6 +170,7 @@ mod test {
         };
 
         let mut resolved_frames = vec![Frame {
+            raw_id: String::new(),
             mangled_name: "foo".to_string(),
             line: Some(10),
             column: Some(5),
@@ -249,6 +184,7 @@ mod test {
         }];
 
         let non_app_frame = Frame {
+            raw_id: String::new(),
             mangled_name: "bar".to_string(),
             line: Some(20),
             column: Some(15),

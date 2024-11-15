@@ -119,7 +119,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value for previous week is (0) less than lower threshold (1.0)"]
+            ANY, ["The insight value for previous week (0) is less than lower threshold (1.0)"]
         )
 
     def test_trend_high_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
@@ -153,7 +153,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value for previous week is (2) more than upper threshold (1.0)"]
+            ANY, ["The insight value for previous week (2) is more than upper threshold (1.0)"]
         )
 
     def test_trend_no_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
