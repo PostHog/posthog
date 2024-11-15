@@ -41,6 +41,9 @@ class Experiment(models.Model):
     variants = models.JSONField(default=dict, null=True, blank=True)
 
     metrics = models.JSONField(default=list, null=True, blank=True)
+    saved_metrics: models.ManyToManyField = models.ManyToManyField(
+        "ExperimentSavedMetric", blank=True, related_name="experiments", through="ExperimentToSavedMetric"
+    )
 
     def get_feature_flag_key(self):
         return self.feature_flag.key
@@ -62,3 +65,30 @@ class ExperimentHoldout(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class ExperimentSavedMetric(models.Model):
+    name = models.CharField(max_length=400)
+    description = models.CharField(max_length=400, null=True, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    query = models.JSONField()
+
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ExperimentToSavedMetric(models.Model):
+    experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
+    saved_metric = models.ForeignKey("ExperimentSavedMetric", on_delete=models.CASCADE)
+
+    # Metadata for the saved metric at the time of the experiment creation
+    # has stuff like whether this metric is primary, and any other information
+    # we need for the metric, other than the query.
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.experiment.name} - {self.saved_metric.name} - {self.metadata}"

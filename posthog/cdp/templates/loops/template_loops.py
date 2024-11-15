@@ -4,6 +4,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-loops",
     name="Loops",
     description="Send events to Loops",

@@ -3,6 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-aws-kinesis",
     name="AWS Kinesis",
     description="Put data to an AWS Kinesis stream",

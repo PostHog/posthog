@@ -1,0 +1,28 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\n            SELECT id, team_id, status FROM posthog_errortrackingissue\n            WHERE team_id = $1 AND id = $2\n            ",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "id",
+                "type_info": "Uuid"
+            },
+            {
+                "ordinal": 1,
+                "name": "team_id",
+                "type_info": "Int4"
+            },
+            {
+                "ordinal": 2,
+                "name": "status",
+                "type_info": "Text"
+            }
+        ],
+        "parameters": {
+            "Left": ["Int4", "Uuid"]
+        },
+        "nullable": [false, false, false]
+    },
+    "hash": "ad528f712bdaf75a82293018e3dec3544acd0228776b8535f22438db59002e1f"
+}

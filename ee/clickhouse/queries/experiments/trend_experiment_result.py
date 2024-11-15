@@ -22,6 +22,7 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
+from posthog.models.experiment import ExperimentHoldout
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -81,9 +82,12 @@ class ClickhouseTrendExperimentResult:
         experiment_end_date: Optional[datetime] = None,
         trend_class: type[Trends] = Trends,
         custom_exposure_filter: Optional[Filter] = None,
+        holdout: Optional[ExperimentHoldout] = None,
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
+        if holdout:
+            self.variants.append(f"holdout-{holdout.id}")
 
         # our filters assume that the given time ranges are in the project timezone.
         # while start and end date are in UTC.
@@ -229,7 +233,11 @@ class ClickhouseTrendExperimentResult:
         insight_results = self.insight.run(self.query_filter, self.team)
         exposure_results = self.insight.run(self.exposure_filter, self.team)
 
-        basic_result_props = {"insight": insight_results, "filters": self.query_filter.to_dict()}
+        basic_result_props = {
+            "insight": insight_results,
+            "filters": self.query_filter.to_dict(),
+            "exposure_filters": self.exposure_filter.to_dict(),
+        }
 
         try:
             validate_event_variants(insight_results, self.variants)

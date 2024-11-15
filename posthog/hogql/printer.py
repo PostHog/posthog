@@ -6,6 +6,7 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
 from posthog.hogql.base import AST, _T_AST
@@ -266,7 +267,7 @@ class _Printer(Visitor):
         self.stack.pop()
 
         if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
-            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):
+            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             settings = self._print_settings(self.settings)
             if settings is not None:
@@ -274,17 +275,25 @@ class _Printer(Visitor):
 
         return response
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
-        queries = [self.visit(expr) for expr in node.select_queries]
+        ret = self.visit(node.initial_select_query)
         if self.pretty:
-            query = f"\n{self.indent(1)}UNION ALL\n{self.indent(1)}".join([query.strip() for query in queries])
-        else:
-            query = " UNION ALL ".join(queries)
+            ret = ret.strip()
+        for expr in node.subsequent_select_queries:
+            query = self.visit(expr.select_query)
+            if self.pretty:
+                query = query.strip()
+            if expr.set_operator is not None:
+                if self.pretty:
+                    ret += f"\n{self.indent(1)}{expr.set_operator}\n{self.indent(1)}"
+                else:
+                    ret += f" {expr.set_operator} "
+            ret += query
         self._indent += 1
         if len(self.stack) > 1:
-            return f"({query.strip()})"
-        return query
+            return f"({ret.strip()})"
+        return ret
 
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse":
@@ -293,8 +302,8 @@ class _Printer(Visitor):
             if not self.context.team_id:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
-        # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
-        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
+        # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
 
         # We will add extra clauses onto this from the joined tables
@@ -507,7 +516,7 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
 
-        elif isinstance(node.type, ast.SelectUnionQueryType):
+        elif isinstance(node.type, ast.SelectSetQueryType):
             join_strings.append(self.visit(node.table))
 
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
@@ -1251,7 +1260,7 @@ class _Printer(Visitor):
             isinstance(type.table_type, ast.SelectQueryType)
             or isinstance(type.table_type, ast.SelectQueryAliasType)
             or isinstance(type.table_type, ast.SelectViewType)
-            or isinstance(type.table_type, ast.SelectUnionQueryType)
+            or isinstance(type.table_type, ast.SelectSetQueryType)
         ):
             field_sql = self._print_identifier(type.name)
             if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
@@ -1501,16 +1510,8 @@ class _Printer(Visitor):
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
-        try:
-            from ee.clickhouse.materialized_columns.columns import (
-                TablesWithMaterializedColumns,
-                get_materialized_columns,
-            )
-
-            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-            return materialized_columns.get((property_name, field_name), None)
-        except ModuleNotFoundError:
-            return None
+        materialized_columns = get_enabled_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
+        return materialized_columns.get((property_name, field_name), None)
 
     def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"

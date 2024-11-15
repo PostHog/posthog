@@ -177,6 +177,7 @@ export const replayTemplates: ReplayTemplateType[] = [
         description: 'Watch all recent replays, and see where users are getting stuck.',
         variables: [],
         categories: ['More'],
+        order: 'start_time',
         icon: <IconVideoCamera />,
     },
     {
@@ -222,5 +223,13 @@ export const replayTemplates: ReplayTemplateType[] = [
         ],
         categories: ['More'],
         icon: <IconPhone />,
+    },
+    {
+        key: 'activity-score',
+        name: 'Most active users',
+        description: 'Watch recordings of the most active sessions. Lots of valuable insights, guaranteed!',
+        order: 'activity_score',
+        categories: ['More'],
+        icon: <IconCursorClick />,
     },
 ]

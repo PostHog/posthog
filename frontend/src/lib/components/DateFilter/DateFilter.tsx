@@ -11,11 +11,11 @@ import {
     NO_OVERRIDE_RANGE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import { DateMappingOption, PropertyOperator } from '~/types'
 
@@ -29,7 +29,7 @@ export interface DateFilterProps {
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode) => React.ReactNode
     className?: string
-    onChange?: (fromDate: string | null, toDate: string | null) => void
+    onChange?: (fromDate: string | null, toDate: string | null, explicitDate?: boolean) => void
     disabled?: boolean
     disabledReason?: string
     dateOptions?: DateMappingOption[]
@@ -45,6 +45,7 @@ interface RawDateFilterProps extends DateFilterProps {
     dateTo?: string | null | dayjs.Dayjs
     max?: number | null
     allowedRollingDateOptions?: DateOption[]
+    allowTimePrecision?: boolean
 }
 
 export function DateFilter({
@@ -63,6 +64,7 @@ export function DateFilter({
     max,
     isFixedDateMode = false,
     allowedRollingDateOptions,
+    allowTimePrecision = false,
     placeholder,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
@@ -75,6 +77,7 @@ export function DateFilter({
         isDateFormatted,
         isFixedDateMode,
         placeholder,
+        allowTimePrecision,
     }
     const {
         open,
@@ -83,6 +86,7 @@ export function DateFilter({
         openFixedDate,
         close,
         setRangeDateFrom,
+        setExplicitDate,
         setRangeDateTo,
         setDate,
         applyRange,
@@ -97,10 +101,14 @@ export function DateFilter({
         isDateToNow,
         isFixedDate,
         isRollingDateRange,
+        dateFromHasTimePrecision,
     } = useValues(dateFilterLogic(logicProps))
 
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
+    const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
+        dateFromHasTimePrecision ? 'minute' : 'day'
+    )
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
@@ -109,6 +117,7 @@ export function DateFilter({
                 onChange={([from, to]) => {
                     setRangeDateFrom(from)
                     setRangeDateTo(to)
+                    setExplicitDate(false)
                     applyRange()
                 }}
                 onClose={open}
@@ -120,9 +129,13 @@ export function DateFilter({
                 onChange={(date) => {
                     setRangeDateFrom(date)
                     setRangeDateTo(null)
+                    setExplicitDate(!!(granularity === 'minute'))
                     applyRange()
                 }}
                 onClose={open}
+                granularity={granularity}
+                showTimeToggle={allowTimePrecision}
+                onToggleTime={() => setGranularity(granularity === 'minute' ? 'day' : 'minute')}
             />
         ) : view === DateFilterView.FixedDate ? (
             <PropertyFilterDatePicker

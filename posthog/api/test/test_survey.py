@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime, timedelta, UTC
 from typing import Any
@@ -11,6 +12,7 @@ from nanoid import generate
 from rest_framework import status
 
 from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Team
 from posthog.models.cohort.cohort import Cohort
@@ -1042,11 +1044,25 @@ class TestSurvey(APIBaseTest):
                     "start_date": None,
                     "end_date": None,
                     "responses_limit": None,
+                    "feature_flag_keys": [
+                        {"key": "linked_flag_key", "value": None},
+                        {"key": "targeting_flag_key", "value": None},
+                        {
+                            "key": "internal_targeting_flag_key",
+                            "value": survey.internal_targeting_flag.key if survey.internal_targeting_flag else None,
+                        },
+                        {"key": "internal_response_sampling_flag_key", "value": None},
+                    ],
                     "iteration_count": None,
                     "iteration_frequency_days": None,
                     "iteration_start_dates": [],
                     "current_iteration": None,
                     "current_iteration_start_date": None,
+                    "response_sampling_start_date": None,
+                    "response_sampling_interval_type": "week",
+                    "response_sampling_interval": None,
+                    "response_sampling_limit": None,
+                    "response_sampling_daily_limits": None,
                 }
             ],
         }
@@ -2309,6 +2325,79 @@ class TestSurveyWithActions(APIBaseTest):
         assert len(survey.actions.all()) == 0
 
 
+class TestSurveyResponseSampling(APIBaseTest):
+    def _create_survey_with_sampling_limits(
+        self,
+        response_sampling_interval_type,
+        response_sampling_interval,
+        response_sampling_limit,
+        response_sampling_start_date,
+    ) -> Survey:
+        random_id = generate("1234567890abcdef", 10)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": f"Survey with adaptive response collection {random_id}",
+                "description": "Collect survey responses over a period of time",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                    }
+                ],
+                "response_sampling_interval_type": response_sampling_interval_type,
+                "response_sampling_interval": response_sampling_interval,
+                "response_sampling_limit": response_sampling_limit,
+                "response_sampling_start_date": response_sampling_start_date,
+            },
+        )
+
+        response_data = response.json()
+        survey = Survey.objects.get(id=response_data["id"])
+        return survey
+
+    def test_can_create_survey_with_adaptive_responses(self):
+        survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
+        assert survey.response_sampling_daily_limits is not None
+        schedule = json.loads(survey.response_sampling_daily_limits)
+        self.assertEqual(len(schedule), 10)
+        for day, entry in enumerate(schedule):
+            self.assertEqual(entry["daily_response_limit"], 50 * (day + 1))
+            self.assertEqual(entry["rollout_percentage"], 10 * (day + 1))
+
+    def test_can_remove_adaptive_response_sampling(self):
+        survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
+        assert survey.response_sampling_daily_limits is not None
+        schedule = json.loads(survey.response_sampling_daily_limits)
+        self.assertEqual(len(schedule), 10)
+        for day, entry in enumerate(schedule):
+            self.assertEqual(entry["daily_response_limit"], 50 * (day + 1))
+            self.assertEqual(entry["rollout_percentage"], 10 * (day + 1))
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "response_sampling_interval_type": None,
+                "response_sampling_interval": None,
+                "response_sampling_limit": None,
+                "response_sampling_start_date": None,
+            },
+        )
+        response_data = response.json()
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey.response_sampling_daily_limits is None
+
+    def test_can_create_targeting_flag_if_does_not_exist(self):
+        survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
+        assert survey.response_sampling_daily_limits is not None
+        assert survey.internal_response_sampling_flag is not None
+        assert survey.internal_response_sampling_flag.filters == {
+            "groups": [{"properties": [], "rollout_percentage": 100, "variant": ""}]
+        }
+
+
 class TestSurveysRecurringIterations(APIBaseTest):
     def _create_recurring_survey(self) -> Survey:
         random_id = generate("1234567890abcdef", 10)
@@ -2781,6 +2870,41 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
             assert surveys[0]["name"] == "Survey 1"
             assert surveys[1]["name"] == "Survey 2"
+
+
+class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["survey:read"]
+        self.key.save()
+
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_works_with_survey_read(self):
+        survey_counts = {
+            "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
+            "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
+            "daed7689-d498-49fe-936f-e85554351b6c": 100,
+        }
+
+        earliest_survey = Survey.objects.create(team_id=self.team.id)
+        earliest_survey.start_date = datetime.now() - timedelta(days=101)
+        earliest_survey.save()
+
+        for survey_id, count in survey_counts.items():
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=count),
+                )
+
+        response = self._do_request(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data, survey_counts)
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):

@@ -8,6 +8,7 @@ from posthog.models.integration import GoogleCloudIntegration
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-google-pubsub",
     name="Google Pub/Sub",
     description="Send data to a Google Pub/Sub topic",

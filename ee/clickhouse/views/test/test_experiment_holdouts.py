@@ -52,7 +52,7 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
                     ],
                     "properties": [],
                 },
-                "holdout": holdout_id,
+                "holdout_id": holdout_id,
             },
         )
 

@@ -48,17 +48,17 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up', 'user signed up', 'paid']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up', 'user signed up', 'paid']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -83,13 +83,13 @@
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
-     WHERE team_id = 2
+     WHERE team_id = 99999
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -149,17 +149,17 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -185,7 +185,7 @@
        (SELECT id,
                argMax(properties, version) as person_props
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
@@ -245,11 +245,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
@@ -258,16 +258,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -337,11 +337,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
@@ -350,16 +350,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -429,11 +429,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
@@ -442,16 +442,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -521,11 +521,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
@@ -534,16 +534,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -613,17 +613,17 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -649,7 +649,7 @@
        (SELECT id,
                argMax(pmat_$browser, version) as pmat_$browser
         FROM person
-        WHERE team_id = 2
+        WHERE team_id = 99999
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
@@ -709,11 +709,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
@@ -722,16 +722,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['Positive'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Positive'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -801,11 +801,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
@@ -814,16 +814,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['Positive'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Positive'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -893,11 +893,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
@@ -906,16 +906,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['Negative'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Negative'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -985,11 +985,11 @@
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND distinct_id IN
                            (SELECT distinct_id
                             FROM events
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND event IN ['paid', 'user signed up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
@@ -998,16 +998,16 @@
                     INNER JOIN
                       (SELECT id
                        FROM person
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND id IN
                            (SELECT id
                             FROM person
-                            WHERE team_id = 2
+                            WHERE team_id = 99999
                               AND (has(['Negative'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['Negative'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1072,7 +1072,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1101,7 +1101,7 @@
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
      WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-       AND event.team_id = 2
+       AND event.team_id = 99999
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
        AND event.event NOT IN funnel_step_names
@@ -1158,7 +1158,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1187,7 +1187,7 @@
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
      WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-       AND event.team_id = 2
+       AND event.team_id = 99999
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
        AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
        AND event.event NOT IN funnel_step_names
@@ -1244,7 +1244,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1268,7 +1268,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1323,7 +1323,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1345,7 +1345,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1399,7 +1399,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1421,7 +1421,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1475,7 +1475,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1497,7 +1497,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1551,7 +1551,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1573,7 +1573,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1631,10 +1631,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1659,7 +1659,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1718,10 +1718,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1744,7 +1744,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1802,10 +1802,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1828,7 +1828,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1887,10 +1887,10 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -1915,7 +1915,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -1975,10 +1975,10 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2001,7 +2001,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -2060,10 +2060,10 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2086,7 +2086,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -2145,10 +2145,10 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2171,7 +2171,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -2230,10 +2230,10 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2256,7 +2256,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -2315,17 +2315,17 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2351,7 +2351,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -2411,17 +2411,17 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2445,7 +2445,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -2504,17 +2504,17 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2538,7 +2538,7 @@
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
   WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
+    AND event.team_id = 99999
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
     AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
@@ -2592,7 +2592,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2618,7 +2618,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -2677,10 +2677,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2750,10 +2750,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2823,10 +2823,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2896,10 +2896,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2965,7 +2965,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -2991,7 +2991,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -3046,7 +3046,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3072,7 +3072,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -3131,10 +3131,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3204,10 +3204,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3277,10 +3277,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3350,10 +3350,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3419,7 +3419,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3445,7 +3445,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -3501,7 +3501,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3528,7 +3528,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -3588,10 +3588,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3663,10 +3663,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3738,10 +3738,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3813,10 +3813,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3884,7 +3884,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3911,7 +3911,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -3967,7 +3967,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -3994,7 +3994,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -4054,10 +4054,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4129,10 +4129,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4204,10 +4204,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4279,10 +4279,10 @@
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4350,7 +4350,7 @@
                            if(event = 'paid', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1
                     FROM events e
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4377,7 +4377,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -4437,10 +4437,10 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4467,7 +4467,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
@@ -4527,17 +4527,17 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4609,17 +4609,17 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4691,17 +4691,17 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4773,17 +4773,17 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                     LEFT JOIN
                       (SELECT group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
                        FROM groups
-                       WHERE team_id = 2
+                       WHERE team_id = 99999
                          AND group_type_index = 0
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4855,10 +4855,10 @@
                       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
-                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
-                    WHERE team_id = 2
+                    WHERE team_id = 99999
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
@@ -4885,7 +4885,7 @@
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,

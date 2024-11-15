@@ -221,8 +221,13 @@ export function Group(): JSX.Element {
                     {
                         key: PersonsTabType.FEATURE_FLAGS,
                         label: <span data-attr="groups-related-flags-tab">Feature flags</span>,
+                        tooltip: `Only shows feature flags with targeting conditions based on ${groupTypeName} properties.`,
                         content: (
-                            <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
+                            <RelatedFeatureFlags
+                                distinctId={groupData.group_key}
+                                groupTypeIndex={groupTypeIndex}
+                                groups={{ [groupType]: groupKey }}
+                            />
                         ),
                     },
                     showCustomerSuccessDashboards

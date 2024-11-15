@@ -119,13 +119,18 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#selectUnionStmt.
-    def visitSelectUnionStmt(self, ctx:HogQLParser.SelectUnionStmtContext):
+    # Visit a parse tree produced by HogQLParser#selectStmtWithParens.
+    def visitSelectStmtWithParens(self, ctx:HogQLParser.SelectStmtWithParensContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#selectStmtWithParens.
-    def visitSelectStmtWithParens(self, ctx:HogQLParser.SelectStmtWithParensContext):
+    # Visit a parse tree produced by HogQLParser#subsequentSelectSetClause.
+    def visitSubsequentSelectSetClause(self, ctx:HogQLParser.SubsequentSelectSetClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#selectSetStmt.
+    def visitSelectSetStmt(self, ctx:HogQLParser.SelectSetStmtContext):
         return self.visitChildren(ctx)
 
 

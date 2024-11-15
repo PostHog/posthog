@@ -11,7 +11,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -29,7 +29,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -53,7 +53,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -71,7 +71,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -95,7 +95,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -113,7 +113,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -137,7 +137,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -155,7 +155,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -179,7 +179,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -197,7 +197,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'frontend.tsx'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -221,7 +221,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -239,7 +239,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -263,7 +263,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -281,7 +281,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -305,7 +305,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -323,7 +323,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'frontend.tsx'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -347,7 +347,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'plugin.json'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE
@@ -365,7 +365,7 @@
          "posthog_pluginsourcefile"."updated_at"
   FROM "posthog_pluginsourcefile"
   WHERE ("posthog_pluginsourcefile"."filename" = 'index.ts'
-         AND "posthog_pluginsourcefile"."plugin_id" = 2)
+         AND "posthog_pluginsourcefile"."plugin_id" = 99999)
   LIMIT 21
   FOR
   UPDATE

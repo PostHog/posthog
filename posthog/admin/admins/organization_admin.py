@@ -1,12 +1,29 @@
 from django.conf import settings
 from django.contrib import admin
+from django.core.management import call_command
 from django.utils.html import format_html
+from django.urls import reverse
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 
 from posthog.models.organization import Organization
+from django.urls import path
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django import forms
+from django.utils import timezone
+
+
+class UsageReportForm(forms.Form):
+    report_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
+
+    def clean_report_date(self):
+        report_date = self.cleaned_data["report_date"]
+        if report_date > timezone.now().date():
+            raise forms.ValidationError("The date cannot be in the future.")
+        return report_date
 
 
 class OrganizationAdmin(admin.ModelAdmin):
@@ -69,3 +86,34 @@ class OrganizationAdmin(admin.ModelAdmin):
             '<a target="_blank" href="/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>',
             organization.id,
         )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "send-usage-report/", self.admin_site.admin_view(self.send_usage_report_view), name="send-usage-report"
+            ),
+        ]
+        return custom_urls + urls
+
+    def send_usage_report_view(self, request):
+        if not request.user.groups.filter(name="Billing Team").exists():
+            messages.error(request, "You are not authorized to send usage reports.")
+            return redirect(reverse("admin:posthog_organization_changelist"))
+
+        if request.method == "POST":
+            form = UsageReportForm(request.POST)
+            if form.is_valid():
+                report_date = form.cleaned_data["report_date"]
+                call_command("send_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async=1")
+                messages.success(request, f"Usage report for date {report_date} was sent successfully.")
+                return redirect(reverse("admin:posthog_organization_changelist"))
+        else:
+            form = UsageReportForm()
+
+        return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["show_usage_report_button"] = True
+        return super().changelist_view(request, extra_context=extra_context)

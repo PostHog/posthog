@@ -24,7 +24,7 @@ from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, TYPES_WITH_COMPILED_FILTERS
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
@@ -45,6 +45,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
         model = HogFunction
         fields = [
             "id",
+            "type",
             "name",
             "description",
             "created_at",
@@ -82,6 +83,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         model = HogFunction
         fields = [
             "id",
+            "type",
             "name",
             "description",
             "created_at",
@@ -138,16 +140,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     {"template_id": "The Data Pipelines addon is required for this template."}
                 )
 
-            if attrs.get("hog"):
-                raise serializers.ValidationError(
-                    {"hog": "The Data Pipelines addon is required to create custom functions."}
-                )
-
-            if attrs.get("inputs_schema"):
-                raise serializers.ValidationError(
-                    {"inputs_schema": "The Data Pipelines addon is required to create custom functions."}
-                )
-
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
@@ -161,9 +153,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if "inputs_schema" in attrs:
             attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
-        if "filters" in attrs:
-            attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-
         if "inputs" in attrs:
             inputs = attrs["inputs"] or {}
             existing_encrypted_inputs = None
@@ -176,6 +165,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])
+
+        if "type" not in attrs:
+            attrs["type"] = "destination"
+
+        if "filters" in attrs and attrs["type"] in TYPES_WITH_COMPILED_FILTERS:
+            attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
 
         return super().validate(attrs)
 
@@ -236,7 +231,8 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            type = self.request.GET.get("type", "destination")
+            queryset = queryset.filter(deleted=False, type=type)
 
         if self.request.GET.get("filters"):
             try:
@@ -319,7 +315,7 @@ class HogFunctionViewSet(
             item_id=serializer.instance.id,
             scope="HogFunction",
             activity="created",
-            detail=Detail(name=serializer.instance.name, type=serializer.instance.type),
+            detail=Detail(name=serializer.instance.name, type=serializer.instance.type or "destination"),
         )
 
     def perform_update(self, serializer):
@@ -342,5 +338,7 @@ class HogFunctionViewSet(
             item_id=instance_id,
             scope="HogFunction",
             activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.name, type=serializer.instance.type),
+            detail=Detail(
+                changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
+            ),
         )

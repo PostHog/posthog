@@ -1,4 +1,4 @@
-fn arrayExists(func, arr) {
+fun arrayExists(func, arr) {
   for (let i in arr) {
     if (func(i)) {
       return true

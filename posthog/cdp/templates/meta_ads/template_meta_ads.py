@@ -2,28 +2,38 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-meta-ads",
     name="Meta Ads Conversions",
     description="Send conversion events to Meta Ads",
     icon_url="/static/services/meta-ads.png",
     category=["Advertisement"],
     hog="""
+let body := {
+    'data': [
+        {
+            'event_name': inputs.eventName,
+            'event_time': inputs.eventTime,
+            'action_source': inputs.actionSource,
+            'user_data': {}
+        }
+    ],
+    'access_token': inputs.accessToken
+}
+
+for (let key, value in inputs.userData) {
+    // e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 is an empty string hashed
+    if (not empty(value) and value != 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') {
+        body.data.1.user_data[key] := value
+    }
+}
+
 let res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',
     },
-    'body': {
-        'data': [
-            {
-                'event_name': inputs.eventName,
-                'event_time': inputs.eventTime,
-                'action_source': inputs.actionSource,
-                'user_data': inputs.userData
-            }
-        ],
-        'access_token': inputs.accessToken
-    }
+    'body': body
 })
 if (res.status >= 400) {
     throw Error(f'Error from graph.facebook.com (status {res.status}): {res.body}')
@@ -117,9 +127,9 @@ if (res.status >= 400) {
             "label": "User data",
             "description": "A map that contains customer information data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters",
             "default": {
-                "em": "{sha256Hex(person.properties.email)}",
-                "fn": "{sha256Hex(person.properties.first_name)}",
-                "ln": "{sha256Hex(person.properties.last_name)}",
+                "em": "{sha256Hex(person.properties.email ?? '')}",
+                "fn": "{sha256Hex(person.properties.first_name ?? '')}",
+                "ln": "{sha256Hex(person.properties.last_name ?? '')}",
             },
             "secret": False,
             "required": True,

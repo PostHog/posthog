@@ -26,7 +26,7 @@ def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]]
 def parse(
     s: str,
     placeholders: Optional[dict[str, ast.Expr]] = None,
-) -> ast.SelectQuery | ast.SelectUnionQuery:
+) -> ast.SelectQuery | ast.SelectSetQuery:
     parsed = parse_select(s, placeholders=placeholders)
     return parsed
 
@@ -363,7 +363,8 @@ class TestSessionsV2QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
 
     def test_select_with_timestamp(self):
         actual = self.print_query("SELECT session_id FROM sessions WHERE $start_timestamp > '2021-01-01'")
-        assert self.generalize_sql(actual) == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot(
+            """\
 SELECT
     sessions.session_id AS session_id
 FROM
@@ -381,7 +382,8 @@ FROM
 WHERE
     ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)
 LIMIT 50000\
-""")
+"""
+        )
 
     def test_join_with_events(self):
         actual = self.print_query(
@@ -396,7 +398,8 @@ WHERE events.timestamp > '2021-01-01'
 GROUP BY sessions.session_id
 """
         )
-        assert self.generalize_sql(actual) == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot(
+            """\
 SELECT
     sessions.session_id AS session_id,
     uniq(events.uuid)
@@ -417,7 +420,8 @@ WHERE
 GROUP BY
     sessions.session_id
 LIMIT 50000\
-""")
+"""
+        )
 
     def test_union(self):
         actual = self.print_query(
@@ -429,7 +433,8 @@ FROM events
 WHERE events.timestamp < today()
             """
         )
-        assert self.generalize_sql(actual) == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot(
+            """\
 SELECT
     0 AS duration
 LIMIT 50000
@@ -451,7 +456,8 @@ FROM
 WHERE
     and(equals(events.team_id, <TEAM_ID>), less(toTimeZone(events.timestamp, %(hogql_val_4)s), today()))
 LIMIT 50000\
-""")
+"""
+        )
 
     def test_session_breakdown(self):
         actual = self.print_query(
@@ -495,7 +501,8 @@ WHERE and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024
 GROUP BY day_start,
          breakdown_value"""
         )
-        assert self.generalize_sql(actual) == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot(
+            """\
 SELECT
     count(DISTINCT e.`$session_id`) AS total,
     toStartOfDay(toTimeZone(e.timestamp, %(hogql_val_8)s)) AS day_start,
@@ -535,7 +542,8 @@ GROUP BY
     day_start,
     breakdown_value
 LIMIT 50000\
-""")
+"""
+        )
 
     def test_session_replay_query(self):
         actual = self.print_query(
@@ -548,7 +556,8 @@ WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01
 GROUP BY session_id
         """
         )
-        assert self.generalize_sql(actual) == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot(
+            """\
 SELECT
     s.session_id AS session_id,
     min(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
@@ -569,7 +578,8 @@ WHERE
 GROUP BY
     s.session_id
 LIMIT 50000\
-""")
+"""
+        )
 
     def test_urls_in_sessions_in_timestamp_query(self):
         actual = self.print_query(
@@ -582,7 +592,8 @@ from sessions
 where `$start_timestamp` >= now() - toIntervalDay(7)
 """
         )
-        assert self.generalize_sql(actual) == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot(
+            """\
 SELECT
     sessions.session_id AS session_id,
     sessions.`$urls` AS `$urls`,
@@ -603,4 +614,5 @@ FROM
 WHERE
     ifNull(greaterOrEquals(sessions.`$start_timestamp`, minus(now64(6, %(hogql_val_2)s), toIntervalDay(7))), 0)
 LIMIT 50000\
-""")
+"""
+        )

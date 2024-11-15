@@ -196,14 +196,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
         self.assertEqual(
-            obj.private_project_access, [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
+            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
         )
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
@@ -218,16 +218,48 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
         self.assertEqual(
-            obj.private_project_access, [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
+            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
         )
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
+
+    def test_can_invite_to_private_project_if_user_has_implicit_access_to_team(self):
+        """
+        Org admins and owners can invite to any private project, even if they're not an explicit admin of the team
+        because they have implicit access due to their org membership level.
+        """
+        org_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        org_membership.level = OrganizationMembership.Level.ADMIN
+        org_membership.save()
+
+        email = "x@posthog.com"
+        count = OrganizationInvite.objects.count()
+        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        obj = OrganizationInvite.objects.get(id=response.json()["id"])
+        self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(
+            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
+        # reset the org membership level in case it's used in other tests
+        org_membership.level = OrganizationMembership.Level.MEMBER
+        org_membership.save()
 
     def test_invite_fails_if_team_in_private_project_access_not_in_org(self):
         email = "x@posthog.com"
@@ -248,7 +280,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Team does not exist on this organization, or it is private and you do not have access to it.",
+                "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
                 "attr": "private_project_access",
             },
             response_data,
@@ -273,7 +305,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Team does not exist on this organization, or it is private and you do not have access to it.",
+                "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
                 "attr": "private_project_access",
             },
             response_data,

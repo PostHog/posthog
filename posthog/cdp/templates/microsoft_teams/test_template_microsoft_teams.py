@@ -40,6 +40,7 @@ class TestTemplateMicrosoftTeams(BaseHogFunctionTemplateTest):
                                         {
                                             "type": "TextBlock",
                                             "text": "**max@posthog.com** triggered event: '$pageview'",
+                                            "wrap": True,
                                         }
                                     ],
                                 },

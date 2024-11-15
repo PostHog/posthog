@@ -525,7 +525,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     filters: {
                         date_from: '-3d',
                         date_to: null,
-                        duration: [{ key: 'duration', operator: 'gt', type: 'recording', value: 1 }],
+                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
                         filter_group: {
                             type: FilterLogicalOperator.And,
                             values: [
@@ -793,10 +793,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 filter_test_accounts: false,
                 having_predicates: [
                     {
-                        key: 'duration',
+                        key: 'active_seconds',
                         operator: 'gt',
                         type: 'recording',
-                        value: 1,
+                        value: 5,
                     },
                 ],
                 kind: 'RecordingsQuery',
@@ -815,10 +815,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 date_to: null,
                 duration: [
                     {
-                        key: 'duration',
+                        key: 'active_seconds',
                         operator: 'gt',
                         type: 'recording',
-                        value: 1,
+                        value: 5,
                     },
                 ],
                 filter_group: {

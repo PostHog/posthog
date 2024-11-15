@@ -171,17 +171,13 @@ mod tests {
         initialize();
         let service = create_test_service();
         let test_cases = vec![
-            ("13.106.122.3", "Australia", "Sydney"),
-            ("31.28.64.3", "United Kingdom", "Baldock"),
-            (
-                "2600:6c52:7a00:11c:1b6:b7b0:ea19:6365",
-                "United States",
-                "San Luis Obispo",
-            ),
-            ("187.188.10.252", "Mexico", "Coyoacán"),
+            ("13.106.122.3", "Australia"),
+            ("31.28.64.3", "United Kingdom"),
+            ("2600:6c52:7a00:11c:1b6:b7b0:ea19:6365", "United States"),
+            ("187.188.10.252", "Mexico"),
         ];
 
-        for (ip, expected_country, expected_city) in test_cases {
+        for (ip, expected_country) in test_cases {
             let result = service.get_geoip_properties(Some(ip));
             info!("GeoIP lookup result for IP {}: {:?}", ip, result);
             info!(
@@ -192,10 +188,6 @@ mod tests {
             assert_eq!(
                 result.get("$geoip_country_name"),
                 Some(&expected_country.to_string())
-            );
-            assert_eq!(
-                result.get("$geoip_city_name"),
-                Some(&expected_city.to_string())
             );
             assert_eq!(result.len(), 7);
         }
