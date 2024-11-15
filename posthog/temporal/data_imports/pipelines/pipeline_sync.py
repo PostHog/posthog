@@ -194,8 +194,14 @@ class DataImportPipelineSync:
                 delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{name}"
                 storage_options = self._get_credentials()
 
-                if DeltaTable.is_deltatable(delta_uri, storage_options):
-                    delta_table = DeltaTable(delta_uri, storage_options=self._get_credentials())
+                self.logger.debug(f"delta_uri={delta_uri}")
+
+                is_delta_table = DeltaTable.is_deltatable(delta_uri, storage_options)
+
+                self.logger.debug(f"is_delta_table={is_delta_table}")
+
+                if is_delta_table:
+                    delta_table = DeltaTable(delta_uri, storage_options=storage_options)
                     self.logger.debug("Deleting existing delta table")
                     delta_table.delete()
 
