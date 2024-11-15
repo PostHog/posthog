@@ -17,9 +17,16 @@ export function VariantScreenshot({
     const { experiment } = useValues(experimentLogic)
     const { updateExperimentVariantImages, reportExperimentVariantScreenshotUploaded } = useActions(experimentLogic)
 
-    const [mediaIds, setMediaIds] = useState<string[]>(
-        experiment.parameters?.variant_screenshot_media_ids?.[variantKey] || []
-    )
+    const getInitialMediaIds = (): string[] => {
+        const variantImages = experiment.parameters?.variant_screenshot_media_ids?.[variantKey]
+        if (!variantImages) {
+            return []
+        }
+
+        return Array.isArray(variantImages) ? variantImages : [variantImages]
+    }
+
+    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds())
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
 
