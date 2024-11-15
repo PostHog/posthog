@@ -20,6 +20,7 @@ jest.mock('../../src/utils/fetch', () => {
             Promise.resolve({
                 status: 200,
                 text: () => Promise.resolve(JSON.stringify({ success: true })),
+                headers: new Headers({ 'Content-Type': 'application/json' }),
                 json: () => Promise.resolve({ success: true }),
             })
         ),

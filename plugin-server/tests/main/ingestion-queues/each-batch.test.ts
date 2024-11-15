@@ -16,7 +16,7 @@ import {
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
     PostIngestionEvent,
-    RawClickHouseEvent,
+    RawKafkaEvent,
 } from '../../../src/types'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
@@ -50,6 +50,7 @@ const event: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     teamId: 2,
+    projectId: 1,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
@@ -59,7 +60,7 @@ const event: PostIngestionEvent = {
     person_properties: {},
 }
 
-const clickhouseEvent: RawClickHouseEvent = {
+const kafkaEvent: RawKafkaEvent = {
     event: '$pageview',
     properties: JSON.stringify({
         $ip: '127.0.0.1',
@@ -68,6 +69,7 @@ const clickhouseEvent: RawClickHouseEvent = {
     elements_chain: '',
     timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     team_id: 2,
+    project_id: 1,
     distinct_id: 'my_id',
     created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
@@ -146,7 +148,7 @@ describe('eachBatchX', () => {
     describe('eachBatchAppsOnEventHandlers', () => {
         it('calls runOnEvent when useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [pluginConfig39])
-            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(kafkaEvent), queue)
             // TODO fix to jest spy on the actual function
             expect(runOnEvent).toHaveBeenCalledWith(
                 expect.anything(),
@@ -159,7 +161,7 @@ describe('eachBatchX', () => {
         })
         it('skip runOnEvent when no pluginconfig for team', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.clear()
-            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(kafkaEvent), queue)
             expect(runOnEvent).not.toHaveBeenCalled()
         })
     })
@@ -191,7 +193,7 @@ describe('eachBatchX', () => {
             // mock hasWebhooks to return true
             actionMatcher.hasWebhooks = jest.fn(() => true)
             await eachBatchWebhooksHandlers(
-                createKafkaJSBatch(clickhouseEvent),
+                createKafkaJSBatch(kafkaEvent),
                 actionMatcher,
                 hookCannon,
                 10,
@@ -215,61 +217,61 @@ describe('eachBatchX', () => {
             // create a batch with 10 events each having teamId the same as offset, timestamp which all increment by 1
             const batch = createKafkaJSBatchWithMultipleEvents([
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 1,
                     offset: 1,
                     kafkaTimestamp: '2020-02-23 00:01:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 2,
                     offset: 2,
                     kafkaTimestamp: '2020-02-23 00:02:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 3,
                     offset: 3,
                     kafkaTimestamp: '2020-02-23 00:03:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 4,
                     offset: 4,
                     kafkaTimestamp: '2020-02-23 00:04:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 5,
                     offset: 5,
                     kafkaTimestamp: '2020-02-23 00:05:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 6,
                     offset: 6,
                     kafkaTimestamp: '2020-02-23 00:06:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 7,
                     offset: 7,
                     kafkaTimestamp: '2020-02-23 00:07:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 8,
                     offset: 8,
                     kafkaTimestamp: '2020-02-23 00:08:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 9,
                     offset: 9,
                     kafkaTimestamp: '2020-02-23 00:09:00.00' as ClickHouseTimestamp,
                 },
                 {
-                    ...clickhouseEvent,
+                    ...kafkaEvent,
                     team_id: 10,
                     offset: 10,
                     kafkaTimestamp: '2020-02-23 00:10:00.00' as ClickHouseTimestamp,

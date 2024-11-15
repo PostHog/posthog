@@ -215,6 +215,14 @@ class AlertSerializer(serializers.ModelSerializer):
             # If anything changed we set to NOT_FIRING, so it's firing and notifying with the new settings
             instance.state = AlertState.NOT_FIRING
 
+        calculation_interval_changed = (
+            "calculation_interval" in validated_data
+            and validated_data["calculation_interval"] != instance.calculation_interval
+        )
+        if conditions_or_threshold_changed or calculation_interval_changed:
+            # calculate alert right now, don't wait until preset time
+            self.next_check_at = None
+
         return super().update(instance, validated_data)
 
     def validate_snoozed_until(self, value):
