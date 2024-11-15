@@ -94,6 +94,9 @@ export default function SurveyEdit(): JSX.Element {
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
         : 'Upgrade your plan to use repeating surveys'
+    const surveysAdaptiveLimitsDisabledReason = surveysRecurringScheduleAvailable
+        ? undefined
+        : 'Upgrade your plan to use an adaptive limit on survey responses'
 
     useMemo(() => {
         if (survey.responses_limit && survey.responses_limit > 0) {
@@ -878,74 +881,66 @@ export default function SurveyEdit(): JSX.Element {
                             header: 'Completion conditions',
                             content: (
                                 <>
-                                    {featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_COLLECTION] && (
-                                        <div className="mt-2">
-                                            <h4> How should we manage survey responses? </h4>
-                                            <LemonField.Pure>
-                                                <LemonRadio
-                                                    value={dataCollectionType}
-                                                    onChange={(
-                                                        newValue:
-                                                            | 'until_stopped'
-                                                            | 'until_limit'
-                                                            | 'until_adaptive_limit'
-                                                    ) => {
-                                                        if (newValue === 'until_limit') {
-                                                            resetSurveyAdaptiveSampling()
-                                                            setSurveyValue(
-                                                                'responses_limit',
-                                                                survey.responses_limit || 100
-                                                            )
-                                                        } else if (newValue === 'until_adaptive_limit') {
-                                                            resetSurveyResponseLimits()
-                                                            setSurveyValue(
-                                                                'response_sampling_interval',
-                                                                survey.response_sampling_interval || 1
-                                                            )
-                                                            setSurveyValue(
-                                                                'response_sampling_interval_type',
-                                                                survey.response_sampling_interval_type || 'month'
-                                                            )
-                                                            setSurveyValue(
-                                                                'response_sampling_limit',
-                                                                survey.response_sampling_limit || 100
-                                                            )
-                                                            setSurveyValue(
-                                                                'response_sampling_start_date',
-                                                                survey.response_sampling_start_date || dayjs()
-                                                            )
-                                                        } else {
-                                                            resetSurveyResponseLimits()
-                                                            resetSurveyAdaptiveSampling()
-                                                        }
-                                                        setDataCollectionType(newValue)
-                                                    }}
-                                                    options={[
-                                                        {
-                                                            value: 'until_stopped',
-                                                            label: 'Keep collecting until stopped',
-                                                            'data-attr': 'survey-iteration-frequency-days',
-                                                        },
-                                                        {
-                                                            value: 'until_limit',
-                                                            label: 'Stop after reaching a limit',
-                                                            'data-attr': 'survey-iteration-frequency-days',
-                                                            disabledReason: surveysRecurringScheduleDisabledReason,
-                                                        },
-                                                        {
-                                                            value: 'until_adaptive_limit',
-                                                            label: 'Adaptive limit by responses and time',
-                                                            'data-attr': 'survey-iteration-frequency-days',
-                                                            disabledReason: surveysRecurringScheduleDisabledReason,
-                                                        },
-                                                    ]}
-                                                />
-                                            </LemonField.Pure>
-                                        </div>
-                                    )}
+                                    <div className="mt-2">
+                                        <h3> How should we manage survey responses? </h3>
+                                        <LemonField.Pure>
+                                            <LemonRadio
+                                                value={dataCollectionType}
+                                                onChange={(
+                                                    newValue: 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
+                                                ) => {
+                                                    if (newValue === 'until_limit') {
+                                                        resetSurveyAdaptiveSampling()
+                                                        setSurveyValue('responses_limit', survey.responses_limit || 100)
+                                                    } else if (newValue === 'until_adaptive_limit') {
+                                                        resetSurveyResponseLimits()
+                                                        setSurveyValue(
+                                                            'response_sampling_interval',
+                                                            survey.response_sampling_interval || 1
+                                                        )
+                                                        setSurveyValue(
+                                                            'response_sampling_interval_type',
+                                                            survey.response_sampling_interval_type || 'month'
+                                                        )
+                                                        setSurveyValue(
+                                                            'response_sampling_limit',
+                                                            survey.response_sampling_limit || 100
+                                                        )
+                                                        setSurveyValue(
+                                                            'response_sampling_start_date',
+                                                            survey.response_sampling_start_date || dayjs()
+                                                        )
+                                                    } else {
+                                                        resetSurveyResponseLimits()
+                                                        resetSurveyAdaptiveSampling()
+                                                    }
+                                                    setDataCollectionType(newValue)
+                                                }}
+                                                options={[
+                                                    {
+                                                        value: 'until_stopped',
+                                                        label: 'Keep collecting until stopped',
+                                                        'data-attr': 'survey-iteration-frequency-days',
+                                                    },
+                                                    {
+                                                        value: 'until_limit',
+                                                        label: 'Stop after reaching a limit',
+                                                        'data-attr': 'survey-iteration-frequency-days',
+                                                        disabledReason: surveysRecurringScheduleDisabledReason,
+                                                    },
+                                                    {
+                                                        value: 'until_adaptive_limit',
+                                                        label: 'Adaptive limit by responses and time',
+                                                        'data-attr': 'survey-iteration-frequency-days',
+                                                        disabledReason: surveysAdaptiveLimitsDisabledReason,
+                                                    },
+                                                ]}
+                                            />
+                                        </LemonField.Pure>
+                                    </div>
                                     {dataCollectionType == 'until_adaptive_limit' && (
                                         <LemonField.Pure className="mt-4">
-                                            <div className="flex flex-row gap-2 items-center">
+                                            <div className="flex flex-row gap-2 items-center ml-5">
                                                 Starting{' '}
                                                 <Popover
                                                     actionable
@@ -981,6 +976,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 <LemonInput
                                                     type="number"
                                                     size="small"
+                                                    min={1}
                                                     onChange={(newValue) => {
                                                         setSurveyValue('response_sampling_interval', newValue)
                                                     }}
@@ -1005,7 +1001,7 @@ export default function SurveyEdit(): JSX.Element {
                                         </LemonField.Pure>
                                     )}
                                     {dataCollectionType == 'until_limit' && (
-                                        <LemonField name="responses_limit" className="mt-4">
+                                        <LemonField name="responses_limit" className="mt-4 ml-5">
                                             {({ onChange, value }) => {
                                                 return (
                                                     <div className="flex flex-row gap-2 items-center">
@@ -1035,8 +1031,8 @@ export default function SurveyEdit(): JSX.Element {
                                         </LemonField>
                                     )}
                                     {featureFlags[FEATURE_FLAGS.SURVEYS_RECURRING] && (
-                                        <div className="mt-2">
-                                            <h4> How often should we show this survey? </h4>
+                                        <div className="mt-4">
+                                            <h3> How often should we show this survey? </h3>
                                             <LemonField.Pure>
                                                 <LemonRadio
                                                     value={schedule}
