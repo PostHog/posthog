@@ -328,8 +328,7 @@ export function LineGraph_({
         const colorToken = getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, dataset)
 
         const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : theme[colorToken]
-        const applyTransparency = isPrevious && !isArea
-        const mainColor = applyTransparency ? `${themeColor}80` : themeColor
+        const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
