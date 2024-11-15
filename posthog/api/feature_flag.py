@@ -14,6 +14,9 @@ from rest_framework import (
     viewsets,
 )
 from posthog.api.utils import action
+from posthog.schema import (
+    FeatureFlagStatusQueryResponse,
+)
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -795,6 +798,15 @@ class FeatureFlagViewSet(
         activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
 
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], url_path="status", detail=True, required_scopes=["feature_flag:read"])
+    @extend_schema(
+        responses={
+            200: FeatureFlagStatusQueryResponse,
+        }
+    )
+    def status(self, request: request.Request, **kwargs):
+        return []
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
