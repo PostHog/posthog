@@ -1,12 +1,11 @@
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
-const stripePromise = loadStripe(window.STRIPE_PUBLIC_KEY!)
+const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
 
 export const PaymentForm = (): JSX.Element => {
     const { error, isLoading } = useValues(paymentEntryLogic)
@@ -58,9 +57,14 @@ interface PaymentEntryModalProps {
     redirectPath?: string | null
 }
 
-export const PaymentEntryModal = ({ redirectPath = null }: PaymentEntryModalProps): JSX.Element | null => {
+export const PaymentEntryModal = async ({
+    redirectPath = null,
+}: PaymentEntryModalProps): Promise<JSX.Element | null> => {
     const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
+    const { loadStripe } = await stripeJs()
+    const publicKey = window.STRIPE_PUBLIC_KEY!
+    const stripePromise = await loadStripe(publicKey)
 
     useEffect(() => {
         initiateAuthorization(redirectPath)
