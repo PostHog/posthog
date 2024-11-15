@@ -29,7 +29,7 @@ function jsonStringify (value, spacing) {
 }
 function jsonParse (str) {
     function convert(x) {
-        if (Array.isArray(x)) { return x.map(convert) } 
+        if (Array.isArray(x)) { return x.map(convert) }
         else if (typeof x === 'object' && x !== null) {
             if (x.__hogDateTime__) { return __toHogDateTime(x.dt, x.zone)
             } else if (x.__hogDate__) { return __toHogDate(x.year, x.month, x.day)
@@ -66,7 +66,7 @@ function __newHogError(type, message, payload) {
     return error
 }
 function __STLToString(arg) {
-    if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; } 
+    if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
     else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
     return __printHogStringOutput(arg); }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }

@@ -3,11 +3,11 @@ function toUnixTimestamp (input, zone) { return __toUnixTimestamp(input, zone) }
 function toTimeZone (input, zone) { return __toTimeZone(input, zone) }
 function toString (value) { return __STLToString(value) }
 function toInt(value) {
-    if (__isHogDateTime(value)) { return Math.floor(value.dt); } 
+    if (__isHogDateTime(value)) { return Math.floor(value.dt); }
     else if (__isHogDate(value)) { const date = new Date(Date.UTC(value.year, value.month - 1, value.day)); const epoch = new Date(Date.UTC(1970, 0, 1)); const diffInDays = Math.floor((date - epoch) / (1000 * 60 * 60 * 24)); return diffInDays; }
     return !isNaN(parseInt(value)) ? parseInt(value) : null; }
 function toFloat(value) {
-    if (__isHogDateTime(value)) { return value.dt; } 
+    if (__isHogDateTime(value)) { return value.dt; }
     else if (__isHogDate(value)) { const date = new Date(Date.UTC(value.year, value.month - 1, value.day)); const epoch = new Date(Date.UTC(1970, 0, 1)); const diffInDays = (date - epoch) / (1000 * 60 * 60 * 24); return diffInDays; }
     return !isNaN(parseFloat(value)) ? parseFloat(value) : null; }
 function toDateTime (input, zone) { return __toDateTime(input, zone) }
@@ -41,7 +41,7 @@ function __toHogDateTime(timestamp, zone) {
     }
     return { __hogDateTime__: true, dt: timestamp, zone: zone || 'UTC' }; }
 function __STLToString(arg) {
-    if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; } 
+    if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
     else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
     return __printHogStringOutput(arg); }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }

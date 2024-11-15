@@ -29,7 +29,7 @@ function jsonStringify (value, spacing) {
 }
 function jsonParse (str) {
     function convert(x) {
-        if (Array.isArray(x)) { return x.map(convert) } 
+        if (Array.isArray(x)) { return x.map(convert) }
         else if (typeof x === 'object' && x !== null) {
             if (x.__hogDateTime__) { return __toHogDateTime(x.dt, x.zone)
             } else if (x.__hogDate__) { return __toHogDate(x.year, x.month, x.day)
