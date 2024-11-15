@@ -201,7 +201,7 @@ class DataImportPipelineSync:
                 self.logger.debug(f"is_delta_table={is_delta_table}")
 
                 if is_delta_table:
-                    delta_table = DeltaTable(delta_uri, storage_options=self._get_credentials())
+                    delta_table = DeltaTable(delta_uri, storage_options=storage_options)
                     self.logger.debug("Deleting existing delta table")
                     delta_table.delete()
 
