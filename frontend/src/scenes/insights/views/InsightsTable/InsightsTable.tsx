@@ -12,6 +12,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -126,6 +127,10 @@ export function InsightsTable({
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
+                    hasBreakdown={isValidBreakdown(breakdownFilter)}
+                    colorAssignmentBy={colorAssignmentBy}
+                    legendEntries={legendEntries}
+                    updateLegendEntry={updateLegendEntry}
                 />
             )
             return hasCheckboxes ? (
