@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema'
@@ -35,7 +36,7 @@ export function ResultPane({
 }: ResultPaneProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { editingViewId, queryInput } = useValues(
+    const { editingView, queryInput } = useValues(
         multitabEditorLogic({
             key: codeEditorKey,
         })
@@ -91,14 +92,14 @@ export function ResultPane({
                     ]}
                 />
                 <div className="flex gap-1">
-                    {editingViewId ? (
+                    {editingView ? (
                         <>
                             <LemonButton
                                 loading={dataWarehouseSavedQueriesLoading}
                                 type="secondary"
                                 onClick={() =>
                                     updateDataWarehouseSavedQuery({
-                                        id: editingViewId,
+                                        id: editingView.id,
                                         query: {
                                             kind: NodeKind.HogQLQuery,
                                             query: queryInput,
@@ -114,8 +115,9 @@ export function ResultPane({
                             Save
                         </LemonButton>
                     )}
-                    <LemonButton type="primary" onClick={() => onQueryInputChange()}>
-                        Run
+                    <LemonButton loading={responseLoading} type="primary" onClick={() => onQueryInputChange()}>
+                        <span className="mr-1">Run</span>
+                        <KeyboardShortcut command enter />
                     </LemonButton>
                 </div>
             </div>

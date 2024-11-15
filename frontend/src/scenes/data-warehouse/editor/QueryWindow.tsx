@@ -31,7 +31,7 @@ export function QueryWindow(): JSX.Element {
         hasErrors,
         error,
         isValidView,
-        editingViewId,
+        editingView,
     } = useValues(logic)
     const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView } = useActions(logic)
 
@@ -44,9 +44,9 @@ export function QueryWindow(): JSX.Element {
                 onAdd={createTab}
                 activeModelUri={activeModelUri}
             />
-            {editingViewId && (
+            {editingView && (
                 <div className="h-7 bg-warning-highlight p-1">
-                    <span> Editing view "Sample view name"</span>
+                    <span> Editing view "{editingView.name}"</span>
                 </div>
             )}
             <QueryPane

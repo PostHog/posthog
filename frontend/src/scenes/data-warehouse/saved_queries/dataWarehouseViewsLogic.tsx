@@ -66,6 +66,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         updateDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
+            lemonToast.success('View updated')
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             await api.dataWarehouseSavedQueries.run(viewId)

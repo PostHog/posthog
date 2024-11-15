@@ -50,7 +50,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             databaseTableListLogic,
             ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
-        actions: [editorSceneLogic, ['selectSchema']],
+        actions: [editorSceneLogic, ['selectSchema'], dataWarehouseViewsLogic, ['deleteDataWarehouseSavedQuery']],
     }),
     selectors(({ actions }) => ({
         contents: [
@@ -132,7 +132,14 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                 onClick: () => {
                                     multitabEditorLogic({
                                         key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                    }).actions.createTab(savedQuery.query.query, savedQuery.id)
+                                    }).actions.createTab(savedQuery.query.query, savedQuery)
+                                },
+                            },
+                            {
+                                label: 'Delete',
+                                status: 'danger',
+                                onClick: () => {
+                                    actions.deleteDataWarehouseSavedQuery(savedQuery.id)
                                 },
                             },
                         ],
