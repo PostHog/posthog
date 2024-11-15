@@ -1,5 +1,6 @@
 use crate::{
     api::{FlagError, FlagsResponse},
+    cohort_cache::CohortCacheManager,
     database::Client,
     flag_definitions::FeatureFlagList,
     flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
@@ -69,6 +70,7 @@ pub struct FeatureFlagEvaluationContext {
     feature_flags: FeatureFlagList,
     postgres_reader: Arc<dyn Client + Send + Sync>,
     postgres_writer: Arc<dyn Client + Send + Sync>,
+    cohort_cache: Arc<CohortCacheManager>,
     #[builder(default)]
     person_property_overrides: Option<HashMap<String, Value>>,
     #[builder(default)]
@@ -108,18 +110,16 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let hash_key_override = request.anon_distinct_id.clone();
 
     let feature_flags_from_cache_or_pg = request
-        .get_flags_from_cache_or_pg(team_id, state.redis.clone(), state.postgres_reader.clone())
+        .get_flags_from_cache_or_pg(team_id, &state.redis, &state.postgres_reader)
         .await?;
-
-    let postgres_reader_dyn: Arc<dyn Client + Send + Sync> = state.postgres_reader.clone();
-    let postgres_writer_dyn: Arc<dyn Client + Send + Sync> = state.postgres_writer.clone();
 
     let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
         .team_id(team_id)
         .distinct_id(distinct_id)
         .feature_flags(feature_flags_from_cache_or_pg)
-        .postgres_reader(postgres_reader_dyn)
-        .postgres_writer(postgres_writer_dyn)
+        .postgres_reader(state.postgres_reader.clone())
+        .postgres_writer(state.postgres_writer.clone())
+        .cohort_cache(state.cohort_cache.clone())
         .person_property_overrides(person_property_overrides)
         .group_property_overrides(group_property_overrides)
         .groups(groups)
@@ -224,8 +224,8 @@ pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> Fl
         context.team_id,
         context.postgres_reader,
         context.postgres_writer,
+        context.cohort_cache,
         Some(group_type_mapping_cache),
-        None, // TODO maybe remove this from the matcher struct, since it's used internally but not passed around
         context.groups,
     );
     feature_flag_matcher
@@ -359,6 +359,7 @@ mod tests {
     async fn test_evaluate_feature_flags() {
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -374,6 +375,7 @@ mod tests {
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
+                        negation: None,
                     }]),
                     rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
                     variant: None,
@@ -397,6 +399,7 @@ mod tests {
             .feature_flags(feature_flag_list)
             .postgres_reader(postgres_reader)
             .postgres_writer(postgres_writer)
+            .cohort_cache(cohort_cache)
             .person_property_overrides(Some(person_properties))
             .build()
             .expect("Failed to build FeatureFlagEvaluationContext");
@@ -505,6 +508,7 @@ mod tests {
     async fn test_evaluate_feature_flags_multiple_flags() {
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flags = vec![
             FeatureFlag {
                 name: Some("Flag 1".to_string()),
@@ -556,6 +560,7 @@ mod tests {
             .feature_flags(feature_flag_list)
             .postgres_reader(postgres_reader)
             .postgres_writer(postgres_writer)
+            .cohort_cache(cohort_cache)
             .build()
             .expect("Failed to build FeatureFlagEvaluationContext");
 
@@ -608,6 +613,7 @@ mod tests {
     async fn test_evaluate_feature_flags_with_overrides() {
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
@@ -627,6 +633,7 @@ mod tests {
                         operator: Some(OperatorType::Exact),
                         prop_type: "group".to_string(),
                         group_type_index: Some(0),
+                        negation: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -655,6 +662,7 @@ mod tests {
             .feature_flags(feature_flag_list)
             .postgres_reader(postgres_reader)
             .postgres_writer(postgres_writer)
+            .cohort_cache(cohort_cache)
             .group_property_overrides(Some(group_property_overrides))
             .groups(Some(groups))
             .build()
@@ -688,6 +696,7 @@ mod tests {
         let long_id = "a".repeat(1000);
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -717,6 +726,7 @@ mod tests {
             .feature_flags(feature_flag_list)
             .postgres_reader(postgres_reader)
             .postgres_writer(postgres_writer)
+            .cohort_cache(cohort_cache)
             .build()
             .expect("Failed to build FeatureFlagEvaluationContext");
 
