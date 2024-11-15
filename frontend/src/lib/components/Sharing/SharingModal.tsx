@@ -113,7 +113,15 @@ export function SharingModalContent({
                                         bordered
                                         label={
                                             <div className="flex items-center">
-                                                <span>Password protect</span>
+                                                <TitleWithIcon
+                                                    icon={
+                                                        <Tooltip title="The password is saved in plain-text on our server and, while the shared resource cannot be viewed without it, is best used for secondary auth only. For optimal security, do not circulate the shared link around broadly!">
+                                                            <IconInfo />
+                                                        </Tooltip>
+                                                    }
+                                                >
+                                                    Password protect
+                                                </TitleWithIcon>
                                             </div>
                                         }
                                         onChange={setPasswordRequired}

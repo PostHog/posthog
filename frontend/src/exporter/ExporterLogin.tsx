@@ -1,5 +1,4 @@
-import '~/styles'
-import './Exporter.scss'
+import '../scenes/authentication/Login.scss'
 
 import clsx from 'clsx'
 import { actions, kea, path, reducers, useValues } from 'kea'
@@ -9,7 +8,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { useRef } from 'react'
 import { ERROR_MESSAGES } from 'scenes/authentication/Login'
 import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
 
@@ -55,7 +53,7 @@ export const loginLogic = kea<loginLogicType>([
                 const response = await fetch(window.location.href, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json', // Set content type to JSON
+                        'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({ password }),
                 })
@@ -63,7 +61,7 @@ export const loginLogic = kea<loginLogicType>([
                     const data = await response.json()
                     actions.setData(data)
                 } else {
-                    actions.setGeneralError(response.statusText, await response.json())
+                    actions.setGeneralError(response.statusText, (await response.json()).error)
                 }
             },
         },
@@ -71,8 +69,6 @@ export const loginLogic = kea<loginLogicType>([
 ])
 
 export function ExporterLogin(): JSX.Element {
-    const passwordInputRef = useRef<HTMLInputElement>(null)
-
     const { data, isLoginSubmitting, generalError } = useValues(loginLogic())
 
     if (data) {
@@ -116,7 +112,6 @@ export function ExporterLogin(): JSX.Element {
                         >
                             <LemonInput
                                 type="password"
-                                inputRef={passwordInputRef}
                                 className="ph-ignore-input"
                                 data-attr="password"
                                 placeholder="••••••••••"
