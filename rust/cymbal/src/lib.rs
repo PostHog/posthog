@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use app_context::AppContext;
 use common_types::ClickHouseEvent;
@@ -20,7 +20,7 @@ pub mod symbol_store;
 pub mod types;
 
 pub async fn handle_event(
-    context: &AppContext,
+    context: Arc<AppContext>,
     mut event: ClickHouseEvent,
 ) -> Result<Option<ClickHouseEvent>, UnhandledError> {
     let mut props = match get_props(&event) {
@@ -45,7 +45,7 @@ pub async fn handle_event(
         // If we get an unhandled error during exception processing, we return an error, which should
         // cause the caller to drop the offset without storing it - unhandled exceptions indicate
         // a dependency is down, or some bug, adn we want to take lag in those situations.
-        results.push(process_exception(context, event.team_id, exception).await?);
+        results.push(process_exception(context.clone(), event.team_id, exception).await?);
     }
 
     let fingerprint = generate_fingerprint(&results);
@@ -79,7 +79,7 @@ fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
 }
 
 async fn process_exception(
-    context: &AppContext,
+    context: Arc<AppContext>,
     team_id: i32,
     mut e: Exception,
 ) -> Result<Exception, UnhandledError> {
@@ -96,7 +96,8 @@ async fn process_exception(
         return Ok(e);
     }
 
-    let mut results = Vec::with_capacity(frames.len());
+    let mut handles = Vec::with_capacity(frames.len());
+    let mut resolved_frames = Vec::with_capacity(frames.len());
 
     // Cluster the frames by symbol set
     // TODO - we really want to cluster across exceptions (and even across events),
@@ -111,18 +112,35 @@ async fn process_exception(
 
     for (_, frames) in groups.into_iter() {
         for (i, frame) in frames {
-            let resolved_frame = context
-                .resolver
-                .resolve(&frame, team_id, &context.pool, &context.catalog)
-                .await?;
-            results.push((i, resolved_frame));
+            let context = context.clone();
+            // Spawn a concurrent task for resolving every frame - we're careful elsewhere to
+            // ensure this kind of concurrency is fine
+            handles.push(tokio::spawn(async move {
+                let res = context
+                    .resolver
+                    .resolve(&frame, team_id, &context.pool, &context.catalog)
+                    .await;
+                return res.map(|f| (i, f));
+            }));
         }
     }
 
-    results.sort_unstable_by_key(|(i, _)| *i);
+    // Collect the results
+    for handle in handles {
+        // Joinhandles wrap the returned type in a Result, because if the task panics,
+        // tokio catches it and returns an error. If any of our tasks panicked, we want
+        // to propogate that panic, so we unwrap the outer Result here.
+        let res = handle.await.unwrap()?;
+        resolved_frames.push(res)
+    }
+
+    resolved_frames.sort_unstable_by_key(|(i, _)| *i);
 
     e.stack = Some(Stacktrace::Resolved {
-        frames: results.into_iter().map(|(_, frame)| frame).collect(),
+        frames: resolved_frames
+            .into_iter()
+            .map(|(_, frame)| frame)
+            .collect(),
     });
 
     Ok(e)
