@@ -119,7 +119,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     created_from = serializers.ChoiceField(
         choices=CREATED_FROM_CHOICES,
         write_only=True,
-        required=True,
+        required=False,
         help_text="Indicates the origin product of the feature flag. Choices: 'flags', 'experiments', 'surveys', 'early_access_features'.",
     )
 

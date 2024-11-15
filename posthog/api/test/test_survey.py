@@ -60,6 +60,59 @@ class TestSurvey(APIBaseTest):
         ]
         assert response_data["created_by"]["id"] == self.user.id
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_created_from_is_set_to_surveys(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+
+        # Ensure that a FeatureFlag has been created
+        ff_instance = FeatureFlag.objects.get(id=response_data["internal_targeting_flag"]["id"])
+        self.assertIsNotNone(ff_instance)
+
+        # Verify that report_user_action was called for the feature flag creation
+        mock_capture.assert_any_call(
+            ANY,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": True,
+                "has_filters": True,
+                "filter_count": 2,
+                "created_at": ff_instance.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "created_from": "surveys",
+            },
+        )
+
     def test_create_adds_user_interactivity_filters(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
