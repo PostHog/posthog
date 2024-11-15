@@ -49,7 +49,6 @@ export function SignupPanel1(): JSX.Element | null {
                                 <PasswordStrength validatedPassword={validatedPassword} />
                             </div>
                         }
-                        validateStatus={!validatedPassword?.password ? undefined : validatedPassword.valid ? 'success' : 'error'}
                     >
                         <LemonInput
                             type="password"
