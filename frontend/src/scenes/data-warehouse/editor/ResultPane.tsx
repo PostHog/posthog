@@ -7,6 +7,7 @@ import DataGrid from 'react-data-grid'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { NodeKind } from '~/queries/schema'
 
 enum ResultsTab {
     Results = 'results',
@@ -17,11 +18,28 @@ interface ResultPaneProps {
     onSave: () => void
     saveDisabledReason?: string
     onQueryInputChange: () => void
+    logicKey: string
+    query: string
 }
 
-export function ResultPane({ onQueryInputChange, onSave, saveDisabledReason }: ResultPaneProps): JSX.Element {
+export function ResultPane({
+    onQueryInputChange,
+    onSave,
+    saveDisabledReason,
+    logicKey,
+    query,
+}: ResultPaneProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
-    const { response, responseLoading } = useValues(dataNodeLogic)
+    const { response, responseLoading } = useValues(
+        dataNodeLogic({
+            key: logicKey,
+            query: {
+                kind: NodeKind.HogQLQuery,
+                query,
+            },
+            doNotLoad: !query,
+        })
+    )
 
     const columns = useMemo(() => {
         return (
