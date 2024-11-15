@@ -78,7 +78,6 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
         cy.get('[data-attr=signup-submit]').click()
-
         cy.wait('@signupRequest').then((interception) => {
             expect(interception.request.body).to.have.property('first_name')
             expect(interception.request.body.first_name).to.equal('Alice')
