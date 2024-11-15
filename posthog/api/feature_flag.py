@@ -115,12 +115,12 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATED_FROM_CHOICES = ("flags", "experiments", "surveys", "early_access_features")
+    CREATED_FROM_CHOICES = ("flags", "experiments", "surveys", "early_access_features", "web_experiments")
     created_from = serializers.ChoiceField(
         choices=CREATED_FROM_CHOICES,
         write_only=True,
         required=False,
-        help_text="Indicates the origin product of the feature flag. Choices: 'flags', 'experiments', 'surveys', 'early_access_features'.",
+        help_text="Indicates the origin product of the feature flag. Choices: 'flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
     )
 
     class Meta:

@@ -98,6 +98,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                 "name": f'Feature Flag for Experiment {validated_data["name"]}',
                 "filters": filters,
                 "active": False,
+                "created_from": "web_experiments",
             },
             context=self.context,
         )
