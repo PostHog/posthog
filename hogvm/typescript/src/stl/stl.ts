@@ -19,6 +19,8 @@ import {
 } from './date'
 import { printHogStringOutput } from './print'
 
+// TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
+
 function STLToString(args: any[]): string {
     if (isHogDate(args[0])) {
         const month = args[0].month
@@ -147,7 +149,7 @@ export const STL: Record<string, STLFunction> = {
     tuple: {
         fn: (args) => {
             const tuple = args.slice()
-            ;(tuple as any).__isHogTuple = true
+                ; (tuple as any).__isHogTuple = true
             return tuple
         },
         minArgs: 0,

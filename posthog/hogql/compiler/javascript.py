@@ -23,38 +23,14 @@ class Local:
     is_captured: bool
 
 
-@dataclasses.dataclass
-class CompiledJavaScript:
-    code: str
-    locals: list[Local]
-
-
-def to_js_expr(expr: str) -> str:
-    from posthog.hogql.parser import parse_expr
-
-    return create_javascript(parse_expr(expr)).code
-
-
 def to_js_program(expr: str) -> str:
     from posthog.hogql.parser import parse_program
 
-    return create_javascript(parse_program(expr)).code
-
-
-def create_javascript(
-    expr: ast.Expr | ast.Statement | ast.Program,
-    supported_functions: Optional[set[str]] = None,
-    args: Optional[list[str]] = None,
-    context: Optional[HogQLContext] = None,
-    in_repl: Optional[bool] = False,
-    locals: Optional[list[Local]] = None,
-) -> CompiledJavaScript:
-    supported_functions = supported_functions or set()
-    compiler = JavaScriptCompiler(supported_functions, args, context, in_repl, locals)
-    base_code = compiler.visit(expr)
-    import_code = compiler.get_inlined_stl()
-    code = import_code + ("\n\n" if import_code else "") + base_code
-    return CompiledJavaScript(code=code, locals=compiler.locals)
+    compiler = JavaScriptCompiler()
+    program = parse_program(expr)
+    code = compiler.visit(program)
+    imports = compiler.get_inlined_stl()
+    return imports + ("\n\n" if imports else "") + code
 
 
 def _as_block(node: ast.Statement) -> ast.Block:
@@ -205,7 +181,7 @@ class JavaScriptCompiler(Visitor):
                 if found_local:
                     array_code = _sanitize_var_name(element)
                 elif element in STL_FUNCTIONS:
-                    self.inlined_stl.add(element)
+                    self.inlined_stl.add(str(element))
                     array_code = f"{_sanitize_var_name(element)}"
                 else:
                     array_code = f"{_JS_GET_GLOBAL}({json.dumps(element)})"
@@ -263,7 +239,7 @@ class JavaScriptCompiler(Visitor):
             else_code = self.visit(node.args[2]) if len(node.args) == 3 else "null"
             return f"({condition_code} ? {then_code} : {else_code})"
         if node.name == "multiIf" and len(node.args) >= 2:
-            # Generate nested ternary operators
+
             def build_nested_if(args):
                 condition_code = self.visit(args[0])
                 then_code = self.visit(args[1])
@@ -282,7 +258,6 @@ class JavaScriptCompiler(Visitor):
             if_null_code = self.visit(node.args[1])
             return f"({expr_code} ?? {if_null_code})"
 
-        # Handle STL functions
         if node.name in STL_FUNCTIONS:
             self.inlined_stl.add(node.name)
             name = _sanitize_var_name(node.name)
@@ -518,10 +493,10 @@ class JavaScriptCompiler(Visitor):
         return f"tuple({items_code})"
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        # Assuming HogQLXTag corresponds to JSX-like syntax
-        kind_code = node.kind
-        attrs_code = " ".join([f"{attr.name}={{{self.visit(attr.value)}}}" for attr in node.attributes])
-        return f"<{kind_code} {attrs_code} />"
+        attrs = [f'"__hx_tag": {json.dumps(node.kind)}']
+        for attr in node.attributes:
+            attrs.append(f'"{attr.name}": {self._visit_hogqlx_value(attr.value)}')
+        return f'{{{", ".join(attrs)}}}'
 
     def _visit_hogqlx_value(self, value: Any) -> str:
         if isinstance(value, AST):

@@ -1,24 +1,32 @@
-from posthog.hogql.compiler.javascript import create_javascript, to_js_expr, to_js_program
+from posthog.hogql.compiler.javascript import JavaScriptCompiler, to_js_program
 from posthog.hogql.errors import NotImplementedError, QueryError
-from posthog.hogql.parser import parse_program
 from posthog.test.base import BaseTest
+
+
+def to_js_expr(expr: str) -> str:
+    from posthog.hogql.parser import parse_expr
+
+    return JavaScriptCompiler().visit(parse_expr(expr))
 
 
 class TestJavaScript(BaseTest):
     def test_javascript_create(self):
         assert to_js_expr("1 + 2") == "(1 + 2)"
-        assert to_js_expr("1 and 2") == "(1 && 2)"
-        assert to_js_expr("1 or 2") == "(1 || 2)"
-        assert to_js_expr("1 or (2 and 1) or 2") == "(1 || (2 && 1) || 2)"
-        assert to_js_expr("(1 or 2) and (1 or 2)") == "((1 || 2) && (1 || 2))"
+        assert to_js_expr("1 and 2") == "!!(1 && 2)"
+        assert to_js_expr("1 or 2") == "!!(1 || 2)"
+        assert to_js_expr("1 or (2 and 1) or 2") == "!!(1 || !!(2 && 1) || 2)"
+        assert to_js_expr("(1 or 2) and (1 or 2)") == "!!(!!(1 || 2) && !!(1 || 2))"
         assert to_js_expr("not true") == "(!true)"
         assert to_js_expr("true") == "true"
         assert to_js_expr("false") == "false"
         assert to_js_expr("null") == "null"
         assert to_js_expr("3.14") == "3.14"
-        assert to_js_expr("properties.bla") == "properties.bla"
+        assert to_js_expr("properties.bla") == '__getProperty(__getGlobal("properties"), "bla", true)'
         assert to_js_expr("concat('arg', 'another')"), '(String("arg") + String("another"))'
-        assert to_js_expr("ifNull(properties.email, false)") == "(properties.email ?? false)"
+        assert (
+            to_js_expr("ifNull(properties.email, false)")
+            == '(__getProperty(__getGlobal("properties"), "email", true) ?? false)'
+        )
         assert to_js_expr("1 = 2") == "(1 == 2)"
         assert to_js_expr("1 == 2") == "(1 == 2)"
         assert to_js_expr("1 != 2") == "(1 != 2)"
@@ -41,19 +49,7 @@ class TestJavaScript(BaseTest):
     def test_javascript_create_query_error(self):
         with self.assertRaises(QueryError) as e:
             to_js_expr("1 in cohort 2")
-        assert "Unsupported comparison operator: in cohort" in str(e.exception)
-
-        # with self.assertRaises(QueryError) as e:
-        #     to_js_program("globalVar := 1")
-        # self.assertEqual(
-        #     str(e.exception), 'Variable `globalVar` already declared in this scope'
-        # )
-
-        # with self.assertRaises(QueryError) as e:
-        #     to_js_program("globalVar.properties.bla := 1")
-        # self.assertEqual(
-        #     str(e.exception), 'Variable `globalVar` already declared in this scope'
-        # )
+        assert "Can't use cohorts in real-time filters. Please inline the relevant expressions" in str(e.exception)
 
     def test_javascript_code_generation(self):
         js_code = to_js_program("""
@@ -77,14 +73,6 @@ return fibonacci(6);
 """
         self.assertEqual(js_code.strip(), expected_js.strip())
 
-    def test_javascript_in_repl(self):
-        code = create_javascript(parse_program("let a:=1"), in_repl=False).code
-        self.assertEqual(code.strip(), "let a = 1;")
-
-        code = create_javascript(parse_program("let a:=1"), in_repl=True).code
-        self.assertEqual(code.strip(), "let a = 1;")
-
     def test_javascript_hogqlx(self):
         code = to_js_expr("<Sparkline data={[1,2,3]} />")
-        expected_code = "<Sparkline data={[ 1, 2, 3 ]} />"
-        self.assertEqual(code.strip(), expected_code.strip())
+        assert code.strip() == '{"__hx_tag": "Sparkline", "data": [1, 2, 3]}'
