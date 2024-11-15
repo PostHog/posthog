@@ -4,6 +4,7 @@ use app_context::AppContext;
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
+use issue_resolution::resolve_issue;
 use tracing::warn;
 use types::{ErrProps, Exception, Stacktrace};
 use uuid::Uuid;
@@ -13,6 +14,7 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
+pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
 pub mod symbol_store;
@@ -50,7 +52,12 @@ pub async fn handle_event(
         results.push(process_exception(context, event.team_id, exception).await?);
     }
 
-    props.fingerprint = Some(generate_fingerprint(&results));
+    let fingerprint = generate_fingerprint(&results);
+
+    let issue_override = resolve_issue(&context.pool, &fingerprint, event.team_id).await?;
+
+    props.fingerprint = Some(fingerprint);
+    props.resolved_issue_id = Some(issue_override.issue_id);
     props.exception_list = Some(results);
 
     event.properties = Some(serde_json::to_string(&props).unwrap());

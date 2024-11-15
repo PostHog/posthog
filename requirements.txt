@@ -327,6 +327,8 @@ jsonpath-ng==1.6.0
     # via dlt
 jsonpointer==3.0.0
     # via jsonpatch
+jsonref==1.1.0
+    # via -r requirements.in
 jsonschema==4.20.0
     # via drf-spectacular
 jsonschema-specifications==2023.12.1
@@ -512,7 +514,7 @@ pyjwt==2.4.0
     #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
-pymssql==2.3.0
+pymssql==2.3.1
     # via -r requirements.in
 pymysql==1.1.1
     # via -r requirements.in

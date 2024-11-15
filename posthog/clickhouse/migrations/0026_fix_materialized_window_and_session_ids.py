@@ -45,7 +45,7 @@ def materialize_session_and_window_id(database):
 
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
-        materialized_columns = get_materialized_columns("events", use_cache=False)
+        materialized_columns = get_materialized_columns("events")
         # If the column is not materialized, materialize it
         if (property_name, "properties") not in materialized_columns:
             materialize("events", property_name, property_name)

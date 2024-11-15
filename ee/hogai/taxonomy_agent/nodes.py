@@ -22,6 +22,8 @@ from ee.hogai.taxonomy_agent.parsers import (
 from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
+    REACT_FORMAT_PROMPT,
+    REACT_FORMAT_REMINDER_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
     REACT_MISSING_ACTION_PROMPT,
@@ -73,6 +75,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 AgentAction,
                 agent.invoke(
                     {
+                        "react_format": REACT_FORMAT_PROMPT,
+                        "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
                         "product_description": self._team.project.product_description,
@@ -126,27 +130,31 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
             raise ValueError("Failed to generate events prompt.")
 
-        events: list[str] = []
+        events: list[str] = [
+            # Add "All Events" to the mapping
+            "All Events",
+        ]
         for item in response.results:
             if len(response.results) > 25 and item.count <= 3:
                 continue
             events.append(item.event)
 
-        # default for null in the
-        tags: list[str] = ["all events"]
-
+        root = ET.Element("defined_events")
         for event_name in events:
-            event_tag = event_name
+            event_tag = ET.SubElement(root, "event")
+            name_tag = ET.SubElement(event_tag, "name")
+            name_tag.text = event_name
+
             if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
                 if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
                     continue  # Skip irrelevant events
-                event_tag += f" - {event_core_definition['label']}. {event_core_definition['description']}"
-                if "examples" in event_core_definition:
-                    event_tag += f" Examples: {event_core_definition['examples']}."
-            tags.append(remove_line_breaks(event_tag))
-
-        root = ET.Element("list of available events for filtering")
-        root.text = "\n" + "\n".join(tags) + "\n"
+                if description := event_core_definition.get("description"):
+                    desc_tag = ET.SubElement(event_tag, "description")
+                    if label := event_core_definition.get("label"):
+                        desc_tag.text = f"{label}. {description}"
+                    else:
+                        desc_tag.text = description
+                    desc_tag.text = remove_line_breaks(desc_tag.text)
         return ET.tostring(root, encoding="unicode")
 
     @cached_property
