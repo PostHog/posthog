@@ -192,7 +192,8 @@ class DataImportPipelineSync:
         # Workaround for full refresh schemas while we wait for Rust to fix memory issue
         for name, resource in self.source._resources.items():
             if resource.write_disposition == "replace":
-                delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{name}"
+                normalized_schema_name = NamingConvention().normalize_identifier(name)
+                delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{normalized_schema_name}"
                 storage_options = self._get_credentials()
 
                 self.logger.debug(f"delta_uri={delta_uri}")
