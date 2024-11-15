@@ -33,7 +33,7 @@
 - Send out fully customizable surveys to specific cohorts of users
 - Connect to external services and manage data flows with PostHog CDP
 
-PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and comes with a <a href="https://posthog.com/pricing">generous monthly free tier</a>.
+PostHog is available with hosting in the EU or US and is SOC 2 Type 2 compliant. It's free to get started and comes with a <a href="https://posthog.com/pricing">generous monthly free tier</a>.
 
 We're constantly adding new features, and recently launched <a href="https://posthog.com/docs/web-analytics">web analytics</a> and a <a href="https://posthog.com/docs/data-warehouse">data warehouse</a>!
 
