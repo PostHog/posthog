@@ -99,30 +99,18 @@ async fn process_exception(
     let mut handles = Vec::with_capacity(frames.len());
     let mut resolved_frames = Vec::with_capacity(frames.len());
 
-    // Cluster the frames by symbol set
-    // TODO - we really want to cluster across exceptions (and even across events),
-    // rather than just within a single exception
-    let mut groups = HashMap::new();
-    for (i, frame) in frames.into_iter().enumerate() {
-        let group = groups
-            .entry(frame.symbol_set_ref())
-            .or_insert_with(Vec::new);
-        group.push((i, frame));
-    }
-
-    for (_, frames) in groups.into_iter() {
-        for (i, frame) in frames {
-            let context = context.clone();
-            // Spawn a concurrent task for resolving every frame - we're careful elsewhere to
-            // ensure this kind of concurrency is fine
-            handles.push(tokio::spawn(async move {
-                let res = context
-                    .resolver
-                    .resolve(&frame, team_id, &context.pool, &context.catalog)
-                    .await;
-                return res.map(|f| (i, f));
-            }));
-        }
+    for frame in frames.into_iter() {
+        let context = context.clone();
+        // Spawn a concurrent task for resolving every frame - we're careful elsewhere to
+        // ensure this kind of concurrency is fine, although this "throw it at the wall"
+        // data flow structure is pretty questionable. Tokio really do go brrr though
+        handles.push(tokio::spawn(async move {
+            let res = context
+                .resolver
+                .resolve(&frame, team_id, &context.pool, &context.catalog)
+                .await;
+            return res;
+        }));
     }
 
     // Collect the results
@@ -134,13 +122,8 @@ async fn process_exception(
         resolved_frames.push(res)
     }
 
-    resolved_frames.sort_unstable_by_key(|(i, _)| *i);
-
     e.stack = Some(Stacktrace::Resolved {
-        frames: resolved_frames
-            .into_iter()
-            .map(|(_, frame)| frame)
-            .collect(),
+        frames: resolved_frames,
     });
 
     Ok(e)
