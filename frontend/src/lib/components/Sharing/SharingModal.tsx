@@ -108,47 +108,49 @@ export function SharingModalContent({
                         {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="space-y-2">
-                                    <LemonSwitch
-                                        fullWidth
-                                        bordered
-                                        label={
-                                            <div className="flex items-center">
-                                                <TitleWithIcon
-                                                    icon={
-                                                        <Tooltip title="The password is saved in plain-text on our server and, while the shared resource cannot be viewed without it, is best used for secondary auth only. For optimal security, do not circulate the shared link around broadly!">
-                                                            <IconInfo />
-                                                        </Tooltip>
-                                                    }
-                                                >
-                                                    Password protect
-                                                </TitleWithIcon>
-                                            </div>
-                                        }
-                                        onChange={setPasswordRequired}
-                                        checked={sharingConfiguration.password_required}
-                                    />
-                                    {sharingConfiguration.password_required && (
-                                        <LemonInput
-                                            type="password"
-                                            className="ph-ignore-input"
-                                            placeholder="••••••••••"
-                                            defaultValue={sharingConfiguration.password}
-                                            onChange={setPasswordDebounced}
-                                            suffix={
-                                                <LemonButton
-                                                    data-attr="copy-code-button"
-                                                    icon={<IconCopy />}
-                                                    onClick={() => {
-                                                        void copyToClipboard(
-                                                            sharingConfiguration.password,
-                                                            'password for shared ' + resource
-                                                        )
-                                                    }}
-                                                    noPadding
-                                                />
+                                    <div className="LemonSwitch LemonSwitch--medium LemonSwitch--bordered LemonSwitch--full-width flex-col py-1.5">
+                                        <LemonSwitch
+                                            className="px-0"
+                                            fullWidth
+                                            label={
+                                                <div className="flex items-center">
+                                                    <TitleWithIcon
+                                                        icon={
+                                                            <Tooltip title="The password is saved in plain-text on our server and, while the shared resource cannot be viewed without it, is best used for secondary auth only. For optimal security, do not circulate the shared link around broadly!">
+                                                                <IconInfo />
+                                                            </Tooltip>
+                                                        }
+                                                    >
+                                                        Password protect
+                                                    </TitleWithIcon>
+                                                </div>
                                             }
+                                            onChange={setPasswordRequired}
+                                            checked={sharingConfiguration.password_required}
                                         />
-                                    )}
+                                        {sharingConfiguration.password_required && (
+                                            <LemonInput
+                                                type="password"
+                                                className="ph-ignore-input w-full"
+                                                placeholder="••••••••••"
+                                                defaultValue={sharingConfiguration.password}
+                                                onChange={setPasswordDebounced}
+                                                suffix={
+                                                    <LemonButton
+                                                        data-attr="copy-code-button"
+                                                        icon={<IconCopy />}
+                                                        onClick={() => {
+                                                            void copyToClipboard(
+                                                                sharingConfiguration.password,
+                                                                'password for shared ' + resource
+                                                            )
+                                                        }}
+                                                        noPadding
+                                                    />
+                                                }
+                                            />
+                                        )}
+                                    </div>
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         type="secondary"
