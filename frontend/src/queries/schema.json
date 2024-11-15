@@ -3912,6 +3912,59 @@
             ],
             "type": "string"
         },
+        "CustomChannelCondition": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/CustomChannelField"
+                },
+                "op": {
+                    "$ref": "#/definitions/CustomChannelOperator"
+                },
+                "value": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["key", "op"],
+            "type": "object"
+        },
+        "CustomChannelField": {
+            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain"],
+            "type": "string"
+        },
+        "CustomChannelOperator": {
+            "enum": ["exact", "is_not", "is_set", "is_not_set", "icontains", "not_icontains", "regex", "not_regex"],
+            "type": "string"
+        },
+        "CustomChannelRule": {
+            "additionalProperties": false,
+            "properties": {
+                "channel_type": {
+                    "type": "string"
+                },
+                "combiner": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "conditions": {
+                    "items": {
+                        "$ref": "#/definitions/CustomChannelCondition"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["conditions", "combiner", "channel_type"],
+            "type": "object"
+        },
         "CustomEventConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -7367,11 +7420,17 @@
         },
         "HogQLQueryModifiers": {
             "additionalProperties": false,
-            "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
+            "description": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
             "properties": {
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
+                },
+                "customChannelTypeRules": {
+                    "items": {
+                        "$ref": "#/definitions/CustomChannelRule"
+                    },
+                    "type": "array"
                 },
                 "dataWarehouseEventsModifiers": {
                     "items": {
