@@ -2,7 +2,8 @@ import '~/styles'
 import './Exporter.scss'
 
 import clsx from 'clsx'
-import { Form } from 'kea-forms'
+import { actions, kea, path, reducers, useValues } from 'kea'
+import { Form, forms } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -10,14 +11,73 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { useRef } from 'react'
 import { ERROR_MESSAGES } from 'scenes/authentication/Login'
-import { loginLogic } from 'scenes/authentication/loginLogic'
 import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
 
+import { Exporter } from '~/exporter/Exporter'
+
+import type { loginLogicType } from './ExporterLoginType'
+
+export interface LoginForm {
+    password: string
+}
+
+export const loginLogic = kea<loginLogicType>([
+    path(['exporter', 'ExporterLogin']),
+    actions({
+        setGeneralError: (code: string, detail: string) => ({ code, detail }),
+        clearGeneralError: true,
+        setData: (data: any) => ({ data }),
+    }),
+    reducers({
+        data: [
+            null as any,
+            {
+                setData: (_, { data }) => data,
+            },
+        ],
+        // This is separate from the login form, so that the form can be submitted even if a general error is present
+        generalError: [
+            null as { code: string; detail: string } | null,
+            {
+                setGeneralError: (_, error) => error,
+                clearGeneralError: () => null,
+            },
+        ],
+    }),
+    forms(({ actions }) => ({
+        login: {
+            defaults: { password: '' } as LoginForm,
+            errors: ({ password }) => ({
+                password: !password ? 'Please enter your password to continue' : undefined,
+            }),
+            submit: async ({ password }, breakpoint) => {
+                breakpoint()
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json', // Set content type to JSON
+                    },
+                    body: JSON.stringify({ password }),
+                })
+                if (response.status == 200) {
+                    const data = await response.json()
+                    actions.setData(data)
+                } else {
+                    actions.setGeneralError(response.statusText, await response.json())
+                }
+            },
+        },
+    })),
+])
+
 export function ExporterLogin(): JSX.Element {
-    const generalError: any = null
     const passwordInputRef = useRef<HTMLInputElement>(null)
-    const isPasswordHidden = false
-    const isLoginSubmitting = false
+
+    const { data, isLoginSubmitting, generalError } = useValues(loginLogic())
+
+    if (data) {
+        return <Exporter {...data} />
+    }
 
     return (
         <BridgePage
@@ -45,7 +105,7 @@ export function ExporterLogin(): JSX.Element {
                     </LemonBanner>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
-                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
+                    <div className={clsx('PasswordWrapper')}>
                         <LemonField
                             name="password"
                             label={

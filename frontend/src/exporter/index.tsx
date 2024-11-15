@@ -21,7 +21,7 @@ initKea()
 
 const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 
-function renderApp(): void {
+export function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
         createRoot(root).render(

@@ -233,6 +233,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
         return None
 
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Any:
+        return self.retrieve(request, *args, **kwargs)
+
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         resource = self.get_object()
@@ -250,18 +253,24 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
-        if isinstance(resource, SharingConfiguration):
-            return render_template(
-                "exporter.html",
-                request=request,
-                context={
-                    "exported_data": json.dumps(None, cls=DjangoJSONEncoder),
-                    "asset_title": "PW",
-                    "asset_description": "PW",
-                    "add_og_tags": None,
-                    "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
-                },
-            )
+        if isinstance(resource, SharingConfiguration) and resource.password_required:
+            if (
+                request.method == "GET"
+                or "password" not in request.data
+                or request.data["password"] != resource.password
+            ):
+                # TODO - Handle the case for the wrong password differently
+                return render_template(
+                    "exporter.html",
+                    request=request,
+                    context={
+                        "exported_data": json.dumps(None, cls=DjangoJSONEncoder),
+                        "asset_title": "PW",
+                        "asset_description": "PW",
+                        "add_og_tags": None,
+                        "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
+                    },
+                )
 
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token
@@ -318,22 +327,24 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if "detailed" in request.GET:
             exported_data.update({"detailed": True})
 
-        if request.path.endswith(f".json"):
+        if request.path.endswith(f".json") or request.method == "POST":
             return response.Response(exported_data)
 
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
 
+        context = {
+            "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+            "asset_title": asset_title,
+            "asset_description": asset_description,
+            "add_og_tags": add_og_tags,
+            "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
+        }
+
         return render_template(
             "exporter.html",
             request=request,
-            context={
-                "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
-                "asset_title": asset_title,
-                "asset_description": asset_description,
-                "add_og_tags": add_og_tags,
-                "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
-            },
+            context=context,
             team_for_public_context=resource.team,
         )
 
