@@ -105,6 +105,7 @@ export interface QuestionResultsReady {
     [key: string]: boolean
 }
 
+export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
 export type ScheduleType = 'once' | 'recurring'
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
@@ -168,7 +169,7 @@ export const surveyLogic = kea<surveyLogicType>([
             nextStep,
             specificQuestionIndex,
         }),
-        setDataCollectionType: (dataCollectionType: 'until_stopped' | 'until_limit' | 'until_adaptive_limit') => ({
+        setDataCollectionType: (dataCollectionType: DataCollectionType) => ({
             dataCollectionType,
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
@@ -666,7 +667,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         dataCollectionType: [
-            'until_stopped',
+            'until_stopped' as DataCollectionType,
             {
                 setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
             },

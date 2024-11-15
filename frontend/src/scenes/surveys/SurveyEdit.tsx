@@ -970,7 +970,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     onChange={(newValue) => {
                                                         setSurveyValue('response_sampling_limit', newValue)
                                                     }}
-                                                    value={survey.response_sampling_limit}
+                                                    value={survey.response_sampling_limit || 0}
                                                 />
                                                 responses, every
                                                 <LemonInput
@@ -980,7 +980,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     onChange={(newValue) => {
                                                         setSurveyValue('response_sampling_interval', newValue)
                                                     }}
-                                                    value={survey.response_sampling_interval}
+                                                    value={survey.response_sampling_interval || 0}
                                                 />
                                                 <LemonSelect
                                                     value={survey.response_sampling_interval_type}
