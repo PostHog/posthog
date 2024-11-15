@@ -13,6 +13,7 @@ const eventsNotified: Record<string, boolean> = {}
 function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefined): void {
     if (!eventsNotified[flag]) {
         posthog.capture('$feature_flag_called', {
+            // TODO here
             $feature_flag: flag,
             $feature_flag_response: flagState === undefined ? false : flagState,
         })

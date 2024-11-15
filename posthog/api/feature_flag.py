@@ -115,6 +115,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     )
     can_edit = serializers.SerializerMethodField()
 
+    CREATION_ORIGIN_CHOICES = ("flags_ui", "experiments_ui", "surveys_ui", "api", "early_access_feature_ui")
+    creation_origin = serializers.ChoiceField(
+        choices=CREATION_ORIGIN_CHOICES,
+        write_only=True,
+        required=True,
+        help_text="Indicates where the feature flag was created in the UI. Choices: 'flags_ui', 'experiments_ui', 'surveys_ui', 'api', 'early_access_feature_ui'.",
+    )
+
     class Meta:
         model = FeatureFlag
         fields = [
@@ -139,6 +147,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
+            "creation_origin",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -317,6 +326,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+        creation_origin = validated_data.pop("creation_origin", None)
 
         self._update_filters(validated_data)
 
@@ -347,7 +357,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         _create_usage_dashboard(instance, request.user)
 
-        report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
+        analytics_metadata = instance.get_analytics_metadata()
+        analytics_metadata["creation_origin"] = creation_origin
+        report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
 
