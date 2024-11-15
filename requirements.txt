@@ -514,7 +514,7 @@ pyjwt==2.4.0
     #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
-pymssql==2.3.0
+pymssql==2.3.1
     # via -r requirements.in
 pymysql==1.1.1
     # via -r requirements.in
