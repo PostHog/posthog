@@ -2484,6 +2484,10 @@ export interface HumanMessage {
 export interface AssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
+    /**
+     * We only need this "done" value to tell when the particular message is finished during its streaming.
+     * It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.
+     */
     done?: boolean
 }
 

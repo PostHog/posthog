@@ -247,7 +247,14 @@ class AssistantMessage(BaseModel):
         extra="forbid",
     )
     content: str
-    done: Optional[bool] = None
+    done: Optional[bool] = Field(
+        default=None,
+        description=(
+            'We only need this "done" value to tell when the particular message is finished during its streaming. It'
+            " won't be necessary when we optimize streaming to NOT send the entire message every time a character is"
+            " added."
+        ),
+    )
     type: Literal["ai"] = "ai"
 
 

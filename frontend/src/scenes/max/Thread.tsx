@@ -44,10 +44,10 @@ export function Thread(): JSX.Element | null {
     return (
         <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
             {thread.map((message, index) => {
-                let content: JSX.Element
                 if (isHumanMessage(message)) {
-                    content = (
+                    return (
                         <MessageTemplate
+                            key={index}
                             type="human"
                             className={message.status === 'error' ? 'border-danger' : undefined}
                         >
@@ -55,23 +55,11 @@ export function Thread(): JSX.Element | null {
                         </MessageTemplate>
                     )
                 } else if (isAssistantMessage(message) || isFailureMessage(message)) {
-                    content = <TextAnswer message={message} />
+                    return <TextAnswer key={index} message={message} index={index} />
                 } else if (isVisualizationMessage(message)) {
-                    content = <VisualizationAnswer message={message} status={message.status} />
-                } else {
-                    return null // We currently skip other types of messages
+                    return <VisualizationAnswer key={index} message={message} status={message.status} />
                 }
-                return (
-                    <React.Fragment key={index}>
-                        {content}
-                        {message.type === 'ai' &&
-                        message.status === 'completed' &&
-                        (thread[index + 1] === undefined || thread[index + 1].type === 'human') ? (
-                            // Show answer actions if the assistant's response is complete at this point
-                            <AnswerActions messageIndex={index} />
-                        ) : null}
-                    </React.Fragment>
-                )
+                return null // We currently skip other types of messages
             })}
             {threadLoading && (
                 <MessageTemplate type="ai" className="w-fit select-none">
@@ -98,7 +86,7 @@ const MessageTemplate = React.forwardRef<
     }
 
     return (
-        <div>
+        <div className="space-y-2">
             <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
                 {children}
             </div>
@@ -107,21 +95,34 @@ const MessageTemplate = React.forwardRef<
     )
 })
 
-const TextAnswer = React.forwardRef<HTMLDivElement, { message: (AssistantMessage | FailureMessage) & ThreadMessage }>(
-    function TextAnswer({ message }, ref) {
-        return (
-            <MessageTemplate
-                type="ai"
-                className={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
-                ref={ref}
-            >
-                <LemonMarkdown>
-                    {message.content || '*Max has failed to generate an answer. Please try again.*'}
-                </LemonMarkdown>
-            </MessageTemplate>
-        )
-    }
-)
+const TextAnswer = React.forwardRef<
+    HTMLDivElement,
+    { message: (AssistantMessage | FailureMessage) & ThreadMessage; index: number }
+>(function TextAnswer({ message, index }, ref) {
+    const { thread } = useValues(maxLogic)
+
+    return (
+        <MessageTemplate
+            type="ai"
+            className={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
+            ref={ref}
+            action={
+                message.type === 'ai/failure' && index === thread.length - 1 ? (
+                    <RetriableAnswerActions />
+                ) : message.type === 'ai' &&
+                  message.status === 'completed' &&
+                  (thread[index + 1] === undefined || thread[index + 1].type === 'human') ? (
+                    // Show answer actions if the assistant's response is complete at this point
+                    <SuccessfulAnswerActions messageIndex={index} />
+                ) : null
+            }
+        >
+            <LemonMarkdown>
+                {message.content || '*Max has failed to generate an answer. Please try again.*'}
+            </LemonMarkdown>
+        </MessageTemplate>
+    )
+})
 
 function VisualizationAnswer({
     message,
@@ -192,7 +193,23 @@ function VisualizationAnswer({
     )
 }
 
-function AnswerActions({ messageIndex }: { messageIndex: number }): JSX.Element {
+function RetriableAnswerActions(): JSX.Element {
+    const { retryLastMessage } = useActions(maxLogic)
+
+    return (
+        <LemonButton
+            icon={<IconRefresh />}
+            type="secondary"
+            size="small"
+            tooltip="Try again"
+            onClick={() => retryLastMessage()}
+        >
+            Try again
+        </LemonButton>
+    )
+}
+
+function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JSX.Element {
     const { thread } = useValues(maxLogic)
     const { retryLastMessage } = useActions(maxLogic)
 
