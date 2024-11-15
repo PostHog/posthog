@@ -125,7 +125,10 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                 {
                     "messages": [
                         FailureMessage(
-                            content="There was an error running this query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam."
+                            content=(
+                                "There was an error running this query: This query exceeds the capabilities of our picolator. "
+                                "Try de-brolling its flim-flam."
+                            )
                         ),
                     ],
                 },

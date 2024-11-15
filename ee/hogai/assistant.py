@@ -5,6 +5,7 @@ from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import StateGraph
 from pydantic import BaseModel
+from sentry_sdk import capture_exception
 
 from ee import settings
 from ee.hogai.funnels.nodes import (
@@ -28,6 +29,7 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    FailureMessage,
     VisualizationMessage,
 )
 
@@ -191,40 +193,47 @@ class Assistant:
         # Send a chunk to establish the connection avoiding the worker's timeout.
         yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
 
-        for update in generator:
-            if is_state_update(update):
-                _, new_state = update
-                state = new_state
+        try:
+            for update in generator:
+                if is_state_update(update):
+                    _, new_state = update
+                    state = new_state
 
-            elif is_value_update(update):
-                _, state_update = update
+                elif is_value_update(update):
+                    _, state_update = update
 
-                if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
-                    yield state_update[AssistantNodeName.ROUTER]["messages"][0]
-                elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
-                    # Reset chunks when schema validation fails.
-                    chunks = AIMessageChunk(content="")
+                    if (
+                        AssistantNodeName.ROUTER in state_update
+                        and "messages" in state_update[AssistantNodeName.ROUTER]
+                    ):
+                        yield state_update[AssistantNodeName.ROUTER]["messages"][0]
+                    elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+                        # Reset chunks when schema validation fails.
+                        chunks = AIMessageChunk(content="")
 
-                    node_name = intersected_nodes.pop()
-                    if "messages" in state_update[node_name]:
-                        yield state_update[node_name]["messages"][0]
-                    elif state_update[node_name].get("intermediate_steps", []):
-                        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-                elif AssistantNodeName.SUMMARIZER in state_update:
-                    chunks = AIMessageChunk(content="")
-                    yield state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
-            elif is_message_update(update):
-                langchain_message, langgraph_state = update[1]
-                if isinstance(langchain_message, AIMessageChunk):
-                    if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
-                        chunks += langchain_message  # type: ignore
-                        parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
-                            chunks.tool_calls[0]["args"]
-                        )
-                        if parsed_message:
-                            yield VisualizationMessage(
-                                reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
+                        node_name = intersected_nodes.pop()
+                        if "messages" in state_update[node_name]:
+                            yield state_update[node_name]["messages"][0]
+                        elif state_update[node_name].get("intermediate_steps", []):
+                            yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+                    elif AssistantNodeName.SUMMARIZER in state_update:
+                        chunks = AIMessageChunk(content="")
+                        yield state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
+                elif is_message_update(update):
+                    langchain_message, langgraph_state = update[1]
+                    if isinstance(langchain_message, AIMessageChunk):
+                        if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
+                            chunks += langchain_message  # type: ignore
+                            parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
+                                chunks.tool_calls[0]["args"]
                             )
-                    elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
-                        chunks += langchain_message  # type: ignore
-                        yield AssistantMessage(content=chunks.content)
+                            if parsed_message:
+                                yield VisualizationMessage(
+                                    reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
+                                )
+                        elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
+                            chunks += langchain_message  # type: ignore
+                            yield AssistantMessage(content=chunks.content)
+        except Exception as e:
+            capture_exception(e)
+            yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point

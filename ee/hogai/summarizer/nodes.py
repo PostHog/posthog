@@ -2,17 +2,12 @@ import json
 from time import sleep
 from django.conf import settings
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import HumanMessage as LangchainHumanMessage, SystemMessage as LangchainSystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from django.core.serializers.json import DjangoJSONEncoder
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
-from ee.hogai.schema_generator.nodes import (
-    BaseMessage,
-    LangchainAssistantMessage,
-)
 from ee.hogai.summarizer.prompts import SUMMARIZER_SYSTEM_PROMPT, SUMMARIZER_INSTRUCTION_PROMPT
 from ee.hogai.utils import AssistantNode, AssistantNodeName, AssistantState
 from posthog.api.services.query import process_query_dict
@@ -27,22 +22,22 @@ class SummarizerNode(AssistantNode):
     name = AssistantNodeName.SUMMARIZER
 
     def run(self, state: AssistantState, config: RunnableConfig):
-        last_message = state["messages"][-1]
-        if not isinstance(last_message, VisualizationMessage):
+        viz_message = state["messages"][-1]
+        if not isinstance(viz_message, VisualizationMessage):
             raise ValueError("Can only run summarization with a visualization message as the last one in the state")
-        if last_message.answer is None:
+        if viz_message.answer is None:
             raise ValueError("Did not found query in the visualization message")
 
         try:
             results_response = process_query_dict(  # type: ignore
                 self._team,  # TODO: Add user
-                last_message.answer.model_dump(),
+                viz_message.answer.model_dump(mode="json"),  # We need mode="json" so that
                 # Celery doesn't run in tests, so there we use force_blocking instead
                 # This does mean that the waiting logic is not tested
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
                 if not settings.TEST
                 else ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            ).model_dump()
+            ).model_dump(mode="json")
             if results_response.get("query_status") and not results_response["query_status"]["complete"]:
                 query_id = results_response["query_status"]["id"]
                 for i in range(0, 999):
@@ -68,16 +63,15 @@ class SummarizerNode(AssistantNode):
             capture_exception(err)
             return {"messages": [FailureMessage(content="There was an unknown error running this query.")]}
 
-        summarization_prompt = ChatPromptTemplate.from_messages(
-            self._construct_messages(state), template_format="mustache"
-        )
+        summarization_prompt = ChatPromptTemplate(self._construct_messages(state), template_format="mustache")
 
         chain = summarization_prompt | self._model
 
         message = chain.invoke(
             {
+                "query_kind": viz_message.answer.kind,
                 "product_description": self._team.project.product_description,
-                "results": json.dumps(results_response["results"], indent=4, cls=DjangoJSONEncoder),
+                "results": json.dumps(results_response["results"], cls=DjangoJSONEncoder),
             },
             config,
         )
@@ -88,14 +82,14 @@ class SummarizerNode(AssistantNode):
     def _model(self):
         return ChatOpenAI(model="gpt-4o", temperature=0.5, streaming=True)  # Slightly higher temp than earlier steps
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
-        conversation: list[BaseMessage] = [LangchainSystemMessage(content=SUMMARIZER_SYSTEM_PROMPT)]
+    def _construct_messages(self, state: AssistantState) -> list[tuple[str, str]]:
+        conversation: list[tuple[str, str]] = [("system", SUMMARIZER_SYSTEM_PROMPT)]
 
         for message in state.get("messages", []):
             if isinstance(message, HumanMessage):
-                conversation.append(LangchainHumanMessage(content=message.content))
-            elif isinstance(message, AssistantMessage | FailureMessage):
-                conversation.append(LangchainAssistantMessage(content=message.content or "An error occurred."))
+                conversation.append(("human", message.content))
+            elif isinstance(message, AssistantMessage):
+                conversation.append(("assistant", message.content))
 
-        conversation.append(LangchainHumanMessage(content=SUMMARIZER_INSTRUCTION_PROMPT))
+        conversation.append(("human", SUMMARIZER_INSTRUCTION_PROMPT))
         return conversation

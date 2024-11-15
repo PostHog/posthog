@@ -6,9 +6,10 @@ The product being analyzed is described as follows:
 {{product_description}}"""
 
 SUMMARIZER_INSTRUCTION_PROMPT = """
-Here's the full results objects for this question:
-
+Here are the {{query_kind}} results for this question:
+```json
 {{results}}
+```
 
 Answer my earlier question using the results above. Point out interesting trends or anomalies.
 Take into account what you know about my product. If possible, offer actionable feedback, but avoid generic advice.

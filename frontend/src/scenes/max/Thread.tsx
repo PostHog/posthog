@@ -54,12 +54,10 @@ export function Thread(): JSX.Element | null {
                             <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
                         </MessageTemplate>
                     )
-                } else if (isAssistantMessage(message)) {
+                } else if (isAssistantMessage(message) || isFailureMessage(message)) {
                     content = <TextAnswer message={message} />
                 } else if (isVisualizationMessage(message)) {
                     content = <VisualizationAnswer message={message} status={message.status} />
-                } else if (isFailureMessage(message)) {
-                    content = <TextAnswer message={message} />
                 } else {
                     return null // We currently skip other types of messages
                 }
@@ -112,8 +110,14 @@ const MessageTemplate = React.forwardRef<
 const TextAnswer = React.forwardRef<HTMLDivElement, { message: (AssistantMessage | FailureMessage) & ThreadMessage }>(
     function TextAnswer({ message }, ref) {
         return (
-            <MessageTemplate type="ai" className={message.status === 'error' ? 'border-danger' : undefined} ref={ref}>
-                <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
+            <MessageTemplate
+                type="ai"
+                className={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
+                ref={ref}
+            >
+                <LemonMarkdown>
+                    {message.content || '*Max has failed to generate an answer. Please try again.*'}
+                </LemonMarkdown>
             </MessageTemplate>
         )
     }
