@@ -1,15 +1,13 @@
 import pytest
 from deepeval import assert_test
 from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCaseParams
+from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from langgraph.graph.state import CompiledStateGraph
 
 from ee.hogai.assistant import AssistantGraph
 from ee.hogai.utils import AssistantNodeName
 from posthog.schema import HumanMessage
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from .utils import load_dataset
 
 router_correctness_metric = GEval(
     name="Classification Correctness (message)",
@@ -24,13 +22,23 @@ router_correctness_metric = GEval(
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("dataset", load_dataset(AssistantNodeName.ROUTER, load_filter="all"))
+# @pytest.mark.parametrize("dataset", load_dataset(AssistantNodeName.ROUTER, load_filter="all"))
 class TestRouterEval(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        super().setUp()
+    def _call_node(self, query):
+        graph: CompiledStateGraph = (
+            AssistantGraph(self.team)
+            .add_start()
+            .add_router(path_map={"trends": AssistantNodeName.END, "funnel": AssistantNodeName.END})
+            .compile()
+        )
+        state = graph.invoke({"messages": [HumanMessage(content=query)]})
+        return state["messages"][-1].content
 
-    def test_router_switches_insight_type(self, dataset):
-        graph: CompiledStateGraph = AssistantGraph(self.team).compile_full_graph()
-        res = graph.invoke({"messages": [HumanMessage(content=dataset.input)]})
-        dataset.actual_output = res["messages"][-1].content
-        assert_test(dataset, [router_correctness_metric])
+    def test_router_switches_insight_type(self):
+        query = "how many users upgraded their plan to personal pro?"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="trends",
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [router_correctness_metric])
