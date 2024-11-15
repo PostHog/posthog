@@ -4,7 +4,6 @@ from django.test import override_settings
 from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
-    SystemMessage as LangchainSystemMessage,
 )
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
@@ -190,8 +189,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             history,
             [
-                LangchainSystemMessage(content=SUMMARIZER_SYSTEM_PROMPT),
-                LangchainHumanMessage(content="What's the trends in signups?"),
-                LangchainHumanMessage(content=SUMMARIZER_INSTRUCTION_PROMPT),
+                ("system", SUMMARIZER_SYSTEM_PROMPT),
+                ("human", "What's the trends in signups?"),
+                ("human", SUMMARIZER_INSTRUCTION_PROMPT),
             ],
         )
