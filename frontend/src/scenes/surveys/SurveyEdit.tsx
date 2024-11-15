@@ -920,18 +920,17 @@ export default function SurveyEdit(): JSX.Element {
                                                     {
                                                         value: 'until_stopped',
                                                         label: 'Keep collecting until stopped',
-                                                        'data-attr': 'survey-iteration-frequency-days',
+                                                        'data-attr': 'survey-collection-until-stopped',
                                                     },
                                                     {
                                                         value: 'until_limit',
                                                         label: 'Stop after reaching a limit',
-                                                        'data-attr': 'survey-iteration-frequency-days',
-                                                        disabledReason: surveysRecurringScheduleDisabledReason,
+                                                        'data-attr': 'survey-collection-until-limit',
                                                     },
                                                     {
                                                         value: 'until_adaptive_limit',
                                                         label: 'Adaptive limit by responses and time',
-                                                        'data-attr': 'survey-iteration-frequency-days',
+                                                        'data-attr': 'survey-collection-until-adaptive-limit',
                                                         disabledReason: surveysAdaptiveLimitsDisabledReason,
                                                     },
                                                 ]}

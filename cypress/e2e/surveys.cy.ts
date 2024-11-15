@@ -269,6 +269,7 @@ describe('Surveys', () => {
 
         // Set responses limit
         cy.get('.LemonCollapsePanel').contains('Completion conditions').click()
+        cy.get('[data-attr=survey-collection-until-limit]').first().click()
         cy.get('[data-attr=survey-responses-limit-input]').focus().type('228').click()
 
         // Save the survey

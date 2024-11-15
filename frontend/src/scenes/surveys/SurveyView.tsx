@@ -351,6 +351,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </span>
                                                 </>
                                             )}
+                                            {survey.response_sampling_limit &&
+                                                survey.response_sampling_interval_type &&
+                                                survey.response_sampling_interval && (
+                                                    <>
+                                                        <span className="card-secondary mt-4">
+                                                            Completion conditions
+                                                        </span>
+                                                        <span>
+                                                            Survey response collection will be limited to receive{' '}
+                                                            <b>{survey.response_sampling_limit}</b> responses every{' '}
+                                                            {survey.response_sampling_interval}{' '}
+                                                            {survey.response_sampling_interval_type}(s).
+                                                        </span>
+                                                    </>
+                                                )}
                                             <LemonDivider />
                                             <SurveyDisplaySummary
                                                 id={id}
