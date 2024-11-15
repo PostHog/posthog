@@ -283,6 +283,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
     })),
     reducers(({ props }) => ({
+        query: [
+            props.query,
+            {
+                setQuery: (_, { node }) => node,
+            },
+        ],
         visualizationType: [
             ChartDisplayType.ActionsTable as ChartDisplayType,
             {
@@ -553,7 +559,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return columns.filter((n) => n.type.isNumerical)
             },
         ],
-        query: [(_state, props) => [props.query], (query) => query],
         showEditingUI: [
             (state, props) => [state.insightMode, props.insightLogicProps],
             (insightMode, insightLogicProps) => {

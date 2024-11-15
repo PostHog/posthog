@@ -5,7 +5,7 @@ from django.db import models
 # to add group keys
 class GroupTypeMapping(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE)
     group_type = models.CharField(max_length=400, null=False, blank=False)
     group_type_index = models.IntegerField(null=False, blank=False)
     # Used to display in UI
@@ -24,10 +24,9 @@ class GroupTypeMapping(models.Model):
             ),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["team", "group_type"], name="unique group types for team"),
+            models.UniqueConstraint(fields=("project", "group_type"), name="unique group types for project"),
             models.UniqueConstraint(
-                fields=["team", "group_type_index"],
-                name="unique event column indexes for team",
+                fields=("project", "group_type_index"), name="unique event column indexes for project"
             ),
             models.CheckConstraint(
                 check=models.Q(group_type_index__lte=5),

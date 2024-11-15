@@ -1,11 +1,14 @@
+use std::cmp::min;
+
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use sourcemap::{SourceMap, Token};
 
 use crate::{
-    error::{Error, JsResolveErr, ResolutionError},
+    error::{Error, FrameError, JsResolveErr, UnhandledError},
     frames::Frame,
+    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     symbol_store::SymbolCatalog,
 };
 
@@ -26,16 +29,16 @@ pub struct RawJSFrame {
 }
 
 impl RawJSFrame {
-    pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
+    pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
     where
         C: SymbolCatalog<Url, SourceMap>,
     {
         match self.resolve_impl(team_id, catalog).await {
             Ok(frame) => Ok(frame),
-            Err(Error::ResolutionError(ResolutionError::JavaScript(e))) => {
+            Err(Error::ResolutionError(FrameError::JavaScript(e))) => {
                 Ok(self.handle_resolution_error(e))
             }
-            Err(e) => Err(e),
+            Err(Error::UnhandledError(e)) => Err(e),
         }
     }
 
@@ -120,8 +123,10 @@ impl RawJSFrame {
 impl From<(&RawJSFrame, Token<'_>)> for Frame {
     fn from(src: (&RawJSFrame, Token)) -> Self {
         let (raw_frame, token) = src;
+        metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
 
         Self {
+            raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.get_src_line()),
             column: Some(token.get_src_col()),
@@ -131,13 +136,16 @@ impl From<(&RawJSFrame, Token<'_>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+            context: get_context(&token),
         }
     }
 }
 
 impl From<(&RawJSFrame, JsResolveErr)> for Frame {
     fn from((raw_frame, err): (&RawJSFrame, JsResolveErr)) -> Self {
+        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
         Self {
+            raw_id: String::new(),
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(raw_frame.line),
             column: Some(raw_frame.column),
@@ -147,7 +155,32 @@ impl From<(&RawJSFrame, JsResolveErr)> for Frame {
             lang: "javascript".to_string(),
             resolved: false,
             resolve_failure: Some(err.to_string()),
+            context: None,
         }
+    }
+}
+
+fn get_context(token: &Token) -> Option<String> {
+    let sv = token.get_source_view()?;
+
+    let token_line = token.get_src_line();
+    let start_line = token_line.saturating_sub(5);
+    let end_line = min(token_line.saturating_add(5) as usize, sv.line_count()) as u32;
+
+    // Rough guess on capacity here
+    let mut context = String::with_capacity(((end_line - start_line) * 100) as usize);
+
+    for line in start_line..end_line {
+        if let Some(l) = sv.get_line(line) {
+            context.push_str(l);
+            context.push('\n');
+        }
+    }
+
+    if !context.is_empty() {
+        Some(context)
+    } else {
+        None
     }
 }
 

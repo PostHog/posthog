@@ -1,5 +1,6 @@
 import dataclasses
 from datetime import timedelta
+from enum import StrEnum
 from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
@@ -826,6 +827,45 @@ class BytecodeCompiler(Visitor):
         response.append(Operation.TUPLE)
         response.append(len(node.exprs))
         return response
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        response = []
+        response.extend(self._visit_hogqlx_value("__hx_tag"))
+        response.extend(self._visit_hogqlx_value(node.kind))
+        for attribute in node.attributes:
+            response.extend(self._visit_hogqlx_value(attribute.name))
+            response.extend(self._visit_hogqlx_value(attribute.value))
+        response.append(Operation.DICT)
+        response.append(len(node.attributes) + 1)
+        return response
+
+    def _visit_hogqlx_value(self, value: Any) -> list[Any]:
+        if isinstance(value, AST):
+            return self.visit(value)
+        if isinstance(value, list):
+            elems = []
+            for v in value:
+                elems.extend(self._visit_hogqlx_value(v))
+            return [*elems, Operation.ARRAY, len(value)]
+        if isinstance(value, dict):
+            elems = []
+            for k, v in value.items():
+                elems.extend(self._visit_hogqlx_value(k))
+                elems.extend(self._visit_hogqlx_value(v))
+            return [*elems, Operation.DICT, len(value.items())]
+        if isinstance(value, StrEnum):
+            return [Operation.STRING, value.value]
+        if isinstance(value, int):
+            return [Operation.INTEGER, value]
+        if isinstance(value, float):
+            return [Operation.FLOAT, value]
+        if isinstance(value, str):
+            return [Operation.STRING, value]
+        if value is True:
+            return [Operation.TRUE]
+        if value is False:
+            return [Operation.FALSE]
+        return [Operation.NULL]
 
 
 def execute_hog(

@@ -78,7 +78,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(autouse=True)
 async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket.
 
@@ -870,10 +870,11 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer):
 
         return list(jobs)
 
-    with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.create_job_model.acreate_external_data_job",
-    ) as acreate_external_data_job:
-        acreate_external_data_job.side_effect = Exception("Ruhoh!")
+    with mock.patch.object(
+        ExternalDataJob.objects,
+        "create",
+    ) as create_external_data_job:
+        create_external_data_job.side_effect = Exception("Ruhoh!")
 
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])

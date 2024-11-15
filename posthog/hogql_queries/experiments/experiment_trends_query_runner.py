@@ -45,6 +45,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
+        if self.experiment.holdout:
+            self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
 
         self.prepared_count_query = self._prepare_count_query()
@@ -116,7 +118,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         prepared_count_query.properties = [
             EventPropertyFilter(
                 key=self.breakdown_key,
-                value=[variant["key"] for variant in self.feature_flag.variants],
+                value=self.variants,
                 operator="exact",
                 type="event",
             )
@@ -156,7 +158,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 prepared_exposure_query.properties = [
                     EventPropertyFilter(
                         key=self.breakdown_key,
-                        value=[variant["key"] for variant in self.feature_flag.variants],
+                        value=self.variants,
                         operator="exact",
                         type="event",
                     )
@@ -172,7 +174,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_exposure_query.properties = [
                 EventPropertyFilter(
                     key=self.breakdown_key,
-                    value=[variant["key"] for variant in self.feature_flag.variants],
+                    value=self.variants,
                     operator="exact",
                     type="event",
                 )
@@ -191,7 +193,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 properties=[
                     EventPropertyFilter(
                         key=self.breakdown_key,
-                        value=[variant["key"] for variant in self.feature_flag.variants],
+                        value=self.variants,
                         operator="exact",
                         type="event",
                     ),

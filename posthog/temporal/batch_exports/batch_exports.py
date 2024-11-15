@@ -27,6 +27,7 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run,
 )
+from posthog.settings.base_variables import TEST
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
@@ -62,7 +63,8 @@ FROM
 FORMAT ArrowStream
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
-    max_bytes_before_external_sort=50000000000
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
 """
 
 SELECT_FROM_PERSONS_VIEW_BACKFILL = """
@@ -929,7 +931,7 @@ async def execute_batch_export_insert_activity(
     finish_inputs: FinishBatchExportRunInputs,
     interval: str,
     heartbeat_timeout_seconds: int | None = 120,
-    maximum_attempts: int = 15,
+    maximum_attempts: int = 0,
     initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
@@ -952,16 +954,18 @@ async def execute_batch_export_insert_activity(
     """
     get_export_started_metric().add(1)
 
+    if TEST:
+        maximum_attempts = 1
+
     if interval == "hour":
         start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
-        maximum_attempts = 0
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
-        # TODO: Consider removing this 10 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        start_to_close_timeout = max(dt.timedelta(minutes=10), dt.timedelta(**kwargs))
+        # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
+        start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 

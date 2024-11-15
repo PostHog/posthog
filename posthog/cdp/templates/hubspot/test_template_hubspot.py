@@ -91,6 +91,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
     def _inputs(self, **kwargs):
         inputs = {
             "oauth": {"access_token": "TOKEN"},
+            "eventName": "purchase",
             "email": "example@posthog.com",
             "include_all_properties": False,
             "properties": {
@@ -126,9 +127,9 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         self.mock_fetch_response = lambda *args: EVENT_DEFINITION_RESPONSE  # type: ignore
 
         self.run_function(
-            inputs=self._inputs(include_all_properties=False),
+            inputs=self._inputs(include_all_properties=False, event="purchase"),
             globals={
-                "event": {"event": "purchase", "properties": {"product": "CDP"}},
+                "event": {"properties": {"product": "CDP"}},
             },
         )
 
@@ -158,10 +159,9 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         }
 
         self.run_function(
-            inputs=self._inputs(include_all_properties=True),
+            inputs=self._inputs(include_all_properties=True, eventName="sign_up"),
             globals={
                 "event": {
-                    "event": "sign_up",
                     "properties": {"price": 50, "currency": "USD", "expressDelivery": True},
                 },
             },
@@ -246,11 +246,16 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         }
 
         self.run_function(
-            inputs=self._inputs(include_all_properties=True),
+            inputs=self._inputs(include_all_properties=True, event="purchase"),
             globals={
                 "event": {
-                    "event": "purchase",
-                    "properties": {"price": 50, "currency": "USD", "expressDelivery": True, "location": "Planet Earth"},
+                    "properties": {
+                        "price": 50,
+                        "currency": "USD",
+                        "expressDelivery": True,
+                        "location": "Planet Earth",
+                        "timestamp": "2024-11-11T17:25:59.812Z",
+                    },
                 },
             },
         )
@@ -299,6 +304,22 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
 
         assert self.get_mock_fetch_calls()[3] == snapshot(
             (
+                "https://api.hubapi.com/events/v3/event-definitions/purchase/property",
+                {
+                    "method": "POST",
+                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                    "body": {
+                        "name": "timestamp",
+                        "label": "timestamp",
+                        "type": "datetime",
+                        "description": "timestamp - (created by PostHog)",
+                    },
+                },
+            )
+        )
+
+        assert self.get_mock_fetch_calls()[4] == snapshot(
+            (
                 "https://api.hubapi.com/events/v3/send",
                 {
                     "method": "POST",
@@ -312,6 +333,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                             "currency": "USD",
                             "expressDelivery": True,
                             "location": "Planet Earth",
+                            "timestamp": "2024-11-11T17:25:59.812Z",
                         },
                     },
                 },
@@ -333,10 +355,9 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         }
         with pytest.raises(UncaughtHogVMException) as e:
             self.run_function(
-                inputs=self._inputs(include_all_properties=True),
+                inputs=self._inputs(include_all_properties=True, event="purchase"),
                 globals={
                     "event": {
-                        "event": "purchase",
                         "properties": {"price": "50 coins"},
                     },
                 },
@@ -361,10 +382,9 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         ]:
             if allowed:
                 self.run_function(
-                    inputs=self._inputs(),
+                    inputs=self._inputs(eventName=event_name),
                     globals={
                         "event": {
-                            "event": event_name,
                             "properties": {"url": "https://example.com", "$browser": "Chrome"},
                         },
                     },
@@ -376,7 +396,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             else:
                 with pytest.raises(UncaughtHogVMException) as e:
                     self.run_function(
-                        inputs=self._inputs(),
+                        inputs=self._inputs(eventName=event_name),
                         globals={
                             "event": {
                                 "event": event_name,

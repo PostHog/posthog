@@ -9,8 +9,8 @@ use crate::{
     config::Config,
     error::{Error, JsResolveErr},
     metric_consts::{
-        SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_HEADER_FOUND,
-        SOURCEMAP_NOT_FOUND, SOURCE_REF_BODY_FETCHES,
+        SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND,
+        SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE, SOURCE_REF_BODY_FETCHES,
     },
 };
 
@@ -42,8 +42,16 @@ impl Fetcher for SourcemapProvider {
     type Ref = Url;
     type Fetched = Vec<u8>;
     async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Error> {
+        let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
         let sourcemap_url = find_sourcemap_url(&self.client, r).await?;
-        Ok(fetch_source_map(&self.client, sourcemap_url).await?)
+
+        let start = start.label("found_url", "true");
+
+        let res = fetch_source_map(&self.client, sourcemap_url).await?;
+
+        start.label("found_data", "true").fin();
+
+        Ok(res)
     }
 }
 
@@ -52,7 +60,10 @@ impl Parser for SourcemapProvider {
     type Source = Vec<u8>;
     type Set = SourceMap;
     async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
-        Ok(SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?)
+        let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
+        let sm = SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?;
+        start.label("success", "true").fin();
+        Ok(sm)
     }
 }
 

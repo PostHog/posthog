@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{digest::Update, Sha512};
+use uuid::Uuid;
 
 use crate::frames::{Frame, RawFrame};
 
@@ -48,18 +49,18 @@ pub struct Exception {
 pub struct ErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "$exception_type")]
-    pub exception_type: Option<String>, // legacy, overridden by exception_list
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "$exception_message")]
-    pub exception_message: Option<String>, // legacy, overridden by exception_list
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "$exception_stack_trace_raw")]
-    pub exception_stack_trace_raw: Option<String>, // Not all exceptions have a stack trace
-    #[serde(rename = "$exception_level")]
-    pub exception_level: Option<String>, // We generally don't touch this, but we break it out explicitly for users. Not all exceptions have a level
-    #[serde(flatten)] // A catch-all for all the properties we don't "care" about
+    #[serde(
+        rename = "$exception_fingerprint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fingerprint: Option<String>, // We expect this not to exist when the event is received, and we populate it as part of processing
+    #[serde(
+        rename = "$exception_issue_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub resolved_issue_id: Option<Uuid>, // We populate the exception issue id as part of processing
+    #[serde(flatten)]
+    // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
 }
 
@@ -88,6 +89,22 @@ impl Exception {
                 frame.include_in_fingerprint(h)
             }
         }
+    }
+}
+
+impl ErrProps {
+    pub fn add_error_message(&mut self, msg: impl ToString) {
+        let mut errors = match self.other.remove("$cymbal_errors") {
+            Some(serde_json::Value::Array(errors)) => errors,
+            _ => Vec::new(),
+        };
+
+        errors.push(serde_json::Value::String(msg.to_string()));
+
+        self.other.insert(
+            "$cymbal_errors".to_string(),
+            serde_json::Value::Array(errors),
+        );
     }
 }
 
@@ -148,11 +165,6 @@ mod test {
         assert!(frame.in_app);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 15003);
-
-        assert_eq!(props.exception_type, None);
-        assert_eq!(props.exception_message, None);
-        assert_eq!(props.exception_stack_trace_raw, None);
-        assert_eq!(props.exception_level, Some("error".to_string()));
     }
 
     #[test]

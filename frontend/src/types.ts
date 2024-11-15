@@ -521,6 +521,7 @@ export interface TeamType extends TeamBasicType {
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_event_trigger_config?: string[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -626,7 +627,6 @@ export type ExperimentIdType = number | 'new' | 'web'
 /* sync with posthog-js */
 export interface ToolbarParams {
     apiURL?: string
-    jsURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
     actionId?: number
@@ -2193,7 +2193,8 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
-export type BreakdownKeyType = string | number | (string | number)[] | null
+// eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
 /**
  * Legacy breakdown.
@@ -2356,7 +2357,7 @@ export interface PathsFilterType extends FilterType {
     /** @asType integer */
     step_limit?: number // Paths Step Limit
     path_replacements?: boolean
-    local_path_cleaning_filters?: PathCleaningFilter[]
+    local_path_cleaning_filters?: PathCleaningFilter[] | null
     /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
     /** @asType integer */
@@ -3323,6 +3324,7 @@ interface BaseExperimentResults {
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: Record<string, any>[]
     filters: TrendsFilterType
+    exposure_filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
     credible_intervals: { [key: string]: [number, number] }
@@ -4413,7 +4415,6 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    ExperimentFeatureFlag = 'experiment-feature-flag',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4502,6 +4503,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.PRODUCT_ANALYTICS
     | ProductKey.SESSION_REPLAY
     | ProductKey.FEATURE_FLAGS
+    | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
