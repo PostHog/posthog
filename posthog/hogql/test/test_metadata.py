@@ -451,3 +451,16 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "errors": [],
             },
         )
+
+    def test_is_valid_view_is_false_when_using_scoped_asterisk(self):
+        metadata = self._select("SELECT e.* FROM events e")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "query": "SELECT e.* FROM events e",
+                "errors": [],
+            },
+        )
