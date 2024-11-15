@@ -104,6 +104,7 @@ class DataImportPipelineSync:
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
             "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
             "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
@@ -191,7 +192,8 @@ class DataImportPipelineSync:
         # Workaround for full refresh schemas while we wait for Rust to fix memory issue
         for name, resource in self.source._resources.items():
             if resource.write_disposition == "replace":
-                delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{name}"
+                normalized_schema_name = NamingConvention().normalize_identifier(name)
+                delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{normalized_schema_name}"
                 storage_options = self._get_credentials()
 
                 self.logger.debug(f"delta_uri={delta_uri}")
