@@ -129,7 +129,7 @@
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
@@ -273,7 +273,7 @@
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
@@ -417,7 +417,7 @@
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
                     max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
