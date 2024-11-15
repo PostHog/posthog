@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -348,6 +348,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (tabToRemove) {
                 actions.deleteTab(tabToRemove)
             }
+            lemonToast.success('View deleted')
         },
         createDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
             const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
@@ -361,6 +362,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 newTab && actions.selectTab(newTab)
                 actions.updateState()
             }
+        },
+        updateDataWarehouseSavedQuerySuccess: () => {
+            lemonToast.success('View updated')
         },
     })),
     subscriptions(({ props, actions, values }) => ({
