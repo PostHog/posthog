@@ -1,3 +1,5 @@
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __lambda (fn) { return fn }
 function empty (value) {
     if (typeof value === 'object') {
@@ -14,11 +16,9 @@ function empty (value) {
     }
     return !value
 }
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
-        if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj) && !__isHogClosure(obj) && !__isHogCallable(obj)) {
+        if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj)) {
             return 'null';
         }
         marked.add(obj);
@@ -37,8 +37,6 @@ function __printHogValue(obj, marked = new Set()) {
             if (__isHogError(obj)) {
                 return `${String(obj.type)}(${__escapeString(obj.message)}${obj.payload ? `, ${__printHogValue(obj.payload, marked)}` : ''})`;
             }
-            if (__isHogClosure(obj)) return __printHogValue(obj.callable, marked);
-            if (__isHogCallable(obj)) return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${__printHogValue(obj.argCount)})>`;
             if (obj instanceof Map) {
                 return `{${Array.from(obj.entries()).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`;
             }
@@ -62,8 +60,6 @@ function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
-function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
-function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }

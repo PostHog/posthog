@@ -1,3 +1,6 @@
+function positionCaseInsensitive (str, elem) { if (typeof str === 'string') { return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1 } else { return 0 } }
+function notILike (str, pattern) { return !__like(str, pattern, true) }
+function position (str, elem) { if (typeof str === 'string') { return str.indexOf(String(elem)) + 1 } else { return 0 } }
 function trimLeft (str, char) {
     if (char === null || char === undefined) {
         char = ' '
@@ -11,6 +14,24 @@ function trimLeft (str, char) {
     }
     return str.slice(start)
 }
+function notLike (str, pattern) { return !__like(str, pattern, false) }
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function splitByString (separator, str, maxSplits) { if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }
+function trimRight (str, char) {
+    if (char === null || char === undefined) {
+        char = ' '
+    }
+    if (char.length !== 1) {
+        return ''
+    }
+    let end = str.length
+    while (str[end - 1] === char) {
+        end--
+    }
+    return str.slice(0, end)
+}
+function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
+function ilike (str, pattern) { return __like(str, pattern, true) }
 function trim (str, char) {
     if (char === null || char === undefined) {
         char = ' '
@@ -31,16 +52,21 @@ function trim (str, char) {
     }
     return str.slice(start, end)
 }
-function splitByString (separator, str, maxSplits) { if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }
-function position (str, elem) { if (typeof str === 'string') { return str.indexOf(String(elem)) + 1 } else { return 0 } }
-function positionCaseInsensitive (str, elem) { if (typeof str === 'string') { return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1 } else { return 0 } }
-function notILike (str, pattern) { return !__like(str, pattern, true) }
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
-function notLike (str, pattern) { return !__like(str, pattern, false) }
+function like (str, pattern) { return __like(str, pattern, false) }
+function __like(str, pattern, caseInsensitive = false) {
+    if (caseInsensitive) {
+        str = str.toLowerCase()
+        pattern = pattern.toLowerCase()
+    }
+    pattern = String(pattern)
+        .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+        .replaceAll('%', '.*')
+        .replaceAll('_', '.')
+    return new RegExp(pattern).test(str)
+}
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
-        if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj) && !__isHogClosure(obj) && !__isHogCallable(obj)) {
+        if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj)) {
             return 'null';
         }
         marked.add(obj);
@@ -59,8 +85,6 @@ function __printHogValue(obj, marked = new Set()) {
             if (__isHogError(obj)) {
                 return `${String(obj.type)}(${__escapeString(obj.message)}${obj.payload ? `, ${__printHogValue(obj.payload, marked)}` : ''})`;
             }
-            if (__isHogClosure(obj)) return __printHogValue(obj.callable, marked);
-            if (__isHogCallable(obj)) return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${__printHogValue(obj.argCount)})>`;
             if (obj instanceof Map) {
                 return `{${Array.from(obj.entries()).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`;
             }
@@ -84,37 +108,9 @@ function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
-function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
-function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
-function trimRight (str, char) {
-    if (char === null || char === undefined) {
-        char = ' '
-    }
-    if (char.length !== 1) {
-        return ''
-    }
-    let end = str.length
-    while (str[end - 1] === char) {
-        end--
-    }
-    return str.slice(0, end)
-}
-function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
-function ilike (str, pattern) { return __like(str, pattern, true) }
-function like (str, pattern) { return __like(str, pattern, false) }
-function __like(str, pattern, caseInsensitive = false) {
-    if (caseInsensitive) {
-        str = str.toLowerCase()
-        pattern = pattern.toLowerCase()
-    }
-    pattern = String(pattern)
-        .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
-        .replaceAll('%', '.*')
-        .replaceAll('_', '.')
-    return new RegExp(pattern).test(str)
-}
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
+function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 
 print(trim("  hello  world  "));
 print(trimLeft("  hello world  "));

@@ -1,112 +1,293 @@
 function formatDateTime (input, format, zone) { return __formatDateTime(input, format, zone) }
+function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString(arg))).join('') }
+function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function fromUnixTimestamp (input) { return __fromUnixTimestamp(input) }
-function __formatDateTime(input, format, zone) {
-    if (!__isHogDateTime(input)) {
-        throw new Error('Expected a DateTime')
-    }
-    if (!format) {
-        throw new Error('formatDateTime requires at least 2 arguments')
-    }
-    let formatString = ''
-    let acc = ''
-    const tokenTranslations = {
-        a: 'EEE',
-        b: 'MMM',
-        c: 'MM',
-        C: 'yy',
-        d: 'dd',
-        D: 'MM/dd/yy',
-        e: 'd',
-        f: 'SSS',
-        F: 'yyyy-MM-dd',
-        g: 'yy',
-        G: 'yyyy',
-        h: 'hh',
-        H: 'HH',
-        i: 'mm',
-        I: 'hh',
-        j: 'ooo',
-        k: 'HH',
-        l: 'hh',
-        m: 'MM',
-        M: 'MMMM',
-        n: '\n',
-        p: 'a',
-        Q: 'q',
-        r: 'hh:mm a',
-        R: 'HH:mm',
-        s: 'ss',
-        S: 'ss',
-        t: '\t',
-        T: 'HH:mm:ss',
-        u: 'E',
-        V: 'WW',
-        w: 'E',
-        W: 'EEEE',
-        y: 'yy',
-        Y: 'yyyy',
-        z: 'ZZZ',
-        '%': '%',
-    }
-    for (let i = 0; i < format.length; i++) {
-        if (format[i] === '%') {
-            if (acc.length > 0) {
-                formatString += `'\${acc}'`
-                acc = ''
-            }
-            i += 1
-            if (i < format.length && tokenTranslations[format[i]]) {
-                formatString += tokenTranslations[format[i]]
-            }
-        } else {
-            acc += format[i]
-        }
-    }
-    if (acc.length > 0) {
-        formatString += `'\${acc}'`
-    }
-    return DateTime.fromSeconds(input.dt, { zone: zone || input.zone }).toFormat(formatString)
-}
 function __fromUnixTimestamp(input) { return __toHogDateTime(input) }
 function __toHogDateTime(timestamp, zone) {
     if (__isHogDate(timestamp)) {
-        const dateTime = DateTime.fromObject(
-            {
-                year: timestamp.year,
-                month: timestamp.month,
-                day: timestamp.day,
-            },
-            { zone: zone || 'UTC' }
-        )
+        const date = new Date(Date.UTC(timestamp.year, timestamp.month - 1, timestamp.day));
+        const dt = date.getTime() / 1000;
         return {
             __hogDateTime__: true,
-            dt: dateTime.toSeconds(),
-            zone: dateTime.zoneName || 'UTC',
-        }
+            dt: dt,
+            zone: zone || 'UTC',
+        };
     }
     return {
         __hogDateTime__: true,
         dt: timestamp,
         zone: zone || 'UTC',
-    }
+    };
 }
-function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString([arg]))).join('') }
-function __STLToString(args) {
-    if (__isHogDate(args[0])) {
-        const month = args[0].month
-        const day = args[0].day
-        return `\${args[0].year}-\${month < 10 ? '0' : ''}\${month}-\${day < 10 ? '0' : ''}\${day}`
+function __formatDateTime(input, format, zone) {
+    if (!__isHogDateTime(input)) {
+        throw new Error('Expected a DateTime');
     }
-    if (__isHogDateTime(args[0])) {
-        return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
+    if (!format) {
+        throw new Error('formatDateTime requires at least 2 arguments');
     }
-    return __printHogStringOutput(args[0])
+
+    // Convert timestamp to milliseconds
+    const timestamp = input.dt * 1000;
+    let date = new Date(timestamp);
+
+    // Use 'UTC' if no zone is specified
+    if (!zone) {
+        zone = 'UTC';
+    }
+
+    // Helper functions
+    const padZero = (num, len = 2) => String(num).padStart(len, '0');
+    const padSpace = (num, len = 2) => String(num).padStart(len, ' ');
+
+    const getDateComponent = (type, options = {}) => {
+        const formatter = new Intl.DateTimeFormat('en-US', { ...options, timeZone: zone });
+        const parts = formatter.formatToParts(date);
+        const part = parts.find(p => p.type === type);
+        return part ? part.value : '';
+    };
+
+    const getNumericComponent = (type, options = {}) => {
+        const value = getDateComponent(type, options);
+        return parseInt(value, 10);
+    };
+
+    const getWeekNumber = (d) => {
+        const dateInZone = new Date(d.toLocaleString('en-US', { timeZone: zone }));
+        const target = new Date(Date.UTC(dateInZone.getFullYear(), dateInZone.getMonth(), dateInZone.getDate()));
+        const dayNr = (target.getUTCDay() + 6) % 7;
+        target.setUTCDate(target.getUTCDate() - dayNr + 3);
+        const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+        const weekNumber = 1 + Math.round(((target - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
+        return weekNumber;
+    };
+
+    const getDayOfYear = (d) => {
+        const startOfYear = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        const dateInZone = new Date(d.toLocaleString('en-US', { timeZone: zone }));
+        const diff = dateInZone - startOfYear;
+        return Math.floor(diff / 86400000) + 1;
+    };
+
+    // Token mapping with corrections
+    const tokens = {
+        '%a': () => getDateComponent('weekday', { weekday: 'short' }),
+        '%b': () => getDateComponent('month', { month: 'short' }),
+        '%c': () => padZero(getNumericComponent('month', { month: '2-digit' })),
+        '%C': () => getDateComponent('year', { year: '2-digit' }),
+        '%d': () => padZero(getNumericComponent('day', { day: '2-digit' })),
+        '%D': () => {
+            const month = padZero(getNumericComponent('month', { month: '2-digit' }));
+            const day = padZero(getNumericComponent('day', { day: '2-digit' }));
+            const year = getDateComponent('year', { year: '2-digit' });
+            return `${month}/${day}/${year}`;
+        },
+        '%e': () => padSpace(getNumericComponent('day', { day: 'numeric' })),
+        '%F': () => {
+            const year = getNumericComponent('year', { year: 'numeric' });
+            const month = padZero(getNumericComponent('month', { month: '2-digit' }));
+            const day = padZero(getNumericComponent('day', { day: '2-digit' }));
+            return `${year}-${month}-${day}`;
+        },
+        '%g': () => getDateComponent('year', { year: '2-digit' }),
+        '%G': () => getNumericComponent('year', { year: 'numeric' }),
+        '%h': () => padZero(getNumericComponent('hour', { hour: '2-digit', hour12: true })),
+        '%H': () => padZero(getNumericComponent('hour', { hour: '2-digit', hour12: false })),
+        '%i': () => padZero(getNumericComponent('minute', { minute: '2-digit' })),
+        '%I': () => padZero(getNumericComponent('hour', { hour: '2-digit', hour12: true })),
+        '%j': () => padZero(getDayOfYear(date), 3),
+        '%k': () => padSpace(getNumericComponent('hour', { hour: 'numeric', hour12: false })),
+        '%l': () => padZero(getNumericComponent('hour', { hour: '2-digit', hour12: true })),
+        '%m': () => padZero(getNumericComponent('month', { month: '2-digit' })),
+        '%M': () => getDateComponent('month', { month: 'long' }),
+        '%n': () => '\n',
+        '%p': () => getDateComponent('dayPeriod', { hour: 'numeric', hour12: true }),
+        '%r': () => {
+            const hour = padZero(getNumericComponent('hour', { hour: '2-digit', hour12: true }));
+            const minute = padZero(getNumericComponent('minute', { minute: '2-digit' }));
+            const second = padZero(getNumericComponent('second', { second: '2-digit' }));
+            const period = getDateComponent('dayPeriod', { hour: 'numeric', hour12: true });
+            return `${hour}:${minute} ${period}`;
+        },
+        '%R': () => {
+            const hour = padZero(getNumericComponent('hour', { hour: '2-digit', hour12: false }));
+            const minute = padZero(getNumericComponent('minute', { minute: '2-digit' }));
+            return `${hour}:${minute}`;
+        },
+        '%s': () => padZero(getNumericComponent('second', { second: '2-digit' })),
+        '%S': () => padZero(getNumericComponent('second', { second: '2-digit' })),
+        '%t': () => '\t',
+        '%T': () => {
+            const hour = padZero(getNumericComponent('hour', { hour: '2-digit', hour12: false }));
+            const minute = padZero(getNumericComponent('minute', { minute: '2-digit' }));
+            const second = padZero(getNumericComponent('second', { second: '2-digit' }));
+            return `${hour}:${minute}:${second}`;
+        },
+        '%u': () => {
+            let day = getDateComponent('weekday', { weekday: 'short' });
+            const dayMap = { 'Mon': '1', 'Tue': '2', 'Wed': '3', 'Thu': '4', 'Fri': '5', 'Sat': '6', 'Sun': '7' };
+            return dayMap[day];
+        },
+        '%V': () => padZero(getWeekNumber(date)),
+        '%w': () => {
+            let day = getDateComponent('weekday', { weekday: 'short' });
+            const dayMap = { 'Sun': '0', 'Mon': '1', 'Tue': '2', 'Wed': '3', 'Thu': '4', 'Fri': '5', 'Sat': '6' };
+            return dayMap[day];
+        },
+        '%W': () => getDateComponent('weekday', { weekday: 'long' }),
+        '%y': () => getDateComponent('year', { year: '2-digit' }),
+        '%Y': () => getNumericComponent('year', { year: 'numeric' }),
+        '%z': () => {
+            if (zone === 'UTC') {
+                return '+0000';
+            } else {
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: zone,
+                    timeZoneName: 'shortOffset',
+                });
+                const parts = formatter.formatToParts(date);
+                const offsetPart = parts.find(part => part.type === 'timeZoneName');
+                if (offsetPart && offsetPart.value) {
+                    const offsetValue = offsetPart.value;
+                    const match = offsetValue.match(/GMT([+-]\d{1,2})(?::(\d{2}))?/);
+                    if (match) {
+                        const sign = match[1][0];
+                        const hours = padZero(Math.abs(parseInt(match[1], 10)));
+                        const minutes = padZero(match[2] ? parseInt(match[2], 10) : 0);
+                        return `${sign}${hours}${minutes}`;
+                    }
+                }
+                return '';
+            }
+        },
+        '%%': () => '%',
+    };
+
+    // Replace tokens in the format string
+    let result = '';
+    let i = 0;
+    while (i < format.length) {
+        if (format[i] === '%') {
+            const token = format.substring(i, i + 2);
+            if (tokens[token]) {
+                result += tokens[token]();
+                i += 2;
+            } else {
+                // If token not found, include '%' and move to next character
+                result += format[i];
+                i += 1;
+            }
+        } else {
+            result += format[i];
+            i += 1;
+        }
+    }
+
+    return result;
 }
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function __STLToString(arg) {
+    if (arg && __isHogDate(arg)) {
+        // Handle HogDate objects
+        const month = arg.month.toString().padStart(2, '0');
+        const day = arg.day.toString().padStart(2, '0');
+        return `${arg.year}-${month}-${day}`;
+    }
+    if (arg && __isHogDateTime(arg)) {
+        // Handle HogDateTime objects
+        const dt = arg;
+        const date = new Date(dt.dt * 1000);
+        const timeZone = dt.zone || 'UTC';
+
+        // Determine if milliseconds are present
+        const milliseconds = Math.floor(dt.dt * 1000 % 1000);
+
+        // Formatting options for date and time components
+        const options = {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+        };
+
+        // Create a formatter for the specified time zone
+        const formatter = new Intl.DateTimeFormat('en-US', options);
+        const parts = formatter.formatToParts(date);
+
+        // Extract date and time components
+        let year, month, day, hour, minute, second;
+        for (const part of parts) {
+            switch (part.type) {
+                case 'year':
+                    year = part.value;
+                    break;
+                case 'month':
+                    month = part.value;
+                    break;
+                case 'day':
+                    day = part.value;
+                    break;
+                case 'hour':
+                    hour = part.value;
+                    break;
+                case 'minute':
+                    minute = part.value;
+                    break;
+                case 'second':
+                    second = part.value;
+                    break;
+                default:
+                    // Ignore other parts
+                    break;
+            }
+        }
+
+        // Get time zone offset
+        let offset = 'Z';
+        if (timeZone === 'UTC') {
+            offset = 'Z';
+        } else {
+            const tzOptions = { timeZone, timeZoneName: 'shortOffset' };
+            const tzFormatter = new Intl.DateTimeFormat('en-US', tzOptions);
+            const tzParts = tzFormatter.formatToParts(date);
+            const timeZoneNamePart = tzParts.find(part => part.type === 'timeZoneName');
+
+            if (timeZoneNamePart && timeZoneNamePart.value) {
+                const offsetString = timeZoneNamePart.value;
+                const match = offsetString.match(/GMT([+-]\d{2})(?::?(\d{2}))?/);
+                if (match) {
+                    const sign = match[1][0];
+                    const hours = match[1].slice(1).padStart(2, '0');
+                    const minutes = (match[2] || '00').padStart(2, '0');
+                    offset = `${sign}${hours}:${minutes}`;
+                } else if (offsetString === 'GMT') {
+                    offset = '+00:00';
+                } else {
+                    // Fallback for time zones with names instead of offsets
+                    offset = '';
+                }
+            }
+        }
+
+        // Build ISO 8601 string with time zone offset
+        let isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+        if (milliseconds !== null) {
+            isoString += `.${milliseconds.toString().padStart(3, '0')}`;
+        }
+        isoString += offset;
+
+        return isoString;
+    }
+    // For other types, use default string representation
+    return __printHogStringOutput(arg);
+}
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
-        if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj) && !__isHogClosure(obj) && !__isHogCallable(obj)) {
+        if (marked.has(obj) && !__isHogDateTime(obj) && !__isHogDate(obj) && !__isHogError(obj)) {
             return 'null';
         }
         marked.add(obj);
@@ -125,8 +306,6 @@ function __printHogValue(obj, marked = new Set()) {
             if (__isHogError(obj)) {
                 return `${String(obj.type)}(${__escapeString(obj.message)}${obj.payload ? `, ${__printHogValue(obj.payload, marked)}` : ''})`;
             }
-            if (__isHogClosure(obj)) return __printHogValue(obj.callable, marked);
-            if (__isHogCallable(obj)) return `fn<${__escapeIdentifier(obj.name ?? 'lambda')}(${__printHogValue(obj.argCount)})>`;
             if (obj instanceof Map) {
                 return `{${Array.from(obj.entries()).map(([key, value]) => `${__printHogValue(key, marked)}: ${__printHogValue(value, marked)}`).join(', ')}}`;
             }
@@ -150,11 +329,9 @@ function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
 }
-function __isHogCallable(obj) { return obj && typeof obj === 'function' && obj.__isHogCallable__ }
-function __isHogClosure(obj) { return obj && obj.__isHogClosure__ === true }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
-function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
+function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 
 let dt = fromUnixTimestamp(1234377543.123456);
 print(formatDateTime(dt, "%Y-%m-%d %H:%i:%S"));
