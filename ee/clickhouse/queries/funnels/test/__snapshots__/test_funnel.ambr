@@ -130,7 +130,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -279,7 +279,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -424,7 +424,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -562,13 +562,14 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -705,13 +706,14 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -848,13 +850,14 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.8
@@ -991,13 +994,14 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1131,7 +1135,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -1280,7 +1284,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -1425,7 +1429,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -1537,16 +1541,17 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
-     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop)
+              prop
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -1657,16 +1662,17 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
-     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop)
+              prop
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -1777,16 +1783,17 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
-     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop)
+              prop
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.8
@@ -1897,16 +1904,17 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
-     WHERE steps = max_steps
      GROUP BY aggregation_target,
               steps,
-              prop)
+              prop
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -2040,7 +2048,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -2189,7 +2197,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -2334,7 +2342,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   GROUP BY prop
   '''
 # ---
@@ -2629,13 +2637,14 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.14
@@ -2929,13 +2938,14 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -3229,13 +3239,14 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -3529,12 +3540,13 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    enable_analyzer = 0
   '''
 # ---
