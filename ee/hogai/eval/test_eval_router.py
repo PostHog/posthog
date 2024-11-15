@@ -6,7 +6,7 @@ from ee.hogai.utils import AssistantNodeName
 from posthog.schema import HumanMessage, RouterMessage
 
 
-class TestRouterEval(EvalBaseTest):
+class TestEvalRouter(EvalBaseTest):
     def _call_node(self, query: str | list):
         graph: CompiledStateGraph = (
             AssistantGraph(self.team)
@@ -51,6 +51,9 @@ class TestRouterEval(EvalBaseTest):
         self.assertEqual(res, "trends")
 
     def test_outputs_single_trends_insight(self):
+        """
+        Must display a trends insight because it's not possible to build a funnel with a single series.
+        """
         query = "how many users upgraded their plan to personal pro?"
         res = self._call_node(query)
         self.assertEqual(res, "trends")
