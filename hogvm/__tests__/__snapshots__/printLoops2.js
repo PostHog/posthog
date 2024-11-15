@@ -25,7 +25,7 @@ function jsonStringify (value, spacing) {
     if (spacing && typeof spacing === 'number' && spacing > 0) {
         return JSON.stringify(convert(value), null, spacing)
     }
-    return JSON.stringify(convert(value))
+    return JSON.stringify(convert(value), (key, val) => typeof val === 'function' ? `fn<${val.name || 'lambda'}(${val.length})>` : val)
 }
 function jsonParse (str) {
     function convert(x) {
