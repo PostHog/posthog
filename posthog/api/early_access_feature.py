@@ -203,6 +203,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     "key": feature_flag_key,
                     "name": f"Feature Flag for Feature {validated_data['name']}",
                     "filters": filters,
+                    "created_from": "early_access_features",
                 },
                 context=self.context,
             )

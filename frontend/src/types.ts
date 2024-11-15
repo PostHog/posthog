@@ -2952,7 +2952,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
-    creation_origin: string | null
 }
 
 export interface OrganizationFeatureFlag {

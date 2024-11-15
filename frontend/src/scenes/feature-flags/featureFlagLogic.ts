@@ -97,7 +97,6 @@ const NEW_FLAG: FeatureFlagType = {
     performed_rollback: false,
     can_edit: true,
     tags: [],
-    creation_origin: null,
 }
 const NEW_VARIANT = {
     key: '',
@@ -125,7 +124,6 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
-    creation_origin?: string | null
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -304,7 +302,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
-            defaults: { ...NEW_FLAG, creation_origin: values.creationOrigin || 'flags_ui' } as FeatureFlagType,
+            defaults: { ...NEW_FLAG },
             errors: ({ key, filters }) => {
                 return {
                     key: validateFeatureFlagKey(key),
@@ -1009,12 +1007,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag) => {
                 return featureFlag?.surveys && featureFlag.surveys.length > 0
-            },
-        ],
-        creationOrigin: [
-            (s) => [s.featureFlag],
-            (featureFlag) => {
-                return featureFlag.creation_origin
             },
         ],
     }),
