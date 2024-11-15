@@ -568,8 +568,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -712,8 +711,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -856,8 +854,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.8
@@ -1000,8 +997,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1550,8 +1546,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -1671,8 +1666,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -1792,8 +1786,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.8
@@ -1913,8 +1906,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -2643,8 +2635,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.14
@@ -2944,8 +2935,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -3245,8 +3235,7 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -3546,7 +3535,6 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    enable_analyzer = 0
+                    max_expanded_ast_elements=1000000
   '''
 # ---
