@@ -176,8 +176,27 @@ impl RawRequest {
             s
         };
 
+        let json: Value = serde_json::from_str(&payload)?;
+        // We unroll the enum here, rather than calling serde_json::from_str directly with it
+        // as the target, to get somewhat better error messaging.
+        let res = match json {
+            Value::Array(events) => {
+                let parsed: Vec<RawEvent> = serde_json::from_value(Value::Array(events))?;
+                Ok(RawRequest::Array(parsed))
+            }
+            Value::Object(inner) if inner.contains_key("batch") => {
+                let req: BatchedRequest = serde_json::from_value(Value::Object(inner))?;
+                Ok(RawRequest::Batch(req))
+            }
+            other => {
+                // Either this is a raw event, or it's nothing at all
+                let event: RawEvent = serde_json::from_value(other)?;
+                Ok(RawRequest::One(Box::new(event)))
+            }
+        };
+
         tracing::debug!(json = payload, "decoded event data");
-        Ok(serde_json::from_str::<RawRequest>(&payload)?)
+        res
     }
 
     pub fn events(self) -> Vec<RawEvent> {
