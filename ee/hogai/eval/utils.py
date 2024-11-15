@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from posthog.demo.matrix.manager import MatrixManager
@@ -5,6 +7,7 @@ from posthog.tasks.demo_create_data import HedgeboxMatrix
 from posthog.test.base import BaseTest
 
 
+@pytest.mark.skipif(os.environ.get("DEEPEVAL") != "YES", reason="Only runs for the assistant evaluation")
 @pytest.mark.django_db(transaction=True)
 class EvalBaseTest(BaseTest):
     @classmethod
