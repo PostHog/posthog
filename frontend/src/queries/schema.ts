@@ -221,7 +221,7 @@ export interface DataNode<R extends Record<string, any> = Record<string, any>> e
     modifiers?: HogQLQueryModifiers
 }
 
-/** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
+/** HogQL Query Options are automatically set per team. However, they can be overridden in the query. */
 export interface HogQLQueryModifiers {
     personsOnEventsMode?:
         | 'disabled' // `disabled` is deprecated and set for removal - `person_id_override_properties_joined` is its faster functional equivalent
@@ -240,6 +240,7 @@ export interface HogQLQueryModifiers {
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    customChannelTypeRules?: CustomChannelRule[]
 }
 
 export interface DataWarehouseEventsModifier {
@@ -2520,4 +2521,34 @@ export enum AssistantGenerationStatusType {
 
 export interface AssistantGenerationStatusEvent {
     type: AssistantGenerationStatusType
+}
+
+export enum CustomChannelField {
+    UTMSource = 'utm_source',
+    UTMMedium = 'utm_medium',
+    UTMCampaign = 'utm_campaign',
+    ReferringDomain = 'referring_domain',
+}
+
+export enum CustomChannelOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    IContains = 'icontains',
+    NotIContains = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+}
+
+export interface CustomChannelCondition {
+    key: CustomChannelField
+    value?: string | string[]
+    op: CustomChannelOperator
+}
+
+export interface CustomChannelRule {
+    conditions: CustomChannelCondition[]
+    combiner: FilterLogicalOperator
+    channel_type: string
 }

@@ -245,9 +245,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             }
 
             if (props.monaco) {
-                const defaultQuery = values.featureFlags[FEATURE_FLAGS.SQL_EDITOR]
-                    ? ''
-                    : 'SELECT event FROM events LIMIT 100'
+                const defaultQuery = 'SELECT event FROM events LIMIT 100'
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
                 const model = props.monaco.editor.createModel(defaultQuery, props.language, uri)
                 props.editor?.setModel(model)

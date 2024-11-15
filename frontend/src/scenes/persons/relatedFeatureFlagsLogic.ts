@@ -10,13 +10,14 @@ import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
 
 import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 import type { relatedFeatureFlagsLogicType } from './relatedFeatureFlagsLogicType'
+
 export interface RelatedFeatureFlag extends FeatureFlagType {
     value: boolean | string
     evaluation: FeatureFlagEvaluationType
 }
 
 export interface FeatureFlagEvaluationType {
-    reason: string
+    reason: FeatureFlagMatchReason
     condition_index?: number
 }
 
@@ -39,6 +40,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     props(
         {} as {
             distinctId: string
+            groupTypeIndex?: number
             groups?: { [key: string]: string }
         }
     ),
@@ -83,14 +85,32 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             },
         ],
     }),
-    selectors(() => ({
+    selectors(({ props }) => ({
         mappedRelatedFeatureFlags: [
             (selectors) => [selectors.relatedFeatureFlags, selectors.featureFlags],
             (relatedFlags, featureFlags): RelatedFeatureFlag[] => {
                 if (relatedFlags && featureFlags) {
-                    return featureFlags.results
+                    let flags = featureFlags.results
                         .map((flag) => ({ ...relatedFlags[flag.key], ...flag }))
                         .filter((flag) => flag.evaluation !== undefined)
+
+                    // return related feature flags for group property targeting or person property targeting, but not both
+                    if (props.groupTypeIndex && props.groups && Object.keys(props.groups).length > 0) {
+                        flags = flags.filter(
+                            (flag) =>
+                                flag.filters.aggregation_group_type_index !== undefined &&
+                                flag.filters.aggregation_group_type_index !== null &&
+                                flag.filters.aggregation_group_type_index === props.groupTypeIndex
+                        )
+                    } else {
+                        flags = flags.filter(
+                            (flag) =>
+                                flag.filters.aggregation_group_type_index === undefined ||
+                                flag.filters.aggregation_group_type_index === null
+                        )
+                    }
+
+                    return flags
                 }
                 return []
             },
