@@ -285,8 +285,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
 
-        if not validated_data.get("filters") and not is_draft:
-            raise ValidationError("Filters are required when creating a launched experiment")
+        # if not validated_data.get("filters") and not is_draft:
+        #     raise ValidationError("Filters are required when creating a launched experiment")
 
         saved_metrics_data = validated_data.pop("saved_metrics_ids", [])
 
@@ -301,7 +301,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        properties = validated_data["filters"].get("properties", [])
+        # properties = validated_data["filters"].get("properties", [])
+        properties = []
 
         if properties:
             raise ValidationError("Experiments do not support global filter properties")
@@ -315,7 +316,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
         ]
 
-        filters = {
+        feature_flag_filters = {
             "groups": [{"properties": properties, "rollout_percentage": 100}],
             "multivariate": {"variants": variants or default_variants},
             "aggregation_group_type_index": aggregation_group_type_index,
@@ -326,7 +327,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             data={
                 "key": feature_flag_key,
                 "name": f'Feature Flag for Experiment {validated_data["name"]}',
-                "filters": filters,
+                "filters": feature_flag_filters,
                 "active": not is_draft,
             },
             context=self.context,
@@ -369,13 +370,13 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        if (
-            not instance.filters.get("events")
-            and not instance.filters.get("actions")
-            and validated_data.get("start_date")
-            and not validated_data.get("filters")
-        ):
-            raise ValidationError("Filters are required when launching an experiment")
+        # if (
+        #     not instance.filters.get("events")
+        #     and not instance.filters.get("actions")
+        #     and validated_data.get("start_date")
+        #     and not validated_data.get("filters")
+        # ):
+        #     raise ValidationError("Filters are required when launching an experiment")
 
         update_saved_metrics = "saved_metrics_ids" in validated_data
         saved_metrics_data = validated_data.pop("saved_metrics_ids", []) or []

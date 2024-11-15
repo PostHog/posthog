@@ -25,6 +25,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { performQuery } from '~/queries/query'
 import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
@@ -846,14 +847,12 @@ export const experimentLogic = kea<experimentLogicType>([
                                 experiment_id: values.experimentId,
                             }
 
-                            const response: ExperimentResults = await api.create(
-                                `api/projects/${values.currentTeamId}/query`,
-                                { query: queryWithExperimentId, refresh: refresh ? 'force_async' : 'lazy_async' }
-                            )
+                            const response = await performQuery(queryWithExperimentId, undefined, refresh)
 
                             return {
                                 ...response,
                                 fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                // @ts-expect-error
                                 last_refresh: response.last_refresh || '',
                             } as unknown as CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse
                         }
@@ -868,7 +867,13 @@ export const experimentLogic = kea<experimentLogicType>([
                             last_refresh: response.last_refresh,
                         }
                     } catch (error: any) {
-                        actions.setExperimentResultCalculationError({ detail: error.detail, statusCode: error.status })
+                        let errorDetail = error.detail
+                        // :HANDLE FLAG: CLEAN UP AFTER MIGRATION
+                        if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                            const errorDetailMatch = error.detail.match(/\{.*\}/)
+                            errorDetail = errorDetailMatch[0]
+                        }
+                        actions.setExperimentResultCalculationError({ detail: errorDetail, statusCode: error.status })
                         if (error.status === 504) {
                             actions.reportExperimentResultsLoadingTimeout(values.experimentId)
                         }
