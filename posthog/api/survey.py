@@ -640,7 +640,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         "name": f"Targeting flag for survey {name}",
                         "filters": filters,
                         "active": active,
-                        "created_from": "surveys",
+                        "creation_context": "surveys",
                     },
                     context=self.context,
                 )

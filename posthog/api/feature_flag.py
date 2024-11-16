@@ -115,9 +115,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATED_FROM_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
-    created_from = serializers.ChoiceField(
-        choices=CREATED_FROM_CHOICES,
+    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    creation_context = serializers.ChoiceField(
+        choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
         required=False,
         help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
@@ -147,7 +147,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
-            "created_from",
+            "creation_context",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -326,8 +326,8 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        created_from = validated_data.pop(
-            "created_from", "feature_flags"
+        creation_context = validated_data.pop(
+            "creation_context", "feature_flags"
         )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
@@ -360,7 +360,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         _create_usage_dashboard(instance, request.user)
 
         analytics_metadata = instance.get_analytics_metadata()
-        analytics_metadata["created_from"] = created_from
+        analytics_metadata["creation_context"] = creation_context
         report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance

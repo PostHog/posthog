@@ -522,7 +522,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         }
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_created_from_is_set_to_early_access_features(self, mock_capture):
+    def test_creation_context_is_set_to_early_access_features(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -547,7 +547,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "created_at": ff_instance.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
-                "created_from": "early_access_features",
+                "creation_context": "early_access_features",
             },
         )
 

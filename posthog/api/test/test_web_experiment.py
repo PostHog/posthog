@@ -68,7 +68,7 @@ class TestWebExperiment(APIBaseTest):
                 "created_at": linked_flag.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
-                "created_from": "web_experiments",
+                "creation_context": "web_experiments",
             },
         )
 

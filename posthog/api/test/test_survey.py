@@ -61,7 +61,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["created_by"]["id"] == self.user.id
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_created_from_is_set_to_surveys(self, mock_capture):
+    def test_creation_context_is_set_to_surveys(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -109,7 +109,7 @@ class TestSurvey(APIBaseTest):
                 "created_at": ff_instance.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
-                "created_from": "surveys",
+                "creation_context": "surveys",
             },
         )
 
