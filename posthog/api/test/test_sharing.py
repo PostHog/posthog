@@ -125,6 +125,26 @@ class TestSharing(APIBaseTest):
         assert ActivityLog.objects.count() == 0
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_can_edit_password(self, patched_exporter_task: Mock):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "password": "this is my password", "password_required": True},
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert data["enabled"]
+        assert "this is my password" == data["password"]
+        assert data["password_required"]
+
+        # response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
+        response = self.client.get(f"/shared_dashboard/{data['access_token']}")
+        assert response.status_code == 200
+
+        # TODO: Finish This
+        # assert response.json()["is_shared"]
+        # assert ActivityLog.objects.count() == 0
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
         assert ActivityLog.objects.count() == 0
 
