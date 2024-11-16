@@ -7,7 +7,7 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { maxLogic } from './maxLogic'
 
 export function QuestionSuggestions(): JSX.Element {
-    const { visibleSuggestions, allSuggestionsLoading, currentProject } = useValues(maxLogic)
+    const { visibleSuggestions, allSuggestionsLoading, currentProject, dataProcessingAccepted } = useValues(maxLogic)
     const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
@@ -56,6 +56,9 @@ export function QuestionSuggestions(): JSX.Element {
                                 sideIcon={<IconArrowUpRight />}
                                 center
                                 className="shrink"
+                                disabledReason={
+                                    !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
+                                }
                             >
                                 {suggestion}
                             </LemonButton>

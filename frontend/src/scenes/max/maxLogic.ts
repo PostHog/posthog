@@ -56,6 +56,7 @@ export const maxLogic = kea<maxLogicType>([
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
         retryLastMessage: true,
+        acceptDataProcessing: true,
     }),
     reducers({
         question: [
@@ -95,6 +96,13 @@ export const maxLogic = kea<maxLogicType>([
             null as string[] | null,
             {
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
+            },
+        ],
+        dataProcessingAccepted: [
+            false,
+            { persist: true },
+            {
+                acceptDataProcessing: () => true,
             },
         ],
     }),

@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
 import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
-    const { question, thread, threadLoading } = useValues(maxLogic)
+    const { question, thread, threadLoading, dataProcessingAccepted } = useValues(maxLogic)
     const { askMax, setQuestion } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -48,7 +48,15 @@ export function QuestionInput(): JSX.Element {
                     type={isFloating && !question ? 'secondary' : 'primary'}
                     onClick={() => askMax(question)}
                     tooltip="Let's go!"
-                    disabledReason={!question ? 'I need some input first' : threadLoading ? 'Thinking…' : undefined}
+                    disabledReason={
+                        !dataProcessingAccepted
+                            ? 'Please accept OpenAI processing data'
+                            : !question
+                            ? 'I need some input first'
+                            : threadLoading
+                            ? 'Thinking…'
+                            : undefined
+                    }
                     size="small"
                     icon={<IconArrowRight />}
                 />
