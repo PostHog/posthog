@@ -59,6 +59,7 @@ export function SharingModalContent({
     }
     const {
         whitelabelAvailable,
+        advancedPermissionsAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -123,9 +124,18 @@ export function SharingModalContent({
                                                     >
                                                         Password protect
                                                     </TitleWithIcon>
+                                                    {!advancedPermissionsAvailable && (
+                                                        <Tooltip title="This is a premium feature, click to learn more.">
+                                                            <IconLock className="ml-1.5 text-muted text-lg" />
+                                                        </Tooltip>
+                                                    )}
                                                 </div>
                                             }
-                                            onChange={setPasswordRequired}
+                                            onChange={(passwordRequired: boolean) =>
+                                                guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () =>
+                                                    setPasswordRequired(passwordRequired)
+                                                )
+                                            }
                                             checked={sharingConfiguration.password_required}
                                         />
                                         {sharingConfiguration.password_required && (
