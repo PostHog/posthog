@@ -12,6 +12,8 @@ import {
     CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     getCoreFilterDefinition,
+    KNOWN_PROMOTED_PROPERTY_PARENTS,
+    POSTHOG_EVENT_PROMOTED_PROPERTIES,
     PROPERTY_KEYS,
 } from 'lib/taxonomy'
 import { isObject, isURL } from 'lib/utils'
@@ -195,6 +197,11 @@ interface PropertiesTableType extends BasePropertyType {
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
     type: PropertyDefinitionType
+    /**
+     * The container for these properties e.g. the event name of the event the properties are on
+     * Can be used for e.g. to promote particular properties when sorting the properties
+     */
+    parent?: KNOWN_PROMOTED_PROPERTY_PARENTS
 }
 
 export function PropertiesTable({
@@ -212,6 +219,7 @@ export function PropertiesTable({
     tableProps,
     highlightedKeys,
     type,
+    parent,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
@@ -248,6 +256,18 @@ export function PropertiesTable({
                 }
                 return 0
             })
+            if (parent) {
+                const promotedProperties = POSTHOG_EVENT_PROMOTED_PROPERTIES[parent]
+                const promotedItems = promotedProperties?.length
+                    ? entries
+                          .filter(([key]) => promotedProperties.includes(key))
+                          .sort((a, b) => promotedProperties.indexOf(a[0]) - promotedProperties.indexOf(b[0]))
+                    : []
+                const nonPromotedItems = promotedProperties?.length
+                    ? entries.filter(([key]) => !promotedProperties.includes(key))
+                    : entries
+                entries = [...promotedItems, ...nonPromotedItems]
+            }
         }
 
         if (searchTerm) {

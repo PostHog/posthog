@@ -7,9 +7,8 @@ use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
-    error::Error,
-    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_STACK_TIME, STACK_PROCESSED},
-    types::{frames::RawFrame, ErrProps},
+    handle_event,
+    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -50,12 +49,12 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env()?;
-    let context = Arc::new(AppContext::new(&config).await?);
+    let config = Config::init_from_env().unwrap();
+    let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());
 
@@ -67,7 +66,7 @@ async fn main() -> Result<(), Error> {
         let (event, offset): (ClickHouseEvent, _) = match context.kafka_consumer.json_recv().await {
             Ok(r) => r,
             Err(RecvErr::Kafka(e)) => {
-                return Err(e.into()); // Just die if we recieve a Kafka error
+                panic!("Kafka error: {}", e)
             }
             Err(err) => {
                 // If we failed to parse the message, or it was empty, just log and continue, our
@@ -79,65 +78,22 @@ async fn main() -> Result<(), Error> {
         };
         metrics::counter!(EVENT_RECEIVED).increment(1);
 
-        offset.store().unwrap();
-
-        if event.event != "$exception" {
-            error!("event of type {}", event.event);
-            continue;
-        }
-
-        let Some(properties) = &event.properties else {
-            metrics::counter!(ERRORS, "cause" => "no_properties").increment(1);
-            continue;
-        };
-
-        let properties: ErrProps = match serde_json::from_str(properties) {
-            Ok(r) => r,
-            Err(err) => {
-                metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
-                error!("Error parsing properties: {:?}", err);
-                continue;
+        let _processed_event = match handle_event(&context, event).await {
+            Ok(r) => {
+                offset.store().unwrap();
+                r
+            }
+            Err(e) => {
+                error!("Error handling event: {:?}", e);
+                // If we get an unhandled error, it means we have some logical error in the code, or a
+                // dependency is down, and we should just fall over.
+                panic!("Unhandled error: {:?}", e);
             }
         };
 
-        let Some(exception_list) = &properties.exception_list else {
-            // Known issue that $exception_list didn't exist on old clients
-            continue;
-        };
-
-        if exception_list.is_empty() {
-            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
-            continue;
-        }
-
-        // TODO - we should resolve all traces
-        let Some(trace) = exception_list[0].stacktrace.as_ref() else {
-            metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
-            continue;
-        };
-
-        let stack_trace: &Vec<RawFrame> = &trace.frames;
-
-        let per_stack = common_metrics::timing_guard(PER_STACK_TIME, &[]);
-        let mut frames = Vec::with_capacity(stack_trace.len());
-        for frame in stack_trace {
-            match frame.resolve(event.team_id, &context.catalog).await {
-                Ok(r) => frames.push(r),
-                Err(err) => {
-                    metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
-                    error!("Error parsing stack frame: {:?}", err);
-                    continue;
-                }
-            };
-        }
-        per_stack
-            .label(
-                "resolved_any",
-                if frames.is_empty() { "true" } else { "false" },
-            )
-            .fin();
-        whole_loop.label("had_frame", "true").fin();
+        // TODO - emit the event to the next Kafka topic
 
         metrics::counter!(STACK_PROCESSED).increment(1);
+        whole_loop.label("finished", "true").fin();
     }
 }

@@ -10,7 +10,11 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    authorizedUrlListLogic,
+    AuthorizedUrlListType,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { StarHog } from 'lib/components/hedgehogs'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
@@ -33,7 +37,12 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
     const { combinedSnippetAndLiveEventsHosts } = useValues(sdksLogic)
-    const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
+    const { addUrl } = useActions(
+        authorizedUrlListLogic({
+            ...defaultAuthorizedUrlProperties,
+            type: AuthorizedUrlListType.TOOLBAR_URLS,
+        })
+    )
     const [inputValue, setInputValue] = useState(currentPath)
 
     useEffect(() => {
@@ -43,8 +52,8 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     return (
         <div className="w-full flex gap-x-2 border-b border-1 border-border-bold p-2">
             <LemonInput
-                size="small"
-                className="grow font-mono text-sm"
+                size="medium"
+                className="grow font-mono text-sm pl-0.5"
                 defaultValue={currentPath}
                 value={inputValue}
                 onChange={(v) => setInputValue(v)}

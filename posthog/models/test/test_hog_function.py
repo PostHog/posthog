@@ -21,13 +21,13 @@ class TestHogFunction(TestCase):
         self.org = org
 
     def test_hog_function_basic(self):
-        item = HogFunction.objects.create(name="Test", team=self.team)
+        item = HogFunction.objects.create(name="Test", team=self.team, type="destination")
         assert item.name == "Test"
         assert item.hog == ""
         assert not item.enabled
 
     def test_hog_function_team_no_filters_compilation(self):
-        item = HogFunction.objects.create(name="Test", team=self.team)
+        item = HogFunction.objects.create(name="Test", team=self.team, type="destination")
 
         # Some json serialization is needed to compare the bytecode more easily in tests
         json_filters = to_dict(item.filters)
@@ -36,6 +36,7 @@ class TestHogFunction(TestCase):
     def test_hog_function_filters_compilation(self):
         item = HogFunction.objects.create(
             name="Test",
+            type="destination",
             team=self.team,
             filters={
                 "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
@@ -117,6 +118,7 @@ class TestHogFunction(TestCase):
     def test_hog_function_team_filters_only_compilation(self):
         item = HogFunction.objects.create(
             name="Test",
+            type="destination",
             team=self.team,
             filters={
                 "filter_test_accounts": True,
@@ -178,6 +180,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
     def test_hog_functions_reload_on_action_saved(self):
         hog_function_1 = HogFunction.objects.create(
             name="func 1",
+            type="destination",
             team=self.team,
             filters={
                 "actions": [
@@ -188,6 +191,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
         hog_function_2 = HogFunction.objects.create(
             name="func 2",
+            type="destination",
             team=self.team,
             filters={
                 "actions": [
@@ -237,6 +241,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.team.save()
         hog_function_1 = HogFunction.objects.create(
             name="func 1",
+            type="destination",
             team=self.team,
             filters={
                 "filter_test_accounts": True,
@@ -244,6 +249,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
         hog_function_2 = HogFunction.objects.create(
             name="func 2",
+            type="destination",
             team=self.team,
             filters={
                 "filter_test_accounts": True,
@@ -252,6 +258,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
         hog_function_3 = HogFunction.objects.create(
             name="func 3",
+            type="destination",
             team=self.team,
             filters={
                 "filter_test_accounts": False,

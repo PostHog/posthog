@@ -19,6 +19,7 @@ export type SettingSectionId =
     | 'environment-details'
     | 'environment-autocapture'
     | 'environment-product-analytics'
+    | 'environment-web-analytics'
     | 'environment-replay'
     | 'environment-surveys'
     | 'environment-toolbar'
@@ -82,6 +83,7 @@ export type SettingId =
     | 'organization-rbac'
     | 'organization-delete'
     | 'organization-proxy'
+    | 'product-description'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -96,6 +98,8 @@ export type SettingId =
     | 'bounce-rate-page-view-mode'
     | 'session-table-version'
     | 'web-vitals-autocapture'
+    | 'dead-clicks-autocapture'
+    | 'channel-type'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

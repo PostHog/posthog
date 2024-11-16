@@ -62,6 +62,10 @@ export const humanizeBytes = (fileSizeInBytes: number | null): string => {
     return convertedBytes.toFixed(2) + ' ' + byteUnits[i]
 }
 
+export function toSentenceCase(str: string): string {
+    return str.replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
     if (!obj) {
         return ''
@@ -714,6 +718,23 @@ export function eventToDescription(
     return event.event
 }
 
+// $event_type to verb map
+const eventTypeToVerb: { [key: string]: string } = {
+    click: 'clicked',
+    change: 'typed something into',
+    submit: 'submitted',
+    touch: 'touched a',
+    value_changed: 'changed value in',
+    toggle: 'toggled',
+    menu_action: 'pressed menu',
+    swipe: 'swiped',
+    pinch: 'pinched',
+    pan: 'panned',
+    rotation: 'rotated',
+    long_press: 'long pressed',
+    scroll: 'scrolled in',
+}
+
 export function autoCaptureEventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
@@ -722,22 +743,7 @@ export function autoCaptureEventToDescription(
         return event.event
     }
 
-    const getVerb = (): string => {
-        if (event.properties.$event_type === 'click') {
-            return 'clicked'
-        }
-        if (event.properties.$event_type === 'change') {
-            return 'typed something into'
-        }
-        if (event.properties.$event_type === 'submit') {
-            return 'submitted'
-        }
-
-        if (event.properties.$event_type === 'touch') {
-            return 'pressed'
-        }
-        return 'interacted with'
-    }
+    const getVerb = (): string => eventTypeToVerb[event.properties.$event_type] || 'interacted with'
 
     const getTag = (): string => {
         if (event.elements?.[0]?.tag_name === 'a') {
@@ -785,10 +791,15 @@ export function determineDifferenceType(
 }
 
 const DATE_FORMAT = 'MMMM D, YYYY'
+const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
 const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
+}
+
+export const formatDateTime = (date: dayjs.Dayjs, format?: string): string => {
+    return date.format(format ?? DATE_TIME_FORMAT)
 }
 
 export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, format?: string): string => {

@@ -59,6 +59,17 @@ const teamActionsMapping: Record<
             description: [<>Changed session replay URL blocklist</>],
         }
     },
+    session_recording_event_trigger_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay event triggers</>],
+        }
+    },
     capture_console_log_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} console log capture in session replay</>] }
     },
@@ -67,6 +78,11 @@ const teamActionsMapping: Record<
             description: [
                 <>{change?.after ? 'enabled' : 'disabled'} console network performance capture in session replay</>,
             ],
+        }
+    },
+    capture_dead_clicks(change: ActivityChange | undefined): ChangeMapping | null {
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} dead clicks autocapture</>],
         }
     },
     recording_domains(change: ActivityChange | undefined): ChangeMapping | null {

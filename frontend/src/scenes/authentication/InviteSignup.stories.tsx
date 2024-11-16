@@ -34,6 +34,7 @@ const meta: Meta = {
             post: {
                 '/api/signup': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })],
                 '/api/signup/1234': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })],
+                '/api/login/precheck': { sso_enforcement: null, saml_available: false },
             },
         }),
     ],
@@ -165,6 +166,38 @@ export const LoggedInWrongUser = (): JSX.Element => {
                 },
             ],
         },
+    })
+    useEffect(() => {
+        inviteSignupLogic.actions.prevalidateInvite('1234')
+    }, [])
+    return (
+        <div>
+            <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
+            <InviteSignup />
+        </div>
+    )
+}
+
+export const SSOEnforcedSaml = (): JSX.Element => {
+    useStorybookMocks({
+        post: {
+            '/api/login/precheck': { sso_enforcement: 'saml', saml_available: true },
+        },
+    })
+    useEffect(() => {
+        inviteSignupLogic.actions.prevalidateInvite('1234')
+    }, [])
+    return (
+        <div>
+            <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
+            <InviteSignup />
+        </div>
+    )
+}
+
+export const SSOEnforcedGoogle = (): JSX.Element => {
+    useStorybookMocks({
+        post: { '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false } },
     })
     useEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')

@@ -1,4 +1,5 @@
-import { Kafka, logLevel } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, Kafka, logLevel } from 'kafkajs'
+import SnappyCodec from 'kafkajs-snappy'
 
 import { defaultConfig, overrideWithEnv } from '../../src/config/config'
 import {
@@ -15,6 +16,8 @@ import {
 } from '../../src/config/kafka-topics'
 import { PluginsServerConfig } from '../../src/types'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 /** Clear the Kafka queue and return Kafka object */
 export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<Kafka> {

@@ -21,6 +21,7 @@ from posthog.schema import (
     IntervalType,
 )
 from posthog.test.base import _create_person, _create_event
+from posthog.test.test_journeys import journeys_for
 
 
 @patch(
@@ -222,3 +223,56 @@ class TestFunnelTrendsUDF(BaseTestFunnelTrends):
 
         assert len(results) == 2
         assert all(data == 0 for result in results for data in result["data"])
+
+    # This is a change in behavior that only applies to UDFs - it seems more correct than what was happening before
+    # In old style UDFs, an exclusion like this would still count, even if it were outside of the match window
+    def test_excluded_after_time_expires(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime.datetime(2021, 5, 1, 0, 0, 0),
+            },
+            # Exclusion happens after time expires
+            {
+                "event": "exclusion",
+                "timestamp": datetime.datetime(2021, 5, 1, 0, 0, 11),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime.datetime(2021, 5, 1, 0, 0, 12),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])
