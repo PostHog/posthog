@@ -1,7 +1,7 @@
 use anyhow::Error;
 use axum::async_trait;
 use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -317,7 +317,8 @@ pub async fn insert_person_for_team_in_pg(
     team_id: i32,
     distinct_id: String,
     properties: Option<Value>,
-) -> Result<(), Error> {
+) -> Result<i32, Error> {
+    // Changed return type to Result<i32, Error>
     let payload = match properties {
         Some(value) => value,
         None => json!({
@@ -329,7 +330,7 @@ pub async fn insert_person_for_team_in_pg(
     let uuid = Uuid::now_v7();
 
     let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
+    let row = sqlx::query(
         r#"
         WITH inserted_person AS (
             INSERT INTO posthog_person (
@@ -337,10 +338,11 @@ pub async fn insert_person_for_team_in_pg(
                 properties_last_operation, team_id, is_user_id, is_identified, uuid, version
             )
             VALUES ('2023-04-05', $1, '{}', '{}', $2, NULL, true, $3, 0)
-            RETURNING *
+            RETURNING id
         )
         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
         VALUES ($4, (SELECT id FROM inserted_person), $5, 0)
+        RETURNING person_id
         "#,
     )
     .bind(&payload)
@@ -348,12 +350,11 @@ pub async fn insert_person_for_team_in_pg(
     .bind(uuid)
     .bind(&distinct_id)
     .bind(team_id)
-    .execute(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
 
-    assert_eq!(res.rows_affected(), 1);
-
-    Ok(())
+    let person_id: i32 = row.get::<i32, _>("person_id");
+    Ok(person_id)
 }
 
 pub async fn insert_cohort_for_team_in_pg(
@@ -409,4 +410,49 @@ pub async fn insert_cohort_for_team_in_pg(
     let id = row.0;
 
     Ok(Cohort { id, ..cohort })
+}
+
+pub async fn get_person_id_by_distinct_id(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    distinct_id: &str,
+) -> Result<i32, Error> {
+    let mut conn = client.get_connection().await?;
+    let row: (i32,) = sqlx::query_as(
+        r#"SELECT id FROM posthog_person
+           WHERE team_id = $1 AND id = (
+               SELECT person_id FROM posthog_persondistinctid
+               WHERE team_id = $1 AND distinct_id = $2
+               LIMIT 1
+           )
+           LIMIT 1"#,
+    )
+    .bind(team_id)
+    .bind(distinct_id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|_| anyhow::anyhow!("Person not found"))?;
+
+    Ok(row.0)
+}
+
+pub async fn add_person_to_cohort(
+    client: Arc<dyn Client + Send + Sync>,
+    person_id: i32,
+    cohort_id: i32,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    let res = sqlx::query(
+        r#"INSERT INTO posthog_cohortpeople (cohort_id, person_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(cohort_id)
+    .bind(person_id)
+    .execute(&mut *conn)
+    .await?;
+
+    assert!(res.rows_affected() > 0, "Failed to add person to cohort");
+
+    Ok(())
 }
