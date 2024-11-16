@@ -108,6 +108,8 @@ pub enum FlagError {
     CohortFiltersParsingError,
     #[error("Cohort dependency cycle")]
     CohortDependencyCycle(String),
+    #[error("Person not found")]
+    PersonNotFound,
 }
 
 impl IntoResponse for FlagError {
@@ -211,6 +213,9 @@ impl IntoResponse for FlagError {
             FlagError::CohortDependencyCycle(msg) => {
                 tracing::error!("Cohort dependency cycle: {}", msg);
                 (StatusCode::BAD_REQUEST, msg)
+            }
+            FlagError::PersonNotFound => {
+                (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
             }
         }
         .into_response()
