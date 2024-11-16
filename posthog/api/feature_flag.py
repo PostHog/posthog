@@ -115,12 +115,12 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATED_FROM_CHOICES = ("flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    CREATED_FROM_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
     created_from = serializers.ChoiceField(
         choices=CREATED_FROM_CHOICES,
         write_only=True,
         required=False,
-        help_text="Indicates the origin product of the feature flag. Choices: 'flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
     )
 
     class Meta:
@@ -327,8 +327,8 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         validated_data["team_id"] = self.context["team_id"]
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         created_from = validated_data.pop(
-            "created_from", "flags"
-        )  # default to "flags" if not provided; e.g. if we use the API to create a flag
+            "created_from", "feature_flags"
+        )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
 
