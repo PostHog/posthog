@@ -31,6 +31,12 @@ impl<P> AtMostOne<P> {
         }
     }
 
+    // This needs to be async even though all it does is take a lock because
+    // the returned owned guard can be (and is) held across an await point, so
+    // if this was a sync mutex it'd block the executor. It so happens that the
+    // std library Mutex doesn't provide lock_owned anyway, so we'd have to pull
+    // in a new dependency if we wanted to write a sync version of this, but
+    // that's secondary to it actually needing to be async
     pub async fn acquire(&self, key: impl ToString) -> OwnedMutexGuard<()> {
         let key = key.to_string();
         let mut state = self.state.lock().await;
