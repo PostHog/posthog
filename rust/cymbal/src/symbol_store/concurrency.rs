@@ -31,8 +31,6 @@ impl<P> AtMostOne<P> {
         }
     }
 
-    // Nothing about this needs to be async, except that std::Mutex doesn't
-    // provide lock_owned, which upsets me a bit.
     pub async fn acquire(&self, key: impl ToString) -> OwnedMutexGuard<()> {
         let key = key.to_string();
         let mut state = self.state.lock().await;
