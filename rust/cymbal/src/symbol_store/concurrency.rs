@@ -40,7 +40,7 @@ impl<P> AtMostOne<P> {
     pub async fn acquire(&self, key: impl ToString) -> OwnedMutexGuard<()> {
         let key = key.to_string();
         let mut state = self.state.lock().await;
-        let limiter = state.limiters.entry(key).or_insert_with(|| Weak::new());
+        let limiter = state.limiters.entry(key).or_default();
 
         if let Some(lock) = limiter.upgrade() {
             // If there's already a mutex in our shared state for this particular
