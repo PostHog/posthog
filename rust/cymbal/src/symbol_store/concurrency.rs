@@ -20,14 +20,14 @@ use super::Provider;
 // outside world exactly once
 pub struct AtMostOne<P> {
     pub inner: P,
-    state: Mutex<Inner>,
+    limiters: Mutex<HashMap<String, Weak<Mutex<()>>>>,
 }
 
 impl<P> AtMostOne<P> {
     pub fn new(inner: P) -> Self {
         Self {
             inner,
-            state: Default::default(),
+            limiters: Default::default(),
         }
     }
 
@@ -39,8 +39,8 @@ impl<P> AtMostOne<P> {
     // that's secondary to it actually needing to be async
     pub async fn acquire(&self, key: impl ToString) -> OwnedMutexGuard<()> {
         let key = key.to_string();
-        let mut state = self.state.lock().await;
-        let limiter = state.limiters.entry(key).or_default();
+        let mut state = self.limiters.lock().await;
+        let limiter = state.entry(key).or_default();
 
         if let Some(lock) = limiter.upgrade() {
             // If there's already a mutex in our shared state for this particular
@@ -76,9 +76,4 @@ where
         drop(lock);
         result
     }
-}
-
-#[derive(Default)]
-struct Inner {
-    pub limiters: HashMap<String, Weak<Mutex<()>>>,
 }
