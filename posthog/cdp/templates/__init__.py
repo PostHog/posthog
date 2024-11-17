@@ -38,6 +38,7 @@ from .google_cloud_storage.template_google_cloud_storage import (
     TemplateGoogleCloudStorageMigrator,
 )
 from .airtable.template_airtable import template as airtable
+from .brevo.template_brevo import template as brevo
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
 
 HOG_FUNCTION_TEMPLATES = [
@@ -50,6 +51,7 @@ HOG_FUNCTION_TEMPLATES = [
     avo,
     aws_kinesis,
     braze,
+    brevo,
     clearbit,
     customerio,
     discord,
