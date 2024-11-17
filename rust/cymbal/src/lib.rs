@@ -128,8 +128,8 @@ async fn process_exception(
     Ok(e)
 }
 
-// This is stupidly expensive, since it round-trips the event through JSON, lol. We should change ClickhouseEvent to only do serde at the
-// edges
+// This is expensive, since it round-trips the event through JSON.
+// We could maybe change ClickhouseEvent to only do serde at the edges
 pub fn add_error_to_event(
     event: &mut ClickHouseEvent,
     e: impl ToString,

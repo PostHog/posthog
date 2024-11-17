@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
 use axum::async_trait;
-use tokio::sync::{Mutex, OwnedMutexGuard};
+use tokio::sync::Mutex;
 
 use crate::{
     error::Error,
@@ -12,6 +12,8 @@ use crate::{
 
 use super::{saving::Saveable, Fetcher, Parser, Provider};
 
+// This is a type-specific symbol provider layer, designed to
+// wrap some inner provider and provide a type-safe caching layer
 pub struct Caching<P> {
     inner: P,
     cache: Arc<Mutex<SymbolSetCache>>,
@@ -42,18 +44,19 @@ where
             return Ok(set);
         }
         metrics::counter!(STORE_CACHE_MISSES).increment(1);
-        // Grab a lock specific to this cache key, so that we don't fetch the same thing multiple times,
-        // but still let /other/ symbol sets be acquired (via cache or fetch) while we're fetching/parsing
-        let ref_lock = cache.ref_lock(cache_key.clone()).await;
         drop(cache);
 
-        // Do the fetch
+        // Do the fetch, not holding the lock across it to allow
+        // concurrent fetches to occur (de-duping fetches is
+        // up to the caller of `lookup`, since relying on the
+        // cache to do it means assuming the caching layer is
+        // the outer layer, which is not something the interface
+        // guarentees)
         let found = self.inner.fetch(team_id, r).await?;
         let bytes = found.byte_count();
         let parsed = self.inner.parse(found).await?;
 
         let mut cache = self.cache.lock().await; // Re-acquire the cache-wide lock to insert, dropping the ref_lock
-        drop(ref_lock);
 
         let parsed = Arc::new(parsed);
         cache.insert(cache_key, parsed.clone(), bytes);
@@ -61,11 +64,14 @@ where
     }
 }
 
+// This is a cache shared across multiple symbol set providers, through the `Caching` above,
+// such that two totally different "layers" can share an underlying "pool" of cache space. This
+// is injected into the `Caching` layer at construct time, to allow this sharing across multiple
+// provider layer "stacks" within the catalog.
 pub struct SymbolSetCache {
     // We expect this cache to consist of few, but large, items.
     // TODO - handle cases where two CachedSymbolSets have identical keys but different types
     cached: HashMap<String, CachedSymbolSet>,
-    fetch_locks: HashMap<String, Arc<Mutex<()>>>,
     held_bytes: usize,
     max_bytes: usize,
 }
@@ -75,21 +81,8 @@ impl SymbolSetCache {
         Self {
             cached: HashMap::new(),
             held_bytes: 0,
-            fetch_locks: HashMap::new(),
             max_bytes,
         }
-    }
-
-    // Acquire a lock that's specific to a symbol set reference, so that we can prevent
-    // multiple fetches of the same symbol-set, while still letting concurrent fetches
-    // of different symbol-sets happen.
-    pub async fn ref_lock(&mut self, key: String) -> OwnedMutexGuard<()> {
-        // This hashmap grows unboundedly, but I don't care, because it's like
-        // 30 bytes per entry, and entries only get added as new symbol sets get
-        // loaded. I someone is ever able to show me this leak on a graph, I'll
-        // fix it
-        let lock = self.fetch_locks.entry(key.clone()).or_default();
-        lock.clone().lock_owned().await
     }
 
     pub fn insert<T>(&mut self, key: String, value: Arc<T>, bytes: usize)
@@ -142,10 +135,6 @@ impl SymbolSetCache {
             let (to_remove_key, to_remove_val) = vals.pop().unwrap();
             self.held_bytes -= to_remove_val.bytes;
             to_remove.push(to_remove_key.clone());
-        }
-
-        for key in to_remove {
-            self.fetch_locks.remove(&key);
         }
 
         metrics::gauge!(STORE_CACHED_BYTES).set(self.held_bytes as f64);
