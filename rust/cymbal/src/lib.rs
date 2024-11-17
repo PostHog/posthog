@@ -103,7 +103,10 @@ async fn process_exception(
         let context = context.clone();
         // Spawn a concurrent task for resolving every frame - we're careful elsewhere to
         // ensure this kind of concurrency is fine, although this "throw it at the wall"
-        // data flow structure is pretty questionable. Tokio really do go brrr though
+        // data flow structure is pretty questionable. Once we switch to handling more than
+        // 1 event at a time, we should re-group frames into associated groups and then
+        // process those groups in-order (but the individual frames in them can still be
+        // thrown at the wall), with some cross-group concurrency.
         handles.push(tokio::spawn(async move {
             context
                 .resolver
