@@ -17,7 +17,6 @@ import { SimpleKeyValueList } from './SimpleKeyValueList'
 export interface ItemEventProps {
     item: InspectorListItemEvent
     expanded: boolean
-    setExpanded: (expanded: boolean) => void
 }
 
 function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.Element {
@@ -52,7 +51,7 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
     )
 }
 
-export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
+export function ItemEvent({ item, expanded }: ItemEventProps): JSX.Element {
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
@@ -68,31 +67,27 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
     const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
 
     return (
-        <div data-attr="item-event">
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth className="font-normal">
-                <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer">
-                    <div className="truncate">
-                        <PropertyKeyInfo
-                            className="font-medium"
-                            disablePopover
-                            ellipsis={true}
-                            value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
-                            type={TaxonomicFilterGroupType.Events}
-                        />
-                        {item.data.event === '$autocapture' ? (
-                            <span className="text-muted-alt">(Autocapture)</span>
-                        ) : null}
-                    </div>
-                    {subValue ? (
-                        <div className="text-muted-alt truncate" title={isString(subValue) ? subValue : undefined}>
-                            {subValue}
-                        </div>
-                    ) : null}
+        <div data-attr="item-event" className="font-normal w-full">
+            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
+                <div className="truncate">
+                    <PropertyKeyInfo
+                        className="font-medium"
+                        disablePopover
+                        ellipsis={true}
+                        value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
+                        type={TaxonomicFilterGroupType.Events}
+                    />
+                    {item.data.event === '$autocapture' ? <span className="text-muted-alt">(Autocapture)</span> : null}
                 </div>
-            </LemonButton>
+                {subValue ? (
+                    <div className="text-muted-alt truncate" title={isString(subValue) ? subValue : undefined}>
+                        {subValue}
+                    </div>
+                ) : null}
+            </div>
 
             {expanded && (
-                <div className="p-2 text-xs border-t">
+                <div className="px-2 py-1 text-xs border-t">
                     {insightUrl ? (
                         <>
                             <div className="flex justify-end">

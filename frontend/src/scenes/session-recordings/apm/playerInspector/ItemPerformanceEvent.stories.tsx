@@ -25,7 +25,6 @@ export default meta
 
 const BasicTemplate: StoryFn<typeof ItemPerformanceEvent> = (props: Partial<ItemPerformanceEventProps>) => {
     props.item = props.item || undefined
-    props.setExpanded = props.setExpanded || (() => {})
 
     const propsToUse = props as ItemPerformanceEventProps
 

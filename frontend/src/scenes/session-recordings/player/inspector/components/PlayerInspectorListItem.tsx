@@ -1,7 +1,8 @@
-import { IconDashboard, IconEye, IconGear, IconTerminal } from '@posthog/icons'
+import { IconDashboard, IconEye, IconGear, IconMinusSquare, IconPlusSquare, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Dayjs } from 'lib/dayjs'
 import { IconComment, IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
@@ -59,7 +60,72 @@ const typeToIconAndDescription = {
         tooltip: 'A user commented on this timestamp in the recording',
     },
 }
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
+const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
+
+function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
+    const { timestampFormat } = useValues(playerSettingsLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { durationMs } = useValues(playerInspectorLogic(logicProps))
+
+    const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
+
+    return (
+        <span className="p-1 text-xs">
+            {timestampFormat != TimestampFormat.Relative ? (
+                (timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp).format(
+                    'DD, MMM HH:mm:ss'
+                )
+            ) : (
+                <>
+                    {item.timeInRecording < 0 ? (
+                        <Tooltip
+                            title="This event occured before the recording started, likely as the page was loading."
+                            placement="left"
+                        >
+                            <span className="text-muted">load</span>
+                        </Tooltip>
+                    ) : (
+                        colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
+                    )}
+                </>
+            )}
+        </span>
+    )
+}
+
+function RowItemTitle({
+    item,
+    finalTimestamp,
+    onClick,
+    expanded,
+}: {
+    item: InspectorListItem
+    finalTimestamp: Dayjs | null
+    onClick: () => void
+    expanded: boolean
+}): JSX.Element {
+    return (
+        <div onClick={onClick}>
+            {item.type === SessionRecordingPlayerTab.NETWORK ? (
+                <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} expanded={expanded} />
+            ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
+                <ItemConsoleLog item={item} expanded={expanded} />
+            ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
+                <ItemEvent item={item} expanded={expanded} />
+            ) : item.type === 'offline-status' ? (
+                <div className="flex items-start p-2 text-xs">
+                    {item.offline ? 'Browser went offline' : 'Browser returned online'}
+                </div>
+            ) : item.type === 'browser-visibility' ? (
+                <div className="flex items-start p-2 text-xs">Window became {item.status}</div>
+            ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
+                <ItemDoctor item={item} expanded={expanded} />
+            ) : item.type === 'comment' ? (
+                <ItemComment item={item} expanded={expanded} />
+            ) : null}
+        </div>
+    )
+}
 
 export function PlayerInspectorListItem({
     item,
@@ -71,13 +137,12 @@ export function PlayerInspectorListItem({
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { tab, durationMs, end, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
-    const { timestampFormat } = useValues(playerSettingsLogic)
-
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+
+    const { tab, end, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
+
     const showIcon = tab === SessionRecordingPlayerTab.ALL
-    const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     const isExpanded = expandedItems.includes(index)
 
@@ -85,28 +150,19 @@ export function PlayerInspectorListItem({
     // Ceiling second is used since this is what's displayed to the user.
     const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
 
-    const itemProps = {
-        setExpanded: () => {
-            setItemExpanded(index, !isExpanded)
-            if (!isExpanded) {
-                seekToEvent()
-            }
-        },
-        expanded: isExpanded,
-    }
-
     const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
     const { ref, width, height } = useResizeObserver({})
 
     const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
 
-    // Height changes should layout immediately but width ones (browser resize can be much slower)
+    // Height changes should lay out immediately but width ones (browser resize can be much slower)
     useEffect(() => {
         if (!width || !totalHeight) {
             return
         }
         onLayoutDebounced({ width, height: totalHeight })
     }, [width])
+
     useEffect(() => {
         if (!width || !totalHeight) {
             return
@@ -122,12 +178,9 @@ export function PlayerInspectorListItem({
     return (
         <div
             ref={ref}
-            className={clsx('flex flex-1 overflow-hidden gap-2 relative items-start')}
+            className={clsx('flex flex-1 overflow-hidden relative items-start')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                // Style as we need it for the layout optimisation
-                marginTop: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
-                marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
@@ -165,6 +218,8 @@ export function PlayerInspectorListItem({
                 </Tooltip>
             )}
 
+            <ItemTimeDisplay item={item} />
+
             <span
                 className={clsx(
                     'flex-1 overflow-hidden rounded border',
@@ -173,30 +228,14 @@ export function PlayerInspectorListItem({
                     !item.highlightColor && 'bg-bg-light'
                 )}
             >
-                {item.type === SessionRecordingPlayerTab.NETWORK ? (
-                    <ItemPerformanceEvent item={item.data} finalTimestamp={end} {...itemProps} />
-                ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
-                    <ItemConsoleLog item={item} {...itemProps} />
-                ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
-                    <ItemEvent item={item} {...itemProps} />
-                ) : item.type === 'offline-status' ? (
-                    <div className="flex items-start p-2 text-xs">
-                        {item.offline ? 'Browser went offline' : 'Browser returned online'}
-                    </div>
-                ) : item.type === 'browser-visibility' ? (
-                    <div className="flex items-start p-2 text-xs">Window became {item.status}</div>
-                ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
-                    <ItemDoctor item={item} {...itemProps} />
-                ) : item.type === 'comment' ? (
-                    <ItemComment item={item} {...itemProps} />
-                ) : null}
+                <RowItemTitle item={item} finalTimestamp={end} onClick={() => seekToEvent()} expanded={isExpanded} />
 
                 {isExpanded ? (
                     <div className="text-xs">
                         <LemonDivider dashed />
 
                         <div
-                            className="flex gap-2 justify-end cursor-pointer m-2"
+                            className="flex justify-end cursor-pointer mx-2 my-1"
                             onClick={() => setItemExpanded(index, false)}
                         >
                             <span className="text-muted-alt">Collapse</span>
@@ -204,31 +243,14 @@ export function PlayerInspectorListItem({
                     </div>
                 ) : null}
             </span>
-            {!isExpanded ? (
-                <LemonButton size="small" noPadding onClick={() => seekToEvent()}>
-                    <span className="p-1 text-xs">
-                        {timestampFormat != TimestampFormat.Relative ? (
-                            (timestampFormat === TimestampFormat.UTC
-                                ? item.timestamp.tz('UTC')
-                                : item.timestamp
-                            ).format('DD, MMM HH:mm:ss')
-                        ) : (
-                            <>
-                                {item.timeInRecording < 0 ? (
-                                    <Tooltip
-                                        title="This event occured before the recording started, likely as the page was loading."
-                                        placement="left"
-                                    >
-                                        <span className="text-muted">load</span>
-                                    </Tooltip>
-                                ) : (
-                                    colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
-                                )}
-                            </>
-                        )}
-                    </span>
-                </LemonButton>
-            ) : null}
+
+            <LemonButton
+                icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
+                size="small"
+                noPadding
+                onClick={() => setItemExpanded(index, !isExpanded)}
+                data-attr="expand-inspector-row"
+            />
         </div>
     )
 }

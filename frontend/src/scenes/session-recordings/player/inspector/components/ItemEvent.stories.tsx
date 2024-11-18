@@ -50,7 +50,6 @@ function makeItem(
 
 const BasicTemplate: StoryFn<typeof ItemEvent> = (props: Partial<ItemEventProps>) => {
     props.item = props.item || makeItem(undefined, { event: 'A long event name if no other name is provided' })
-    props.setExpanded = props.setExpanded || (() => {})
 
     const propsToUse = props as ItemEventProps
 

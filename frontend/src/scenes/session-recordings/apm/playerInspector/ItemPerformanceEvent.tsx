@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -64,7 +64,6 @@ const friendlyHttpStatus = {
 export interface ItemPerformanceEventProps {
     item: PerformanceEvent
     expanded: boolean
-    setExpanded: (expanded: boolean) => void
     finalTimestamp: Dayjs | null
 }
 
@@ -151,12 +150,7 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
     )
 }
 
-export function ItemPerformanceEvent({
-    item,
-    finalTimestamp,
-    expanded,
-    setExpanded,
-}: ItemPerformanceEventProps): JSX.Element {
+export function ItemPerformanceEvent({ item, finalTimestamp, expanded }: ItemPerformanceEventProps): JSX.Element {
     const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body' | 'raw'>('timings')
 
     const { currentTeam } = useValues(teamLogic)
@@ -224,49 +218,41 @@ export function ItemPerformanceEvent({
     }, {} as Record<string, any>)
 
     return (
-        <div>
-            <LemonButton
-                noPadding
-                onClick={() => setExpanded(!expanded)}
-                fullWidth
-                data-attr="item-performance-event"
-                className="font-normal"
-            >
-                <div className="flex-1 overflow-hidden">
-                    <div
-                        className="absolute bg-primary rounded-sm opacity-75 h-1 bottom-0.5"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            left: `${(startTime / contextLengthMs) * 100}%`,
-                            width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
-                        }}
-                    />
-                    {item.entry_type === 'navigation' ? (
-                        <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
-                    ) : (
-                        <div className="flex gap-2 items-start p-2 text-xs cursor-pointer items-center">
-                            <MethodTag item={item} />
-                            <PerformanceEventLabel expanded={expanded} name={item.name} />
-                            {/* We only show the status if it exists and is an error status */}
-                            {otherProps.response_status && otherProps.response_status >= 400 ? (
-                                <span
-                                    className={clsx(
-                                        'font-semibold',
-                                        otherProps.response_status >= 400 &&
-                                            otherProps.response_status < 500 &&
-                                            'text-warning-dark',
-                                        otherProps.response_status >= 500 && 'text-danger-dark'
-                                    )}
-                                >
-                                    {otherProps.response_status}
-                                </span>
-                            ) : null}
-                            {renderTimeBenchmark(duration)}
-                            <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes}</span>
-                        </div>
-                    )}
-                </div>
-            </LemonButton>
+        <div data-attr="item-performance-event" className="font-normal w-full">
+            <div className="flex-1 overflow-hidden">
+                <div
+                    className="absolute bg-primary rounded-sm opacity-75 h-1 bottom-0.5"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        left: `${(startTime / contextLengthMs) * 100}%`,
+                        width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
+                    }}
+                />
+                {item.entry_type === 'navigation' ? (
+                    <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
+                ) : (
+                    <div className="flex gap-2 p-2 text-xs cursor-pointer items-center">
+                        <MethodTag item={item} />
+                        <PerformanceEventLabel expanded={expanded} name={item.name} />
+                        {/* We only show the status if it exists and is an error status */}
+                        {otherProps.response_status && otherProps.response_status >= 400 ? (
+                            <span
+                                className={clsx(
+                                    'font-semibold',
+                                    otherProps.response_status >= 400 &&
+                                        otherProps.response_status < 500 &&
+                                        'text-warning-dark',
+                                    otherProps.response_status >= 500 && 'text-danger-dark'
+                                )}
+                            >
+                                {otherProps.response_status}
+                            </span>
+                        ) : null}
+                        {renderTimeBenchmark(duration)}
+                        <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes}</span>
+                    </div>
+                )}
+            </div>
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
@@ -385,7 +371,7 @@ export function BodyDisplay({
         language = Language.JSON
     }
 
-    const isAutoRedaction = /(\[SessionRecording\].*redacted)/.test(displayContent)
+    const isAutoRedaction = /(\[SessionRecording].*redacted)/.test(displayContent)
 
     return isAutoRedaction ? (
         <>

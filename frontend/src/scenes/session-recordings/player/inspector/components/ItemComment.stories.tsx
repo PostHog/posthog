@@ -44,7 +44,6 @@ function makeItem(
 
 const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentProps>) => {
     props.item = props.item || makeItem()
-    props.setExpanded = props.setExpanded || (() => {})
 
     const propsToUse = props as ItemCommentProps
 

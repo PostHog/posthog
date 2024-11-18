@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
@@ -7,33 +7,24 @@ import { InspectorListItemConsole } from '../playerInspectorLogic'
 export interface ItemConsoleLogProps {
     item: InspectorListItemConsole
     expanded: boolean
-    setExpanded: (expanded: boolean) => void
 }
 
-export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogProps): JSX.Element {
+export function ItemConsoleLog({ item, expanded }: ItemConsoleLogProps): JSX.Element {
     return (
-        <>
-            <LemonButton
-                noPadding
-                onClick={() => setExpanded(!expanded)}
-                fullWidth
-                data-attr="item-console-log"
-                className="font-normal"
-            >
-                <div className="p-2 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
-                {(item.data.count || 1) > 1 ? (
-                    <span
-                        className={`${
-                            item.highlightColor ? 'bg-' + item.highlightColor : 'bg-primary-alt'
-                        } rounded-lg px-1 mx-2 text-white text-xs font-semibold`}
-                    >
-                        {item.data.count}
-                    </span>
-                ) : null}
-            </LemonButton>
+        <div className="w-full font-normal" data-attr="item-console-log">
+            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
+            {(item.data.count || 1) > 1 ? (
+                <span
+                    className={`${
+                        item.highlightColor ? 'bg-' + item.highlightColor : 'bg-primary-alt'
+                    } rounded-lg px-1 mx-2 text-white text-xs font-semibold`}
+                >
+                    {item.data.count}
+                </span>
+            ) : null}
 
             {expanded && (
-                <div className="p-2 text-xs border-t">
+                <div className="px-2 py-1 text-xs border-t">
                     {(item.data.count || 1) > 1 ? (
                         <>
                             <div className="italic">
@@ -59,6 +50,6 @@ export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogPr
                     ) : null}
                 </div>
             )}
-        </>
+        </div>
     )
 }

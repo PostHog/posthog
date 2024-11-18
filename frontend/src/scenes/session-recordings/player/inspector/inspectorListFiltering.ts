@@ -50,10 +50,6 @@ function isNetworkError(item: InspectorListItem): boolean {
     return isNetworkEvent(item) && (item.data.response_status || -1) >= 400
 }
 
-function isSlowNetwork(item: InspectorListItem): boolean {
-    return isNetworkEvent(item) && (item.data.duration || -1) >= 1000
-}
-
 function isEvent(item: InspectorListItem): item is InspectorListItemEvent {
     return item.type === SessionRecordingPlayerTab.EVENTS
 }
@@ -126,18 +122,13 @@ export function filterInspectorListItems({
                 (!!miniFiltersByKey['all-automatic']?.enabled &&
                     (isOfflineStatusChange(item) ||
                         isBrowserVisibilityEvent(item) ||
-                        isNavigationEvent(item) ||
-                        isNetworkError(item) ||
-                        isSlowNetwork(item) ||
                         isPostHogMobileEvent(item) ||
                         isPageviewOrScreen(item) ||
                         isAutocapture(item))) ||
                 isComment(item)
             const isAllErrors =
-                (!!miniFiltersByKey['all-errors']?.enabled && isNetworkError(item)) ||
-                isConsoleError(item) ||
-                isException(item) ||
-                isErrorEvent(item)
+                !!miniFiltersByKey['all-errors']?.enabled &&
+                (isNetworkError(item) || isConsoleError(item) || isException(item) || isErrorEvent(item))
             return isAllEverything || isAllAutomatic || isAllErrors
         },
         [SessionRecordingPlayerTab.EVENTS]: (item: InspectorListItem) => {

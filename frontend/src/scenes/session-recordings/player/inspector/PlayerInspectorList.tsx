@@ -120,7 +120,7 @@ export function PlayerInspectorList(): JSX.Element {
             new CellMeasurerCache({
                 fixedWidth: true,
                 minHeight: 10,
-                defaultHeight: 40,
+                defaultHeight: 42,
             }),
         []
     )
@@ -196,7 +196,6 @@ export function PlayerInspectorList(): JSX.Element {
                     <AutoSizer>
                         {({ height, width }) => (
                             <List
-                                className="p-2"
                                 height={height}
                                 width={width}
                                 deferredMeasurementCache={cellMeasurerCache}
