@@ -359,7 +359,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                             Completion conditions
                                                         </span>
                                                         <span>
-                                                            Survey response collection will be limited to receive{' '}
+                                                            Survey response collection is limited to receive{' '}
                                                             <b>{survey.response_sampling_limit}</b> responses every{' '}
                                                             {survey.response_sampling_interval}{' '}
                                                             {survey.response_sampling_interval_type}(s).
