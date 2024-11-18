@@ -1,6 +1,6 @@
 import { offset } from '@floating-ui/react'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
 import { useMemo, useState } from 'react'
@@ -15,7 +15,8 @@ const HEADLINES = [
 ]
 
 export function Intro(): JSX.Element {
-    const { hedgehogConfig, acceptDataProcessing } = useValues(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { acceptDataProcessing } = useActions(maxLogic)
     const { sessionId } = useValues(maxLogic)
 
     const [hedgehogDirection, setHedgehogDirection] = useState<'left' | 'right'>('right')
