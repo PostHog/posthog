@@ -2,6 +2,7 @@ import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { ExperimentFunnelsQuery } from '~/queries/schema'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic, getDefaultFilters, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
@@ -20,11 +21,16 @@ export function PrimaryMetricModal({
     const { experiment, experimentLoading, getMetricType, featureFlags } = useValues(experimentLogic({ experimentId }))
     const { updateExperimentGoal, setExperiment } = useActions(experimentLogic({ experimentId }))
 
-    const experimentFiltersLength =
-        (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
-
     const metricIdx = 0
     const metricType = getMetricType(metricIdx)
+
+    let funnelStepsLength = 0
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] && metricType === InsightType.FUNNELS) {
+        const metric = experiment.metrics[metricIdx] as ExperimentFunnelsQuery
+        funnelStepsLength = metric?.funnels_query?.series?.length || 0
+    } else {
+        funnelStepsLength = (experiment.filters?.events?.length || 0) + (experiment.filters?.actions?.length || 0)
+    }
 
     return (
         <LemonModal
@@ -40,7 +46,7 @@ export function PrimaryMetricModal({
                     <LemonButton
                         disabledReason={
                             metricType === InsightType.FUNNELS &&
-                            experimentFiltersLength < 2 &&
+                            funnelStepsLength < 2 &&
                             'The experiment needs at least two funnel steps.'
                         }
                         form="edit-experiment-goal-form"

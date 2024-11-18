@@ -1,5 +1,3 @@
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
@@ -26,26 +24,6 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
 
     return (
         <>
-            <div className="mb-4">
-                <LemonLabel>Name (optional)</LemonLabel>
-                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] && (
-                    <LemonInput
-                        value={(() => {
-                            // :FLAG: CLEAN UP AFTER MIGRATION
-                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                                return currentMetric.name
-                            }
-                            return ''
-                        })()}
-                        onChange={(newName) => {
-                            setTrendsExposureMetric({
-                                metricIdx: 0,
-                                name: newName,
-                            })
-                        }}
-                    />
-                )}
-            </div>
             <ActionFilter
                 bordered
                 filters={(() => {
