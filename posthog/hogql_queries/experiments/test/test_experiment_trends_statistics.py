@@ -8,10 +8,46 @@ from posthog.test.base import BaseTest
 
 
 class TestExperimentTrendsStatistics(BaseTest):
+    def test_calculate_probabilities(self):
+        # Test error cases
+        control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1.0, absolute_exposure=1000)
+
+        # Test with no test variants
+        with self.assertRaises(ValueError) as e:
+            calculate_probabilities(control, [])
+        self.assertEqual(str(e.exception), "Can't calculate experiment results for less than 2 variants")
+
+        # Test with too many variants
+        too_many_variants = [
+            ExperimentVariantTrendsBaseStats(key=f"test_{i}", count=100, exposure=1.0, absolute_exposure=1000)
+            for i in range(10)
+        ]
+        with self.assertRaises(ValueError) as e:
+            calculate_probabilities(control, too_many_variants)
+        self.assertEqual(str(e.exception), "Can't calculate experiment results for more than 10 variants")
+
+        # Test probability calculations
+        test = ExperimentVariantTrendsBaseStats(
+            key="test",
+            count=150,  # 50% more events than control
+            exposure=1.0,
+            absolute_exposure=1000,
+        )
+
+        probabilities = calculate_probabilities(control, [test])
+
+        # Should return probabilities for both variants
+        self.assertEqual(len(probabilities), 2)
+
+        # Probabilities should sum to 1
+        self.assertAlmostEqual(sum(probabilities), 1.0, places=2)
+
+        # Test variant should have higher probability
+        self.assertGreater(probabilities[1], probabilities[0])
+
     def test_analysis_clear_winner(self):
         # Test case where there's a clear winning variant
         control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1.0, absolute_exposure=1000)
-
         test = ExperimentVariantTrendsBaseStats(key="test", count=150, exposure=1.0, absolute_exposure=1000)
 
         # Calculate probabilities
@@ -35,7 +71,6 @@ class TestExperimentTrendsStatistics(BaseTest):
     def test_analysis_no_clear_winner(self):
         # Test case where variants are very similar
         control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1.0, absolute_exposure=1000)
-
         test = ExperimentVariantTrendsBaseStats(key="test", count=102, exposure=1.0, absolute_exposure=1000)
 
         probabilities = calculate_probabilities(control, [test])
@@ -54,7 +89,6 @@ class TestExperimentTrendsStatistics(BaseTest):
             exposure=1.0,
             absolute_exposure=50,  # Below FF_DISTRIBUTION_THRESHOLD
         )
-
         test = ExperimentVariantTrendsBaseStats(
             key="test",
             count=15,
@@ -91,7 +125,6 @@ class TestExperimentTrendsStatistics(BaseTest):
             exposure=1.0,
             absolute_exposure=1000,  # 1000 users
         )
-
         test = ExperimentVariantTrendsBaseStats(
             key="test",
             count=150,  # 150 events
