@@ -154,12 +154,26 @@ function RowItemDetail({
     )
 }
 
+function WindowScrub(): JSX.Element {
+    return (
+        <div className="h-6 w-2 ml-2">
+            <div
+                /* eslint-disable-next-line react/forbid-dom-props */
+                style={{ marginTop: '-125%' }}
+                className="h-full border-l-2 border-muted-alt"
+            />
+        </div>
+    )
+}
+
 export function PlayerInspectorListItem({
     item,
+    previousItem,
     index,
     onLayout,
 }: {
     item: InspectorListItem
+    previousItem: InspectorListItem | null
     index: number
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
@@ -207,7 +221,7 @@ export function PlayerInspectorListItem({
         <div
             ref={ref}
             className={clsx(
-                'ml-1 flex flex-col flex-1 overflow-hidden items-center',
+                'ml-1 flex flex-col flex-1 items-center',
                 isExpanded && 'border border-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`
             )}
@@ -245,7 +259,11 @@ export function PlayerInspectorListItem({
                 >
                     <div className="pl-1 text-muted-alt flex items-center justify-center gap-1">
                         {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
-                        <IconWindow size="small" value={item.windowNumber || '?'} />
+                        {item.windowNumber === previousItem?.windowNumber ? (
+                            <WindowScrub />
+                        ) : (
+                            <IconWindow size="small" value={item.windowNumber || '?'} />
+                        )}
                     </div>
                 </Tooltip>
 
