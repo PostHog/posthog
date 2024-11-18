@@ -22,7 +22,7 @@ from posthog.schema import (
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
-class TestToolkit(TaxonomyAgentToolkit):
+class DummyToolkit(TaxonomyAgentToolkit):
     def _get_tools(self) -> list[ToolkitTool]:
         return self._default_tools
 
@@ -36,8 +36,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
         class Node(TaxonomyAgentPlannerNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-                prompt = ChatPromptTemplate.from_messages([("user", "test")])
-                toolkit = TestToolkit(self._team)
+                prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages([("user", "test")])
+                toolkit = DummyToolkit(self._team)
                 return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
         return Node(self.team)
@@ -180,13 +180,21 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             node._events_prompt,
         )
 
+    def test_format_prompt(self):
+        node = self._get_node()
+        self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
+        self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
+        self.assertIn(
+            "retrieve_event_properties(event_name: str)", node._get_react_format_prompt(DummyToolkit(self.team))
+        )
+
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
         class Node(TaxonomyAgentPlannerToolsNode):
             def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-                toolkit = TestToolkit(self._team)
+                toolkit = DummyToolkit(self._team)
                 return super()._run_with_toolkit(state, toolkit, config=config)
 
         return Node(self.team)
