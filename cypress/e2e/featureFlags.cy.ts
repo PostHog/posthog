@@ -308,7 +308,8 @@ describe('Feature Flags', () => {
         cy.get('.operator-value-option').contains('> after').should('not.exist')
     })
 
-    it('Allow setting multivariant rollout percentage to zero', () => {
+    it('Allows setting multivariant rollout percentage to zero', () => {
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         // Start creating a multivariant flag
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-served-value-segmented-button]')
@@ -326,6 +327,15 @@ describe('Feature Flags', () => {
             .type(`{backspace}{backspace}`)
             .should('have.value', 0)
         cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]').click().type(`4.5`).should('have.value', 4)
+    })
+
+    it('Sets URL properly when switching between tabs', () => {
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+        cy.get('[data-attr=feature-flags-tab-navigation]').contains('History').click()
+        cy.url().should('include', `tab=history`)
+
+        cy.get('[data-attr=feature-flags-tab-navigation]').contains('Overview').click()
+        cy.url().should('include', `tab=overview`)
     })
 
     it('Renders flags in FlagSelector', () => {

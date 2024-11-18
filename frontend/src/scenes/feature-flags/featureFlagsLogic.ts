@@ -239,7 +239,17 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 pageFiltersFromUrl.page = parseInt(page)
             }
 
-            actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
+            // Initialize filters with the URL params if none are set
+            const isInitializingFilters =
+                objectsEqual(DEFAULT_FILTERS, values.filters) && !objectsEqual(DEFAULT_FILTERS, pageFiltersFromUrl)
+            /**
+             * Pagination search param in the URL is modified directly by the LemonTable component,
+             * so let's update filter state if it changes
+             */
+            const isChangingPage = page !== undefined && page !== values.filters.page
+            if (isInitializingFilters || isChangingPage) {
+                actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
+            }
         },
     })),
     events(({ actions }) => ({
