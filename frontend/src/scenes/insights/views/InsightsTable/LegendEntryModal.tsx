@@ -13,11 +13,12 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { formatCompareLabel } from './columns/SeriesColumn'
 import { legendEntryModalLogic } from './legendEntryModalLogic'
+import { ResultCustomizationBy } from '~/queries/schema'
 
 export function LegendEntryModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
 
-    const { modalVisible, dataset, colorToken } = useValues(legendEntryModalLogic(insightProps))
+    const { modalVisible, dataset, colorToken, resultCustomizationBy } = useValues(legendEntryModalLogic(insightProps))
     const { closeModal, setColorToken, save } = useActions(legendEntryModalLogic(insightProps))
 
     const { getTheme } = useValues(dataThemeLogic)
@@ -53,7 +54,7 @@ export function LegendEntryModal(): JSX.Element | null {
             </p>
             {dataset != null && (
                 <p>
-                    You are customizing the display of results for
+                    You are customizing the appearance of results for
                     <InsightLabel
                         className="inline-block bg-bg-light px-1 py-0.5 rounded mx-1 border border-dashed"
                         action={dataset?.action}
@@ -62,8 +63,17 @@ export function LegendEntryModal(): JSX.Element | null {
                         hideIcon
                         compareValue={dataset.compare ? formatCompareLabel(dataset) : undefined}
                     />
-                    , whereby results are assigned by <strong>position</strong> in the dataset. You can change this in
-                    insight settings.
+                    , whereby results are assigned by{' '}
+                    {resultCustomizationBy === ResultCustomizationBy.Position ? (
+                        <>
+                            their <strong>position</strong> in the dataset
+                        </>
+                    ) : (
+                        <>
+                            their <strong>values</strong> in the dataset
+                        </>
+                    )}
+                    . You can change this in insight settings.
                 </p>
             )}
             <h3 className="l4 mt-2 mb-2">Color</h3>
