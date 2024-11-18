@@ -129,7 +129,15 @@ function LemonCollapsePanel({
                 >
                     {header}
                 </LemonButton>
-            ) : null}
+            ) : (
+                <LemonButton
+                    className="LemonCollapsePanel__header LemonCollapsePanel__header--disabled"
+                    {...(dataAttr ? { 'data-attr': dataAttr } : {})}
+                    size={size}
+                >
+                    {header}
+                </LemonButton>
+            )}
             <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
                 {(status) => (
                     <div
