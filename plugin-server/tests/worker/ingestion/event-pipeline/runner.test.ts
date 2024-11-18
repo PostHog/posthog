@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
+import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
@@ -17,7 +17,7 @@ jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/emitEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
@@ -112,7 +112,7 @@ describe('EventPipelineRunner', () => {
             { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
         ])
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-        jest.mocked(createEventStep).mockResolvedValue([null, Promise.resolve()])
+        jest.mocked(emitEventStep).mockResolvedValue([Promise.resolve()])
         jest.mocked(processOnEventStep).mockResolvedValue(null)
     })
 
@@ -128,6 +128,7 @@ describe('EventPipelineRunner', () => {
                 'prepareEventStep',
                 'extractHeatmapDataStep',
                 'enrichExceptionEventStep',
+                'createEventStep',
                 'emitEventStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
@@ -157,6 +158,7 @@ describe('EventPipelineRunner', () => {
                 'prepareEventStep',
                 'extractHeatmapDataStep',
                 'enrichExceptionEventStep',
+                'createEventStep',
                 'emitEventStep',
             ])
         })
@@ -179,7 +181,7 @@ describe('EventPipelineRunner', () => {
             const result = await runner.runEventPipeline(pipelineEvent)
             expect(result.error).toBeUndefined()
 
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(9)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
@@ -380,6 +382,7 @@ describe('EventPipelineRunner', () => {
                     'extractHeatmapDataStep',
                     'enrichExceptionEventStep',
                     'createEventStep',
+                    'emitEventStep',
                 ])
             })
         })

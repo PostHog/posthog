@@ -260,13 +260,11 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        const [rawEvent] = await this.runStep(
+        const rawEvent = await this.runStep(
             createEventStep,
             [this, enrichedIfErrorEvent, person, processPerson],
             event.team_id
         )
-
-        console.log(rawEvent)
 
         if (event.event === '$exception' && event.team_id == 2) {
             const [exceptionAck] = await this.runStep(
