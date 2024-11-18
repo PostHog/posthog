@@ -1,4 +1,4 @@
-from posthog.hogql.compiler.javascript import JavaScriptCompiler, to_js_program
+from posthog.hogql.compiler.javascript import JavaScriptCompiler, _sanitize_identifier, to_js_program
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.test.base import BaseTest
 
@@ -7,6 +7,26 @@ def to_js_expr(expr: str) -> str:
     from posthog.hogql.parser import parse_expr
 
     return JavaScriptCompiler().visit(parse_expr(expr))
+
+
+class TestSanitizeIdentifier(BaseTest):
+    def test_valid_identifiers(self):
+        self.assertEqual(_sanitize_identifier("validName"), "validName")
+        self.assertEqual(_sanitize_identifier("_validName123"), "_validName123")
+
+    def test_keywords(self):
+        self.assertEqual(_sanitize_identifier("await"), "__x_await")
+        self.assertEqual(_sanitize_identifier("class"), "__x_class")
+
+    def test_internal_conflicts(self):
+        self.assertEqual(_sanitize_identifier("__x_internal"), "__x___x_internal")
+
+    def test_invalid_identifiers(self):
+        self.assertEqual(_sanitize_identifier("123invalid"), '["123invalid"]')
+        self.assertEqual(_sanitize_identifier("invalid-name"), '["invalid-name"]')
+
+    def test_integer_identifiers(self):
+        self.assertEqual(_sanitize_identifier(123), '["123"]')
 
 
 class TestJavaScript(BaseTest):

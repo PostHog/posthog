@@ -11,9 +11,8 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
 
-# TODO: make sure _JS_GET_GLOBAL is unique!
 _JS_GET_GLOBAL = "__getGlobal"
-_JS_KEYWORDS = set(
+_JS_KEYWORDS = {
     "await",
     "break",
     "case",
@@ -63,7 +62,8 @@ _JS_KEYWORDS = set(
     "arguments",
     "eval",
     "Error",
-)
+    _JS_GET_GLOBAL,  # don't allow this to be overridden
+}
 
 
 @dataclasses.dataclass
@@ -90,6 +90,9 @@ def _sanitize_identifier(name: str | int) -> str:
     name = str(name)
     if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
         if name in _JS_KEYWORDS:
+            return f"__x_{name}"
+        if name.startswith("__x_"):
+            # add a second __x_ to avoid conflicts with our internal variables
             return f"__x_{name}"
         return name
     else:
