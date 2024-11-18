@@ -265,6 +265,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         probabilities = calculate_probabilities(control_variant, test_variants)
         significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
         credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        # probabilities = calculate_probabilities_v2(control_variant, test_variants)
+        # significance_code, p_value = are_results_significant_v2(control_variant, test_variants, probabilities)
+        # credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
 
         return ExperimentTrendsQueryResponse(
             kind="ExperimentTrendsQuery",
