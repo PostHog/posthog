@@ -524,17 +524,8 @@ class TrendsQueryRunner(QueryRunner):
 
             # Modifications for when comparing to previous period
             if self.query.compareFilter is not None and self.query.compareFilter.compare:
-                labels = [
-                    "{} {}".format(
-                        self.query.interval if self.query.interval is not None else "day",
-                        i,
-                    )
-                    for i in range(len(series_object.get("labels", [])))
-                ]
-
                 series_object["compare"] = True
                 series_object["compare_label"] = "previous" if series.is_previous_period_series else "current"
-                series_object["labels"] = labels
 
             # Modifications for when breakdowns are active
             if self.breakdown_enabled:

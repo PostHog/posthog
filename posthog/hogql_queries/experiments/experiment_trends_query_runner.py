@@ -42,9 +42,15 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if not self.query.experiment_id:
+            raise ValidationError("experiment_id is required")
+
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
+        if self.experiment.holdout:
+            self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
 
         self.prepared_count_query = self._prepare_count_query()
@@ -116,7 +122,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         prepared_count_query.properties = [
             EventPropertyFilter(
                 key=self.breakdown_key,
-                value=[variant["key"] for variant in self.feature_flag.variants],
+                value=self.variants,
                 operator="exact",
                 type="event",
             )
@@ -147,6 +153,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             if hasattr(count_event, "event"):
                 prepared_exposure_query.dateRange = self._get_insight_date_range()
                 prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+                prepared_exposure_query.trendsFilter = TrendsFilter(
+                    display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+                )
                 prepared_exposure_query.series = [
                     EventsNode(
                         event=count_event.event,
@@ -156,7 +165,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 prepared_exposure_query.properties = [
                     EventPropertyFilter(
                         key=self.breakdown_key,
-                        value=[variant["key"] for variant in self.feature_flag.variants],
+                        value=self.variants,
                         operator="exact",
                         type="event",
                     )
@@ -169,10 +178,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
             prepared_exposure_query.dateRange = self._get_insight_date_range()
             prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+            prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
             prepared_exposure_query.properties = [
                 EventPropertyFilter(
                     key=self.breakdown_key,
-                    value=[variant["key"] for variant in self.feature_flag.variants],
+                    value=self.variants,
                     operator="exact",
                     type="event",
                 )
@@ -181,7 +191,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         else:
             prepared_exposure_query = TrendsQuery(
                 dateRange=self._get_insight_date_range(),
-                breakdownFilter=self._get_breakdown_filter(),
+                trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$feature_flag_response",
+                    breakdown_type="event",
+                ),
                 series=[
                     EventsNode(
                         event="$feature_flag_called",
@@ -190,8 +204,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 ],
                 properties=[
                     EventPropertyFilter(
-                        key=self.breakdown_key,
-                        value=[variant["key"] for variant in self.feature_flag.variants],
+                        key="$feature_flag_response",
+                        value=self.variants,
                         operator="exact",
                         type="event",
                     ),

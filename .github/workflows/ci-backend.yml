@@ -245,8 +245,20 @@ jobs:
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.6.19'
                       python-version: '3.11.9'
-                      concurrency: 1
+                      concurrency: 3
                       group: 1
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.6.19'
+                      python-version: '3.11.9'
+                      concurrency: 3
+                      group: 2
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.6.19'
+                      python-version: '3.11.9'
+                      concurrency: 3
+                      group: 3
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.

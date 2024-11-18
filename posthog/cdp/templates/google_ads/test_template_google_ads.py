@@ -18,6 +18,7 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
             "conversionActionId": "AW-123456789",
             "gclid": "89y4thuergnjkd34oihroh3uhg39uwhgt9",
             "conversionDateTime": "2024-10-10 16:32:45+02:00",
+            "currencyCode": "USD",
         }
         inputs.update(kwargs)
         return inputs
@@ -29,22 +30,23 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
             (
                 "https://googleads.googleapis.com/v17/customers/1231231234:uploadClickConversions",
                 {
-                    "body": {
-                        "conversions": [
-                            {
-                                "gclid": "89y4thuergnjkd34oihroh3uhg39uwhgt9",
-                                "conversionAction": f"customers/1231231234/conversionActions/123456789",
-                                "conversionDateTime": "2024-10-10 16:32:45+02:00",
-                            }
-                        ],
-                        "partialFailure": True,
-                        "validateOnly": True,
-                    },
                     "method": "POST",
                     "headers": {
                         "Authorization": "Bearer oauth-1234",
                         "Content-Type": "application/json",
                         "developer-token": "developer-token1234",
+                    },
+                    "body": {
+                        "conversions": [
+                            {
+                                "gclid": "89y4thuergnjkd34oihroh3uhg39uwhgt9",
+                                "conversion_action": f"customers/1231231234/conversionActions/123456789",
+                                "conversion_date_time": "2024-10-10 16:32:45+02:00",
+                                "currency_code": "USD",
+                            }
+                        ],
+                        "partialFailure": True,
+                        "validateOnly": True,
                     },
                 },
             )

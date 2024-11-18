@@ -1,18 +1,14 @@
-import json
 import structlog
 
 from rest_framework import mixins, serializers, viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
-from django.db.models import QuerySet
 from django.conf import settings
-from django.utils.http import urlsafe_base64_decode
 
 from drf_spectacular.utils import extend_schema
 
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.models import ErrorTrackingGroup, ErrorTrackingSymbolSet
+from posthog.models import ErrorTrackingSymbolSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.storage import object_storage
@@ -26,35 +22,35 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
-class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ErrorTrackingGroup
-        fields = ["assignee", "status"]
+# class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = ErrorTrackingGroup
+#         fields = ["assignee", "status"]
+
+
+# class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+#     scope_object = "INTERNAL"
+#     queryset = ErrorTrackingGroup.objects.all()
+#     serializer_class = ErrorTrackingGroupSerializer
+
+#     def safely_get_object(self, queryset) -> QuerySet:
+#         stringified_fingerprint = self.kwargs["pk"]
+#         fingerprint = json.loads(urlsafe_base64_decode(stringified_fingerprint))
+#         group, _ = queryset.get_or_create(fingerprint=fingerprint, team=self.team)
+#         return group
+
+#     @action(methods=["POST"], detail=True)
+#     def merge(self, request, **kwargs):
+#         group: ErrorTrackingGroup = self.get_object()
+#         merging_fingerprints: list[list[str]] = request.data.get("merging_fingerprints", [])
+#         group.merge(merging_fingerprints)
+#         return Response({"success": True})
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSymbolSet
         fields = ["ref"]
-
-
-class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
-    queryset = ErrorTrackingGroup.objects.all()
-    serializer_class = ErrorTrackingGroupSerializer
-
-    def safely_get_object(self, queryset) -> QuerySet:
-        stringified_fingerprint = self.kwargs["pk"]
-        fingerprint = json.loads(urlsafe_base64_decode(stringified_fingerprint))
-        group, _ = queryset.get_or_create(fingerprint=fingerprint, team=self.team)
-        return group
-
-    @action(methods=["POST"], detail=True)
-    def merge(self, request, **kwargs):
-        group: ErrorTrackingGroup = self.get_object()
-        merging_fingerprints: list[list[str]] = request.data.get("merging_fingerprints", [])
-        group.merge(merging_fingerprints)
-        return Response({"success": True})
 
 
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):

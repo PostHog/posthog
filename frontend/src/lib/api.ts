@@ -726,6 +726,10 @@ class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent('missing')
     }
 
+    public errorTrackingStackFrames(ids: string[]): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames').withQueryString({ ids })
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -1747,8 +1751,8 @@ const api = {
         },
     },
     hog: {
-        async create(hog: string): Promise<HogCompileResponse> {
-            return await new ApiRequest().hog().create({ data: { hog } })
+        async create(hog: string, locals?: any[], inRepl?: boolean): Promise<HogCompileResponse> {
+            return await new ApiRequest().hog().create({ data: { hog, locals, in_repl: inRepl || false } })
         },
     },
     hogFunctions: {
@@ -1867,6 +1871,10 @@ const api = {
 
         async missingSymbolSets(): Promise<ErrorTrackingSymbolSet[]> {
             return await new ApiRequest().errorTrackingMissingSymbolSets().get()
+        },
+
+        async fetchStackFrames(ids: string[]): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingStackFrames(ids).get()
         },
     },
 
@@ -2154,6 +2162,13 @@ const api = {
         },
         async getResponsesCount(): Promise<{ [key: string]: number }> {
             return await new ApiRequest().surveysResponsesCount().get()
+        },
+        async summarize_responses(surveyId: Survey['id'], questionIndex: number | undefined): Promise<any> {
+            let apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+            if (questionIndex !== undefined) {
+                apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
+            }
+            return await apiRequest.create()
         },
     },
 
@@ -2620,6 +2635,11 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         }
 
         const data = await getJSONOrNull(response)
+
+        if (response.status >= 400 && data && typeof data.error === 'string') {
+            throw new ApiError(data.error, response.status, data)
+        }
+
         throw new ApiError('Non-OK response', response.status, data)
     }
 

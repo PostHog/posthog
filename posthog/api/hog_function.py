@@ -24,7 +24,7 @@ from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, TYPES_WITH_COMPILED_FILTERS
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
@@ -153,9 +153,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if "inputs_schema" in attrs:
             attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
-        if "filters" in attrs:
-            attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-
         if "inputs" in attrs:
             inputs = attrs["inputs"] or {}
             existing_encrypted_inputs = None
@@ -171,6 +168,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         if "type" not in attrs:
             attrs["type"] = "destination"
+
+        if "filters" in attrs and attrs["type"] in TYPES_WITH_COMPILED_FILTERS:
+            attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
 
         return super().validate(attrs)
 

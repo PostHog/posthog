@@ -4,6 +4,8 @@ from datetime import datetime
 
 from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
+from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import (
     exceptions,
     request,
@@ -18,6 +20,7 @@ from rest_framework.response import Response
 from sentry_sdk import capture_exception
 from posthog.api.cohort import CohortSerializer
 
+from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -112,6 +115,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     )
     can_edit = serializers.SerializerMethodField()
 
+    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    creation_context = serializers.ChoiceField(
+        choices=CREATION_CONTEXT_CHOICES,
+        write_only=True,
+        required=False,
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+    )
+
     class Meta:
         model = FeatureFlag
         fields = [
@@ -136,6 +147,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
+            "creation_context",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -314,6 +326,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+        creation_context = validated_data.pop(
+            "creation_context", "feature_flags"
+        )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
 
@@ -344,7 +359,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         _create_usage_dashboard(instance, request.user)
 
-        report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
+        analytics_metadata = instance.get_analytics_metadata()
+        analytics_metadata["creation_context"] = creation_context
+        report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
 
@@ -436,6 +453,33 @@ class FeatureFlagViewSet(
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
 
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "active":
+                queryset = queryset.filter(active=filters[key] == "true")
+            elif key == "created_by_id":
+                queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
+            elif key == "search":
+                queryset = queryset.filter(
+                    Q(key__icontains=request.GET["search"]) | Q(name__icontains=request.GET["search"])
+                )
+            elif key == "type":
+                type = request.GET["type"]
+                if type == "boolean":
+                    queryset = queryset.filter(
+                        Q(filters__multivariate__variants__isnull=True) | Q(filters__multivariate__variants=[])
+                    )
+                elif type == "multivariant":
+                    queryset = queryset.filter(
+                        Q(filters__multivariate__variants__isnull=False) & ~Q(filters__multivariate__variants=[])
+                    )
+                elif type == "experiment":
+                    queryset = queryset.filter(~Q(experiment__isnull=True))
+
+        return queryset
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = (
@@ -456,8 +500,49 @@ class FeatureFlagViewSet(
                 Q(id__in=survey_internal_targeting_flags)
             )
 
-        return queryset.select_related("created_by").order_by("-created_at")
+            # add additional filters provided by the client
+            queryset = self._filter_request(self.request, queryset)
 
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
+
+        return queryset.select_related("created_by")
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "active",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+            ),
+            OpenApiParameter(
+                "created_by_id",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="The User ID which initially created the feature flag.",
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Search by feature flag key or name. Case insensitive.",
+            ),
+            OpenApiParameter(
+                "type",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["boolean", "multivariant", "experiment"],
+            ),
+        ]
+    )
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication

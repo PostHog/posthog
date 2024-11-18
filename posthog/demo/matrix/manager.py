@@ -137,6 +137,7 @@ class MatrixManager:
             )
         for cohort in Cohort.objects.filter(team=team):
             cohort.calculate_people_ch(pending_version=0)
+        team.project.save()
         team.save()
 
     def _save_analytics_data(self, data_team: Team):
@@ -149,6 +150,7 @@ class MatrixManager:
             bulk_group_type_mappings.append(
                 GroupTypeMapping(
                     team=data_team,
+                    project_id=data_team.project_id,
                     group_type_index=group_type_index,
                     group_type=group_type,
                 )
@@ -218,7 +220,7 @@ class MatrixManager:
         GroupTypeMapping.objects.filter(team_id=target_team.pk).delete()
         GroupTypeMapping.objects.bulk_create(
             (
-                GroupTypeMapping(team=target_team, **record)
+                GroupTypeMapping(team=target_team, project_id=target_team.project_id, **record)
                 for record in GroupTypeMapping.objects.filter(team_id=self.MASTER_TEAM_ID).values(
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )

@@ -1,11 +1,12 @@
 use anyhow::Error;
 use axum::async_trait;
 use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, PgPool, Postgres};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
+    cohort_models::Cohort,
     config::{Config, DEFAULT_TEST_CONFIG},
     database::{get_pool, Client, CustomDatabaseError},
     flag_definitions::{self, FeatureFlag, FeatureFlagRow},
@@ -23,7 +24,9 @@ pub fn random_string(prefix: &str, length: usize) -> String {
     format!("{}{}", prefix, suffix)
 }
 
-pub async fn insert_new_team_in_redis(client: Arc<RedisClient>) -> Result<Team, Error> {
+pub async fn insert_new_team_in_redis(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Result<Team, Error> {
     let id = rand::thread_rng().gen_range(0..10_000_000);
     let token = random_string("phc_", 12);
     let team = Team {
@@ -48,7 +51,7 @@ pub async fn insert_new_team_in_redis(client: Arc<RedisClient>) -> Result<Team, 
 }
 
 pub async fn insert_flags_for_team_in_redis(
-    client: Arc<RedisClient>,
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
     json_value: Option<String>,
 ) -> Result<(), Error> {
@@ -88,7 +91,7 @@ pub async fn insert_flags_for_team_in_redis(
     Ok(())
 }
 
-pub fn setup_redis_client(url: Option<String>) -> Arc<RedisClient> {
+pub fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
     let redis_url = match url {
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
@@ -130,7 +133,7 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<PgPool> {
+pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.read_database_url, config.max_pg_connections)
@@ -139,7 +142,7 @@ pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<PgPool> {
     )
 }
 
-pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<PgPool> {
+pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.write_database_url, config.max_pg_connections)
@@ -246,9 +249,9 @@ pub async fn insert_new_team_in_pg(
     for (group_type, group_type_index) in group_types {
         let res = sqlx::query(
             r#"INSERT INTO posthog_grouptypemapping
-            (group_type, group_type_index, name_singular, name_plural, team_id)
+            (group_type, group_type_index, name_singular, name_plural, team_id, project_id)
             VALUES
-            ($1, $2, NULL, NULL, $3)"#,
+            ($1, $2, NULL, NULL, $3, $3)"#,
         )
         .bind(group_type)
         .bind(group_type_index)
@@ -261,7 +264,7 @@ pub async fn insert_new_team_in_pg(
 }
 
 pub async fn insert_flag_for_team_in_pg(
-    client: Arc<PgPool>,
+    client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
@@ -310,11 +313,12 @@ pub async fn insert_flag_for_team_in_pg(
 }
 
 pub async fn insert_person_for_team_in_pg(
-    client: Arc<PgPool>,
+    client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     distinct_id: String,
     properties: Option<Value>,
-) -> Result<(), Error> {
+) -> Result<i32, Error> {
+    // Changed return type to Result<i32, Error>
     let payload = match properties {
         Some(value) => value,
         None => json!({
@@ -326,7 +330,7 @@ pub async fn insert_person_for_team_in_pg(
     let uuid = Uuid::now_v7();
 
     let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
+    let row = sqlx::query(
         r#"
         WITH inserted_person AS (
             INSERT INTO posthog_person (
@@ -334,10 +338,11 @@ pub async fn insert_person_for_team_in_pg(
                 properties_last_operation, team_id, is_user_id, is_identified, uuid, version
             )
             VALUES ('2023-04-05', $1, '{}', '{}', $2, NULL, true, $3, 0)
-            RETURNING *
+            RETURNING id
         )
         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
         VALUES ($4, (SELECT id FROM inserted_person), $5, 0)
+        RETURNING person_id
         "#,
     )
     .bind(&payload)
@@ -345,10 +350,109 @@ pub async fn insert_person_for_team_in_pg(
     .bind(uuid)
     .bind(&distinct_id)
     .bind(team_id)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    let person_id: i32 = row.get::<i32, _>("person_id");
+    Ok(person_id)
+}
+
+pub async fn insert_cohort_for_team_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    name: Option<String>,
+    filters: serde_json::Value,
+    is_static: bool,
+) -> Result<Cohort, Error> {
+    let cohort = Cohort {
+        id: 0, // Placeholder, will be updated after insertion
+        name: name.unwrap_or("Test Cohort".to_string()),
+        description: Some("Description for cohort".to_string()),
+        team_id,
+        deleted: false,
+        filters,
+        query: None,
+        version: Some(1),
+        pending_version: None,
+        count: None,
+        is_calculating: false,
+        is_static,
+        errors_calculating: 0,
+        groups: serde_json::json!([]),
+        created_by_id: None,
+    };
+
+    let mut conn = client.get_connection().await?;
+    let row: (i32,) = sqlx::query_as(
+        r#"INSERT INTO posthog_cohort
+        (name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        RETURNING id"#,
+    )
+    .bind(&cohort.name)
+    .bind(&cohort.description)
+    .bind(cohort.team_id)
+    .bind(cohort.deleted)
+    .bind(&cohort.filters)
+    .bind(&cohort.query)
+    .bind(cohort.version)
+    .bind(cohort.pending_version)
+    .bind(cohort.count)
+    .bind(cohort.is_calculating)
+    .bind(cohort.is_static)
+    .bind(cohort.errors_calculating)
+    .bind(&cohort.groups)
+    .bind(cohort.created_by_id)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    // Update the cohort_row with the actual id generated by sqlx
+    let id = row.0;
+
+    Ok(Cohort { id, ..cohort })
+}
+
+pub async fn get_person_id_by_distinct_id(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    distinct_id: &str,
+) -> Result<i32, Error> {
+    let mut conn = client.get_connection().await?;
+    let row: (i32,) = sqlx::query_as(
+        r#"SELECT id FROM posthog_person
+           WHERE team_id = $1 AND id = (
+               SELECT person_id FROM posthog_persondistinctid
+               WHERE team_id = $1 AND distinct_id = $2
+               LIMIT 1
+           )
+           LIMIT 1"#,
+    )
+    .bind(team_id)
+    .bind(distinct_id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|_| anyhow::anyhow!("Person not found"))?;
+
+    Ok(row.0)
+}
+
+pub async fn add_person_to_cohort(
+    client: Arc<dyn Client + Send + Sync>,
+    person_id: i32,
+    cohort_id: i32,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    let res = sqlx::query(
+        r#"INSERT INTO posthog_cohortpeople (cohort_id, person_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(cohort_id)
+    .bind(person_id)
     .execute(&mut *conn)
     .await?;
 
-    assert_eq!(res.rows_affected(), 1);
+    assert!(res.rows_affected() > 0, "Failed to add person to cohort");
 
     Ok(())
 }

@@ -25,7 +25,6 @@ export function RecentFeatureFlagInsights(): JSX.Element {
     }
     return (
         <CompactList
-            title="Insights that use this feature flag"
             loading={relatedInsightsLoading}
             emptyMessage={{
                 title: 'You have no insights that use this feature flag',
@@ -35,6 +34,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
             }}
             items={relatedInsights.slice(0, 5)}
             renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
+            contentHeightBehavior="shrink"
         />
     )
 }
