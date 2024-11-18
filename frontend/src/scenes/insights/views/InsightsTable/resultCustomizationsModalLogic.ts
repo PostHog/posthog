@@ -7,12 +7,12 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { GraphDataset, InsightLogicProps } from '~/types'
 
-import type { legendEntryModalLogicType } from './legendEntryModalLogicType'
+import type { resultCustomizationsModalLogicType } from './resultCustomizationsModalLogicType'
 
-export const legendEntryModalLogic = kea<legendEntryModalLogicType>([
+export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
-    path((key) => ['scenes', 'insights', 'views', 'InsightsTable', 'legendEntryModalLogic', key]),
+    path((key) => ['scenes', 'insights', 'views', 'InsightsTable', 'resultCustomizationsModalLogic', key]),
 
     connect((props: InsightLogicProps) => ({
         values: [trendsDataLogic(props), ['resultCustomizationBy', 'legendEntries'], dataThemeLogic, ['getTheme']],

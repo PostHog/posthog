@@ -1,4 +1,4 @@
-import './LegendEntryModal.scss'
+import './ResultCustomizationsModal.scss'
 
 import { LemonButton, LemonButtonProps, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -10,16 +10,18 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
-import { formatCompareLabel } from './columns/SeriesColumn'
-import { legendEntryModalLogic } from './legendEntryModalLogic'
 import { ResultCustomizationBy } from '~/queries/schema'
 
-export function LegendEntryModal(): JSX.Element | null {
+import { formatCompareLabel } from './columns/SeriesColumn'
+import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic'
+
+export function ResultCustomizationsModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
 
-    const { modalVisible, dataset, colorToken, resultCustomizationBy } = useValues(legendEntryModalLogic(insightProps))
-    const { closeModal, setColorToken, save } = useActions(legendEntryModalLogic(insightProps))
+    const { modalVisible, dataset, colorToken, resultCustomizationBy } = useValues(
+        resultCustomizationsModalLogic(insightProps)
+    )
+    const { closeModal, setColorToken, save } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const { getTheme } = useValues(dataThemeLogic)
 
@@ -112,7 +114,7 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
     return (
         <LemonButton
             type={selected ? 'secondary' : 'tertiary'}
-            className="LegendEntryModal__ColorGlyphButton"
+            className="ResultCustomizationsModal__ColorGlyphButton"
             onClick={onClick}
         >
             <SeriesGlyph
