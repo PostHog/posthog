@@ -18,7 +18,7 @@ from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events"
 WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events"
-
+EVENTS_RECENT_DATA_TABLE = lambda: "events_recent"
 TRUNCATE_EVENTS_TABLE_SQL = (
     lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
@@ -183,6 +183,75 @@ FROM {database}.kafka_events_json
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
     )
+)
+
+
+KAFKA_EVENTS_RECENT_TABLE_JSON_SQL = lambda: (
+    EVENTS_TABLE_BASE_SQL
+    + """
+    SETTINGS kafka_skip_broken_messages = 100
+"""
+).format(
+    table_name="kafka_events_recent_json",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
+    extra_fields="",
+    materialized_columns="",
+    indexes="",
+)
+
+EVENTS_RECENT_TABLE_JSON_MV_SQL = (
+    lambda: """
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv ON CLUSTER '{cluster}'
+TO {database}.{target_table}
+AS SELECT
+uuid,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+person_id,
+person_created_at,
+person_properties,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
+group0_created_at,
+group1_created_at,
+group2_created_at,
+group3_created_at,
+group4_created_at,
+person_mode,
+_timestamp,
+_offset
+FROM {database}.kafka_events_json
+""".format(
+        target_table=EVENTS_RECENT_DATA_TABLE(),
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+)
+
+EVENTS_RECENT_TABLE_SQL = lambda: (
+    EVENTS_TABLE_BASE_SQL
+    + """ORDER BY (team_id, toStartOfHour(_timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+TTL _timestamp + INTERVAL 7 DAY
+{storage_policy}
+""").format(
+    table_name=EVENTS_RECENT_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=ReplacingMergeTree(
+        EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"
+    ),
+    extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+    materialized_columns="",
+    indexes="",
+    storage_policy=STORAGE_POLICY(),
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
