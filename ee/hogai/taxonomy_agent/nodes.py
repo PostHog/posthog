@@ -27,6 +27,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
     REACT_MISSING_ACTION_PROMPT,
+    REACT_PROPERTY_FILTERS_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     REACT_SCRATCHPAD_PROMPT,
     REACT_USER_PROMPT,
@@ -77,6 +78,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
+                        "react_property_filters": REACT_PROPERTY_FILTERS_PROMPT,
                         "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
