@@ -329,6 +329,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "name": f'Feature Flag for Experiment {validated_data["name"]}',
                 "filters": feature_flag_filters,
                 "active": not is_draft,
+                "creation_context": "experiments",
             },
             context=self.context,
         )

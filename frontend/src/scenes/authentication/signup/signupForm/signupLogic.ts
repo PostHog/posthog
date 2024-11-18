@@ -67,7 +67,7 @@ export const signupLogic = kea<signupLogicType>([
                 password: !values.preflight?.demo
                     ? !password
                         ? 'Please enter your password to continue'
-                        : values.validatedPassword.feedback
+                        : values.validatedPassword.feedback || undefined
                     : undefined,
             }),
             submit: async () => {
