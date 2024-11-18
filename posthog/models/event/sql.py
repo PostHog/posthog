@@ -239,7 +239,7 @@ FROM {database}.kafka_events_json
 
 EVENTS_RECENT_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
-    + """PARTITION BY toYYYYMMDD(_timestamp)
+    + """PARTITION BY toStartOfHour(_timestamp)
 ORDER BY (team_id, toStartOfHour(_timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
 TTL _timestamp + INTERVAL 7 DAY
 {storage_policy}
