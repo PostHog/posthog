@@ -1,12 +1,18 @@
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph
 
+from ee import settings
 from ee.hogai.assistant import AssistantGraph
 from ee.hogai.eval.utils import EvalBaseTest
 from ee.hogai.utils import AssistantNodeName
 from posthog.schema import HumanMessage
+
+langfuse_handler = CallbackHandler(
+    public_key=settings.LANGFUSE_PUBLIC_KEY, secret_key=settings.LANGFUSE_SECRET_KEY, host=settings.LANGFUSE_HOST
+)
 
 
 class TestEvalTrendsPlanner(EvalBaseTest):
@@ -18,7 +24,7 @@ class TestEvalTrendsPlanner(EvalBaseTest):
             "Compare events, properties, math types, and property values of 'expected output' and 'actual output'.",
             "Check if the combination of events, properties, and property values in 'actual output' can answer the user's question according to the 'expected output'.",
             # The criteria for aggregations must be more specific because there isn't a way to bypass them.
-            "Check if the math types in 'actual output' match those in 'expected output.' If the aggregation type is specified by a property, user, or group in 'expected output', the same property, user, or group must be used in 'actual output'.",
+            "Check if the math types in 'actual output' match those in 'expected output'. Math types sometimes are interchangeable, so use your judgement. If the aggregation type is specified by a property, user, or group in 'expected output', the same property, user, or group must be used in 'actual output'.",
             "If 'expected output' contains a breakdown, check if 'actual output' contains a similar breakdown, and heavily penalize if the breakdown is not present or different.",
             "If 'expected output' contains a formula, check if 'actual output' contains a similar formula, and heavily penalize if the formula is not present or different.",
             # We don't want to see in the output unnecessary property filters. The assistant tries to use them all the time.
@@ -35,7 +41,7 @@ class TestEvalTrendsPlanner(EvalBaseTest):
             .add_trends_planner(AssistantNodeName.END)
             .compile()
         )
-        state = graph.invoke({"messages": [HumanMessage(content=query)]})
+        state = graph.invoke({"messages": [HumanMessage(content=query)]}, config={"callbacks": [langfuse_handler]})
         return state["plan"]
 
     def test_no_excessive_property_filters(self):
@@ -65,7 +71,7 @@ class TestEvalTrendsPlanner(EvalBaseTest):
         assert_test(test_case, [self.plan_correctness_metric])
 
     def test_basic_filtering(self):
-        query = "can you compare how many US vs India users uploaded a file in the last 30d?"
+        query = "can you compare how many Chrome vs Safari users uploaded a file in the last 30d?"
         test_case = LLMTestCase(
             input=query,
             expected_output="""
@@ -74,21 +80,21 @@ class TestEvalTrendsPlanner(EvalBaseTest):
                 - math operation: total count
                 - property filter 1:
                     - entity: event
-                    - property name: $geoip_country_name
+                    - property name: $browser
                     - property type: String
                     - operator: equals
-                    - property value: United States
+                    - property value: Chrome
                 - property filter 2:
                     - entity: event
-                    - property name: $geoip_country_name
+                    - property name: $browser
                     - property type: String
                     - operator: equals
-                    - property value: India
+                    - property value: Safari
 
             Breakdown by:
             - breakdown 1:
                 - entity: event
-                - property name: $geoip_country_name
+                - property name: $browser
             """,
             actual_output=self._call_node(query),
         )
@@ -101,12 +107,12 @@ class TestEvalTrendsPlanner(EvalBaseTest):
             expected_output="""
             Events:
             - $identify
-                - math operation: unique users
+                - math operation: total count
             - $pageview
                 - math operation: total count
 
             Formula:
-            `A/B`, where `A` is the unique users of `$identify` and `B` is the total count of `$pageview`
+            `A/B`, where `A` is the total count of `$identify` and `B` is the total count of `$pageview`
             """,
             actual_output=self._call_node(query),
         )

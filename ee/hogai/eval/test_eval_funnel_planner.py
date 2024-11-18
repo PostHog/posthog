@@ -82,7 +82,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
 
     def test_basic_filtering(self):
         query = (
-            "What was the conversion from uploading a file to downloading it in Australia and the US in the last 30d?"
+            "What was the conversion from uploading a file to downloading it from Chrome and Safari in the last 30d?"
         )
         test_case = LLMTestCase(
             input=query,
@@ -91,33 +91,29 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             1. uploaded_file
                 - property filter 1:
                     - entity: event
-                    - property name: $geoip_country_name
+                    - property name: $browser
                     - property type: String
                     - operator: equals
-                    - property value: Australia
+                    - property value: Chrome
                 - property filter 2:
                     - entity: event
-                    - property name: $geoip_country_name
+                    - property name: $browser
                     - property type: String
                     - operator: equals
-                    - property value: United States
+                    - property value: Safari
             2. downloaded_file
                 - property filter 1:
                     - entity: event
-                    - property name: $geoip_country_name
+                    - property name: $browser
                     - property type: String
                     - operator: equals
-                    - property value: Australia
+                    - property value: Chrome
                 - property filter 2:
                     - entity: event
-                    - property name: $geoip_country_name
+                    - property name: $browser
                     - property type: String
                     - operator: equals
-                    - property value: United States
-
-            Breakdown by:
-            - entity: event
-            - property name: $geoip_country_name
+                    - property value: Safari
             """,
             actual_output=self._call_node(query),
         )
@@ -170,7 +166,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
                     - entity: event
                     - property name: plan
                     - property type: String
-                    - operator: contains
+                    - operator: equals
                     - property value: personal/pro
             """,
             actual_output=self._call_node(query),
