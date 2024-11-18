@@ -1,12 +1,18 @@
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph
 
+from ee import settings
 from ee.hogai.assistant import AssistantGraph
 from ee.hogai.eval.utils import EvalBaseTest
 from ee.hogai.utils import AssistantNodeName
 from posthog.schema import HumanMessage
+
+langfuse_handler = CallbackHandler(
+    public_key=settings.LANGFUSE_PUBLIC_KEY, secret_key=settings.LANGFUSE_SECRET_KEY, host=settings.LANGFUSE_HOST
+)
 
 
 class TestEvalTrendsPlanner(EvalBaseTest):
@@ -35,7 +41,7 @@ class TestEvalTrendsPlanner(EvalBaseTest):
             .add_trends_planner(AssistantNodeName.END)
             .compile()
         )
-        state = graph.invoke({"messages": [HumanMessage(content=query)]})
+        state = graph.invoke({"messages": [HumanMessage(content=query)]}, config={"callbacks": [langfuse_handler]})
         return state["plan"]
 
     def test_no_excessive_property_filters(self):
