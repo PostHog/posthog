@@ -70,7 +70,7 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
     const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     return (
-        <span className="p-1 text-xs">
+        <span className="px-2 py-1 text-xs">
             {timestampFormat != TimestampFormat.Relative ? (
                 (timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp).format(
                     'DD, MMM HH:mm:ss'
@@ -117,7 +117,7 @@ function RowItemTitle({
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
                 </div>
             ) : item.type === 'browser-visibility' ? (
-                <div className="flex items-start p-2 text-xs">Window became {item.status}</div>
+                <div className="flex items-start px-2 py-1 text-xs">Window became {item.status}</div>
             ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
                 <ItemDoctor item={item} expanded={expanded} />
             ) : item.type === 'comment' ? (
@@ -139,10 +139,15 @@ export function PlayerInspectorListItem({
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
-    const { tab, end, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
+    const {
+        // tab,
+        end,
+        expandedItems,
+        windowIds,
+    } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
 
-    const showIcon = tab === SessionRecordingPlayerTab.ALL
+    //const showIcon = tab === SessionRecordingPlayerTab.ALL
 
     const isExpanded = expandedItems.includes(index)
 
@@ -173,7 +178,7 @@ export function PlayerInspectorListItem({
     const windowNumber =
         windowIds.length > 1 ? (item.windowId ? windowIds.indexOf(item.windowId) + 1 || '?' : '?') : undefined
 
-    const TypeIcon = typeToIconAndDescription[item.type].Icon
+    // const TypeIcon = typeToIconAndDescription[item.type].Icon
 
     return (
         <div
@@ -184,47 +189,50 @@ export function PlayerInspectorListItem({
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            {!isExpanded && (showIcon || windowNumber) && (
-                <Tooltip
-                    placement="left"
-                    title={
-                        <>
-                            <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
+            {!isExpanded &&
+                // showIcon ||
+                windowNumber && (
+                    <Tooltip
+                        placement="left"
+                        title={
+                            <>
+                                <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
 
-                            {windowNumber ? (
-                                <>
-                                    <br />
-                                    {windowNumber !== '?' ? (
-                                        <>
-                                            {' '}
-                                            occurred in Window <b>{windowNumber}</b>
-                                        </>
-                                    ) : (
-                                        <>
-                                            {' '}
-                                            not linked to any specific window. Either an event tracked from the backend
-                                            or otherwise not able to be linked to a given window.
-                                        </>
-                                    )}
-                                </>
-                            ) : null}
-                        </>
-                    }
-                >
-                    <div className="shrink-0 text-2xl h-8 text-muted-alt flex items-center justify-center gap-1">
-                        {showIcon && TypeIcon ? <TypeIcon /> : null}
-                        {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
-                    </div>
-                </Tooltip>
-            )}
+                                {windowNumber ? (
+                                    <>
+                                        <br />
+                                        {windowNumber !== '?' ? (
+                                            <>
+                                                {' '}
+                                                occurred in Window <b>{windowNumber}</b>
+                                            </>
+                                        ) : (
+                                            <>
+                                                {' '}
+                                                not linked to any specific window. Either an event tracked from the
+                                                backend or otherwise not able to be linked to a given window.
+                                            </>
+                                        )}
+                                    </>
+                                ) : null}
+                            </>
+                        }
+                    >
+                        <div className="shrink-0 text-2xl h-8 text-muted-alt flex items-center justify-center gap-1">
+                            {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
+                            {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
+                        </div>
+                    </Tooltip>
+                )}
 
             <ItemTimeDisplay item={item} />
 
             <span
                 className={clsx(
-                    'flex-1 overflow-hidden rounded border',
-                    isExpanded && 'border-primary',
-                    item.highlightColor && `border-${item.highlightColor}-dark bg-${item.highlightColor}-highlight`,
+                    'flex-1 overflow-hidden',
+                    isExpanded && 'border border-primary',
+                    isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
+                    item.highlightColor && `bg-${item.highlightColor}-highlight`,
                     !item.highlightColor && 'bg-bg-light'
                 )}
             >
