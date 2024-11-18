@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { DataColorToken } from 'lib/colors'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getTrendLegendColorToken, getTrendLegendEntryKey } from 'scenes/insights/utils'
+import { getTrendResultCustomizationColorToken, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { GraphDataset, InsightLogicProps } from '~/types'
@@ -64,7 +64,12 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                 }
 
                 const theme = getTheme('posthog')
-                return getTrendLegendColorToken(resultCustomizationBy, resultCustomizations, theme, dataset)
+                return getTrendResultCustomizationColorToken(
+                    resultCustomizationBy,
+                    resultCustomizations,
+                    theme,
+                    dataset
+                )
             },
         ],
     }),
@@ -72,8 +77,11 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     listeners(({ actions, values }) => ({
         save: () => {
             if (values.localColorToken != null) {
-                const legendEntryKey = getTrendLegendEntryKey(values.resultCustomizationBy, values.dataset)
-                actions.updateResultCustomization(legendEntryKey, { color: values.localColorToken })
+                const resultCustomizationKey = getTrendResultCustomizationKey(
+                    values.resultCustomizationBy,
+                    values.dataset
+                )
+                actions.updateResultCustomization(resultCustomizationKey, { color: values.localColorToken })
             }
 
             actions.closeModal()

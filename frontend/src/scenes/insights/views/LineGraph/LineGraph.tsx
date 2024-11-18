@@ -35,7 +35,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { getTrendLegendColorToken } from 'scenes/insights/utils'
+import { getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
@@ -325,7 +325,12 @@ export function LineGraph_({
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
 
         const theme = getTheme('posthog')
-        const colorToken = getTrendLegendColorToken(resultCustomizationBy, resultCustomizations, theme, dataset)
+        const colorToken = getTrendResultCustomizationColorToken(
+            resultCustomizationBy,
+            resultCustomizations,
+            theme,
+            dataset
+        )
 
         const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : theme[colorToken]
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
