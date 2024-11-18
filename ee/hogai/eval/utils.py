@@ -13,7 +13,7 @@ class EvalBaseTest(BaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        matrix = HedgeboxMatrix(days_past=14, days_future=1, n_clusters=20, group_type_index_offset=0)
+        matrix = HedgeboxMatrix(days_past=45, days_future=1, n_clusters=30, group_type_index_offset=0)
         matrix_manager = MatrixManager(matrix, print_steps=True)
         existing_user = cls.team.organization.members.first()
         matrix_manager.run_on_team(cls.team, existing_user)

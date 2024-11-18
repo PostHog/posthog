@@ -45,9 +45,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             expected_output="""
             Sequence:
             1. $pageview
-                - math operation: total count
-            2. sign_up
-                - math operation: total count
+            2. signed_up
             """,
             actual_output=self._call_node(query),
         )
@@ -57,15 +55,123 @@ class TestEvalFunnelPlanner(EvalBaseTest):
         """
         Ambigious query. The funnel must return at least two events.
         """
-        query = "how many users upgraded their plan?"
+        query = "how many users paid a bill?"
         test_case = LLMTestCase(
             input=query,
             expected_output="""
             Sequence:
-            1. $pageview
-                - math operation: total count
+            1. any event
             2. upgrade_plan
-                - math operation: total count
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [plan_correctness_metric])
+
+    def test_no_excessive_property_filters(self):
+        query = "Show the user conversion from a sign up to a file download"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Sequence:
+            1. signed_up
+            2. downloaded_file
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [plan_correctness_metric])
+
+    def test_basic_filtering(self):
+        query = (
+            "What was the conversion from uploading a file to downloading it in Australia and the US in the last 30d?"
+        )
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Sequence:
+            1. uploaded_file
+                - property filter 1:
+                    - entity: event
+                    - property name: $geoip_country_name
+                    - property type: String
+                    - operator: equals
+                    - property value: Australia
+                - property filter 2:
+                    - entity: event
+                    - property name: $geoip_country_name
+                    - property type: String
+                    - operator: equals
+                    - property value: United States
+            2. downloaded_file
+                - property filter 1:
+                    - entity: event
+                    - property name: $geoip_country_name
+                    - property type: String
+                    - operator: equals
+                    - property value: Australia
+                - property filter 2:
+                    - entity: event
+                    - property name: $geoip_country_name
+                    - property type: String
+                    - operator: equals
+                    - property value: United States
+
+            Breakdown by:
+            - entity: event
+            - property name: $geoip_country_name
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [plan_correctness_metric])
+
+    def test_exclusion_steps(self):
+        query = "What was the conversion from uploading a file to downloading it in the last 30d excluding users that deleted a file?"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Sequence:
+            1. uploaded_file
+            2. downloaded_file
+
+            Exclusions:
+            - deleted_file
+                - start index: 0
+                - end index: 1
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [plan_correctness_metric])
+
+    def test_breakdown(self):
+        query = "Show a conversion from uploading a file to downloading it segmented by a user's email"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Sequence:
+            1. uploaded_file
+            2. downloaded_file
+
+            Breakdown by:
+            - entity: person
+            - property name: email
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [plan_correctness_metric])
+
+    def test_needle_in_a_haystack(self):
+        query = "What was the conversion from a sign up to a paying customer on the personal-pro plan?"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Sequence:
+            1. signed_up
+            2. paid_bill
+                - property filter 1:
+                    - entity: event
+                    - property name: plan
+                    - property type: String
+                    - operator: contains
+                    - property value: personal/pro
             """,
             actual_output=self._call_node(query),
         )

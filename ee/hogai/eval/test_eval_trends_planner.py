@@ -65,7 +65,7 @@ class TestEvalTrendsPlanner(EvalBaseTest):
         assert_test(test_case, [plan_correctness_metric])
 
     def test_basic_filtering(self):
-        query = "can you compare how many US vs India users viewed a dashboard in the last 30d?"
+        query = "can you compare how many US vs India users uploaded a file in the last 30d?"
         test_case = LLMTestCase(
             input=query,
             expected_output="""
