@@ -70,7 +70,7 @@ class TestEvalTrendsPlanner(EvalBaseTest):
             input=query,
             expected_output="""
             Events:
-            - viewed dashboard
+            - uploaded_file
                 - math operation: total count
                 - property filter 1:
                     - entity: event
