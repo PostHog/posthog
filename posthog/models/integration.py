@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -436,7 +435,7 @@ class GoogleAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": os.environ.get("ADWORDS_DEVELOPER_TOKEN"),
+                "developer-token": settings.SALESFORCE_CONSUMER_SECRET,
             },
         )
 
@@ -449,7 +448,7 @@ class GoogleAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": os.environ.get("ADWORDS_DEVELOPER_TOKEN"),
+                "developer-token": settings.SALESFORCE_CONSUMER_SECRET,
             },
         )
 
