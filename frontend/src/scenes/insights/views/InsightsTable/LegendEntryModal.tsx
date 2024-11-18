@@ -1,7 +1,8 @@
 import './LegendEntryModal.scss'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { DataColorToken } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
@@ -16,11 +17,10 @@ import { legendEntryModalLogic } from './legendEntryModalLogic'
 export function LegendEntryModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
 
-    const { modalVisible, dataset, colorToken: localColorToken } = useValues(legendEntryModalLogic(insightProps))
+    const { modalVisible, dataset, colorToken } = useValues(legendEntryModalLogic(insightProps))
     const { closeModal, setColorToken, save } = useActions(legendEntryModalLogic(insightProps))
 
     const { getTheme } = useValues(dataThemeLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
 
     if (!dataset) {
         return null
@@ -69,32 +69,53 @@ export function LegendEntryModal(): JSX.Element | null {
             <h3 className="l4 mt-2 mb-2">Color</h3>
             <div className="flex flex-wrap gap-1">
                 {Object.entries(theme).map(([key, color]) => (
-                    <LemonButton
+                    <ColorGlyphButton
                         key={key}
-                        type={key === localColorToken ? 'secondary' : 'tertiary'}
-                        className="LegendEntryModal__ColorGlyphButton"
+                        colorToken={key}
+                        selected={key === colorToken}
                         onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
 
                             setColorToken(key)
-                            // updateLegendEntry(legendEntryKey, { color: key })
                         }}
-                    >
-                        <SeriesGlyph
-                            style={{
-                                borderColor: color,
-                                color: color,
-                                backgroundColor: isDarkModeOn
-                                    ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3)
-                                    : hexToRGBA(color, 0.5),
-                            }}
-                        >
-                            <></>
-                        </SeriesGlyph>
-                    </LemonButton>
+                    />
                 ))}
             </div>
         </LemonModal>
+    )
+}
+
+type ColorGlyphButtonProps = {
+    colorToken: DataColorToken
+    selected: boolean
+    onClick: LemonButtonProps['onClick']
+}
+
+function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonProps): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { getTheme } = useValues(dataThemeLogic)
+
+    const theme = getTheme('posthog')
+    const color = theme[colorToken]
+
+    return (
+        <LemonButton
+            type={selected ? 'secondary' : 'tertiary'}
+            className="LegendEntryModal__ColorGlyphButton"
+            onClick={onClick}
+        >
+            <SeriesGlyph
+                style={{
+                    borderColor: color,
+                    color: color,
+                    backgroundColor: isDarkModeOn
+                        ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3)
+                        : hexToRGBA(color, 0.5),
+                }}
+            >
+                <></>
+            </SeriesGlyph>
+        </LemonButton>
     )
 }
