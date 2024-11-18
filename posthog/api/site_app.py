@@ -64,7 +64,14 @@ def get_site_app(request: HttpRequest, id: int, token: str, hash: str) -> HttpRe
         response += ",\n".join(config_dict_items)
         response += "\n\n} }\n"
 
-        response += f"{source}().inject({{config:getConfig({'{}'}, true),getConfig:getConfig,posthog:window['__$$ph_site_app_{id}']}});"
+        response += f"const response = {source}();"
+
+        response += f"if ('inject' in response) {{ response.inject({{config:getConfig({'{}'}, true),getConfig:getConfig,posthog:window['__$$ph_site_app_{id}']}}); }}"
+        response += f"if ('onLoad' in response) {{ response.onLoad({{inputs:getConfig({'{}'}, true),posthog:window['__$$ph_site_app_{id}']}}); }}"
+        response += f"if ('onEvent' in response) {{ posthog.on('eventCaptured', (event) => {{ "
+        response += f"const person = {{ properties: posthog.get_property('$stored_person_properties') }}; "
+        response += f"response.onEvent({{ event, person, inputs: getConfig({{ event, person }}), posthog: window['__$$ph_site_app_{id}'] }}); "
+        response += f"}} ) }}"
 
         response += "\n\n})();"
 

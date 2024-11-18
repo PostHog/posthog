@@ -9,22 +9,19 @@ template: SiteFunctionTemplate = SiteFunctionTemplate(
     icon_url="/static/posthog-icon.svg",
     category=["Custom", "Analytics"],
     source="""
-export async function execute({ config, getConfig, posthog }) {
-    const url = config.host
-    console.log('🍍 Loading Pineapple Analytics', { url, config })
+export async function onLoad({ inputs, posthog }) {
+    const url = inputs.host
+    console.log('🍍 Loading Pineapple Analytics', { url, inputs })
     // await loadScript(url + '/js?t=' + new Date().getTime())
+}
 
-    posthog.on('eventCaptured', (event) => {
-        // TODO: posthog.getPerson()
-        const person = {
-            properties: posthog.get_property('$stored_person_properties'),
-        }
-        const { browser, userId } = getConfig({ event, person })
-        const payload = { event, person, browser, userId }
+// behind the scenes: posthog.on('eventCaptured', (event) => {})
+export function onEvent({ event, person, inputs, posthog }) {
+    const { browser, userId } = inputs
+    const payload = { event, person, browser, userId }
 
-        console.log('🍍 Sending event', { payload })
-        // window.pineappleAnalytics.capture(payload)
-    })
+    console.log('🍍 Sending event', { payload })
+    // window.pineappleAnalytics.capture(payload)
 }
 """.strip(),
     inputs_schema=[
