@@ -148,8 +148,8 @@ export const STL: Record<string, STLFunction> = {
     },
     tuple: {
         fn: (args) => {
-            const tuple = args.slice()
-                ; (tuple as any).__isHogTuple = true
+            const tuple = args.slice();
+            (tuple as any).__isHogTuple = true
             return tuple
         },
         minArgs: 0,
