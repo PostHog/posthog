@@ -25,7 +25,7 @@ export function QuestionInput(): JSX.Element {
             className={clsx(
                 !isFloating
                     ? 'w-[min(44rem,100%)] relative'
-                    : 'w-full max-w-200 sticky z-10 self-center p-1 mx-3 mb-3 bottom-3 border border-[var(--glass-border-3000)] rounded-[0.625rem] backdrop-blur bg-[var(--glass-bg-3000)]'
+                    : 'w-full max-w-192 sticky z-10 self-center p-1 mx-4 mb-3 bottom-3 border border-[var(--glass-border-3000)] rounded-[0.625rem] backdrop-blur bg-[var(--glass-bg-3000)]'
             )}
         >
             <LemonTextArea
