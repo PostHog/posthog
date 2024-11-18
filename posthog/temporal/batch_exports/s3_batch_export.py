@@ -6,6 +6,7 @@ import io
 import json
 import posixpath
 import typing
+import collections.abc
 
 import aioboto3
 import botocore.exceptions
@@ -52,7 +53,12 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from posthog.temporal.common.utils import BatchExportRangeHeartbeatDetails, DateRange
+from posthog.temporal.common.utils import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    HeartbeatParseError,
+    should_resume_from_activity_heartbeat,
+)
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -382,27 +388,37 @@ class S3MultiPartUpload:
 
 @dataclasses.dataclass
 class S3HeartbeatDetails(BatchExportRangeHeartbeatDetails):
-    """"""
-
-    upload_state: S3MultiPartUploadState | None = None
-
-
-class HeartbeatDetails(typing.NamedTuple):
     """This tuple allows us to enforce a schema on the Heartbeat details.
 
     Attributes:
-        last_uploaded_part_timestamp: The timestamp of the last part we managed to upload.
         upload_state: State to continue a S3MultiPartUpload when activity execution resumes.
     """
 
-    last_uploaded_part_timestamp: str
-    upload_state: S3MultiPartUploadState
+    upload_state: S3MultiPartUploadState | None = None
 
     @classmethod
-    def from_activity_details(cls, details):
-        last_uploaded_part_timestamp = details[0]
-        upload_state = S3MultiPartUploadState(*details[1])
-        return cls(last_uploaded_part_timestamp, upload_state)
+    def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        upload_state = None
+        remaining = super().deserialize_details(details)
+
+        if len(remaining["_remaining"]) == 0:
+            return {"upload_state": upload_state, **remaining}
+
+        first_detail = remaining["_remaining"][0]
+        remaining["_remaining"] = remaining["_remaining"][1:]
+
+        try:
+            upload_state = S3MultiPartUploadState(*first_detail)
+        except (TypeError, ValueError) as e:
+            raise HeartbeatParseError("upload_state") from e
+
+        return {"upload_state": upload_state, **remaining}
+
+    def serialize_details(self) -> tuple[typing.Any, ...]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        serialized_parent_details = super().serialize_details()
+        return (*serialized_parent_details[:-1], self.upload_state, self._remaining)
 
 
 @dataclasses.dataclass
@@ -436,7 +452,9 @@ class S3InsertInputs:
     batch_export_schema: BatchExportSchema | None = None
 
 
-async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str | None]:
+async def initialize_and_resume_multipart_upload(
+    inputs: S3InsertInputs,
+) -> tuple[S3MultiPartUpload, S3HeartbeatDetails]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     key = get_s3_key(inputs)
@@ -452,34 +470,16 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         endpoint_url=inputs.endpoint_url,
     )
 
-    details = activity.info().heartbeat_details
+    _, details = await should_resume_from_activity_heartbeat(activity, S3HeartbeatDetails, logger)
+    if details is None:
+        details = S3HeartbeatDetails()
 
-    try:
-        interval_start, upload_state = HeartbeatDetails.from_activity_details(details)
-    except IndexError:
-        # This is the error we expect when no details as the sequence will be empty.
-        interval_start = inputs.data_interval_start
-        await logger.adebug(
-            "Did not receive details from previous activity Execution. Export will start from the beginning %s",
-            interval_start,
-        )
-    except Exception:
-        # We still start from the beginning, but we make a point to log unexpected errors.
-        # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
-        interval_start = inputs.data_interval_start
-        await logger.awarning(
-            "Did not receive details from previous activity Execution due to an unexpected error. Export will start from the beginning %s",
-            interval_start,
-        )
-    else:
-        await logger.ainfo(
-            "Received details from previous activity. Export will attempt to resume from %s",
-            interval_start,
-        )
-        s3_upload.continue_from_state(upload_state)
+    if details.upload_state:
+        s3_upload.continue_from_state(details.upload_state)
 
         if inputs.compression == "brotli":
-            # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
+            # Even if we receive details we cannot resume a brotli compressed upload as
+            # we have lost the compressor state.
             interval_start = inputs.data_interval_start
 
             await logger.ainfo(
@@ -488,7 +488,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
             )
             await s3_upload.abort()
 
-    return s3_upload, interval_start
+    return s3_upload, details
 
 
 def s3_default_fields() -> list[BatchExportField]:
@@ -535,7 +535,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
+        s3_upload, details = await initialize_and_resume_multipart_upload(inputs)
+
+        # TODO: Switch to single-producer multiple consumer
+        done_ranges: list[DateRange] = details.done_ranges
+        if done_ranges:
+            data_interval_start: str | None = done_ranges[-1][1].isoformat()
+        else:
+            data_interval_start = inputs.data_interval_start
 
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None and "batch_export_model" in {
@@ -549,7 +556,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             model=model,
             client=client,
             team_id=inputs.team_id,
-            interval_start=interval_start,
+            interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -594,9 +601,15 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                 rows_exported.add(records_since_last_flush)
                 bytes_exported.add(bytes_since_last_flush)
-                last_inserted_at = last_date_range[1]
 
-                heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
+                if len(details.done_ranges) == 0:
+                    if data_interval_start is None:
+                        last_date_range = (dt.datetime.fromtimestamp(0, tz=dt.UTC), last_date_range[1])
+                    else:
+                        last_date_range = (dt.datetime.fromisoformat(data_interval_start), last_date_range[1])
+
+                details.insert_done_range(last_date_range)
+                heartbeater.details = tuple(details.serialize_details())
 
             first_record_batch = cast_record_batch_json_columns(first_record_batch)
             column_names = first_record_batch.column_names
