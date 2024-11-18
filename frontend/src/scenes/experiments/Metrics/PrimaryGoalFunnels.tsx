@@ -35,21 +35,17 @@ export function PrimaryGoalFunnels(): JSX.Element {
         <>
             <div className="mb-4">
                 <LemonLabel>Name (optional)</LemonLabel>
-                <LemonInput
-                    value={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return currentMetric.name
-                        }
-                        return ''
-                    })()}
-                    onChange={(newName) => {
-                        setFunnelsMetric({
-                            metricIdx,
-                            name: newName,
-                        })
-                    }}
-                />
+                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] && (
+                    <LemonInput
+                        value={currentMetric.name}
+                        onChange={(newName) => {
+                            setFunnelsMetric({
+                                metricIdx,
+                                name: newName,
+                            })
+                        }}
+                    />
+                )}
             </div>
             <ActionFilter
                 bordered

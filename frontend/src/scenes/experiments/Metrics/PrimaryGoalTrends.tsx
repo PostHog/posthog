@@ -29,21 +29,17 @@ export function PrimaryGoalTrends(): JSX.Element {
         <>
             <div className="mb-4">
                 <LemonLabel>Name (optional)</LemonLabel>
-                <LemonInput
-                    value={(() => {
-                        // :FLAG: CLEAN UP AFTER MIGRATION
-                        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            return currentMetric.name
-                        }
-                        return ''
-                    })()}
-                    onChange={(newName) => {
-                        setTrendsMetric({
-                            metricIdx,
-                            name: newName,
-                        })
-                    }}
-                />
+                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL] && (
+                    <LemonInput
+                        value={currentMetric.name}
+                        onChange={(newName) => {
+                            setTrendsMetric({
+                                metricIdx,
+                                name: newName,
+                            })
+                        }}
+                    />
+                )}
             </div>
             <ActionFilter
                 bordered
