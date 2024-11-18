@@ -41,8 +41,8 @@ function __escapeIdentifier(identifier) {
 }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
-function __DateTimeToString (dt) {
-        if (__isHogDateTime(dt)) {
+function __DateTimeToString(dt) {
+    if (__isHogDateTime(dt)) {
         const date = new Date(dt.dt * 1000);
         const timeZone = dt.zone || 'UTC';
         const milliseconds = Math.floor(dt.dt * 1000 % 1000);
@@ -61,25 +61,26 @@ function __DateTimeToString (dt) {
                 default: break;
             }
         }
+        const getOffset = (date, timeZone) => {
+            const tzDate = new Date(date.toLocaleString('en-US', { timeZone }));
+            const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+            const offset = (tzDate - utcDate) / 60000; // in minutes
+            const sign = offset >= 0 ? '+' : '-';
+            const absOffset = Math.abs(offset);
+            const hours = Math.floor(absOffset / 60);
+            const minutes = absOffset % 60;
+            return `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        };
         let offset = 'Z';
         if (timeZone !== 'UTC') {
-            const tzOptions = { timeZone, timeZoneName: 'shortOffset' };
-            const tzFormatter = new Intl.DateTimeFormat('en-US', tzOptions);
-            const tzParts = tzFormatter.formatToParts(date);
-            const timeZoneNamePart = tzParts.find(part => part.type === 'timeZoneName');
-            if (timeZoneNamePart && timeZoneNamePart.value) {
-                const offsetString = timeZoneNamePart.value;
-                const match = offsetString.match(/GMT([+-]\d{2})(?::?(\d{2}))?/);
-                offset = match ? `${match[1][0]}${match[1].slice(1).padStart(2, '0')}:${(match[2] || '00').padStart(2, '0')}` : offsetString === 'GMT' ? '+00:00' : '';
-            }
+            offset = getOffset(date, timeZone);
         }
         let isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
-        if (milliseconds !== null) {
-            isoString += `.${milliseconds.toString().padStart(3, '0')}`;
-        }
+        isoString += `.${milliseconds.toString().padStart(3, '0')}`;
         isoString += offset;
         return isoString;
-    }}
+    }
+}
 
 function mandelbrot(re, im, max_iter) {
     let z_re = 0.0;
