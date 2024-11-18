@@ -844,8 +844,8 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
 /** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
 export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
 
-export enum ColorAssignmentBy {
-    Key = 'key',
+export enum ResultCustomizationBy {
+    Value = 'value',
     Position = 'position',
 }
 
@@ -872,7 +872,7 @@ export type TrendsFilter = {
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     hiddenLegendIndexes?: integer[]
-    colorAssignmentBy?: ColorAssignmentBy
+    resultCustomizationBy?: ResultCustomizationBy
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([

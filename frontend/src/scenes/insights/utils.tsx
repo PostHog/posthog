@@ -13,7 +13,6 @@ import { examples } from '~/queries/examples'
 import {
     ActionsNode,
     BreakdownFilter,
-    ColorAssignmentBy,
     DataWarehouseNode,
     EventsNode,
     InsightVizNode,
@@ -22,6 +21,7 @@ import {
     LegendEntryConfigByPosition,
     NodeKind,
     PathsFilter,
+    ResultCustomizationBy,
 } from '~/queries/schema'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
@@ -454,15 +454,15 @@ export function getTrendDatasetPosition(dataset: GraphDataset): number {
 }
 
 export function getTrendLegendEntryKey(
-    colorAssignmentBy: ColorAssignmentBy | null | undefined,
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: GraphDataset
 ): string {
-    const assignmentByPosition = colorAssignmentBy == null || colorAssignmentBy == 'position'
+    const assignmentByPosition = resultCustomizationBy == null || resultCustomizationBy == 'position'
     return assignmentByPosition ? getTrendDatasetPosition(dataset).toString() : getTrendDatasetKey(dataset)
 }
 
 export function getTrendsLegendEntry(
-    colorAssignmentBy: ColorAssignmentBy | null | undefined,
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: GraphDataset,
     legendEntries:
         | Record<string, LegendEntryConfigByKey>
@@ -470,12 +470,12 @@ export function getTrendsLegendEntry(
         | null
         | undefined
 ): LegendEntryConfig | undefined {
-    const legendKey = getTrendLegendEntryKey(colorAssignmentBy, dataset)
+    const legendKey = getTrendLegendEntryKey(resultCustomizationBy, dataset)
     return legendEntries && Object.keys(legendEntries).includes(legendKey) ? legendEntries[legendKey] : undefined
 }
 
 export function getTrendLegendColorToken(
-    colorAssignmentBy: ColorAssignmentBy | null | undefined,
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
     legendEntries:
         | Record<string, LegendEntryConfigByKey>
         | Record<number, LegendEntryConfigByPosition>
@@ -484,7 +484,7 @@ export function getTrendLegendColorToken(
     theme: DataColorTheme,
     dataset: GraphDataset
 ): DataColorToken {
-    const legendEntry = getTrendsLegendEntry(colorAssignmentBy, dataset, legendEntries)
+    const legendEntry = getTrendsLegendEntry(resultCustomizationBy, dataset, legendEntries)
 
     // for legend entries without a configuration, the color is determined
     // by the position in the dataset. colors repeat after all options

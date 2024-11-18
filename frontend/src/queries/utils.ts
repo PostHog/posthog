@@ -7,7 +7,6 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
-    ColorAssignmentBy,
     CompareFilter,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -33,6 +32,7 @@ import {
     PersonsNode,
     QuerySchema,
     QueryStatusResponse,
+    ResultCustomizationBy,
     RetentionQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
@@ -334,9 +334,9 @@ export const getYAxisScaleType = (query: InsightQueryNode): string | undefined =
     return undefined
 }
 
-export const getColorAssignmentBy = (query: InsightQueryNode): ColorAssignmentBy | undefined => {
+export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.colorAssignmentBy
+        return query.trendsFilter?.resultCustomizationBy
     }
     return undefined
 }

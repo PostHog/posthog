@@ -20,10 +20,9 @@ import { shouldHighlightThisRow } from './utils'
 type InsightLegendRowProps = {
     rowIndex: number
     item: IndexedTrendResult
-    totalItems: number
 }
 
-export function InsightLegendRow({ rowIndex, item, totalItems }: InsightLegendRowProps): JSX.Element {
+export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -34,7 +33,7 @@ export function InsightLegendRow({ rowIndex, item, totalItems }: InsightLegendRo
         breakdownFilter,
         isSingleSeries,
         hiddenLegendIndexes,
-        colorAssignmentBy,
+        resultCustomizationBy,
         legendEntries,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
@@ -65,7 +64,7 @@ export function InsightLegendRow({ rowIndex, item, totalItems }: InsightLegendRo
     const isPrevious = !!item.compare && item.compare_label === 'previous'
 
     const theme = getTheme('posthog')
-    const colorToken = getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, item)
+    const colorToken = getTrendLegendColorToken(resultCustomizationBy, legendEntries, theme, item)
 
     const themeColor = theme[colorToken]
     const mainColor = isPrevious ? `${themeColor}80` : themeColor
