@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { getSeriesBackgroundColor, getTrendLikeSeriesColor } from 'lib/colors'
+import { getSeriesBackgroundColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { useEffect, useRef } from 'react'

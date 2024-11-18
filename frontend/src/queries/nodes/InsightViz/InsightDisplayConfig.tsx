@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
@@ -12,8 +13,8 @@ import posthog from 'posthog-js'
 import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
-import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
+import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
@@ -33,7 +34,6 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
-import { IconInfo } from '@posthog/icons'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
