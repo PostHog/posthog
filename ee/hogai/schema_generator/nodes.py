@@ -101,6 +101,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     plan=generated_plan,
                     reasoning_steps=message.reasoning_steps,
                     answer=message.answer,
+                    done=True,
                 )
             ],
             "intermediate_steps": None,

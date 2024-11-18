@@ -2478,11 +2478,18 @@ export enum AssistantMessageType {
 export interface HumanMessage {
     type: AssistantMessageType.Human
     content: string
+    /** Human messages are only appended when done. */
+    done: true
 }
 
 export interface AssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
+    /**
+     * We only need this "done" value to tell when the particular message is finished during its streaming.
+     * It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.
+     */
+    done?: boolean
 }
 
 export interface VisualizationMessage {
@@ -2490,16 +2497,20 @@ export interface VisualizationMessage {
     plan?: string
     reasoning_steps?: string[] | null
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
+    done?: boolean
 }
 
 export interface FailureMessage {
     type: AssistantMessageType.Failure
     content?: string
+    done: true
 }
 
 export interface RouterMessage {
     type: AssistantMessageType.Router
     content: string
+    /** Router messages are not streamed, so they can only be done. */
+    done: true
 }
 
 export type RootAssistantMessage =

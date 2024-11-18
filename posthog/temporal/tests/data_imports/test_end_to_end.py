@@ -5,6 +5,7 @@ from typing import Any, Optional
 from unittest import mock
 
 import aioboto3
+from deltalake import DeltaTable
 import posthoganalytics
 import psycopg
 import pytest
@@ -938,3 +939,22 @@ async def test_non_retryable_error(team, stripe_customer):
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_table_deleted(team, stripe_balance_transaction):
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_balance_transaction["data"],
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+    )
+
+    with mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete:
+        await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
+
+        mock_delta_table_delete.assert_called_once()

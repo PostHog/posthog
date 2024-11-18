@@ -5,6 +5,7 @@ from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import BaseModel
+from sentry_sdk import capture_exception
 
 from ee import settings
 from ee.hogai.funnels.nodes import (
@@ -15,6 +16,7 @@ from ee.hogai.funnels.nodes import (
 )
 from ee.hogai.router.nodes import RouterNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
+from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
     TrendsGeneratorToolsNode,
@@ -26,6 +28,8 @@ from posthog.models.team.team import Team
 from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
+    AssistantMessage,
+    FailureMessage,
     VisualizationMessage,
 )
 
@@ -137,7 +141,7 @@ class AssistantGraph:
 
         return self
 
-    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):
+    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
         builder = self._graph
 
         trends_generator = TrendsGeneratorNode(self._team)
@@ -184,7 +188,7 @@ class AssistantGraph:
 
         return self
 
-    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):
+    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
         builder = self._graph
 
         funnel_generator = FunnelGeneratorNode(self._team)
@@ -205,6 +209,13 @@ class AssistantGraph:
 
         return self
 
+    def add_summarizer(self, next_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        summarizer_node = SummarizerNode(self._team)
+        builder.add_node(AssistantNodeName.SUMMARIZER, summarizer_node.run)
+        builder.add_edge(AssistantNodeName.SUMMARIZER, next_node)
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_start()
@@ -213,6 +224,7 @@ class AssistantGraph:
             .add_trends_generator()
             .add_funnel_planner()
             .add_funnel_generator()
+            .add_summarizer()
             .compile()
         )
 
@@ -243,33 +255,47 @@ class Assistant:
         # Send a chunk to establish the connection avoiding the worker's timeout.
         yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
 
-        for update in generator:
-            if is_state_update(update):
-                _, new_state = update
-                state = new_state
+        try:
+            for update in generator:
+                if is_state_update(update):
+                    _, new_state = update
+                    state = new_state
 
-            elif is_value_update(update):
-                _, state_update = update
+                elif is_value_update(update):
+                    _, state_update = update
 
-                if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
-                    yield state_update[AssistantNodeName.ROUTER]["messages"][0]
-                elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
-                    # Reset chunks when schema validation fails.
-                    chunks = AIMessageChunk(content="")
+                    if (
+                        AssistantNodeName.ROUTER in state_update
+                        and "messages" in state_update[AssistantNodeName.ROUTER]
+                    ):
+                        yield state_update[AssistantNodeName.ROUTER]["messages"][0]
+                    elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+                        # Reset chunks when schema validation fails.
+                        chunks = AIMessageChunk(content="")
 
-                    node_name = intersected_nodes.pop()
-                    if "messages" in state_update[node_name]:
-                        yield state_update[node_name]["messages"][0]
-                    elif state_update[node_name].get("intermediate_steps", []):
-                        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-
-            elif is_message_update(update):
-                langchain_message, langgraph_state = update[1]
-                for node_name, viz_node in VISUALIZATION_NODES.items():
-                    if langgraph_state["langgraph_node"] == node_name and isinstance(langchain_message, AIMessageChunk):
-                        chunks += langchain_message  # type: ignore
-                        parsed_message = viz_node.parse_output(chunks.tool_calls[0]["args"])
-                        if parsed_message:
-                            yield VisualizationMessage(
-                                reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
+                        node_name = intersected_nodes.pop()
+                        if "messages" in state_update[node_name]:
+                            yield state_update[node_name]["messages"][0]
+                        elif state_update[node_name].get("intermediate_steps", []):
+                            yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+                    elif AssistantNodeName.SUMMARIZER in state_update:
+                        chunks = AIMessageChunk(content="")
+                        yield state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
+                elif is_message_update(update):
+                    langchain_message, langgraph_state = update[1]
+                    if isinstance(langchain_message, AIMessageChunk):
+                        if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
+                            chunks += langchain_message  # type: ignore
+                            parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
+                                chunks.tool_calls[0]["args"]
                             )
+                            if parsed_message:
+                                yield VisualizationMessage(
+                                    reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
+                                )
+                        elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
+                            chunks += langchain_message  # type: ignore
+                            yield AssistantMessage(content=chunks.content)
+        except Exception as e:
+            capture_exception(e)
+            yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point
