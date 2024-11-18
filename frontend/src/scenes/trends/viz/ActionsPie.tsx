@@ -1,11 +1,11 @@
 import './ActionsPie.scss'
 
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { useEffect, useState } from 'react'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
@@ -38,15 +38,28 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
+        resultCustomizations,
+        resultCustomizationBy,
     } = useValues(trendsDataLogic(insightProps))
+    const { getTheme } = useValues(dataThemeLogic)
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
 
     const showAggregation = !pieChartVizOptions?.hideAggregation
+    const theme = getTheme('posthog')
 
     function updateData(): void {
         const days = indexedResults.length > 0 ? indexedResults[0].days : []
-        const colorList = indexedResults.map(({ seriesIndex }) => getSeriesColor(seriesIndex))
+
+        const colorList = indexedResults.map((dataset) => {
+            const colorToken = getTrendResultCustomizationColorToken(
+                resultCustomizationBy,
+                resultCustomizations,
+                theme,
+                dataset
+            )
+            return theme[colorToken]
+        })
 
         setData([
             {
@@ -82,7 +95,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults, hiddenLegendIndexes])
+    }, [indexedResults, hiddenLegendIndexes, resultCustomizations, resultCustomizationBy, theme])
 
     const onClick =
         renderingMetadata?.onSegmentClick ||
