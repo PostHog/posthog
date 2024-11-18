@@ -98,6 +98,8 @@ class HedgeboxMatrix(Matrix):
 
     def set_project_up(self, team, user):
         super().set_project_up(team, user)
+        team.project.product_description = "Dropbox for hedgehogs. We're a file sharing and collaboration platform. Free for limited personal use, with paid plans available."
+        team.autocapture_web_vitals_opt_in = True
 
         # Actions
         interacted_with_file_action = Action.objects.create(
@@ -882,6 +884,3 @@ class HedgeboxMatrix(Matrix):
             )
         except IntegrityError:
             pass  # This can happen if demo data generation is re-run for the same project
-
-        # autocapture
-        team.autocapture_web_vitals_opt_in = True
