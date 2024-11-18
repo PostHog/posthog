@@ -203,7 +203,6 @@ export function PlayerInspectorListItem({
 
     // const TypeIcon = typeToIconAndDescription[item.type].Icon
 
-    const rowItemDetail = <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
     return (
         <div
             ref={ref}
@@ -267,11 +266,15 @@ export function PlayerInspectorListItem({
                     noPadding
                     onClick={() => setItemExpanded(index, !isExpanded)}
                     data-attr="expand-inspector-row"
-                    disabledReason={rowItemDetail ? undefined : 'This event type does not have a detail view'}
+                    disabledReason={
+                        item.type === 'offline-status' || item.type === 'browser-visibility'
+                            ? 'This event type does not have a detail view'
+                            : undefined
+                    }
                 />
             </div>
 
-            {isExpanded && rowItemDetail ? (
+            {isExpanded ? (
                 <div
                     className={clsx(
                         'mx-2 w-full overflow-hidden',
@@ -279,7 +282,7 @@ export function PlayerInspectorListItem({
                     )}
                 >
                     <div className="text-xs">
-                        {rowItemDetail}
+                        <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
                         <LemonDivider dashed />
 
                         <div
