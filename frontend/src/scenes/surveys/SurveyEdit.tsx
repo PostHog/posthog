@@ -919,17 +919,17 @@ export default function SurveyEdit(): JSX.Element {
                                                 options={[
                                                     {
                                                         value: 'until_stopped',
-                                                        label: 'Keep collecting until stopped',
+                                                        label: 'Keep collecting responses until the survey is stopped',
                                                         'data-attr': 'survey-collection-until-stopped',
                                                     },
                                                     {
                                                         value: 'until_limit',
-                                                        label: 'Stop after reaching a limit',
+                                                        label: 'Stop displaying the survey after reaching a certain number of completed surveys',
                                                         'data-attr': 'survey-collection-until-limit',
                                                     },
                                                     {
                                                         value: 'until_adaptive_limit',
-                                                        label: 'Adaptive limit by responses and time',
+                                                        label: 'Collect a certain number of surveys per day, week or month',
                                                         'data-attr': 'survey-collection-until-adaptive-limit',
                                                         disabledReason: surveysAdaptiveLimitsDisabledReason,
                                                     },
@@ -940,7 +940,7 @@ export default function SurveyEdit(): JSX.Element {
                                     {dataCollectionType == 'until_adaptive_limit' && (
                                         <LemonField.Pure className="mt-4">
                                             <div className="flex flex-row gap-2 items-center ml-5">
-                                                Starting{' '}
+                                                Starting on{' '}
                                                 <Popover
                                                     actionable
                                                     overlay={
@@ -961,7 +961,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         {formatDate(dayjs(survey.response_sampling_start_date || ''))}
                                                     </LemonButton>
                                                 </Popover>
-                                                , limit
+                                                , capture up to
                                                 <LemonInput
                                                     type="number"
                                                     size="small"
