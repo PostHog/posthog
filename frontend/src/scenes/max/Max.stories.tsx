@@ -61,10 +61,12 @@ export const Welcome: StoryFn = () => {
 }
 
 export const WelcomeSuggestionsAvailable: StoryFn = () => {
+    const { acceptDataProcessing } = useActions(maxLogic({ sessionId: SESSION_ID }))
     const { loadCurrentProjectSuccess } = useActions(projectLogic)
 
     useEffect(() => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
+        acceptDataProcessing()
     })
 
     return <Welcome />
@@ -78,9 +80,11 @@ export const WelcomeLoadingSuggestions: StoryFn = () => {
     })
 
     const { loadCurrentProjectSuccess } = useActions(projectLogic)
+    const { acceptDataProcessing } = useActions(maxLogic({ sessionId: SESSION_ID }))
 
     useEffect(() => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
+        acceptDataProcessing()
     })
 
     return <Template sessionId={SESSION_ID} />
