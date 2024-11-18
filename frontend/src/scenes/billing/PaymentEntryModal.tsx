@@ -1,12 +1,13 @@
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { WavingHog } from 'lib/components/hedgehogs'
+import { useEffect, useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
-const stripePromise = loadStripe(window.STRIPE_PUBLIC_KEY!)
+const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
 
 export const PaymentForm = (): JSX.Element => {
     const { error, isLoading } = useValues(paymentEntryLogic)
@@ -34,13 +35,17 @@ export const PaymentForm = (): JSX.Element => {
             setLoading(false)
             setError(result.error.message)
         } else {
-            pollAuthorizationStatus()
+            pollAuthorizationStatus(result.paymentIntent.id)
         }
     }
 
     return (
         <div>
             <PaymentElement />
+            <p className="text-xs text-muted mt-0.5">
+                Your card will not be charged but we place a $0.50 hold on it to verify your card that will be released
+                in 7 days.
+            </p>
             {error && <div className="error">{error}</div>}
             <div className="flex justify-end space-x-2 mt-2">
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
@@ -58,21 +63,38 @@ interface PaymentEntryModalProps {
     redirectPath?: string | null
 }
 
-export const PaymentEntryModal = ({ redirectPath = null }: PaymentEntryModalProps): JSX.Element | null => {
+export const PaymentEntryModal = ({
+    redirectPath = urls.organizationBilling(),
+}: PaymentEntryModalProps): JSX.Element => {
     const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
+    const [stripePromise, setStripePromise] = useState<any>(null)
 
     useEffect(() => {
-        initiateAuthorization(redirectPath)
-    }, [redirectPath])
+        // Only load Stripe.js when the modal is opened
+        if (paymentEntryModalOpen && !stripePromise) {
+            const loadStripeJs = async (): Promise<void> => {
+                const { loadStripe } = await stripeJs()
+                const publicKey = window.STRIPE_PUBLIC_KEY!
+                setStripePromise(await loadStripe(publicKey))
+            }
+            void loadStripeJs()
+        }
+    }, [paymentEntryModalOpen, stripePromise])
+
+    useEffect(() => {
+        if (paymentEntryModalOpen) {
+            initiateAuthorization(redirectPath)
+        }
+    }, [paymentEntryModalOpen, initiateAuthorization, redirectPath])
 
     return (
         <LemonModal
             onClose={hidePaymentEntryModal}
             width="max(44vw)"
             isOpen={paymentEntryModalOpen}
-            title="Add your payment details"
-            description="Your card will not be charged."
+            title="Add your payment details to subscribe"
+            description=""
         >
             <div>
                 {clientSecret ? (
@@ -80,9 +102,13 @@ export const PaymentEntryModal = ({ redirectPath = null }: PaymentEntryModalProp
                         <PaymentForm />
                     </Elements>
                 ) : (
-                    <div className="min-h-40 flex justify-center items-center">
-                        <div className="text-4xl">
-                            <Spinner />
+                    <div className="min-h-80 flex flex-col justify-center items-center">
+                        <p className="text-muted text-md mt-4">We're contacting the Hedgehogs for approval.</p>
+                        <div className="flex items-center space-x-2">
+                            <div className="text-4xl">
+                                <Spinner />
+                            </div>
+                            <WavingHog className="w-18 h-18" />
                         </div>
                     </div>
                 )}

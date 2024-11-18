@@ -17,14 +17,8 @@ import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
     const { experiment, featureFlags, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
-    const {
-        addExperimentGroup,
-        removeExperimentGroup,
-        setExperiment,
-        setNewExperimentInsight,
-        createExperiment,
-        setExperimentType,
-    } = useActions(experimentLogic)
+    const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
+        useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
 
     return (
@@ -130,7 +124,6 @@ const ExperimentFormFields = (): JSX.Element => {
                                     aggregation_group_type_index: groupTypeIndex ?? undefined,
                                 },
                             })
-                            setNewExperimentInsight()
                         }}
                         options={[
                             { value: -1, label: 'Persons' },
