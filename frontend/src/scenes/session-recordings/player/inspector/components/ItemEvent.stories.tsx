@@ -1,7 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { now } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { ItemEvent, ItemEventProps } from 'scenes/session-recordings/player/inspector/components/ItemEvent'
+import {
+    ItemEvent,
+    ItemEventDetail,
+    ItemEventProps,
+} from 'scenes/session-recordings/player/inspector/components/ItemEvent'
 import { InspectorListItemEvent } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -56,14 +60,14 @@ const BasicTemplate: StoryFn<typeof ItemEvent> = (props: Partial<ItemEventProps>
     return (
         <div className="flex flex-col gap-2 min-w-96">
             <h3>Collapsed</h3>
-            <ItemEvent {...propsToUse} expanded={false} />
+            <ItemEvent {...propsToUse} />
             <LemonDivider />
             <h3>Expanded</h3>
-            <ItemEvent {...propsToUse} expanded={true} />
+            <ItemEventDetail {...propsToUse} />
             <LemonDivider />
             <h3>Collapsed with overflowing text</h3>
             <div className="w-20">
-                <ItemEvent {...propsToUse} expanded={false} />
+                <ItemEvent {...propsToUse} />
             </div>
         </div>
     )

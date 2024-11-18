@@ -60,6 +60,7 @@ export type InspectorListItemBase = {
     search: string
     highlightColor?: 'danger' | 'warning' | 'primary'
     windowId?: string
+    windowNumber?: number | undefined
 }
 
 export type InspectorListItemEvent = InspectorListItemBase & {
@@ -296,9 +297,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        windowNumberForID: [
+            (s) => [s.windowIds],
+            (windowIds) => {
+                return (windowId: string | undefined): number | undefined => {
+                    return windowIds.length > 1
+                        ? windowId
+                            ? windowIds.indexOf(windowId) + 1 || undefined
+                            : undefined
+                        : undefined
+                }
+            },
+        ],
+
         offlineStatusChanges: [
-            (s) => [s.start, s.sessionPlayerData],
-            (start, sessionPlayerData): InspectorListOfflineStatusChange[] => {
+            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
+            (start, sessionPlayerData, windowNumberForID): InspectorListOfflineStatusChange[] => {
                 const logs: InspectorListOfflineStatusChange[] = []
 
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
@@ -318,6 +332,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                     timeInRecording: timeInRecording,
                                     search: tag,
                                     windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
                                     highlightColor: 'warning',
                                 } satisfies InspectorListOfflineStatusChange)
                             }
@@ -330,8 +345,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         browserVisibilityChanges: [
-            (s) => [s.start, s.sessionPlayerData],
-            (start, sessionPlayerData): InspectorListBrowserVisibility[] => {
+            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
+            (start, sessionPlayerData, windowNumberForID): InspectorListBrowserVisibility[] => {
                 const logs: InspectorListBrowserVisibility[] = []
 
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
@@ -351,6 +366,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                     timeInRecording: timeInRecording,
                                     search: tag,
                                     windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
                                     highlightColor: 'warning',
                                 } satisfies InspectorListBrowserVisibility)
                             }
@@ -363,8 +379,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         doctorEvents: [
-            (s) => [s.start, s.sessionPlayerData],
-            (start, sessionPlayerData): InspectorListItemDoctor[] => {
+            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
+            (start, sessionPlayerData, windowNumberForID): InspectorListItemDoctor[] => {
                 if (!start) {
                     return []
                 }
@@ -407,6 +423,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 tag: niceify(tag),
                                 search: niceify(tag),
                                 window_id: windowId,
+                                // TODO why both?
+                                windowId: windowId,
+                                windowNumber: windowNumberForID(windowId),
                                 data: getPayloadFor(customEvent, tag),
                             })
                         }
@@ -420,6 +439,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 tag: 'full snapshot event',
                                 search: 'full snapshot event',
                                 window_id: windowId,
+                                // TODO why both?
+                                windowId: windowId,
+                                windowNumber: windowNumberForID(windowId),
                                 data: { snapshotSize: humanizeBytes(estimateSize(snapshot)) },
                             })
                         }
@@ -440,8 +462,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         consoleLogs: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): RecordingConsoleLogV2[] => {
+            (s) => [s.sessionPlayerData, s.windowNumberForID],
+            (sessionPlayerData, windowNumberForID): RecordingConsoleLogV2[] => {
                 const logs: RecordingConsoleLogV2[] = []
                 const seenCache = new Set<string>()
 
@@ -472,6 +494,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             logs.push({
                                 timestamp: snapshot.timestamp,
                                 windowId: windowId,
+                                windowNumber: windowNumberForID(windowId),
                                 content,
                                 lines,
                                 level,
@@ -498,6 +521,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.browserVisibilityChanges,
                 s.sessionComments,
                 s.windowIdForTimestamp,
+                s.windowNumberForID,
             ],
             (
                 start,
@@ -509,7 +533,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 doctorEvents,
                 browserVisibilityChanges,
                 sessionComments,
-                windowIdForTimestamp
+                windowIdForTimestamp,
+                windowNumberForID
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -552,6 +577,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         data: event,
                         highlightColor: responseStatus >= 400 ? 'danger' : undefined,
                         windowId: event.window_id,
+                        windowNumber: windowNumberForID(event.window_id),
                     })
                 }
 
@@ -567,6 +593,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         highlightColor:
                             event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : undefined,
                         windowId: event.windowId,
+                        windowNumber: windowNumberForID(event.windowId),
                     })
                 }
 
@@ -598,6 +625,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             ? 'danger'
                             : undefined,
                         windowId: event.properties?.$window_id,
+                        windowNumber: windowNumberForID(event.properties?.$window_id),
                     })
                 }
 
@@ -612,6 +640,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             search: comment.comment,
                             data: comment,
                             windowId: windowIdForTimestamp(timestamp.valueOf()),
+                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
                         })
                     }
                 }

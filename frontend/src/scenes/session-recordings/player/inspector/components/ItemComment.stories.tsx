@@ -1,7 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { now } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { ItemComment, ItemCommentProps } from 'scenes/session-recordings/player/inspector/components/ItemComment'
+import {
+    ItemComment,
+    ItemCommentDetail,
+    ItemCommentProps,
+} from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import {
     InspectorListItemComment,
     RecordingComment,
@@ -50,14 +54,14 @@ const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentPr
     return (
         <div className="flex flex-col gap-2 min-w-96">
             <h3>Collapsed</h3>
-            <ItemComment {...propsToUse} expanded={false} />
+            <ItemComment {...propsToUse} />
             <LemonDivider />
             <h3>Expanded</h3>
-            <ItemComment {...propsToUse} expanded={true} />
+            <ItemCommentDetail {...propsToUse} />
             <LemonDivider />
             <h3>Collapsed with overflowing comment</h3>
             <div className="w-52">
-                <ItemComment {...propsToUse} expanded={false} />
+                <ItemComment {...propsToUse} />
             </div>
         </div>
     )

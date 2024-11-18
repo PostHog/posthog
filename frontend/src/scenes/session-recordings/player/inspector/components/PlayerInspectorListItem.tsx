@@ -170,7 +170,6 @@ export function PlayerInspectorListItem({
         // tab,
         end,
         expandedItems,
-        windowIds,
     } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
 
@@ -202,9 +201,6 @@ export function PlayerInspectorListItem({
         onLayout({ width, height: totalHeight })
     }, [totalHeight])
 
-    const windowNumber =
-        windowIds.length > 1 ? (item.windowId ? windowIds.indexOf(item.windowId) + 1 || '?' : '?') : undefined
-
     // const TypeIcon = typeToIconAndDescription[item.type].Icon
 
     const rowItemDetail = <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
@@ -228,13 +224,13 @@ export function PlayerInspectorListItem({
                         <>
                             <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
 
-                            {windowNumber ? (
+                            {item.windowNumber ? (
                                 <>
                                     <br />
-                                    {windowNumber !== '?' ? (
+                                    {item.windowNumber ? (
                                         <>
                                             {' '}
-                                            occurred in Window <b>{windowNumber}</b>
+                                            occurred in Window <b>{item.windowNumber}</b>
                                         </>
                                     ) : (
                                         <>
@@ -250,7 +246,7 @@ export function PlayerInspectorListItem({
                 >
                     <div className="pl-1 text-muted-alt flex items-center justify-center gap-1">
                         {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
-                        {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
+                        <IconWindow size="small" value={item.windowNumber || '?'} />
                     </div>
                 </Tooltip>
 
