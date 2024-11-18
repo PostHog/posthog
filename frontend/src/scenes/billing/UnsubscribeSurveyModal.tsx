@@ -46,7 +46,9 @@ export const UnsubscribeSurveyModal = ({
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const [randomizedReasons] = useState(randomizeReasons(UNSUBSCRIBE_REASONS))
+    const [randomizedReasons] = useState(
+        process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
+    )
 
     const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
     const includesPipelinesAddon =

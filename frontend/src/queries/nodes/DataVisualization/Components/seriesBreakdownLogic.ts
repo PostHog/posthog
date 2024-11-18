@@ -49,7 +49,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     key((props) => props.key),
     props({ key: '' } as SeriesBreakdownLogicProps),
     connect({
-        actions: [dataVisualizationLogic, ['clearAxis', 'updateChartSettings']],
+        actions: [dataVisualizationLogic, ['clearAxis', 'setQuery']],
         values: [dataVisualizationLogic, ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis']],
     }),
     actions(({ values }) => ({
@@ -232,9 +232,12 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     }),
     subscriptions(({ values, actions }) => ({
         selectedSeriesBreakdownColumn: (value: string | null) => {
-            actions.updateChartSettings({
-                ...(values.query.chartSettings ?? {}),
-                seriesBreakdownColumn: value,
+            actions.setQuery({
+                ...values.query,
+                chartSettings: {
+                    ...(values.query.chartSettings ?? {}),
+                    seriesBreakdownColumn: value,
+                },
             })
         },
     })),
