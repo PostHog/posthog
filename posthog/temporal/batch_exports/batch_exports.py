@@ -357,16 +357,6 @@ class TaskNotDoneError(Exception):
         super().__init__(f"Expected task '{task}' to be done by now")
 
 
-class RecordBatchProducer:
-    def __init__(self, client: ClickHouseClient, team_id: int, model: str, is_backfill: bool):
-        self.client = client
-        self.team_id = team_id
-        self.model = model
-
-    async def produce(self):
-        pass
-
-
 def start_produce_batch_export_record_batches(
     client: ClickHouseClient,
     model_name: str,

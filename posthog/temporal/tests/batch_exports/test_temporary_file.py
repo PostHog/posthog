@@ -11,7 +11,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     CSVBatchExportWriter,
     JSONLBatchExportWriter,
-    LastInsertedAt,
+    DateRange,
     ParquetBatchExportWriter,
     json_dumps_bytes,
 )
@@ -223,20 +223,20 @@ TEST_RECORD_BATCHES = [
 async def test_jsonl_writer_writes_record_batches(record_batch):
     """Test record batches are written as valid JSONL."""
     in_memory_file_obj = io.BytesIO()
-    inserted_ats_seen: list[LastInsertedAt] = []
+    date_ranges_seen: list[DateRange] = []
 
     async def store_in_memory_on_flush(
         batch_export_file,
         records_since_last_flush,
         bytes_since_last_flush,
         flush_counter,
-        last_inserted_at,
+        last_date_range,
         is_last,
         error,
     ):
         assert writer.records_since_last_flush == record_batch.num_rows
         in_memory_file_obj.write(batch_export_file.read())
-        inserted_ats_seen.append(last_inserted_at)
+        date_ranges_seen.append(last_date_range)
 
     writer = JSONLBatchExportWriter(max_bytes=1, flush_callable=store_in_memory_on_flush)
 
@@ -257,7 +257,9 @@ async def test_jsonl_writer_writes_record_batches(record_batch):
         assert "_inserted_at" not in written_jsonl
         assert written_jsonl == {k: v for k, v in expected_jsonl.items() if k != "_inserted_at"}
 
-    assert inserted_ats_seen == [record_batch.column("_inserted_at")[-1].as_py()]
+    assert date_ranges_seen == [
+        (record_batch.column("_inserted_at")[0].as_py(), record_batch.column("_inserted_at")[-1].as_py())
+    ]
 
 
 @pytest.mark.parametrize(
@@ -268,19 +270,19 @@ async def test_jsonl_writer_writes_record_batches(record_batch):
 async def test_csv_writer_writes_record_batches(record_batch):
     """Test record batches are written as valid CSV."""
     in_memory_file_obj = io.StringIO()
-    inserted_ats_seen = []
+    date_ranges_seen: list[DateRange] = []
 
     async def store_in_memory_on_flush(
         batch_export_file,
         records_since_last_flush,
         bytes_since_last_flush,
         flush_counter,
-        last_inserted_at,
+        last_date_range,
         is_last,
         error,
     ):
         in_memory_file_obj.write(batch_export_file.read().decode("utf-8"))
-        inserted_ats_seen.append(last_inserted_at)
+        date_ranges_seen.append(last_date_range)
 
     schema_columns = [column_name for column_name in record_batch.column_names if column_name != "_inserted_at"]
     writer = CSVBatchExportWriter(max_bytes=1, field_names=schema_columns, flush_callable=store_in_memory_on_flush)
@@ -304,7 +306,9 @@ async def test_csv_writer_writes_record_batches(record_batch):
         assert "_inserted_at" not in written_csv_row
         assert written_csv_row == list({k: v for k, v in expected_dict.items() if k != "_inserted_at"}.values())
 
-    assert inserted_ats_seen == [record_batch.column("_inserted_at")[-1].as_py()]
+    assert date_ranges_seen == [
+        (record_batch.column("_inserted_at")[0].as_py(), record_batch.column("_inserted_at")[-1].as_py())
+    ]
 
 
 @pytest.mark.parametrize(
@@ -315,19 +319,19 @@ async def test_csv_writer_writes_record_batches(record_batch):
 async def test_parquet_writer_writes_record_batches(record_batch):
     """Test record batches are written as valid Parquet."""
     in_memory_file_obj = io.BytesIO()
-    inserted_ats_seen = []
+    date_ranges_seen: list[DateRange] = []
 
     async def store_in_memory_on_flush(
         batch_export_file,
         records_since_last_flush,
         bytes_since_last_flush,
         flush_counter,
-        last_inserted_at,
+        last_date_range,
         is_last,
         error,
     ):
         in_memory_file_obj.write(batch_export_file.read())
-        inserted_ats_seen.append(last_inserted_at)
+        date_ranges_seen.append(last_date_range)
 
     schema_columns = [column_name for column_name in record_batch.column_names if column_name != "_inserted_at"]
 
@@ -353,9 +357,9 @@ async def test_parquet_writer_writes_record_batches(record_batch):
 
     # NOTE: Parquet gets flushed twice due to the extra flush at the end for footer bytes, so our mock function
     # will see this value twice.
-    assert inserted_ats_seen == [
-        record_batch.column("_inserted_at")[-1].as_py(),
-        record_batch.column("_inserted_at")[-1].as_py(),
+    assert date_ranges_seen == [
+        (record_batch.column("_inserted_at")[0].as_py(), record_batch.column("_inserted_at")[-1].as_py()),
+        (record_batch.column("_inserted_at")[0].as_py(), record_batch.column("_inserted_at")[-1].as_py()),
     ]
 
 
@@ -412,7 +416,7 @@ async def test_flushing_parquet_writer_resets_underlying_file(record_batch):
         assert writer.bytes_since_last_flush == writer.batch_export_file.bytes_since_last_reset
         assert writer.records_since_last_flush == record_batch.num_rows
 
-        await writer.flush(dt.datetime.now())
+        await writer.flush((dt.datetime.now(), dt.datetime.now()))
 
         assert flush_counter == 1
         assert writer.batch_export_file.tell() == 0
@@ -427,7 +431,7 @@ async def test_flushing_parquet_writer_resets_underlying_file(record_batch):
 async def test_jsonl_writer_deals_with_web_vitals():
     """Test old $web_vitals record batches are written as valid JSONL."""
     in_memory_file_obj = io.BytesIO()
-    inserted_ats_seen: list[LastInsertedAt] = []
+    date_ranges_seen: list[DateRange] = []
 
     record_batch = pa.RecordBatch.from_pydict(
         {
@@ -451,13 +455,13 @@ async def test_jsonl_writer_deals_with_web_vitals():
         records_since_last_flush,
         bytes_since_last_flush,
         flush_counter,
-        last_inserted_at,
+        last_date_range,
         is_last,
         error,
     ):
         assert writer.records_since_last_flush == record_batch.num_rows
         in_memory_file_obj.write(batch_export_file.read())
-        inserted_ats_seen.append(last_inserted_at)
+        date_ranges_seen.append(last_date_range)
 
     writer = JSONLBatchExportWriter(max_bytes=1, flush_callable=store_in_memory_on_flush)
 
@@ -479,14 +483,16 @@ async def test_jsonl_writer_deals_with_web_vitals():
     del expected_jsonl["properties"]["$web_vitals_INP_event"]["attribution"]["interactionTargetElement"]
 
     assert written_jsonl == {k: v for k, v in expected_jsonl.items() if k != "_inserted_at"}
-    assert inserted_ats_seen == [record_batch.column("_inserted_at")[-1].as_py()]
+    assert date_ranges_seen == [
+        (record_batch.column("_inserted_at")[0].as_py(), record_batch.column("_inserted_at")[-1].as_py())
+    ]
 
 
 @pytest.mark.asyncio
 async def test_jsonl_writer_deals_with_nested_user_events():
     """Test very nested user event record batches are written as valid JSONL."""
     in_memory_file_obj = io.BytesIO()
-    inserted_ats_seen: list[LastInsertedAt] = []
+    date_ranges_seen: list[DateRange] = []
 
     record_batch = pa.RecordBatch.from_pydict(
         {
@@ -501,13 +507,13 @@ async def test_jsonl_writer_deals_with_nested_user_events():
         records_since_last_flush,
         bytes_since_last_flush,
         flush_counter,
-        last_inserted_at,
+        last_date_range,
         is_last,
         error,
     ):
         assert writer.records_since_last_flush == record_batch.num_rows
         in_memory_file_obj.write(batch_export_file.read())
-        inserted_ats_seen.append(last_inserted_at)
+        date_ranges_seen.append(last_date_range)
 
     writer = JSONLBatchExportWriter(max_bytes=1, flush_callable=store_in_memory_on_flush)
 
@@ -525,4 +531,6 @@ async def test_jsonl_writer_deals_with_nested_user_events():
 
     assert "_inserted_at" not in written_jsonl
     assert written_jsonl == {k: v for k, v in expected_jsonl.items() if k != "_inserted_at"}
-    assert inserted_ats_seen == [record_batch.column("_inserted_at")[-1].as_py()]
+    assert date_ranges_seen == [
+        (record_batch.column("_inserted_at")[0].as_py(), record_batch.column("_inserted_at")[-1].as_py())
+    ]

@@ -464,8 +464,8 @@ async def test_start_produce_batch_export_record_batches_uses_extra_query_parame
         team_id=team_id,
         is_backfill=False,
         model_name="events",
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
         fields=[
             {"expression": "JSONExtractInt(properties, %(hogql_val_0)s)", "alias": "custom_prop"},
         ],
@@ -504,8 +504,8 @@ async def test_start_produce_batch_export_record_batches_can_flatten_properties(
         team_id=team_id,
         is_backfill=False,
         model_name="events",
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
         fields=[
             {"expression": "event", "alias": "event"},
             {"expression": "JSONExtractString(properties, '$browser')", "alias": "browser"},
@@ -561,8 +561,8 @@ async def test_start_produce_batch_export_record_batches_with_single_field_and_a
         team_id=team_id,
         is_backfill=False,
         model_name="events",
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
         fields=[field],
         extra_query_parameters={},
     )
@@ -616,8 +616,8 @@ async def test_start_produce_batch_export_record_batches_ignores_timestamp_predi
         team_id=team_id,
         is_backfill=False,
         model_name="events",
-        interval_start=inserted_at.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(inserted_at, data_interval_end),
+        done_ranges=[],
     )
 
     records = await get_all_record_batches_from_queue(queue, produce_task)
@@ -630,8 +630,8 @@ async def test_start_produce_batch_export_record_batches_ignores_timestamp_predi
             team_id=team_id,
             is_backfill=False,
             model_name="events",
-            interval_start=inserted_at.isoformat(),
-            interval_end=data_interval_end.isoformat(),
+            full_range=(inserted_at, data_interval_end),
+            done_ranges=[],
         )
 
         records = await get_all_record_batches_from_queue(queue, produce_task)
@@ -665,8 +665,8 @@ async def test_start_produce_batch_export_record_batches_can_include_events(clic
         team_id=team_id,
         is_backfill=False,
         model_name="events",
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
         include_events=include_events,
     )
 
@@ -701,8 +701,8 @@ async def test_start_produce_batch_export_record_batches_can_exclude_events(clic
         team_id=team_id,
         is_backfill=False,
         model_name="events",
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
         exclude_events=exclude_events,
     )
 
@@ -734,8 +734,8 @@ async def test_start_produce_batch_export_record_batches_handles_duplicates(clic
         team_id=team_id,
         is_backfill=False,
         model_name="events",
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
     )
 
     records = await get_all_record_batches_from_queue(queue, produce_task)
