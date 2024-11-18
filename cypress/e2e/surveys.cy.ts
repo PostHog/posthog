@@ -277,6 +277,7 @@ describe('Surveys', () => {
         cy.get('button[data-attr="launch-survey"]').should('have.text', 'Launch')
 
         cy.reload()
+        cy.wait(2000) // does it work if we wait?
         cy.contains('The survey will be stopped once 228 responses are received.').should('be.visible')
     })
 
