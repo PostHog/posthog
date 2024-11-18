@@ -15,7 +15,6 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
 import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types'
 
-import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import {
     commonActionFilterProps,
@@ -79,7 +78,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         )
 
                         setFunnelsMetric({
-                            metricIdx: 0,
+                            metricIdx,
                             series,
                             isSecondary: true,
                         })
@@ -206,7 +205,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 funnelWindowInterval: funnelWindowInterval,
                                 isSecondary: true,
                             })
@@ -230,7 +229,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
                                 isSecondary: true,
                             })
@@ -284,7 +283,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
                                 breakdownAttributionValue: breakdownAttributionValue
                                     ? parseInt(breakdownAttributionValue)
@@ -327,8 +326,8 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                     checked={(() => {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
-                            const val = (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
-                                ?.filterTestAccounts
+                            const val = (experiment.metrics_secondary[metricIdx] as ExperimentFunnelsQuery)
+                                .funnels_query?.filterTestAccounts
                             return hasFilters ? !!val : false
                         }
                         return hasFilters
@@ -339,7 +338,7 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 filterTestAccounts: checked,
                                 isSecondary: true,
                             })
@@ -385,11 +384,6 @@ export function SecondaryGoalFunnels({ metricIdx }: { metricIdx: number }): JSX.
                         showLastComputationRefresh: false,
                     }}
                     readOnly
-                    context={{
-                        insightProps: {
-                            dashboardItemId: MetricInsightId.Funnels,
-                        },
-                    }}
                 />
             </div>
         </>

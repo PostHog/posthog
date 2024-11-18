@@ -22,7 +22,7 @@ export function SecondaryMetricModal({
     const { experiment, experimentLoading, getSecondaryMetricType, featureFlags } = useValues(
         experimentLogic({ experimentId })
     )
-    const { updateExperimentSecondaryMetrics, setExperiment } = useActions(experimentLogic({ experimentId }))
+    const { setExperiment, updateExperiment } = useActions(experimentLogic({ experimentId }))
     const metricType = getSecondaryMetricType(metricIdx)
 
     return (
@@ -33,7 +33,34 @@ export function SecondaryMetricModal({
             title="Change secondary metric"
             footer={
                 <div className="flex items-center w-full">
-                    <LemonButton type="secondary" status="danger" onClick={() => {}}>
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        onClick={() => {
+                            // :FLAG: CLEAN UP AFTER MIGRATION
+                            if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                                const newMetricsSecondary = experiment.metrics_secondary.filter(
+                                    (_, idx) => idx !== metricIdx
+                                )
+                                setExperiment({
+                                    metrics_secondary: newMetricsSecondary,
+                                })
+                                updateExperiment({
+                                    metrics_secondary: newMetricsSecondary,
+                                })
+                            } else {
+                                const newSecondaryMetrics = experiment.secondary_metrics.filter(
+                                    (_, idx) => idx !== metricIdx
+                                )
+                                setExperiment({
+                                    secondary_metrics: newSecondaryMetrics,
+                                })
+                                updateExperiment({
+                                    secondary_metrics: newSecondaryMetrics,
+                                })
+                            }
+                        }}
+                    >
                         Delete
                     </LemonButton>
                     <div className="flex items-center gap-2 ml-auto">
@@ -42,7 +69,16 @@ export function SecondaryMetricModal({
                         </LemonButton>
                         <LemonButton
                             onClick={() => {
-                                updateExperimentSecondaryMetrics(experiment.secondary_metrics)
+                                // :FLAG: CLEAN UP AFTER MIGRATION
+                                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                                    updateExperiment({
+                                        metrics_secondary: experiment.metrics_secondary,
+                                    })
+                                } else {
+                                    updateExperiment({
+                                        secondary_metrics: experiment.secondary_metrics,
+                                    })
+                                }
                             }}
                             type="primary"
                             loading={experimentLoading}

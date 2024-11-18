@@ -14,7 +14,6 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
 import { FilterType } from '~/types'
 
-import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
@@ -40,7 +39,7 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                     onChange={(newName) => {
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setTrendsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 name: newName,
                                 isSecondary: true,
                             })
@@ -73,7 +72,7 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                         )
 
                         setTrendsMetric({
-                            metricIdx: 0,
+                            metricIdx,
                             series,
                             isSecondary: true,
                         })
@@ -152,7 +151,7 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setTrendsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 filterTestAccounts: checked,
                                 isSecondary: true,
                             })
@@ -198,11 +197,6 @@ export function SecondaryGoalTrends({ metricIdx }: { metricIdx: number }): JSX.E
                         showLastComputationRefresh: false,
                     }}
                     readOnly
-                    context={{
-                        insightProps: {
-                            dashboardItemId: MetricInsightId.Trends,
-                        },
-                    }}
                 />
             </div>
         </>

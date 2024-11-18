@@ -52,7 +52,6 @@ import {
     InsightType,
     MultivariateFlagVariant,
     PropertyMathType,
-    SecondaryExperimentMetric,
     SecondaryMetricResults,
     SignificanceCode,
     TrendExperimentVariant,
@@ -106,12 +105,14 @@ export interface ExperimentResultCalculationError {
     statusCode: number
 }
 
+// :FLAG: CLEAN UP AFTER MIGRATION
 export interface CachedSecondaryMetricExperimentFunnelsQueryResponse extends CachedExperimentFunnelsQueryResponse {
     filters?: {
         insight?: InsightType
     }
 }
 
+// :FLAG: CLEAN UP AFTER MIGRATION
 export interface CachedSecondaryMetricExperimentTrendsQueryResponse extends CachedExperimentTrendsQueryResponse {
     filters?: {
         insight?: InsightType
@@ -142,14 +143,8 @@ export const experimentLogic = kea<experimentLogicType>([
             // Hook into the loading state of the metric insight
             insightDataLogic({ dashboardItemId: MetricInsightId.Trends }),
             ['insightDataLoading as trendMetricInsightLoading'],
-            insightDataLogic({ dashboardItemId: MetricInsightId.TrendsExposure }),
-            ['insightDataLoading as trendExposureMetricInsightLoading'],
             insightDataLogic({ dashboardItemId: MetricInsightId.Funnels }),
             ['insightDataLoading as funnelMetricInsightLoading'],
-            insightDataLogic({ dashboardItemId: MetricInsightId.SecondaryTrends }),
-            ['insightDataLoading as secondaryTrendMetricInsightLoading'],
-            insightDataLogic({ dashboardItemId: MetricInsightId.SecondaryFunnels }),
-            ['insightDataLoading as secondaryFunnelMetricInsightLoading'],
         ],
         actions: [
             experimentsLogic,
@@ -183,7 +178,6 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
         updateExperimentCollectionGoal: true,
         updateExperimentExposure: (filters: Partial<FilterType> | null) => ({ filters }),
-        updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         launchExperiment: true,
         endExperiment: true,
@@ -416,22 +410,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 setEditExperiment: (_, { editing }) => editing,
             },
         ],
-        changingGoalMetric: [
-            false,
-            {
-                updateExperimentGoal: () => true,
-                updateExperimentExposure: () => true,
-                changeExperimentStartDate: () => true,
-                loadExperimentResults: () => false,
-            },
-        ],
-        changingSecondaryMetrics: [
-            false,
-            {
-                updateExperimentSecondaryMetrics: () => true,
-                loadSecondaryMetricResults: () => false,
-            },
-        ],
         experimentResultCalculationError: [
             null as ExperimentResultCalculationError | null,
             {
@@ -652,12 +630,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             })
         },
-        updateExperimentSecondaryMetrics: async ({ metrics }) => {
-            actions.updateExperiment({
-                secondary_metrics: metrics,
-                metrics_secondary: values.experiment.metrics_secondary,
-            })
-        },
         closeExperimentCollectionGoalModal: () => {
             if (values.experimentValuesChangedLocally) {
                 actions.loadExperiment()
@@ -672,15 +644,8 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateExperimentSuccess: async ({ experiment }) => {
             actions.updateExperiments(experiment)
-            if (values.changingGoalMetric) {
-                actions.loadExperimentResults()
-            }
-            if (values.changingSecondaryMetrics && values.experiment?.start_date) {
-                actions.loadSecondaryMetricResults()
-            }
-            if (values.experiment?.start_date) {
-                actions.loadExperimentResults()
-            }
+            actions.loadExperimentResults()
+            actions.loadSecondaryMetricResults()
         },
         setExperiment: async ({ experiment }) => {
             const experimentEntitiesChanged =
@@ -852,8 +817,6 @@ export const experimentLogic = kea<experimentLogicType>([
                             return {
                                 ...response,
                                 fakeInsightId: Math.random().toString(36).substring(2, 15),
-                                // @ts-expect-error
-                                last_refresh: response.last_refresh || '',
                             } as unknown as CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse
                         }
 

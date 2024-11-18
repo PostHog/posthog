@@ -153,7 +153,6 @@ export function ResultsQuery({
                             } as InsightVizNode,
                             result: newQueryResults?.insight,
                             disable_baseline: true,
-                            last_refresh: newQueryResults?.last_refresh,
                         },
                         doNotLoad: true,
                     },

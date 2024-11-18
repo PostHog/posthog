@@ -13,7 +13,6 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
 import { FilterType } from '~/types'
 
-import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
@@ -23,7 +22,8 @@ export function PrimaryGoalTrends(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
-    const currentMetric = experiment.metrics[0] as ExperimentTrendsQuery
+    const metricIdx = 0
+    const currentMetric = experiment.metrics[metricIdx] as ExperimentTrendsQuery
 
     return (
         <>
@@ -39,7 +39,7 @@ export function PrimaryGoalTrends(): JSX.Element {
                     })()}
                     onChange={(newName) => {
                         setTrendsMetric({
-                            metricIdx: 0,
+                            metricIdx,
                             name: newName,
                         })
                     }}
@@ -64,7 +64,7 @@ export function PrimaryGoalTrends(): JSX.Element {
                         )
 
                         setTrendsMetric({
-                            metricIdx: 0,
+                            metricIdx,
                             series,
                         })
                     } else {
@@ -119,7 +119,7 @@ export function PrimaryGoalTrends(): JSX.Element {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setTrendsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 filterTestAccounts: checked,
                             })
                         } else {
@@ -157,11 +157,6 @@ export function PrimaryGoalTrends(): JSX.Element {
                         showLastComputationRefresh: false,
                     }}
                     readOnly
-                    context={{
-                        insightProps: {
-                            dashboardItemId: MetricInsightId.Trends,
-                        },
-                    }}
                 />
             </div>
         </>

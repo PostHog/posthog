@@ -15,7 +15,6 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema'
 import { BreakdownAttributionType, FilterType, FunnelsFilterType } from '~/types'
 
-import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import {
     commonActionFilterProps,
@@ -28,7 +27,9 @@ export function PrimaryGoalFunnels(): JSX.Element {
     const { experiment, isExperimentRunning, featureFlags } = useValues(experimentLogic)
     const { setExperiment, setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    const currentMetric = experiment.metrics[0] as ExperimentFunnelsQuery
+
+    const metricIdx = 0
+    const currentMetric = experiment.metrics[metricIdx] as ExperimentFunnelsQuery
 
     return (
         <>
@@ -44,7 +45,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                     })()}
                     onChange={(newName) => {
                         setFunnelsMetric({
-                            metricIdx: 0,
+                            metricIdx,
                             name: newName,
                         })
                     }}
@@ -69,7 +70,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         )
 
                         setFunnelsMetric({
-                            metricIdx: 0,
+                            metricIdx,
                             series,
                         })
                     } else {
@@ -131,7 +132,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 funnelAggregateByHogQL: value,
                             })
                         } else {
@@ -163,7 +164,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 funnelWindowInterval: funnelWindowInterval,
                             })
                         } else {
@@ -179,7 +180,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
                             })
                         } else {
@@ -223,7 +224,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
                                 breakdownAttributionValue: breakdownAttributionValue
                                     ? parseInt(breakdownAttributionValue)
@@ -267,7 +268,7 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         // :FLAG: CLEAN UP AFTER MIGRATION
                         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
                             setFunnelsMetric({
-                                metricIdx: 0,
+                                metricIdx,
                                 filterTestAccounts: checked,
                             })
                         } else {
@@ -305,11 +306,6 @@ export function PrimaryGoalFunnels(): JSX.Element {
                         showLastComputationRefresh: false,
                     }}
                     readOnly
-                    context={{
-                        insightProps: {
-                            dashboardItemId: MetricInsightId.Funnels,
-                        },
-                    }}
                 />
             </div>
         </>

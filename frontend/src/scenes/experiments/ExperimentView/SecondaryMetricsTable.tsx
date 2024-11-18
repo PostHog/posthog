@@ -339,21 +339,23 @@ const AddSecondaryMetricButton = ({
             onClick={() => {
                 // :FLAG: CLEAN UP AFTER MIGRATION
                 if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                    const newMetricsSecondary = [...experiment.metrics_secondary, getDefaultFunnelsMetric()]
                     setExperiment({
-                        metrics_secondary: [...experiment.metrics_secondary, getDefaultFunnelsMetric()],
+                        metrics_secondary: newMetricsSecondary,
                     })
-                    openEditModal(experiment.metrics_secondary.length - 1)
+                    openEditModal(newMetricsSecondary.length - 1)
                 } else {
+                    const newSecondaryMetrics = [
+                        ...experiment.secondary_metrics,
+                        {
+                            name: '',
+                            filters: getDefaultFilters(InsightType.FUNNELS, undefined),
+                        },
+                    ]
                     setExperiment({
-                        secondary_metrics: [
-                            ...experiment.secondary_metrics,
-                            {
-                                name: '',
-                                filters: getDefaultFilters(InsightType.FUNNELS, undefined),
-                            },
-                        ],
+                        secondary_metrics: newSecondaryMetrics,
                     })
-                    openEditModal(experiment.secondary_metrics.length - 1)
+                    openEditModal(newSecondaryMetrics.length - 1)
                 }
             }}
             disabledReason={

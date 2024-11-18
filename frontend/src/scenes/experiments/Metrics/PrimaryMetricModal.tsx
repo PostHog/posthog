@@ -17,14 +17,7 @@ export function PrimaryMetricModal({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element {
-    const {
-        experiment,
-        experimentLoading,
-        getMetricType,
-        trendMetricInsightLoading,
-        funnelMetricInsightLoading,
-        featureFlags,
-    } = useValues(experimentLogic({ experimentId }))
+    const { experiment, experimentLoading, getMetricType, featureFlags } = useValues(experimentLogic({ experimentId }))
     const { updateExperimentGoal, setExperiment } = useActions(experimentLogic({ experimentId }))
 
     const experimentFiltersLength =
@@ -32,8 +25,6 @@ export function PrimaryMetricModal({
 
     const metricIdx = 0
     const metricType = getMetricType(metricIdx)
-
-    const isInsightLoading = metricType === InsightType.TRENDS ? trendMetricInsightLoading : funnelMetricInsightLoading
 
     return (
         <LemonModal
@@ -48,10 +39,9 @@ export function PrimaryMetricModal({
                     </LemonButton>
                     <LemonButton
                         disabledReason={
-                            (isInsightLoading && 'The insight needs to be loaded before saving the goal.') ||
-                            (metricType === InsightType.FUNNELS &&
-                                experimentFiltersLength < 2 &&
-                                'The experiment needs at least two funnel steps.')
+                            metricType === InsightType.FUNNELS &&
+                            experimentFiltersLength < 2 &&
+                            'The experiment needs at least two funnel steps.'
                         }
                         form="edit-experiment-goal-form"
                         onClick={() => {
