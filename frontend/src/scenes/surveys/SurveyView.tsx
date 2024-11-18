@@ -47,6 +47,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         setSelectedPageIndex,
         duplicateSurvey,
     } = useActions(surveyLogic)
+    const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
@@ -342,7 +343,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </div>
                                                 ) : null}
                                             </div>
-                                            {survey.responses_limit && (
+                                            {surveyUsesLimit && (
                                                 <>
                                                     <span className="card-secondary mt-4">Completion conditions</span>
                                                     <span>
@@ -351,21 +352,17 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </span>
                                                 </>
                                             )}
-                                            {survey.response_sampling_limit &&
-                                                survey.response_sampling_interval_type &&
-                                                survey.response_sampling_interval && (
-                                                    <>
-                                                        <span className="card-secondary mt-4">
-                                                            Completion conditions
-                                                        </span>
-                                                        <span>
-                                                            Survey response collection is limited to receive{' '}
-                                                            <b>{survey.response_sampling_limit}</b> responses every{' '}
-                                                            {survey.response_sampling_interval}{' '}
-                                                            {survey.response_sampling_interval_type}(s).
-                                                        </span>
-                                                    </>
-                                                )}
+                                            {surveyUsesAdaptiveLimit && (
+                                                <>
+                                                    <span className="card-secondary mt-4">Completion conditions</span>
+                                                    <span>
+                                                        Survey response collection is limited to receive{' '}
+                                                        <b>{survey.response_sampling_limit}</b> responses every{' '}
+                                                        {survey.response_sampling_interval}{' '}
+                                                        {survey.response_sampling_interval_type}(s).
+                                                    </span>
+                                                </>
+                                            )}
                                             <LemonDivider />
                                             <SurveyDisplaySummary
                                                 id={id}
