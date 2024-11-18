@@ -231,11 +231,20 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 order,
             }
 
-            pageFiltersFromUrl.active = active ? String(active) : undefined
-            pageFiltersFromUrl.page = page ? parseInt(page) : 1
+            if (active !== undefined) {
+                pageFiltersFromUrl.active = String(active)
+            }
 
-            if (!objectsEqual(pageFiltersFromUrl, values.filters)) {
-                actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl, ...values.filters })
+            if (page !== undefined) {
+                pageFiltersFromUrl.page = parseInt(page)
+            }
+
+            // Initialize filters with the URL params if none are set
+            const isInitializingFilters =
+                objectsEqual(DEFAULT_FILTERS, values.filters) && !objectsEqual(DEFAULT_FILTERS, pageFiltersFromUrl)
+            const isChangingPage = page !== undefined && page !== values.filters.page
+            if (isInitializingFilters || isChangingPage) {
+                actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
             }
         },
     })),
