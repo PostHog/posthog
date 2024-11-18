@@ -1,5 +1,5 @@
 import api from 'lib/api'
-import { DataColorTheme } from 'lib/colors'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
@@ -483,7 +483,7 @@ export function getTrendLegendColorToken(
         | undefined,
     theme: DataColorTheme,
     dataset: GraphDataset
-): string {
+): DataColorToken {
     const legendEntry = getTrendsLegendEntry(colorAssignmentBy, dataset, legendEntries)
 
     // for legend entries without a configuration, the color is determined
@@ -492,5 +492,5 @@ export function getTrendLegendColorToken(
     const datasetPosition = getTrendDatasetPosition(dataset)
     const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
 
-    return legendEntry ? legendEntry.color : `preset-${tokenIndex}`
+    return legendEntry ? legendEntry.color : (`preset-${tokenIndex}` as DataColorToken)
 }

@@ -1,17 +1,30 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { DataColorToken } from 'lib/colors'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getTrendLegendColorToken } from 'scenes/insights/utils'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { GraphDataset } from '~/types'
+import { GraphDataset, InsightLogicProps } from '~/types'
 
 import type { legendEntryModalLogicType } from './legendEntryModalLogicType'
 
 export const legendEntryModalLogic = kea<legendEntryModalLogicType>([
-    path(['scenes', 'insights', 'views', 'InsightsTable', 'legendEntryModalLogic']),
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'views', 'InsightsTable', 'legendEntryModalLogic', key]),
+
+    connect((props: InsightLogicProps) => ({
+        values: [trendsDataLogic(props), ['colorAssignmentBy', 'legendEntries'], dataThemeLogic, ['getTheme']],
+        actions: [trendsDataLogic(props), ['updateLegendEntry']],
+    })),
 
     actions({
         openModal: (dataset: GraphDataset) => ({ dataset }),
         closeModal: true,
-        setColor: (token: DataColorToken) => ({ token })
+
+        setColorToken: (token: DataColorToken) => ({ token }),
+
         save: true,
     }),
 
@@ -23,15 +36,31 @@ export const legendEntryModalLogic = kea<legendEntryModalLogicType>([
                 closeModal: () => null,
             },
         ],
-        localColor: [
+        localColorToken: [
             null as DataColorToken | null,
             {
-                setColor: (_, {token} => token)
-            }
-        ]
+                setColorToken: (_, { token }) => token,
+                closeModal: () => null,
+            },
+        ],
     }),
 
     selectors({
         modalVisible: [(s) => [s.dataset], (dataset): boolean => dataset !== null],
+        colorToken: [
+            (s) => [s.localColorToken, s.colorTokenFromQuery],
+            (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
+        ],
+        colorTokenFromQuery: [
+            (s) => [s.colorAssignmentBy, s.legendEntries, s.getTheme, s.dataset],
+            (colorAssignmentBy, legendEntries, getTheme, dataset): DataColorToken | null => {
+                if (!dataset) {
+                    return null
+                }
+
+                const theme = getTheme('posthog')
+                return getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, dataset)
+            },
+        ],
     }),
 ])

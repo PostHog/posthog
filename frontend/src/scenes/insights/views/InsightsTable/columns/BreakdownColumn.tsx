@@ -8,6 +8,7 @@ import { hexToRGBA, isURL, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     formatBreakdownType,
     getTrendLegendColorToken,
@@ -61,8 +62,9 @@ export function BreakdownColumnItem({
     legendEntries,
     updateLegendEntry,
 }: BreakdownColumnItemProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     const [isSettingsOpen, setSettingsOpen] = useState(false)
-    const { openModal } = useActions(legendEntryModalLogic)
+    const { openModal } = useActions(legendEntryModalLogic(insightProps))
     const { getTheme } = useValues(dataThemeLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 

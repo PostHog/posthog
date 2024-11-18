@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { mean } from 'd3'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BRAND_BLUE_HSL, gradateColor, range } from 'lib/utils'
+import { BRAND_BLUE_HSL, gradateColor, PURPLE, range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

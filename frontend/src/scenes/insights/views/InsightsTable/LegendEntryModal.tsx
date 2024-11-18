@@ -1,3 +1,5 @@
+import './LegendEntryModal.scss'
+
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -5,8 +7,6 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getTrendLegendColorToken, getTrendLegendEntryKey } from 'scenes/insights/utils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -14,12 +14,10 @@ import { formatCompareLabel } from './columns/SeriesColumn'
 import { legendEntryModalLogic } from './legendEntryModalLogic'
 
 export function LegendEntryModal(): JSX.Element | null {
-    const { modalVisible, dataset } = useValues(legendEntryModalLogic)
-    const { closeModal, setColorToken, save } = useActions(legendEntryModalLogic)
-
     const { insightProps } = useValues(insightLogic)
-    const { colorAssignmentBy, legendEntries } = useValues(trendsDataLogic(insightProps))
-    const { updateLegendEntry } = useActions(trendsDataLogic(insightProps))
+
+    const { modalVisible, dataset, colorToken: localColorToken } = useValues(legendEntryModalLogic(insightProps))
+    const { closeModal, setColorToken, save } = useActions(legendEntryModalLogic(insightProps))
 
     const { getTheme } = useValues(dataThemeLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -29,8 +27,6 @@ export function LegendEntryModal(): JSX.Element | null {
     }
 
     const theme = getTheme('posthog')
-    const colorToken = getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, dataset)
-    const legendEntryKey = getTrendLegendEntryKey(colorAssignmentBy, dataset)
 
     return (
         <LemonModal
@@ -70,21 +66,19 @@ export function LegendEntryModal(): JSX.Element | null {
                     insight settings.
                 </p>
             )}
-            <div className="l4 mt-2 mb-2">Title</div>
-            <div className="l4 mt-2 mb-2">Color</div>
+            <h3 className="l4 mt-2 mb-2">Color</h3>
             <div className="flex flex-wrap gap-1">
                 {Object.entries(theme).map(([key, color]) => (
                     <LemonButton
                         key={key}
-                        type={key === colorToken ? 'secondary' : 'tertiary'}
-                        sideIcon={<></>}
-                        className="ConditionalFormattingTab__ColorPicker"
+                        type={key === localColorToken ? 'secondary' : 'tertiary'}
+                        className="LegendEntryModal__ColorGlyphButton"
                         onClick={(e) => {
-                            console.debug('xxx')
                             e.preventDefault()
                             e.stopPropagation()
+
                             setColorToken(key)
-                            updateLegendEntry(legendEntryKey, { color: key })
+                            // updateLegendEntry(legendEntryKey, { color: key })
                         }}
                     >
                         <SeriesGlyph
