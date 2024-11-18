@@ -120,13 +120,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
 
     def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
-        return (
+        return cast(
+            str,
             ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
             .format_messages(
                 tools=toolkit.render_text_description(),
                 tool_names=", ".join([t["name"] for t in toolkit.tools]),
             )[0]
-            .content
+            .content,
         )
 
     @cached_property
