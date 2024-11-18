@@ -128,7 +128,7 @@ describe('EventPipelineRunner', () => {
                 'prepareEventStep',
                 'extractHeatmapDataStep',
                 'enrichExceptionEventStep',
-                'createEventStep',
+                'emitEventStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
@@ -157,7 +157,7 @@ describe('EventPipelineRunner', () => {
                 'prepareEventStep',
                 'extractHeatmapDataStep',
                 'enrichExceptionEventStep',
-                'createEventStep',
+                'emitEventStep',
             ])
         })
 
@@ -182,8 +182,8 @@ describe('EventPipelineRunner', () => {
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
-            expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('createEventStep')
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
+            expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('emitEventStep')
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
