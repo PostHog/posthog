@@ -15,6 +15,28 @@ import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
 
+type UnsubscribeReason = {
+    reason: string
+    question: string
+}
+
+export const UNSUBSCRIBE_REASONS: UnsubscribeReason[] = [
+    { reason: 'Too expensive', question: 'What will you be using instead?' },
+    { reason: 'Not getting enough value', question: 'What prevented you from getting more value out of PostHog?' },
+    { reason: 'Not using the product', question: 'Why are you not using the product?' },
+    { reason: 'Found a better alternative', question: 'What service will you be moving to?' },
+    { reason: 'Poor customer support', question: 'Please provide details on your support experience.' },
+    { reason: 'Too difficult to use', question: 'What was difficult to use?' },
+    { reason: 'Not enough hedgehogs', question: 'How many hedgehogs do you need? (but really why are you leaving)' },
+    { reason: 'Other (let us know below!)', question: 'Why are you leaving?' },
+]
+
+export const randomizeReasons = (reasons: UnsubscribeReason[]): UnsubscribeReason[] => {
+    const shuffledReasons = reasons.slice(0, -1).sort(() => Math.random() - 0.5)
+    shuffledReasons.push(reasons[reasons.length - 1])
+    return shuffledReasons
+}
+
 export interface BillingProductLogicProps {
     product: BillingProductV2Type | BillingProductV2AddonType
     productRef?: React.MutableRefObject<HTMLDivElement | null>
@@ -297,6 +319,18 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s, p) => [s.billing, p.product],
             (billing, product): boolean =>
                 !!billing?.products?.some((p) => p.addons?.some((addon) => addon.type === product?.type)),
+        ],
+        unsubscribeReasonQuestions: [
+            (s) => [s.surveyResponse],
+            (surveyResponse): string => {
+                return surveyResponse['$survey_response_2']
+                    .map((reason) => {
+                        const reasonObject = UNSUBSCRIBE_REASONS.find((r) => r.reason === reason)
+                        return reasonObject?.question
+                    })
+                    .join(' ')
+                    .concat(' (required)')
+            },
         ],
     })),
     listeners(({ actions, values, props }) => ({

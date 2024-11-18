@@ -4,10 +4,7 @@ from langchain_core.runnables import RunnableConfig
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
-from ee.hogai.trends.prompts import (
-    REACT_SYSTEM_PROMPT,
-    trends_system_prompt,
-)
+from ee.hogai.trends.prompts import REACT_SYSTEM_PROMPT, TRENDS_SYSTEM_PROMPT
 from ee.hogai.trends.toolkit import TRENDS_SCHEMA, TrendsTaxonomyAgentToolkit
 from ee.hogai.utils import AssistantState
 from posthog.schema import AssistantTrendsQuery
@@ -42,7 +39,7 @@ class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", trends_system_prompt),
+                ("system", TRENDS_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )

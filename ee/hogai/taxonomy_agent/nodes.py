@@ -1,6 +1,6 @@
-from abc import ABC
 import itertools
 import xml.etree.ElementTree as ET
+from abc import ABC
 from functools import cached_property
 from typing import cast
 
@@ -22,6 +22,8 @@ from ee.hogai.taxonomy_agent.parsers import (
 from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
+    REACT_FORMAT_PROMPT,
+    REACT_FORMAT_REMINDER_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
     REACT_MISSING_ACTION_PROMPT,
@@ -30,7 +32,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils import AssistantState, AssistantNode, filter_visualization_conversation, remove_line_breaks
+from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation, remove_line_breaks
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -73,8 +75,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 AgentAction,
                 agent.invoke(
                     {
-                        "tools": toolkit.render_text_description(),
-                        "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
+                        "react_format": self._get_react_format_prompt(toolkit),
+                        "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
@@ -117,6 +119,17 @@ class TaxonomyAgentPlannerNode(AssistantNode):
     def _model(self) -> ChatOpenAI:
         return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
 
+    def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
+        return cast(
+            str,
+            ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
+            .format_messages(
+                tools=toolkit.render_text_description(),
+                tool_names=", ".join([t["name"] for t in toolkit.tools]),
+            )[0]
+            .content,
+        )
+
     @cached_property
     def _events_prompt(self) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
@@ -126,27 +139,31 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
             raise ValueError("Failed to generate events prompt.")
 
-        events: list[str] = []
+        events: list[str] = [
+            # Add "All Events" to the mapping
+            "All Events",
+        ]
         for item in response.results:
             if len(response.results) > 25 and item.count <= 3:
                 continue
             events.append(item.event)
 
-        # default for null in the
-        tags: list[str] = ["all events"]
-
+        root = ET.Element("defined_events")
         for event_name in events:
-            event_tag = event_name
+            event_tag = ET.SubElement(root, "event")
+            name_tag = ET.SubElement(event_tag, "name")
+            name_tag.text = event_name
+
             if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
                 if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
                     continue  # Skip irrelevant events
-                event_tag += f" - {event_core_definition['label']}. {event_core_definition['description']}"
-                if "examples" in event_core_definition:
-                    event_tag += f" Examples: {event_core_definition['examples']}."
-            tags.append(remove_line_breaks(event_tag))
-
-        root = ET.Element("list of available events for filtering")
-        root.text = "\n" + "\n".join(tags) + "\n"
+                if description := event_core_definition.get("description"):
+                    desc_tag = ET.SubElement(event_tag, "description")
+                    if label := event_core_definition.get("label"):
+                        desc_tag.text = f"{label}. {description}"
+                    else:
+                        desc_tag.text = description
+                    desc_tag.text = remove_line_breaks(desc_tag.text)
         return ET.tostring(root, encoding="unicode")
 
     @cached_property
