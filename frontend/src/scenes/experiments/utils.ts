@@ -31,11 +31,11 @@ export function formatUnitByQuantity(value: number, unit: string): string {
 }
 
 export function getMinimumDetectableEffect(
-    experimentInsightType: InsightType,
+    metricType: InsightType,
     conversionMetrics: FunnelTimeConversionMetrics,
     trendResults: TrendResult[]
 ): number | null {
-    if (experimentInsightType === InsightType.FUNNELS) {
+    if (metricType === InsightType.FUNNELS) {
         // FUNNELS
         // Given current CR, find a realistic target CR increase and return MDE based on it
         if (!conversionMetrics) {

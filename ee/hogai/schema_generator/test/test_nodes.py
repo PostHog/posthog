@@ -54,7 +54,9 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 new_state,
                 {
-                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"])],
+                    "messages": [
+                        VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"], done=True)
+                    ],
                     "intermediate_steps": None,
                 },
             )

@@ -1,5 +1,6 @@
 import {
     AssistantFunnelsQuery,
+    AssistantMessage,
     AssistantMessageType,
     AssistantTrendsQuery,
     FailureMessage,
@@ -20,6 +21,10 @@ export function isVisualizationMessage(
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
     return message?.type === AssistantMessageType.Human
+}
+
+export function isAssistantMessage(message: RootAssistantMessage | undefined | null): message is AssistantMessage {
+    return message?.type === AssistantMessageType.Assistant
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
