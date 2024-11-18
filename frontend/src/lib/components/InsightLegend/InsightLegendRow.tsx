@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel, getTrendLegendColorToken } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -64,7 +64,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const isPrevious = !!item.compare && item.compare_label === 'previous'
 
     const theme = getTheme('posthog')
-    const colorToken = getTrendLegendColorToken(resultCustomizationBy, resultCustomizations, theme, item)
+    const colorToken = getTrendResultCustomizationColorToken(resultCustomizationBy, resultCustomizations, theme, item)
 
     const themeColor = theme[colorToken]
     const mainColor = isPrevious ? `${themeColor}80` : themeColor

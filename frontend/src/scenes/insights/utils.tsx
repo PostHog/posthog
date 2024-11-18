@@ -41,6 +41,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 
 import { insightLogic } from './insightLogic'
 
@@ -453,15 +454,15 @@ export function getTrendDatasetPosition(dataset: GraphDataset): number {
     return dataset.colorIndex ?? dataset.seriesIndex ?? dataset.index
 }
 
-export function getTrendLegendEntryKey(
+export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: GraphDataset
 ): string {
-    const assignmentByPosition = resultCustomizationBy == null || resultCustomizationBy == 'position'
-    return assignmentByPosition ? getTrendDatasetPosition(dataset).toString() : getTrendDatasetKey(dataset)
+    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
+    return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
 }
 
-export function getTrendsLegendEntry(
+export function getTrendResultCustomization(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: GraphDataset,
     resultCustomizations:
@@ -470,13 +471,13 @@ export function getTrendsLegendEntry(
         | null
         | undefined
 ): ResultCustomization | undefined {
-    const legendKey = getTrendLegendEntryKey(resultCustomizationBy, dataset)
+    const legendKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
     return resultCustomizations && Object.keys(resultCustomizations).includes(legendKey)
         ? resultCustomizations[legendKey]
         : undefined
 }
 
-export function getTrendLegendColorToken(
+export function getTrendResultCustomizationColorToken(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     resultCustomizations:
         | Record<string, ResultCustomizationByKey>
@@ -486,13 +487,13 @@ export function getTrendLegendColorToken(
     theme: DataColorTheme,
     dataset: GraphDataset
 ): DataColorToken {
-    const legendEntry = getTrendsLegendEntry(resultCustomizationBy, dataset, resultCustomizations)
+    const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
 
-    // for legend entries without a configuration, the color is determined
+    // for result customizations without a configuration, the color is determined
     // by the position in the dataset. colors repeat after all options
     // have been exhausted.
     const datasetPosition = getTrendDatasetPosition(dataset)
     const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
 
-    return legendEntry ? legendEntry.color : (`preset-${tokenIndex}` as DataColorToken)
+    return resultCustomization ? resultCustomization.color : (`preset-${tokenIndex}` as DataColorToken)
 }
