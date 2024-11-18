@@ -55,28 +55,30 @@ export function ResultCustomizationsModal(): JSX.Element | null {
                 on dashboards.
             </p>
             {dataset != null && (
-                <p>
-                    You are customizing the appearance of results for
+                <>
+                    <p className="mb-2">You are customizing the appearance of results for:</p>
                     <InsightLabel
-                        className="inline-block bg-bg-light px-1 py-0.5 rounded mx-1 border border-dashed"
+                        className="inline-block bg-bg-light ml-4 mb-3 px-1 py-0.5 rounded mx-1 border border-dashed"
                         action={dataset?.action}
                         showEventName
                         breakdownValue={dataset.breakdown_value === '' ? 'None' : dataset.breakdown_value?.toString()}
                         hideIcon
                         compareValue={dataset.compare ? formatCompareLabel(dataset) : undefined}
                     />
-                    , whereby results are assigned by{' '}
-                    {resultCustomizationBy === ResultCustomizationBy.Position ? (
-                        <>
-                            their <strong>position</strong> in the dataset
-                        </>
-                    ) : (
-                        <>
-                            their <strong>values</strong> in the dataset
-                        </>
-                    )}
-                    . You can change this in insight settings.
-                </p>
+                    <p>
+                        Results are assigned by{' '}
+                        {resultCustomizationBy === ResultCustomizationBy.Position ? (
+                            <>
+                                their <strong>position</strong> in the dataset
+                            </>
+                        ) : (
+                            <>
+                                their <strong>values</strong> in the dataset
+                            </>
+                        )}
+                        . You can change this in insight settings.
+                    </p>
+                </>
             )}
             <h3 className="l4 mt-2 mb-2">Color</h3>
             <div className="flex flex-wrap gap-1">
