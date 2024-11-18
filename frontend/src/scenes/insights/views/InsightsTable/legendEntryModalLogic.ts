@@ -1,8 +1,8 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DataColorToken } from 'lib/colors'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getTrendLegendColorToken } from 'scenes/insights/utils'
+import { getTrendLegendColorToken, getTrendLegendEntryKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { GraphDataset, InsightLogicProps } from '~/types'
@@ -63,4 +63,15 @@ export const legendEntryModalLogic = kea<legendEntryModalLogicType>([
             },
         ],
     }),
+
+    listeners(({ actions, values }) => ({
+        save: () => {
+            if (values.localColorToken != null) {
+                const legendEntryKey = getTrendLegendEntryKey(values.colorAssignmentBy, values.dataset)
+                actions.updateLegendEntry(legendEntryKey, { color: values.localColorToken })
+            }
+
+            actions.closeModal()
+        },
+    })),
 ])
