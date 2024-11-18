@@ -82,3 +82,43 @@ class TestExperimentTrendsStatistics(BaseTest):
         significance, prob = are_results_significant(control, [test], probabilities)
         self.assertEqual(significance, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
         self.assertEqual(prob, 0.0)
+
+    def test_credible_intervals(self):
+        # Test case with known values
+        control = ExperimentVariantTrendsBaseStats(
+            key="control",
+            count=100,  # 100 events
+            exposure=1.0,
+            absolute_exposure=1000,  # 1000 users
+        )
+
+        test = ExperimentVariantTrendsBaseStats(
+            key="test",
+            count=150,  # 150 events
+            exposure=1.0,
+            absolute_exposure=1000,  # 1000 users
+        )
+
+        intervals = calculate_credible_intervals([control, test])
+
+        # Check control interval
+        self.assertIn("control", intervals)
+        control_lower, control_upper = intervals["control"]
+        # With count=100 and exposure=1000, rate should be around 0.1
+        self.assertGreater(control_upper, 0.08)  # Upper bound should be above 0.08
+        self.assertLess(control_lower, 0.12)  # Lower bound should be below 0.12
+
+        # Check test interval
+        self.assertIn("test", intervals)
+        test_lower, test_upper = intervals["test"]
+        # With count=150 and exposure=1000, rate should be around 0.15
+        self.assertGreater(test_upper, 0.13)  # Upper bound should be above 0.13
+        self.assertLess(test_lower, 0.17)  # Lower bound should be below 0.17
+
+        # Test with custom interval width
+        narrow_intervals = calculate_credible_intervals([control, test], interval=0.5)
+        # 50% interval should be narrower than 95% interval
+        self.assertLess(
+            narrow_intervals["control"][1] - narrow_intervals["control"][0],
+            intervals["control"][1] - intervals["control"][0],
+        )

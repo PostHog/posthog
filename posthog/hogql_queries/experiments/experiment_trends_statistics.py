@@ -126,7 +126,7 @@ def calculate_credible_intervals(variants: list[ExperimentVariantTrendsBaseStats
     intervals = {}
 
     for variant in variants:
-        posterior = stats.gamma(a=variant.count + 1, scale=1 / variant.exposure)
+        posterior = stats.gamma(a=variant.count + 1, scale=1 / variant.absolute_exposure)
 
         lower, upper = posterior.ppf([alpha, 1 - alpha])
         intervals[variant.key] = (lower, upper)
