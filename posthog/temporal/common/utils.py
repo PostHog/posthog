@@ -79,7 +79,7 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
     @classmethod
     def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
         """Attempt to initialize HeartbeatDetails from an activity's details."""
-        done_ranges = []
+        done_ranges: list[DateRange] = []
         remaining = super().deserialize_details(details)
 
         if len(remaining["_remaining"]) == 0:

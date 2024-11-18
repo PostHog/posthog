@@ -594,7 +594,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
         done_ranges: list[DateRange] = details.done_ranges
         if done_ranges:
-            data_interval_start = done_ranges[-1][1].isoformat()
+            data_interval_start: str | None = done_ranges[-1][1].isoformat()
         else:
             data_interval_start = inputs.data_interval_start
 

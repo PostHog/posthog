@@ -428,7 +428,7 @@ class BatchExportWriter(abc.ABC):
         self.track_records_written(record_batch)
         self.track_bytes_written(self.batch_export_file)
 
-        if flush and self.should_flush():
+        if flush and self.should_flush() and self.last_date_range is not None:
             await self.flush(self.last_date_range)
 
     def should_flush(self) -> bool:

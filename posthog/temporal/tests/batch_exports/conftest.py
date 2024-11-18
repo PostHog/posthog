@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import uuid
+import typing
 
 import psycopg
 import pytest
@@ -292,7 +293,7 @@ async def generate_test_data(ateam, clickhouse_client, exclude_events, data_inte
 class HeartbeatActivityEnvironment(ActivityEnvironment):
     def __init__(self, *args, heartbeat_cls: type[HeartbeatType] = BatchExportRangeHeartbeatDetails, **kwargs):
         super().__init__(*args, **kwargs)
-        self.track_heartbeat_details = []
+        self.track_heartbeat_details: list[typing.Any] = []
         self.heartbeat_cls = heartbeat_cls
         self.on_heartbeat = self.call_on_heartbeat
 
