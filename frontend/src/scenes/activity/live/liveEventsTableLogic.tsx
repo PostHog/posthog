@@ -1,4 +1,5 @@
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
+import EventSource from 'eventsource'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -137,7 +138,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 url.searchParams.append('eventType', eventType)
             }
 
-            const source = new window.EventSourcePolyfill(url.toString(), {
+            const source = new EventSource(url.toString(), {
                 headers: {
                     Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                 },
