@@ -239,15 +239,15 @@ FROM {database}.kafka_events_json
 
 EVENTS_RECENT_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
-    + """ORDER BY (team_id, toStartOfHour(_timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+    + """PARTITION BY toYYYYMMDD(_timestamp)
+ORDER BY (team_id, toStartOfHour(_timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
 TTL _timestamp + INTERVAL 7 DAY
 {storage_policy}
-""").format(
+"""
+).format(
     table_name=EVENTS_RECENT_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=ReplacingMergeTree(
-        EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"
-    ),
+    engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
     extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
     materialized_columns="",
     indexes="",
