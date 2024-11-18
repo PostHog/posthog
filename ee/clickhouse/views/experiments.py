@@ -235,36 +235,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_metrics(self, value):
-        # TODO: This isn't correct most probably, we wouldn't have experiment_id inside ExperimentTrendsQuery
-        # on creation. Not sure how this is supposed to work yet.
-        # if not value:
-        #     return value
-
-        # if not isinstance(value, list):
-        #     raise ValidationError("Metrics must be a list")
-
-        # if len(value) > 10:
-        #     raise ValidationError("Experiments can have a maximum of 10 metrics")
-
-        # for metric in value:
-        #     if not isinstance(metric, dict):
-        #         raise ValidationError("Metrics must be objects")
-        #     if not metric.get("query"):
-        #         raise ValidationError("Metric query is required")
-
-        #     if metric.get("type") not in ["primary", "secondary"]:
-        #         raise ValidationError("Metric type must be 'primary' or 'secondary'")
-
-        #     metric_query = metric["query"]
-
-        #     if metric_query.get("kind") not in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
-        #         raise ValidationError("Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'")
-
-        #     # pydantic models are used to validate the query
-        #     if metric_query["kind"] == "ExperimentTrendsQuery":
-        #         ExperimentTrendsQuery(**metric_query)
-        #     else:
-        #         ExperimentFunnelsQuery(**metric_query)
+        # TODO 2024-11-15: commented code will be addressed when persistent metrics are implemented.
 
         return value
 
@@ -301,12 +272,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        # properties = validated_data["filters"].get("properties", [])
-        properties = []
-
-        if properties:
-            raise ValidationError("Experiments do not support global filter properties")
-
         holdout_groups = None
         if validated_data.get("holdout"):
             holdout_groups = validated_data["holdout"].filters
@@ -317,7 +282,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         ]
 
         feature_flag_filters = {
-            "groups": [{"properties": properties, "rollout_percentage": 100}],
+            "groups": [{"properties": [], "rollout_percentage": 100}],
             "multivariate": {"variants": variants or default_variants},
             "aggregation_group_type_index": aggregation_group_type_index,
             "holdout_groups": holdout_groups,
