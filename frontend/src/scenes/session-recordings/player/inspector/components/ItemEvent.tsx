@@ -16,7 +16,6 @@ import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
-    expanded: boolean
 }
 
 function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.Element {
@@ -51,10 +50,7 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
     )
 }
 
-export function ItemEvent({ item, expanded }: ItemEventProps): JSX.Element {
-    const insightUrl = insightUrlForEvent(item.data)
-    const { filterProperties } = useValues(eventPropertyFilteringLogic)
-
+export function ItemEvent({ item }: ItemEventProps): JSX.Element {
     const subValue =
         item.data.event === '$pageview' ? (
             item.data.properties.$pathname || item.data.properties.$current_url
@@ -63,8 +59,6 @@ export function ItemEvent({ item, expanded }: ItemEventProps): JSX.Element {
         ) : item.data.event === '$web_vitals' ? (
             <SummarizeWebVitals properties={item.data.properties} />
         ) : undefined
-
-    const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
 
     return (
         <div data-attr="item-event" className="font-light w-full">
@@ -85,44 +79,50 @@ export function ItemEvent({ item, expanded }: ItemEventProps): JSX.Element {
                     </div>
                 ) : null}
             </div>
+        </div>
+    )
+}
 
-            {expanded && (
-                <div className="px-2 py-1 text-xs border-t">
-                    {insightUrl ? (
-                        <>
-                            <div className="flex justify-end">
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    sideIcon={<IconOpenInNew />}
-                                    data-attr="recordings-event-to-insights"
-                                    to={insightUrl}
-                                    targetBlank
-                                >
-                                    Try out in Insights
-                                </LemonButton>
-                            </div>
-                            <LemonDivider dashed />
-                        </>
-                    ) : null}
+export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    const insightUrl = insightUrlForEvent(item.data)
+    const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
-                    {item.data.fullyLoaded ? (
-                        item.data.event === '$exception' ? (
-                            <ErrorDisplay eventProperties={item.data.properties} />
-                        ) : (
-                            <SimpleKeyValueList
-                                item={filterProperties(item.data.properties)}
-                                promotedKeys={promotedKeys}
-                            />
-                        )
-                    ) : (
-                        <div className="text-muted-alt flex gap-1 items-center">
-                            <Spinner textColored />
-                            Loading...
+    const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
+
+    return (
+        <div data-attr="item-event" className="font-light w-full">
+            <div className="px-2 py-1 text-xs border-t">
+                {insightUrl ? (
+                    <>
+                        <div className="flex justify-end">
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                sideIcon={<IconOpenInNew />}
+                                data-attr="recordings-event-to-insights"
+                                to={insightUrl}
+                                targetBlank
+                            >
+                                Try out in Insights
+                            </LemonButton>
                         </div>
-                    )}
-                </div>
-            )}
+                        <LemonDivider dashed />
+                    </>
+                ) : null}
+
+                {item.data.fullyLoaded ? (
+                    item.data.event === '$exception' ? (
+                        <ErrorDisplay eventProperties={item.data.properties} />
+                    ) : (
+                        <SimpleKeyValueList item={filterProperties(item.data.properties)} promotedKeys={promotedKeys} />
+                    )
+                ) : (
+                    <div className="text-muted-alt flex gap-1 items-center">
+                        <Spinner textColored />
+                        Loading...
+                    </div>
+                )}
+            </div>
         </div>
     )
 }

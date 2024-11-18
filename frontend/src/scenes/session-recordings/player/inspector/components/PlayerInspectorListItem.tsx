@@ -7,20 +7,20 @@ import { IconComment, IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icon
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
-import { ItemComment } from 'scenes/session-recordings/player/inspector/components/ItemComment'
+import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
 import { SessionRecordingPlayerTab } from '~/types'
 
-import { ItemPerformanceEvent } from '../../../apm/playerInspector/ItemPerformanceEvent'
+import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
 import { playerSettingsLogic, TimestampFormat } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
-import { ItemConsoleLog } from './ItemConsoleLog'
-import { ItemDoctor } from './ItemDoctor'
-import { ItemEvent } from './ItemEvent'
+import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
+import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
+import { ItemEvent, ItemEventDetail } from './ItemEvent'
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {
@@ -97,21 +97,19 @@ function RowItemTitle({
     item,
     finalTimestamp,
     onClick,
-    expanded,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
     onClick: () => void
-    expanded: boolean
 }): JSX.Element {
     return (
         <div onClick={onClick}>
             {item.type === SessionRecordingPlayerTab.NETWORK ? (
-                <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} expanded={expanded} />
+                <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
-                <ItemConsoleLog item={item} expanded={expanded} />
+                <ItemConsoleLog item={item} />
             ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
-                <ItemEvent item={item} expanded={expanded} />
+                <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
                 <div className="flex items-start p-2 text-xs font-light font-mono">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
@@ -121,9 +119,36 @@ function RowItemTitle({
                     Window became {item.status}
                 </div>
             ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
-                <ItemDoctor item={item} expanded={expanded} />
+                <ItemDoctor item={item} />
             ) : item.type === 'comment' ? (
-                <ItemComment item={item} expanded={expanded} />
+                <ItemComment item={item} />
+            ) : null}
+        </div>
+    )
+}
+
+function RowItemDetail({
+    item,
+    finalTimestamp,
+    onClick,
+}: {
+    item: InspectorListItem
+    finalTimestamp: Dayjs | null
+    onClick: () => void
+}): JSX.Element | null {
+    return (
+        <div onClick={onClick}>
+            {item.type === SessionRecordingPlayerTab.NETWORK ? (
+                <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
+            ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
+                <ItemConsoleLogDetail item={item} />
+            ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
+                <ItemEventDetail item={item} />
+            ) : item.type === 'offline-status' ? null : item.type === 'browser-visibility' ? null : item.type ===
+              SessionRecordingPlayerTab.DOCTOR ? (
+                <ItemDoctorDetail item={item} />
+            ) : item.type === 'comment' ? (
+                <ItemCommentDetail item={item} />
             ) : null}
         </div>
     )
@@ -182,50 +207,47 @@ export function PlayerInspectorListItem({
 
     // const TypeIcon = typeToIconAndDescription[item.type].Icon
 
+    const rowItemDetail = <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
     return (
         <div
             ref={ref}
-            className={clsx('flex flex-1 overflow-hidden relative items-start')}
+            className={clsx('flex flex-1 overflow-hidden relative items-center')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            {!isExpanded &&
-                // showIcon ||
-                windowNumber && (
-                    <Tooltip
-                        placement="left"
-                        title={
-                            <>
-                                <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
+            <Tooltip
+                placement="left"
+                title={
+                    <>
+                        <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
 
-                                {windowNumber ? (
+                        {windowNumber ? (
+                            <>
+                                <br />
+                                {windowNumber !== '?' ? (
                                     <>
-                                        <br />
-                                        {windowNumber !== '?' ? (
-                                            <>
-                                                {' '}
-                                                occurred in Window <b>{windowNumber}</b>
-                                            </>
-                                        ) : (
-                                            <>
-                                                {' '}
-                                                not linked to any specific window. Either an event tracked from the
-                                                backend or otherwise not able to be linked to a given window.
-                                            </>
-                                        )}
+                                        {' '}
+                                        occurred in Window <b>{windowNumber}</b>
                                     </>
-                                ) : null}
+                                ) : (
+                                    <>
+                                        {' '}
+                                        not linked to any specific window. Either an event tracked from the backend or
+                                        otherwise not able to be linked to a given window.
+                                    </>
+                                )}
                             </>
-                        }
-                    >
-                        <div className="pl-1 pt-1 h-8 text-muted-alt flex items-center justify-center gap-1">
-                            {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
-                            {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
-                        </div>
-                    </Tooltip>
-                )}
+                        ) : null}
+                    </>
+                }
+            >
+                <div className="pl-1 text-muted-alt flex items-center justify-center gap-1">
+                    {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
+                    {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
+                </div>
+            </Tooltip>
 
             <ItemTimeDisplay item={item} />
 
@@ -237,8 +259,8 @@ export function PlayerInspectorListItem({
                     item.highlightColor && `bg-${item.highlightColor}-highlight`
                 )}
             >
-                <RowItemTitle item={item} finalTimestamp={end} onClick={() => seekToEvent()} expanded={isExpanded} />
-
+                <RowItemTitle item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
+                {isExpanded && rowItemDetail}
                 {isExpanded ? (
                     <div className="text-xs">
                         <LemonDivider dashed />
@@ -259,6 +281,7 @@ export function PlayerInspectorListItem({
                 noPadding
                 onClick={() => setItemExpanded(index, !isExpanded)}
                 data-attr="expand-inspector-row"
+                disabledReason={rowItemDetail ? undefined : 'This event type does not have a detail view'}
             />
         </div>
     )

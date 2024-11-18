@@ -63,7 +63,6 @@ const friendlyHttpStatus = {
 
 export interface ItemPerformanceEventProps {
     item: PerformanceEvent
-    expanded: boolean
     finalTimestamp: Dayjs | null
 }
 
@@ -151,13 +150,6 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
 }
 
 export function ItemPerformanceEvent({ item, finalTimestamp, expanded }: ItemPerformanceEventProps): JSX.Element {
-    const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body' | 'raw'>('timings')
-
-    const { currentTeam } = useValues(teamLogic)
-    const payloadCaptureIsEnabled =
-        currentTeam?.capture_performance_opt_in &&
-        currentTeam?.session_recording_network_payload_capture_config?.recordBody
-
     const sizeInfo = itemSizeInfo(item)
 
     const startTime = item.start_time || item.fetch_start || 0
@@ -170,6 +162,70 @@ export function ItemPerformanceEvent({ item, finalTimestamp, expanded }: ItemPer
         callerOrigin && eventName.startsWith(callerOrigin) ? eventName.replace(callerOrigin, '') : eventName
 
     const contextLengthMs = finalTimestamp?.diff(dayjs(item.time_origin), 'ms') || 1000
+
+    const {
+        timestamp,
+        uuid,
+        name,
+        session_id,
+        window_id,
+        pageview_id,
+        distinct_id,
+        time_origin,
+        entry_type,
+        current_url,
+        ...otherProps
+    } = item
+
+    return (
+        <div data-attr="item-performance-event" className="font-light w-full">
+            <div className="flex-1 overflow-hidden">
+                <div
+                    className="absolute bg-primary rounded-sm opacity-75 h-1 bottom-0.5"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        left: `${(startTime / contextLengthMs) * 100}%`,
+                        width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
+                    }}
+                />
+                {item.entry_type === 'navigation' ? (
+                    <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
+                ) : (
+                    <div className="flex gap-2 p-2 text-xs cursor-pointer items-center">
+                        <MethodTag item={item} />
+                        <PerformanceEventLabel expanded={expanded} name={item.name} />
+                        {/* We only show the status if it exists and is an error status */}
+                        {otherProps.response_status && otherProps.response_status >= 400 ? (
+                            <span
+                                className={clsx(
+                                    'font-semibold',
+                                    otherProps.response_status >= 400 &&
+                                        otherProps.response_status < 500 &&
+                                        'text-warning-dark',
+                                    otherProps.response_status >= 500 && 'text-danger-dark'
+                                )}
+                            >
+                                {otherProps.response_status}
+                            </span>
+                        ) : null}
+                        {renderTimeBenchmark(duration)}
+                        <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes}</span>
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
+
+export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body' | 'raw'>('timings')
+
+    const { currentTeam } = useValues(teamLogic)
+    const payloadCaptureIsEnabled =
+        currentTeam?.capture_performance_opt_in &&
+        currentTeam?.session_recording_network_payload_capture_config?.recordBody
+
+    const sizeInfo = itemSizeInfo(item)
 
     const {
         timestamp,
@@ -218,130 +274,83 @@ export function ItemPerformanceEvent({ item, finalTimestamp, expanded }: ItemPer
     }, {} as Record<string, any>)
 
     return (
-        <div data-attr="item-performance-event" className="font-light w-full">
-            <div className="flex-1 overflow-hidden">
-                <div
-                    className="absolute bg-primary rounded-sm opacity-75 h-1 bottom-0.5"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        left: `${(startTime / contextLengthMs) * 100}%`,
-                        width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
-                    }}
-                />
-                {item.entry_type === 'navigation' ? (
-                    <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
-                ) : (
-                    <div className="flex gap-2 p-2 text-xs cursor-pointer items-center">
-                        <MethodTag item={item} />
-                        <PerformanceEventLabel expanded={expanded} name={item.name} />
-                        {/* We only show the status if it exists and is an error status */}
-                        {otherProps.response_status && otherProps.response_status >= 400 ? (
-                            <span
-                                className={clsx(
-                                    'font-semibold',
-                                    otherProps.response_status >= 400 &&
-                                        otherProps.response_status < 500 &&
-                                        'text-warning-dark',
-                                    otherProps.response_status >= 500 && 'text-danger-dark'
-                                )}
-                            >
-                                {otherProps.response_status}
-                            </span>
-                        ) : null}
-                        {renderTimeBenchmark(duration)}
-                        <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes}</span>
-                    </div>
-                )}
-            </div>
+        <div className="p-2 text-xs border-t font-light w-full">
+            <>
+                <StatusRow item={item} />
+                <p>
+                    Request <StartedAt item={item} /> <DurationDescription item={item} />
+                    <SizeDescription sizeInfo={sizeInfo} />.
+                </p>
+            </>
+            <LemonDivider dashed />
 
-            {expanded && (
-                <div className="p-2 text-xs border-t">
-                    <>
-                        <StatusRow item={item} />
-                        <p>
-                            Request <StartedAt item={item} /> <DurationDescription item={item} />
-                            <SizeDescription sizeInfo={sizeInfo} />.
-                        </p>
-                    </>
-                    <LemonDivider dashed />
-
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={(newKey) => setActiveTab(newKey)}
-                        tabs={[
-                            {
-                                key: 'timings',
-                                label: 'Timings',
-                                content: (
-                                    <>
-                                        <SimpleKeyValueList item={sanitizedProps} />
-                                        <LemonDivider dashed />
-                                        <NetworkRequestTiming performanceEvent={item} />
-                                    </>
-                                ),
-                            },
-                            item.request_headers || item.response_headers
-                                ? {
-                                      key: 'headers',
-                                      label: 'Headers',
-                                      content: (
-                                          <HeadersDisplay
-                                              request={item.request_headers}
-                                              response={item.response_headers}
-                                              isInitial={item.is_initial}
-                                          />
-                                      ),
-                                  }
-                                : false,
-                            item.entry_type !== 'navigation' &&
-                            // if we're missing the initiator type, but we do have a body then we should show it
-                            (['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') || !!item.request_body)
-                                ? {
-                                      key: 'payload',
-                                      label: 'Payload',
-                                      content: (
-                                          <BodyDisplay
-                                              content={item.request_body}
-                                              headers={item.request_headers}
-                                              emptyMessage={emptyPayloadMessage(
-                                                  payloadCaptureIsEnabled,
-                                                  item,
-                                                  'Request'
-                                              )}
-                                          />
-                                      ),
-                                  }
-                                : false,
-                            item.entry_type !== 'navigation' && item.response_body
-                                ? {
-                                      key: 'response_body',
-                                      label: 'Response',
-                                      content: (
-                                          <BodyDisplay
-                                              content={item.response_body}
-                                              headers={item.response_headers}
-                                              emptyMessage={emptyPayloadMessage(
-                                                  payloadCaptureIsEnabled,
-                                                  item,
-                                                  'Response'
-                                              )}
-                                          />
-                                      ),
-                                  }
-                                : false,
-                            {
-                                key: 'raw',
-                                label: 'Json',
-                                content: (
-                                    <CodeSnippet language={Language.JSON} wrap thing="performance event">
-                                        {JSON.stringify(item.raw || 'no item to display', null, 2)}
-                                    </CodeSnippet>
-                                ),
-                            },
-                        ]}
-                    />
-                </div>
-            )}
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(newKey) => setActiveTab(newKey)}
+                tabs={[
+                    {
+                        key: 'timings',
+                        label: 'Timings',
+                        content: (
+                            <>
+                                <SimpleKeyValueList item={sanitizedProps} />
+                                <LemonDivider dashed />
+                                <NetworkRequestTiming performanceEvent={item} />
+                            </>
+                        ),
+                    },
+                    item.request_headers || item.response_headers
+                        ? {
+                              key: 'headers',
+                              label: 'Headers',
+                              content: (
+                                  <HeadersDisplay
+                                      request={item.request_headers}
+                                      response={item.response_headers}
+                                      isInitial={item.is_initial}
+                                  />
+                              ),
+                          }
+                        : false,
+                    item.entry_type !== 'navigation' &&
+                    // if we're missing the initiator type, but we do have a body then we should show it
+                    (['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') || !!item.request_body)
+                        ? {
+                              key: 'payload',
+                              label: 'Payload',
+                              content: (
+                                  <BodyDisplay
+                                      content={item.request_body}
+                                      headers={item.request_headers}
+                                      emptyMessage={emptyPayloadMessage(payloadCaptureIsEnabled, item, 'Request')}
+                                  />
+                              ),
+                          }
+                        : false,
+                    item.entry_type !== 'navigation' && item.response_body
+                        ? {
+                              key: 'response_body',
+                              label: 'Response',
+                              content: (
+                                  <BodyDisplay
+                                      content={item.response_body}
+                                      headers={item.response_headers}
+                                      emptyMessage={emptyPayloadMessage(payloadCaptureIsEnabled, item, 'Response')}
+                                  />
+                              ),
+                          }
+                        : false,
+                    {
+                        key: 'raw',
+                        label: 'Json',
+                        content: (
+                            <CodeSnippet language={Language.JSON} wrap thing="performance event">
+                                {JSON.stringify(item.raw || 'no item to display', null, 2)}
+                            </CodeSnippet>
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }

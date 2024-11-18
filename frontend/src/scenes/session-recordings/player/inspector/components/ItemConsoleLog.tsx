@@ -6,10 +6,9 @@ import { InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
     item: InspectorListItemConsole
-    expanded: boolean
 }
 
-export function ItemConsoleLog({ item, expanded }: ItemConsoleLogProps): JSX.Element {
+export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
     return (
         <div className="w-full font-light" data-attr="item-console-log">
             <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
@@ -22,34 +21,40 @@ export function ItemConsoleLog({ item, expanded }: ItemConsoleLogProps): JSX.Ele
                     {item.data.count}
                 </span>
             ) : null}
+        </div>
+    )
+}
 
-            {expanded && (
-                <div className="px-2 py-1 text-xs border-t">
-                    {(item.data.count || 1) > 1 ? (
-                        <>
-                            <div className="italic">
-                                This log occurred <b>{item.data.count}</b> times in a row.
-                            </div>
-                            <LemonDivider dashed />
-                        </>
-                    ) : null}
-                    {item.data.lines?.length && (
-                        <CodeSnippet language={Language.JavaScript} wrap thing="console log">
-                            {item.data.lines.join(' ')}
+export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element {
+    return (
+        <div className="w-full font-light" data-attr="item-console-log">
+            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
+
+            <div className="px-2 py-1 text-xs border-t">
+                {(item.data.count || 1) > 1 ? (
+                    <>
+                        <div className="italic">
+                            This log occurred <b>{item.data.count}</b> times in a row.
+                        </div>
+                        <LemonDivider dashed />
+                    </>
+                ) : null}
+                {item.data.lines?.length && (
+                    <CodeSnippet language={Language.JavaScript} wrap thing="console log">
+                        {item.data.lines.join(' ')}
+                    </CodeSnippet>
+                )}
+
+                {item.data.trace?.length ? (
+                    <>
+                        <LemonDivider dashed />
+                        <LemonLabel>Stack trace</LemonLabel>
+                        <CodeSnippet language={Language.Markup} wrap thing="stack trace">
+                            {item.data.trace.join('\n')}
                         </CodeSnippet>
-                    )}
-
-                    {item.data.trace?.length ? (
-                        <>
-                            <LemonDivider dashed />
-                            <LemonLabel>Stack trace</LemonLabel>
-                            <CodeSnippet language={Language.Markup} wrap thing="stack trace">
-                                {item.data.trace.join('\n')}
-                            </CodeSnippet>
-                        </>
-                    ) : null}
-                </div>
-            )}
+                    </>
+                ) : null}
+            </div>
         </div>
     )
 }
