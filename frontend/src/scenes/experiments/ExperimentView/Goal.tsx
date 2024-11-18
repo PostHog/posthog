@@ -186,13 +186,15 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                                     })
                                 }
                             } else {
-                                setExperiment({
-                                    ...experiment,
-                                    parameters: {
-                                        ...experiment.parameters,
-                                        custom_exposure_filter: getDefaultFilters(InsightType.TRENDS, undefined),
-                                    },
-                                })
+                                if (!hasCustomExposure) {
+                                    setExperiment({
+                                        ...experiment,
+                                        parameters: {
+                                            ...experiment.parameters,
+                                            custom_exposure_filter: getDefaultFilters(InsightType.TRENDS, undefined),
+                                        },
+                                    })
+                                }
                             }
                             setIsModalOpen(true)
                         }}
