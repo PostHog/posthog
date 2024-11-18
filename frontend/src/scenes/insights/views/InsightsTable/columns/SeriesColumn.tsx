@@ -1,26 +1,15 @@
-import { IconGear, IconPencil } from '@posthog/icons'
-import { Popover } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
-import { getTrendLikeSeriesColor } from 'lib/colors'
+import { useActions, useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { capitalizeFirstLetter, hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
-import { useState } from 'react'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { getTrendLegendColorToken, getTrendLegendEntryKey } from 'scenes/insights/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import {
-    ColorAssignmentBy,
-    LegendEntryConfig,
-    LegendEntryConfigByKey,
-    LegendEntryConfigByPosition,
-} from '~/queries/schema'
 import { TrendResult } from '~/types'
+
+import { legendEntryModalLogic } from '../legendEntryModalLogic'
 
 type SeriesColumnItemProps = {
     item: IndexedTrendResult
@@ -29,13 +18,6 @@ type SeriesColumnItemProps = {
     handleEditClick: (item: IndexedTrendResult) => void
     hasMultipleSeries: boolean
     hasBreakdown: boolean
-    colorAssignmentBy: ColorAssignmentBy | null | undefined
-    legendEntries:
-        | Record<string, LegendEntryConfigByKey>
-        | Record<number, LegendEntryConfigByPosition>
-        | null
-        | undefined
-    updateLegendEntry: (key: number | string, config: LegendEntryConfig) => void
 }
 
 export function SeriesColumnItem({
@@ -45,37 +27,22 @@ export function SeriesColumnItem({
     handleEditClick,
     hasMultipleSeries,
     hasBreakdown,
-    colorAssignmentBy,
-    legendEntries,
-    updateLegendEntry,
 }: SeriesColumnItemProps): JSX.Element {
-    const [isSettingsOpen, setSettingsOpen] = useState(false)
-    const { getTheme } = useValues(dataThemeLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { openModal } = useActions(legendEntryModalLogic(insightProps))
 
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
-
-    const isPrevious = !!item.compare && item.compare_label === 'previous'
-
-    const theme = getTheme('posthog')
-    const colorToken = getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, item)
-    const legendEntryKey = getTrendLegendEntryKey(colorAssignmentBy, item)
 
     return (
         <div className="series-name-wrapper-col space-x-1">
             <InsightLabel
-                // seriesColor={getTrendLikeSeriesColor(item.colorIndex, isPrevious)}
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                 hasMultipleSeries={hasMultipleSeries}
                 showEventName
                 showCountedByTag={showCountedByTag}
-                // breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                 hideBreakdown
                 hideIcon
-                // className={clsx({
-                //     editable: canEditSeriesNameInline,
-                // })}
                 className={clsx({
                     'font-medium': !hasBreakdown,
                 })}
@@ -84,58 +51,17 @@ export function SeriesColumnItem({
                 onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
             />
             {!hasBreakdown && (
-                <Popover
-                    overlay={
-                        <div className="m-2 min-w-50">
-                            <div className="flex gap-3">
-                                <LemonField.Pure label="Color">
-                                    <div className="flex">
-                                        {Object.entries(theme).map(([key, color]) => (
-                                            <LemonButton
-                                                key={key}
-                                                type={key === colorToken ? 'secondary' : 'tertiary'}
-                                                onClick={(e) => {
-                                                    e.preventDefault()
-                                                    e.stopPropagation()
-                                                    updateLegendEntry(legendEntryKey, { color: key })
-                                                }}
-                                            >
-                                                <SeriesGlyph
-                                                    style={{
-                                                        borderColor: color,
-                                                        color: color,
-                                                        backgroundColor: isDarkModeOn
-                                                            ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3)
-                                                            : hexToRGBA(color, 0.5),
-                                                    }}
-                                                />
-                                            </LemonButton>
-                                        ))}
-                                    </div>
-                                </LemonField.Pure>
+                <Link
+                    className="align-middle"
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
 
-                                <LemonButton>Reset</LemonButton>
-                            </div>
-                        </div>
-                    }
-                    visible={isSettingsOpen}
-                    placement="right"
-                    onClickOutside={() => {
-                        setSettingsOpen(false)
+                        openModal(item)
                     }}
                 >
-                    <LemonButton
-                        icon={<IconGear />}
-                        noPadding
-                        className="ml-1"
-                        size="small"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setSettingsOpen(true)
-                        }}
-                    />
-                </Popover>
+                    <IconGear fontSize={16} />
+                </Link>
             )}
         </div>
     )
