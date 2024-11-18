@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 from django.conf import settings
 
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters

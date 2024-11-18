@@ -1,6 +1,6 @@
 import pytest
 
-from posthog.hogql.bytecode import to_bytecode, execute_hog, create_bytecode
+from posthog.hogql.compiler.bytecode import to_bytecode, execute_hog, create_bytecode
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.parser import parse_program
