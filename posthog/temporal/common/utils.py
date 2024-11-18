@@ -105,10 +105,11 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
 
     def serialize_details(self) -> tuple[typing.Any, ...]:
         """Attempt to initialize HeartbeatDetails from an activity's details."""
-        return (
-            [(start.isoformat() if start is not None else start, end.isoformat()) for (start, end) in self.done_ranges],
-            *super().serialize_details(),
-        )
+        serialized_done_ranges = [
+            (start.isoformat() if start is not None else start, end.isoformat()) for (start, end) in self.done_ranges
+        ]
+        serialized_parent_details = super().serialize_details()
+        return (*serialized_parent_details[:-1], serialized_done_ranges, self._remaining)
 
     def insert_done_range(self, done_range: DateRange, merge: bool = True):
         for index, range in enumerate(self.done_ranges, start=0):
