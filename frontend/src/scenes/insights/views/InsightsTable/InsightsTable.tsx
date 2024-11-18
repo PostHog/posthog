@@ -129,9 +129,6 @@ export function InsightsTable({
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                     hasBreakdown={isValidBreakdown(breakdownFilter)}
-                    colorAssignmentBy={colorAssignmentBy}
-                    legendEntries={legendEntries}
-                    updateLegendEntry={updateLegendEntry}
                 />
             )
             return hasCheckboxes ? (
@@ -161,15 +158,7 @@ export function InsightsTable({
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
             render: (_, item) => {
-                return (
-                    <BreakdownColumnItem
-                        item={item}
-                        formatItemBreakdownLabel={formatItemBreakdownLabel}
-                        colorAssignmentBy={colorAssignmentBy}
-                        legendEntries={legendEntries}
-                        updateLegendEntry={updateLegendEntry}
-                    />
-                )
+                return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
             },
             key: 'breakdown',
             sorter: (a, b) => {
@@ -208,15 +197,7 @@ export function InsightsTable({
             columns.push({
                 title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
                 render: (_, item) => {
-                    return (
-                        <BreakdownColumnItem
-                            item={item}
-                            formatItemBreakdownLabel={formatItemBreakdownLabel}
-                            colorAssignmentBy={colorAssignmentBy}
-                            legendEntries={legendEntries}
-                            updateLegendEntry={updateLegendEntry}
-                        />
-                    )
+                    return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
                 },
                 key: `breakdown-${breakdown.property?.toString() || index}`,
                 sorter: (a, b) => {

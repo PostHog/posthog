@@ -68,16 +68,16 @@ export function LegendEntryModal(): JSX.Element | null {
             )}
             <h3 className="l4 mt-2 mb-2">Color</h3>
             <div className="flex flex-wrap gap-1">
-                {Object.entries(theme).map(([key, color]) => (
+                {Object.keys(theme).map((key) => (
                     <ColorGlyphButton
-                        key={key}
-                        colorToken={key}
+                        key={key as DataColorToken}
+                        colorToken={key as DataColorToken}
                         selected={key === colorToken}
                         onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
 
-                            setColorToken(key)
+                            setColorToken(key as DataColorToken)
                         }}
                     />
                 ))}
