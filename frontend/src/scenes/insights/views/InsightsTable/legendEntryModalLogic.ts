@@ -15,7 +15,7 @@ export const legendEntryModalLogic = kea<legendEntryModalLogicType>([
     path((key) => ['scenes', 'insights', 'views', 'InsightsTable', 'legendEntryModalLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [trendsDataLogic(props), ['colorAssignmentBy', 'legendEntries'], dataThemeLogic, ['getTheme']],
+        values: [trendsDataLogic(props), ['resultCustomizationBy', 'legendEntries'], dataThemeLogic, ['getTheme']],
         actions: [trendsDataLogic(props), ['updateLegendEntry']],
     })),
 
@@ -52,14 +52,14 @@ export const legendEntryModalLogic = kea<legendEntryModalLogicType>([
             (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
-            (s) => [s.colorAssignmentBy, s.legendEntries, s.getTheme, s.dataset],
-            (colorAssignmentBy, legendEntries, getTheme, dataset): DataColorToken | null => {
+            (s) => [s.resultCustomizationBy, s.legendEntries, s.getTheme, s.dataset],
+            (resultCustomizationBy, legendEntries, getTheme, dataset): DataColorToken | null => {
                 if (!dataset) {
                     return null
                 }
 
                 const theme = getTheme('posthog')
-                return getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, dataset)
+                return getTrendLegendColorToken(resultCustomizationBy, legendEntries, theme, dataset)
             },
         ],
     }),
@@ -67,7 +67,7 @@ export const legendEntryModalLogic = kea<legendEntryModalLogicType>([
     listeners(({ actions, values }) => ({
         save: () => {
             if (values.localColorToken != null) {
-                const legendEntryKey = getTrendLegendEntryKey(values.colorAssignmentBy, values.dataset)
+                const legendEntryKey = getTrendLegendEntryKey(values.resultCustomizationBy, values.dataset)
                 actions.updateLegendEntry(legendEntryKey, { color: values.localColorToken })
             }
 

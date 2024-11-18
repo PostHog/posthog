@@ -40,11 +40,11 @@ import {
     filterForQuery,
     filterKeyForQuery,
     getBreakdown,
-    getColorAssignmentBy,
     getCompareFilter,
     getDisplay,
     getFormula,
     getInterval,
+    getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
     getShowLabelsOnSeries,
@@ -165,7 +165,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return false
             },
         ],
-        supportsColorAssignmentBy: [
+        supportsResultCustomizationBy: [
             (s) => [s.isTrends, s.display],
             (isTrends, display) =>
                 (isTrends && display) ||
@@ -187,7 +187,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
-        colorAssignmentBy: [(s) => [s.querySource], (q) => (q ? getColorAssignmentBy(q) : null)],
+        resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

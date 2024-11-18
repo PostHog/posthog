@@ -78,7 +78,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'vizSpecificOptions',
                 'yAxisScaleType',
                 'legendEntries',
-                'colorAssignmentBy',
+                'resultCustomizationBy',
             ],
         ],
         actions: [

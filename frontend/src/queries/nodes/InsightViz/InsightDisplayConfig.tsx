@@ -1,4 +1,4 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -12,7 +12,7 @@ import posthog from 'posthog-js'
 import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
-import { ColorAssignmentByPicker } from 'scenes/insights/EditorFilters/ColorAssignmentByPicker'
+import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
@@ -33,6 +33,7 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+import { IconInfo } from '@posthog/icons'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
@@ -53,7 +54,7 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
-        supportsColorAssignmentBy,
+        supportsResultCustomizationBy,
         yAxisScaleType,
         isNonTimeSeriesDisplay,
         compareFilter,
@@ -76,7 +77,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
-        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsColorAssignmentBy
+        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsResultCustomizationBy
             ? [
                   {
                       title: 'Display',
@@ -89,11 +90,21 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(supportsColorAssignmentBy
+        ...(supportsResultCustomizationBy
             ? [
                   {
-                      title: 'Color assignment',
-                      items: [{ label: () => <ColorAssignmentByPicker /> }],
+                      //   title: 'Result customization by',
+                      title: (
+                          <>
+                              <h5 className="mx-2 my-1">
+                                  Result customization by{' '}
+                                  <Tooltip title="You can customize the appearance of individual results in your insight. This can be done by adding customizations based on result values (e.g., set the color for the first series and the breakdown value ‘pizza’) or by position (e.g., set the color for the first dataset in the results).">
+                                      <IconInfo className="relative top-0.5 text-lg text-muted" />
+                                  </Tooltip>
+                              </h5>
+                          </>
+                      ),
+                      items: [{ label: () => <ResultCustomizationByPicker /> }],
                   },
               ]
             : []),

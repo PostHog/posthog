@@ -78,11 +78,9 @@ export function InsightsTable({
         isSingleSeries,
         hiddenLegendIndexes,
         legendEntries,
-        colorAssignmentBy,
+        resultCustomizationBy,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes, updateLegendEntry } = useActions(
-        trendsDataLogic(insightProps)
-    )
+    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -288,7 +286,12 @@ export function InsightsTable({
                         ? (item) => {
                               const isPrevious = !!item.compare && item.compare_label === 'previous'
 
-                              const colorToken = getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, item)
+                              const colorToken = getTrendLegendColorToken(
+                                  resultCustomizationBy,
+                                  legendEntries,
+                                  theme,
+                                  item
+                              )
 
                               const themeColor = theme[colorToken]
                               const mainColor = isPrevious ? `${themeColor}80` : themeColor

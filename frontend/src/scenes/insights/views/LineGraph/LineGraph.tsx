@@ -290,7 +290,7 @@ export function LineGraph_({
     const { getTheme } = useValues(dataThemeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, legendEntries, colorAssignmentBy } = useValues(
+    const { timezone, isTrends, breakdownFilter, legendEntries, resultCustomizationBy } = useValues(
         insightVizDataLogic(insightProps)
     )
 
@@ -325,7 +325,7 @@ export function LineGraph_({
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
 
         const theme = getTheme('posthog')
-        const colorToken = getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, dataset)
+        const colorToken = getTrendLegendColorToken(resultCustomizationBy, legendEntries, theme, dataset)
 
         const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : theme[colorToken]
         const mainColor = isPrevious ? `${themeColor}80` : themeColor

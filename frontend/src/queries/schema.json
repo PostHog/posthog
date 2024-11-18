@@ -3799,10 +3799,6 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
-        "ColorAssignmentBy": {
-            "enum": ["key", "position"],
-            "type": "string"
-        },
         "CompareFilter": {
             "additionalProperties": false,
             "properties": {
@@ -11438,6 +11434,10 @@
                 }
             ]
         },
+        "ResultCustomizationBy": {
+            "enum": ["value", "position"],
+            "type": "string"
+        },
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
@@ -12627,9 +12627,6 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
-                "colorAssignmentBy": {
-                    "$ref": "#/definitions/ColorAssignmentBy"
-                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -12645,6 +12642,9 @@
                         "type": "integer"
                     },
                     "type": "array"
+                },
+                "resultCustomizationBy": {
+                    "$ref": "#/definitions/ResultCustomizationBy"
                 },
                 "showAlertThresholdLines": {
                     "default": false,
