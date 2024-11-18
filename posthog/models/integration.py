@@ -435,7 +435,7 @@ class GoogleAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": settings.SALESFORCE_CONSUMER_SECRET,
+                "developer-token": settings.ADWORDS_DEVELOPER_TOKEN,
             },
         )
 
@@ -448,7 +448,7 @@ class GoogleAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": settings.SALESFORCE_CONSUMER_SECRET,
+                "developer-token": settings.ADWORDS_DEVELOPER_TOKEN,
             },
         )
 
