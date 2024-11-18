@@ -4,10 +4,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
-    const { question, thread, threadLoading, dataProcessingAccepted } = useValues(maxLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { question, thread, threadLoading } = useValues(maxLogic)
     const { askMax, setQuestion } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)

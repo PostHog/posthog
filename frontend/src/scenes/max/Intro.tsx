@@ -5,6 +5,7 @@ import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
 import { useMemo, useState } from 'react'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
 const HEADLINES = [
@@ -16,7 +17,8 @@ const HEADLINES = [
 
 export function Intro(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { acceptDataProcessing } = useActions(maxLogic)
+    const { acceptDataProcessing } = useActions(maxGlobalLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { sessionId } = useValues(maxLogic)
 
     const [hedgehogDirection, setHedgehogDirection] = useState<'left' | 'right'>('right')
@@ -46,9 +48,9 @@ export function Intro(): JSX.Element {
                         </div>
                     }
                     placement={`${hedgehogDirection}-end`}
-                    visible
-                    showArrow
                     middleware={[offset(-12)]}
+                    showArrow
+                    visible={!dataProcessingAccepted}
                 >
                     <HedgehogBuddy
                         static

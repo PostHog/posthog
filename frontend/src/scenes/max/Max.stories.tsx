@@ -8,6 +8,7 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
 import { chatResponseChunk, failureChunk, generationFailureChunk } from './__mocks__/chatResponse.mocks'
 import { MaxInstance } from './Max'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
 const meta: Meta = {
@@ -31,6 +32,12 @@ export default meta
 const SESSION_ID = 'b1b4b3b4-1b3b-4b3b-1b3b4b3b4b3b'
 
 const Template = ({ sessionId: SESSION_ID }: { sessionId: string }): JSX.Element => {
+    const { acceptDataProcessing } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        acceptDataProcessing()
+    }, [])
+
     return (
         <div className="relative flex flex-col h-fit">
             <BindLogic logic={maxLogic} props={{ sessionId: SESSION_ID }}>
@@ -56,18 +63,21 @@ export const Welcome: StoryFn = () => {
             ],
         },
     })
+    const { acceptDataProcessing } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        // We override data processing opt-in to false, so that wee see the welcome screen as a first-time user would
+        acceptDataProcessing(false)
+    }, [])
 
     return <Template sessionId={SESSION_ID} />
 }
 
 export const WelcomeSuggestionsAvailable: StoryFn = () => {
-    const { acceptDataProcessing } = useActions(maxLogic({ sessionId: SESSION_ID }))
     const { loadCurrentProjectSuccess } = useActions(projectLogic)
 
     useEffect(() => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
-        acceptDataProcessing()
-    })
+    }, [])
 
     return <Welcome />
 }
@@ -80,12 +90,10 @@ export const WelcomeLoadingSuggestions: StoryFn = () => {
     })
 
     const { loadCurrentProjectSuccess } = useActions(projectLogic)
-    const { acceptDataProcessing } = useActions(maxLogic({ sessionId: SESSION_ID }))
 
     useEffect(() => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
-        acceptDataProcessing()
-    })
+    }, [])
 
     return <Template sessionId={SESSION_ID} />
 }
