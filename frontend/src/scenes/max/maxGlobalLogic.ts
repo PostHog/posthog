@@ -5,7 +5,7 @@ import type { maxGlobalLogicType } from './maxGlobalLogicType'
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     actions({
-        acceptDataProcessing: (testOnlyOverride) => ({ testOnlyOverride }),
+        acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
     }),
     reducers({
         dataProcessingAccepted: [

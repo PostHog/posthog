@@ -42,7 +42,7 @@ export function Intro(): JSX.Element {
                                 <br />
                                 <em>Your data won't be used for training models.</em>
                             </p>
-                            <LemonButton type="secondary" size="small" onClick={acceptDataProcessing}>
+                            <LemonButton type="secondary" size="small" onClick={() => acceptDataProcessing()}>
                                 Got it, I accept OpenAI processing data
                             </LemonButton>
                         </div>
