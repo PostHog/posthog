@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
 use app_context::AppContext;
 use common_types::ClickHouseEvent;
@@ -20,7 +20,7 @@ pub mod symbol_store;
 pub mod types;
 
 pub async fn handle_event(
-    context: &AppContext,
+    context: Arc<AppContext>,
     mut event: ClickHouseEvent,
 ) -> Result<Option<ClickHouseEvent>, UnhandledError> {
     let mut props = match get_props(&event) {
@@ -45,7 +45,7 @@ pub async fn handle_event(
         // If we get an unhandled error during exception processing, we return an error, which should
         // cause the caller to drop the offset without storing it - unhandled exceptions indicate
         // a dependency is down, or some bug, adn we want to take lag in those situations.
-        results.push(process_exception(context, event.team_id, exception).await?);
+        results.push(process_exception(context.clone(), event.team_id, exception).await?);
     }
 
     let fingerprint = generate_fingerprint(&results);
@@ -79,7 +79,7 @@ fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
 }
 
 async fn process_exception(
-    context: &AppContext,
+    context: Arc<AppContext>,
     team_id: i32,
     mut e: Exception,
 ) -> Result<Exception, UnhandledError> {
@@ -96,40 +96,43 @@ async fn process_exception(
         return Ok(e);
     }
 
-    let mut results = Vec::with_capacity(frames.len());
+    let mut handles = Vec::with_capacity(frames.len());
+    let mut resolved_frames = Vec::with_capacity(frames.len());
 
-    // Cluster the frames by symbol set
-    // TODO - we really want to cluster across exceptions (and even across events),
-    // rather than just within a single exception
-    let mut groups = HashMap::new();
-    for (i, frame) in frames.into_iter().enumerate() {
-        let group = groups
-            .entry(frame.symbol_set_ref())
-            .or_insert_with(Vec::new);
-        group.push((i, frame));
-    }
-
-    for (_, frames) in groups.into_iter() {
-        for (i, frame) in frames {
-            let resolved_frame = context
+    for frame in frames.into_iter() {
+        let context = context.clone();
+        // Spawn a concurrent task for resolving every frame - we're careful elsewhere to
+        // ensure this kind of concurrency is fine, although this "throw it at the wall"
+        // data flow structure is pretty questionable. Once we switch to handling more than
+        // 1 event at a time, we should re-group frames into associated groups and then
+        // process those groups in-order (but the individual frames in them can still be
+        // thrown at the wall), with some cross-group concurrency.
+        handles.push(tokio::spawn(async move {
+            context
                 .resolver
                 .resolve(&frame, team_id, &context.pool, &context.catalog)
-                .await?;
-            results.push((i, resolved_frame));
-        }
+                .await
+        }));
     }
 
-    results.sort_unstable_by_key(|(i, _)| *i);
+    // Collect the results
+    for handle in handles {
+        // Joinhandles wrap the returned type in a Result, because if the task panics,
+        // tokio catches it and returns an error. If any of our tasks panicked, we want
+        // to propogate that panic, so we unwrap the outer Result here.
+        let res = handle.await.unwrap()?;
+        resolved_frames.push(res)
+    }
 
     e.stack = Some(Stacktrace::Resolved {
-        frames: results.into_iter().map(|(_, frame)| frame).collect(),
+        frames: resolved_frames,
     });
 
     Ok(e)
 }
 
-// This is stupidly expensive, since it round-trips the event through JSON, lol. We should change ClickhouseEvent to only do serde at the
-// edges
+// This is expensive, since it round-trips the event through JSON.
+// We could maybe change ClickhouseEvent to only do serde at the edges
 pub fn add_error_to_event(
     event: &mut ClickHouseEvent,
     e: impl ToString,

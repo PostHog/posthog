@@ -16,6 +16,7 @@ use crate::{
     frames::resolver::Resolver,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
+        concurrency,
         saving::Saving,
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
@@ -80,13 +81,18 @@ impl AppContext {
             config.ss_prefix.clone(),
         );
         let caching_smp = Caching::new(saving_smp, ss_cache);
+        // We want to fetch each sourcemap from the outside world
+        // exactly once, and if it isn't in the cache, load/parse
+        // it from s3 exactly once too. Limiting the per symbol set
+        // reference concurreny to 1 ensures this.
+        let limited_smp = concurrency::AtMostOne::new(caching_smp);
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(caching_smp);
+        let catalog = Catalog::new(limited_smp);
         let resolver = Resolver::new(config);
 
         Ok(Self {
