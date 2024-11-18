@@ -9,7 +9,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendResult } from '~/types'
 
-import { legendEntryModalLogic } from '../legendEntryModalLogic'
+import { resultCustomizationsModalLogic } from '../resultCustomizationsModalLogic'
 
 type SeriesColumnItemProps = {
     item: IndexedTrendResult
@@ -29,7 +29,7 @@ export function SeriesColumnItem({
     hasBreakdown,
 }: SeriesColumnItemProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { openModal } = useActions(legendEntryModalLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 

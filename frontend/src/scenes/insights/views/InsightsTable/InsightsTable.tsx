@@ -24,7 +24,7 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { LegendEntryModal } from './LegendEntryModal'
+import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -303,7 +303,7 @@ export function InsightsTable({
                 firstColumnSticky
                 maxHeaderWidth="20rem"
             />
-            <LegendEntryModal />
+            <ResultCustomizationsModal />
         </>
     )
 }

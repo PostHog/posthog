@@ -12,7 +12,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { BreakdownFilter } from '~/queries/schema'
 
-import { legendEntryModalLogic } from '../legendEntryModalLogic'
+import { resultCustomizationsModalLogic } from '../resultCustomizationsModalLogic'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter
@@ -37,7 +37,7 @@ type BreakdownColumnItemProps = {
 
 export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: BreakdownColumnItemProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { openModal } = useActions(legendEntryModalLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const breakdownLabel = formatItemBreakdownLabel(item)
     const formattedLabel = stringWithWBR(breakdownLabel, 20)
