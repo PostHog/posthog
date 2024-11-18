@@ -2,6 +2,7 @@ import '../Experiment.scss'
 
 import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
@@ -13,9 +14,10 @@ import {
     PageHeaderCustom,
     ResultsHeader,
 } from './components'
+import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
-import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
+import { Goal } from './Goal'
 import { Info } from './Info'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
@@ -24,7 +26,6 @@ import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 const ResultsTab = (): JSX.Element => {
     const { experiment, experimentResults } = useValues(experimentLogic)
-    const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
 
     const hasResultsInsight = experimentResults && experimentResults.insight
 
@@ -48,12 +49,7 @@ const ResultsTab = (): JSX.Element => {
                     )}
                 </>
             )}
-            <SecondaryMetricsTable
-                experimentId={experiment.id}
-                onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
-                initialMetrics={experiment.secondary_metrics}
-                defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
-            />
+            <SecondaryMetricsTable experimentId={experiment.id} />
         </div>
     )
 }
@@ -63,6 +59,9 @@ const VariantsTab = (): JSX.Element => {
         <div className="space-y-8">
             <ReleaseConditionsTable />
             <DistributionTable />
+            <PostHogFeature flag="experiments-cumulative-exposures-chart" match="test">
+                <CumulativeExposuresChart />
+            </PostHogFeature>
         </div>
     )
 }
@@ -121,8 +120,6 @@ export function ExperimentView(): JSX.Element {
                                 />
                             </>
                         )}
-                        <ExperimentGoalModal experimentId={experimentId} />
-                        <ExperimentExposureModal experimentId={experimentId} />
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
                     </>

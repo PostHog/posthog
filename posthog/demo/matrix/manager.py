@@ -137,6 +137,7 @@ class MatrixManager:
             )
         for cohort in Cohort.objects.filter(team=team):
             cohort.calculate_people_ch(pending_version=0)
+        team.project.save()
         team.save()
 
     def _save_analytics_data(self, data_team: Team):

@@ -54,6 +54,8 @@ export function QuestionSuggestions(): JSX.Element {
                                 size="xsmall"
                                 type="secondary"
                                 sideIcon={<IconArrowUpRight />}
+                                center
+                                className="shrink"
                             >
                                 {suggestion}
                             </LemonButton>

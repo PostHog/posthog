@@ -1,6 +1,6 @@
 import os
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -59,6 +59,21 @@ class SurveySerializer(serializers.ModelSerializer):
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
+    feature_flag_keys = serializers.SerializerMethodField()
+
+    def get_feature_flag_keys(self, survey: Survey) -> list:
+        return [
+            {"key": "linked_flag_key", "value": survey.linked_flag.key if survey.linked_flag else None},
+            {"key": "targeting_flag_key", "value": survey.targeting_flag.key if survey.targeting_flag else None},
+            {
+                "key": "internal_targeting_flag_key",
+                "value": survey.internal_targeting_flag.key if survey.internal_targeting_flag else None,
+            },
+            {
+                "key": "internal_response_sampling_flag_key",
+                "value": survey.internal_response_sampling_flag.key if survey.internal_response_sampling_flag else None,
+            },
+        ]
 
     class Meta:
         model = Survey
@@ -80,11 +95,17 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "feature_flag_keys",
             "iteration_count",
             "iteration_frequency_days",
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
+            "response_sampling_start_date",
+            "response_sampling_interval_type",
+            "response_sampling_interval",
+            "response_sampling_limit",
+            "response_sampling_daily_limits",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -136,6 +157,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
+            "response_sampling_start_date",
+            "response_sampling_interval_type",
+            "response_sampling_interval",
+            "response_sampling_limit",
+            "response_sampling_daily_limits",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -292,6 +318,36 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     "Invalid operation: User targeting rolls out to everyone. If you want to roll out to everyone, delete this targeting",
                     code="invalid",
                 )
+
+        response_sampling_start_date = data.get("response_sampling_start_date")
+        if response_sampling_start_date is not None:
+            today_utc = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+            if response_sampling_start_date < today_utc:
+                raise serializers.ValidationError(
+                    {
+                        "response_sampling_start_date": "Response sampling start date must be today or a future date in UTC."
+                    }
+                )
+
+        response_sampling_interval = data.get("response_sampling_interval")
+        if response_sampling_interval is not None and response_sampling_interval <= 0:
+            raise serializers.ValidationError(
+                {"response_sampling_interval": "Response sampling interval must be greater than 0."}
+            )
+
+        response_sampling_limit = data.get("response_sampling_limit", 0)
+        if (
+            response_sampling_limit is not None
+            and response_sampling_limit > 0
+            and response_sampling_interval > 0
+            and response_sampling_start_date is None
+        ):
+            raise serializers.ValidationError(
+                {
+                    "response_sampling_start_date": "Response sampling start date should be set if response_sampling_start_date is not zero."
+                }
+            )
+
         return data
 
     def create(self, validated_data):
@@ -313,6 +369,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
+        self._add_internal_response_sampling_filters(instance)
 
         team = Team.objects.get(id=self.context["team_id"])
         log_activity(
@@ -464,7 +521,29 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
+        self._add_internal_response_sampling_filters(instance)
         return instance
+
+    def _add_internal_response_sampling_filters(self, instance: Survey):
+        if instance.response_sampling_daily_limits is None:
+            return
+        if instance.internal_response_sampling_flag is not None:
+            return
+
+        sampling_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [],
+                }
+            ]
+        }
+
+        instance.internal_response_sampling_flag = self._create_or_update_targeting_flag(
+            None, sampling_filters, instance.name, bool(instance.start_date), flag_name_suffix="-sampling"
+        )
+        instance.save()
 
     def _associate_actions(self, instance: Survey, conditions):
         if conditions is None:
@@ -561,6 +640,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         "name": f"Targeting flag for survey {name}",
                         "filters": filters,
                         "active": active,
+                        "creation_context": "surveys",
                     },
                     context=self.context,
                 )

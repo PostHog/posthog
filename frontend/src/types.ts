@@ -521,6 +521,7 @@ export interface TeamType extends TeamBasicType {
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_event_trigger_config?: string[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -3275,8 +3276,9 @@ export interface Experiment {
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
-    filters: FilterType
-    metrics: ExperimentMetric[]
+    filters: TrendsFilterType | FunnelsFilterType
+    metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -3284,7 +3286,7 @@ export interface Experiment {
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
-        variant_screenshot_media_ids?: Record<string, string>
+        variant_screenshot_media_ids?: Record<string, string[]>
     }
     start_date?: string | null
     end_date?: string | null
@@ -3323,6 +3325,7 @@ interface BaseExperimentResults {
 export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: Record<string, any>[]
     filters: TrendsFilterType
+    exposure_filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
     credible_intervals: { [key: string]: [number, number] }
@@ -4501,6 +4504,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.PRODUCT_ANALYTICS
     | ProductKey.SESSION_REPLAY
     | ProductKey.FEATURE_FLAGS
+    | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS

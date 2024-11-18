@@ -12,13 +12,11 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
-    FeaturePropertyFilter,
     FilterLogicalOperator,
     FilterType,
     FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
-    GroupPropertyFilter,
     HogQLMathType,
     InsightShortId,
     InsightType,
@@ -28,8 +26,10 @@ import {
     LogEntryPropertyFilter,
     PathsFilterType,
     PersonPropertyFilter,
+    PropertyFilterType,
     PropertyGroupFilter,
     PropertyMathType,
+    PropertyOperator,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -221,7 +221,7 @@ export interface DataNode<R extends Record<string, any> = Record<string, any>> e
     modifiers?: HogQLQueryModifiers
 }
 
-/** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
+/** HogQL Query Options are automatically set per team. However, they can be overridden in the query. */
 export interface HogQLQueryModifiers {
     personsOnEventsMode?:
         | 'disabled' // `disabled` is deprecated and set for removal - `person_id_override_properties_joined` is its faster functional equivalent
@@ -240,6 +240,7 @@ export interface HogQLQueryModifiers {
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    customChannelTypeRules?: CustomChannelRule[]
 }
 
 export interface DataWarehouseEventsModifier {
@@ -905,29 +906,139 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
 }
 
-export type AssistantPropertyFilter =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | SessionPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
+export type AssistantArrayPropertyFilterOperator = PropertyOperator.Exact | PropertyOperator.IsNot
+export interface AssistantArrayPropertyFilter {
+    /**
+     * `exact` - exact match of any of the values.
+     * `is_not` - does not match any of the values.
+     */
+    operator: AssistantArrayPropertyFilterOperator
+    /**
+     * Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".
+     */
+    value: string[]
+}
+
+export type AssistantSetPropertyFilterOperator = PropertyOperator.IsSet | PropertyOperator.IsNotSet
+
+export interface AssistantSetPropertyFilter {
+    /**
+     * `is_set` - the property has any value.
+     * `is_not_set` - the property doesn't have a value or wasn't collected.
+     */
+    operator: AssistantSetPropertyFilterOperator
+}
+
+export type AssistantSingleValuePropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.IsNot
+    | PropertyOperator.IContains
+    | PropertyOperator.NotIContains
+    | PropertyOperator.Regex
+    | PropertyOperator.NotRegex
+
+export interface AssistantSingleValuePropertyFilter {
+    /**
+     * `icontains` - case insensitive contains.
+     * `not_icontains` - case insensitive does not contain.
+     * `regex` - matches the regex pattern.
+     * `not_regex` - does not match the regex pattern.
+     */
+    operator: AssistantSingleValuePropertyFilterOperator
+    /**
+     * Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against.
+     * Otherwise, the value must be a substring that will be matched against the property value.
+     */
+    value: string
+}
+
+export type AssistantStringNumberOrBooleanPropertyFilter =
+    | AssistantSingleValuePropertyFilter
+    | AssistantArrayPropertyFilter
+
+export type AssistantDateTimePropertyFilterOperator =
+    | PropertyOperator.IsDateExact
+    | PropertyOperator.IsDateBefore
+    | PropertyOperator.IsDateAfter
+
+export interface AssistantDateTimePropertyFilter {
+    operator: AssistantDateTimePropertyFilterOperator
+    /**
+     * Value must be a date in ISO 8601 format.
+     */
+    value: string
+}
+
+export type AssistantBasePropertyFilter =
+    | AssistantStringNumberOrBooleanPropertyFilter
+    | AssistantDateTimePropertyFilter
+    | AssistantSetPropertyFilter
+
+export type AssistantGenericPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session | PropertyFilterType.Feature
+    /**
+     * Use one of the properties the user has provided in the plan.
+     */
+    key: string
+}
+
+export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Group
+    /**
+     * Use one of the properties the user has provided in the plan.
+     */
+    key: string
+    /**
+     * Index of the group type from the group mapping.
+     */
+    group_type_index: integer
+}
+
+export type AssistantPropertyFilter = AssistantGenericPropertyFilter | AssistantGroupPropertyFilter
+
+export interface AssistantInsightDateRange {
+    /**
+     * Start date. The value can be:
+     * - a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
+     * - an absolute ISO 8601 date string.
+     * a constant `yStart` for the current year start.
+     * a constant `mStart` for the current month start.
+     * a constant `dStart` for the current day start.
+     * Prefer using relative dates.
+     * @default -7d
+     */
+    date_from?: string | null
+
+    /**
+     * Right boundary of the date range. Use `null` for the current date. You can not use relative dates here.
+     * @default null
+     */
+    date_to?: string | null
+}
 
 export interface AssistantInsightsQueryBase {
-    /** Date range for the query */
-    dateRange?: InsightDateRange
+    /**
+     * Date range for the query
+     */
+    dateRange?: AssistantInsightDateRange
+
     /**
      * Exclude internal and test users by applying the respective filters
      *
      * @default false
      */
     filterTestAccounts?: boolean
+
     /**
      * Property filters for all series
      *
      * @default []
      */
     properties?: AssistantPropertyFilter[]
-    /** Sampling rate */
+
+    /**
+     * Sampling rate from 0 to 1 where 1 is 100% of the data.
+     */
     samplingFactor?: number | null
 }
 
@@ -936,26 +1047,164 @@ export interface AssistantTrendsEventsNode
     properties?: AssistantPropertyFilter[]
 }
 
-export type AssistantTrendsBreakdownFilter = Pick<
-    BreakdownFilter,
-    'breakdowns' | 'breakdown_limit' | 'breakdown_histogram_bin_count' | 'breakdown_hide_other_aggregation'
->
+export interface AssistantBaseMultipleBreakdownFilter {
+    /**
+     * Property name from the plan to break down by.
+     */
+    property: string
+}
+
+export interface AssistantGroupMultipleBreakdownFilter extends AssistantBaseMultipleBreakdownFilter {
+    type: 'group'
+    /**
+     * Index of the group type from the group mapping.
+     */
+    group_type_index?: integer | null
+}
+
+export type AssistantEventMultipleBreakdownFilterType = Exclude<MultipleBreakdownType, 'group'>
+
+export interface AssistantGenericMultipleBreakdownFilter extends AssistantBaseMultipleBreakdownFilter {
+    type: AssistantEventMultipleBreakdownFilterType
+}
+
+export type AssistantMultipleBreakdownFilter =
+    | AssistantGroupMultipleBreakdownFilter
+    | AssistantGenericMultipleBreakdownFilter
+
+export interface AssistantBreakdownFilter {
+    /**
+     * How many distinct values to show.
+     * @default 25
+     */
+    breakdown_limit?: integer
+}
+
+export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter {
+    /**
+     * Use this field to define breakdowns.
+     * @maxLength 3
+     */
+    breakdowns: AssistantMultipleBreakdownFilter[]
+}
+
+// Remove deprecated display types.
+export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 'ActionsStackedBar'>
+
+export interface AssistantTrendsFilter {
+    /**
+     * If the formula is provided, apply it here.
+     */
+    formula?: TrendsFilterLegacy['formula']
+
+    /**
+     * Changes the visualization type.
+     * `ActionsLineGraph` - if the user wants to see dynamics in time like a line graph. Prefer this option.
+     * `ActionsLineGraphCumulative` - if the user wants to see cumulative dynamics across time.
+     * `ActionsBarValue` - if the data is categorical and needs to be visualized as a bar chart.
+     * `ActionsBar` - if the data is categorical and can be visualized as a stacked bar chart.
+     * `ActionsPie` - if the data is easy to understand in a pie chart.
+     * `BoldNumber` - if the user asks a question where you can answer with a single number. You can't use this option with breakdowns.
+     * `ActionsTable` - if the user wants to see a table.
+     * `ActionsAreaGraph` - if the data is better visualized in an area graph.
+     * `WorldMap` - if the user has only one series and wants to see data from particular countries. It can only be used with the `$geoip_country_name` breakdown.
+     * @default ActionsLineGraph
+     */
+    display?: AssistantTrendsDisplayType
+
+    /**
+     * Whether to show the legend describing series and breakdowns.
+     * @default false
+     */
+    showLegend?: TrendsFilterLegacy['show_legend']
+
+    /**
+     * Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data.
+     * `numeric` - no formatting. Prefer this option by default.
+     * `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds.
+     * `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds.
+     * `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`.
+     * `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`.
+     * @default numeric
+     */
+    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+
+    /**
+     * Custom prefix to add to the aggregation axis, e.g., `$` for USD dollars. You may need to add a space after prefix.
+     */
+    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+
+    /**
+     * Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.
+     */
+    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+
+    /**
+     * Number of decimal places to show. Do not add this unless you are sure that values will have a decimal point.
+     */
+    decimalPlaces?: TrendsFilterLegacy['decimal_places']
+
+    /**
+     * Whether to show a value on each data point.
+     * @default false
+     */
+    showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
+
+    /**
+     * Whether to show a percentage of each series. Use only with
+     * @default false
+     */
+    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+
+    /**
+     * Whether to scale the y-axis.
+     * @default linear
+     */
+    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+}
+
+export interface AssistantCompareFilter {
+    /**
+     * Whether to compare the current date range to a previous date range.
+     * @default false
+     */
+    compare?: boolean
+
+    /**
+     * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
+     * @default -7d
+     */
+    compare_to?: string
+}
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.TrendsQuery
+
     /**
      * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
      *
      * @default day
      */
     interval?: IntervalType
-    /** Events to include */
+
+    /**
+     * Events to include
+     */
     series: AssistantTrendsEventsNode[]
-    /** Properties specific to the trends insight */
-    trendsFilter?: TrendsFilter
-    /** Breakdown of the events */
+
+    /**
+     * Properties specific to the trends insight
+     */
+    trendsFilter?: AssistantTrendsFilter
+
+    /**
+     * Breakdown of the events
+     */
     breakdownFilter?: AssistantTrendsBreakdownFilter
-    /** Compare to date range */
+
+    /**
+     * Compare to date range
+     */
     compareFilter?: CompareFilter
 }
 
@@ -1045,7 +1294,7 @@ export interface AssistantFunnelsFilter {
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
 
-export interface AssistantFunnelsBreakdownFilter {
+export interface AssistantFunnelsBreakdownFilter extends AssistantBreakdownFilter {
     /**
      * Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.
      * @default event
@@ -1056,19 +1305,9 @@ export interface AssistantFunnelsBreakdownFilter {
      */
     breakdown: string
     /**
-     * How many distinct values to show.
-     * @default 25
-     */
-    breakdown_limit?: integer
-    /**
      * If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.
      */
     breakdown_group_type_index?: integer | null
-    /**
-     * Number of bins to show in the histogram. Only applicable for the numeric properties.
-     * @default 10
-     */
-    breakdown_histogram_bin_count?: integer
 }
 
 export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
@@ -1781,17 +2020,19 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
+    name?: string
+    experiment_id?: integer
     funnels_query: FunnelsQuery
-    experiment_id: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
     kind: NodeKind.ExperimentTrendsQuery
+    name?: string
+    experiment_id?: integer
     count_query: TrendsQuery
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
-    experiment_id: integer
 }
 
 /**
@@ -2239,11 +2480,18 @@ export enum AssistantMessageType {
 export interface HumanMessage {
     type: AssistantMessageType.Human
     content: string
+    /** Human messages are only appended when done. */
+    done: true
 }
 
 export interface AssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
+    /**
+     * We only need this "done" value to tell when the particular message is finished during its streaming.
+     * It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.
+     */
+    done?: boolean
 }
 
 export interface VisualizationMessage {
@@ -2251,16 +2499,20 @@ export interface VisualizationMessage {
     plan?: string
     reasoning_steps?: string[] | null
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
+    done?: boolean
 }
 
 export interface FailureMessage {
     type: AssistantMessageType.Failure
     content?: string
+    done: true
 }
 
 export interface RouterMessage {
     type: AssistantMessageType.Router
     content: string
+    /** Router messages are not streamed, so they can only be done. */
+    done: true
 }
 
 export type RootAssistantMessage =
@@ -2282,4 +2534,34 @@ export enum AssistantGenerationStatusType {
 
 export interface AssistantGenerationStatusEvent {
     type: AssistantGenerationStatusType
+}
+
+export enum CustomChannelField {
+    UTMSource = 'utm_source',
+    UTMMedium = 'utm_medium',
+    UTMCampaign = 'utm_campaign',
+    ReferringDomain = 'referring_domain',
+}
+
+export enum CustomChannelOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    IContains = 'icontains',
+    NotIContains = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+}
+
+export interface CustomChannelCondition {
+    key: CustomChannelField
+    value?: string | string[]
+    op: CustomChannelOperator
+}
+
+export interface CustomChannelRule {
+    conditions: CustomChannelCondition[]
+    combiner: FilterLogicalOperator
+    channel_type: string
 }
