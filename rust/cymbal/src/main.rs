@@ -78,7 +78,7 @@ async fn main() {
         };
         metrics::counter!(EVENT_RECEIVED).increment(1);
 
-        let _processed_event = match handle_event(&context, event).await {
+        let _processed_event = match handle_event(context.clone(), event).await {
             Ok(r) => {
                 offset.store().unwrap();
                 r

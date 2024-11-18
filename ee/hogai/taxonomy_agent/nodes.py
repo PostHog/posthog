@@ -75,10 +75,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 AgentAction,
                 agent.invoke(
                     {
-                        "react_format": REACT_FORMAT_PROMPT,
+                        "react_format": self._get_react_format_prompt(toolkit),
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
-                        "tools": toolkit.render_text_description(),
-                        "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
                         "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
@@ -120,6 +118,17 @@ class TaxonomyAgentPlannerNode(AssistantNode):
     @property
     def _model(self) -> ChatOpenAI:
         return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
+
+    def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
+        return cast(
+            str,
+            ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
+            .format_messages(
+                tools=toolkit.render_text_description(),
+                tool_names=", ".join([t["name"] for t in toolkit.tools]),
+            )[0]
+            .content,
+        )
 
     @cached_property
     def _events_prompt(self) -> str:

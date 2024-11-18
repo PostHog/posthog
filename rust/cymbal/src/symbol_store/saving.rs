@@ -147,6 +147,10 @@ where
                     error!("Found a record with no data and no error: {:?}", record);
                     panic!("Found a record with no data and no error");
                 }
+                // TODO - this can fail due to changes in how we serialise, or changes in
+                // the error type - and we should handle that by deleting the symbol record
+                // and re-fetching, I think (we don't need to cleanup s3 since it's a failure
+                // case, there is no saved data).
                 let error = serde_json::from_str(&record.failure_reason.unwrap())
                     .map_err(UnhandledError::from)?;
                 return Err(Error::ResolutionError(error));
