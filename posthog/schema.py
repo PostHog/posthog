@@ -247,6 +247,14 @@ class AssistantMessage(BaseModel):
         extra="forbid",
     )
     content: str
+    done: Optional[bool] = Field(
+        default=None,
+        description=(
+            'We only need this "done" value to tell when the particular message is finished during its streaming. It'
+            " won't be necessary when we optimize streaming to NOT send the entire message every time a character is"
+            " added."
+        ),
+    )
     type: Literal["ai"] = "ai"
 
 
@@ -850,6 +858,7 @@ class FailureMessage(BaseModel):
         extra="forbid",
     )
     content: Optional[str] = None
+    done: Literal[True] = True
     type: Literal["ai/failure"] = "ai/failure"
 
 
@@ -1047,6 +1056,7 @@ class HumanMessage(BaseModel):
         extra="forbid",
     )
     content: str
+    done: Literal[True] = Field(default=True, description="Human messages are only appended when done.")
     type: Literal["human"] = "human"
 
 
@@ -1443,6 +1453,7 @@ class RouterMessage(BaseModel):
         extra="forbid",
     )
     content: str
+    done: Literal[True] = Field(default=True, description="Router messages are not streamed, so they can only be done.")
     type: Literal["ai/router"] = "ai/router"
 
 
@@ -5536,6 +5547,7 @@ class VisualizationMessage(BaseModel):
         extra="forbid",
     )
     answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
+    done: Optional[bool] = None
     plan: Optional[str] = None
     reasoning_steps: Optional[list[str]] = None
     type: Literal["ai/viz"] = "ai/viz"
