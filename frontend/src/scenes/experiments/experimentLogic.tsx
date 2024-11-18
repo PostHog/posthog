@@ -193,7 +193,9 @@ export const experimentLogic = kea<experimentLogicType>([
         closeDistributionModal: true,
         openReleaseConditionsModal: true,
         closeReleaseConditionsModal: true,
-        updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
+        updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
+            variantPreviewMediaIds,
+        }),
         setTrendsMetric: ({
             metricIdx,
             name,
