@@ -64,31 +64,25 @@ export function SeriesColumnItem({
     return (
         <div className="series-name-wrapper-col space-x-1">
             <InsightLabel
-                seriesColor={getTrendLikeSeriesColor(item.colorIndex, isPrevious)}
+                // seriesColor={getTrendLikeSeriesColor(item.colorIndex, isPrevious)}
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                 hasMultipleSeries={hasMultipleSeries}
                 showEventName
                 showCountedByTag={showCountedByTag}
-                breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
+                // breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                 hideBreakdown
                 hideIcon
+                // className={clsx({
+                //     editable: canEditSeriesNameInline,
+                // })}
                 className={clsx({
-                    editable: canEditSeriesNameInline,
+                    'font-medium': !hasBreakdown,
                 })}
                 pillMaxWidth={165}
                 compareValue={item.compare ? formatCompareLabel(item) : undefined}
                 onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
             />
-            {canEditSeriesNameInline && (
-                <LemonButton
-                    noPadding
-                    size="small"
-                    onClick={() => handleEditClick(item)}
-                    title="Rename graph series"
-                    icon={<IconPencil className="edit-icon" />}
-                />
-            )}
             {!hasBreakdown && (
                 <Popover
                     overlay={

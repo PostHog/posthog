@@ -1,6 +1,6 @@
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link, Popover } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -8,7 +8,12 @@ import { hexToRGBA, isURL, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { formatBreakdownType, getTrendLegendColorToken, getTrendLegendEntryKey } from 'scenes/insights/utils'
+import {
+    formatBreakdownType,
+    getTrendLegendColorToken,
+    getTrendLegendEntryKey,
+    getTrendsLegendEntry,
+} from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -19,6 +24,7 @@ import {
     LegendEntryConfigByKey,
     LegendEntryConfigByPosition,
 } from '~/queries/schema'
+import { legendEntryModalLogic } from '../legendEntryModalLogic'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter
@@ -38,9 +44,6 @@ export function MultipleBreakdownColumnTitle({ children }: MultipleBreakdownColu
 
 type BreakdownColumnItemProps = {
     item: IndexedTrendResult
-    canCheckUncheckSeries: boolean
-    isMainInsightView: boolean
-    toggleHiddenLegendIndex: (index: number) => void
     formatItemBreakdownLabel: (item: IndexedTrendResult) => string
     colorAssignmentBy: ColorAssignmentBy | null | undefined
     legendEntries:
@@ -53,39 +56,36 @@ type BreakdownColumnItemProps = {
 
 export function BreakdownColumnItem({
     item,
-    canCheckUncheckSeries,
-    isMainInsightView,
-    toggleHiddenLegendIndex,
     formatItemBreakdownLabel,
     colorAssignmentBy,
     legendEntries,
     updateLegendEntry,
 }: BreakdownColumnItemProps): JSX.Element {
     const [isSettingsOpen, setSettingsOpen] = useState(false)
+    const { openModal } = useActions(legendEntryModalLogic)
     const { getTheme } = useValues(dataThemeLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     const breakdownLabel = formatItemBreakdownLabel(item)
     const formattedLabel = stringWithWBR(breakdownLabel, 20)
-    const multiEntityAndToggleable = !isMainInsightView && canCheckUncheckSeries
 
     const theme = getTheme('posthog')
     const colorToken = getTrendLegendColorToken(colorAssignmentBy, legendEntries, theme, item)
     const legendEntryKey = getTrendLegendEntryKey(colorAssignmentBy, item)
+    const legendEntry = getTrendsLegendEntry(colorAssignmentBy, item, legendEntries)
 
     return (
-        <div
-            className={multiEntityAndToggleable ? 'flex cursor-pointer' : 'flex'}
-            onClick={multiEntityAndToggleable ? () => toggleHiddenLegendIndex(item.id) : undefined}
-        >
+        <div className="flex">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
-                        <Link to={breakdownLabel} target="_blank" className="value-link" targetBlankIcon>
+                        <Link to={breakdownLabel} target="_blank" className="value-link font-medium" targetBlankIcon>
                             {formattedLabel}
                         </Link>
                     ) : (
-                        <div title={breakdownLabel}>{formattedLabel}</div>
+                        <div title={breakdownLabel} className="font-medium">
+                            {formattedLabel}
+                        </div>
                     )}
 
                     <Popover
@@ -128,17 +128,17 @@ export function BreakdownColumnItem({
                             setSettingsOpen(false)
                         }}
                     >
-                        <LemonButton
-                            icon={<IconGear />}
-                            noPadding
-                            className="ml-1"
-                            size="small"
+                        <Link
+                            className="align-middle"
                             onClick={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
-                                setSettingsOpen(true)
+                                // setSettingsOpen(true)
+                                openModal(item)
                             }}
-                        />
+                        >
+                            <IconGear fontSize={16} />
+                        </Link>
                     </Popover>
                 </>
             )}
