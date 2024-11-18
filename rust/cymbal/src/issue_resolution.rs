@@ -23,13 +23,13 @@ pub struct Issue {
 }
 
 impl Issue {
-    pub fn new(team_id: i32, name: String) -> Self {
+    pub fn new(team_id: i32, name: String, description: String) -> Self {
         Self {
             id: Uuid::new_v4(),
             team_id,
             status: "active".to_string(), // TODO - we should at some point use an enum here
             name: Some(name),
-            description: None,
+            description: Some(description),
         }
     }
 
@@ -150,10 +150,15 @@ where
         return Ok(fingerprinted.to_output(issue_override.issue_id));
     }
 
+    // UNWRAP: We never resolve an issue for an exception with no exception list
+    let first = fingerprinted.exception_list.first().unwrap();
+    let new_name = first.exception_type.clone();
+    let new_description = first.exception_message.clone();
+
     // Start a transaction, so we can roll it back on override insert failure
     conn.begin().await?;
     // Insert a new issue
-    let issue = Issue::new(team_id, fingerprinted.generate_new_issue_name());
+    let issue = Issue::new(team_id, new_name, new_description);
     // We don't actually care if we insert the issue here or not - conflicts aren't possible at
     // this stage.
     issue.insert(&mut *conn).await?;
@@ -174,9 +179,8 @@ where
         conn.rollback().await?;
     } else {
         conn.commit().await?;
+        // TODO - emit new issue and override to kafka
     }
-
-    // TODO - write the new issue and override to kafka
 
     Ok(fingerprinted.to_output(issue_override.issue_id))
 }

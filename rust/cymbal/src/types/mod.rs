@@ -65,7 +65,9 @@ pub struct FingerprintedErrProps {
 pub struct OutputErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: Vec<Exception>,
+    #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: String,
+    #[serde(rename = "$exception_issue_id")]
     pub issue_id: Uuid,
     #[serde(flatten)]
     pub other: HashMap<String, Value>,
@@ -124,21 +126,6 @@ impl RawErrProps {
 }
 
 impl FingerprintedErrProps {
-    pub fn generate_new_issue_name(&self) -> String {
-        if let Some(exception) = self.exception_list.first() {
-            // We just use the first exception in the list
-            format!(
-                "{}: {}",
-                exception.exception_type, exception.exception_message
-            )
-        } else {
-            // We don't have a type-system way to assert that this is unreachable (or rather,
-            // to encode this in the type system would be cumbersome), but it if it's ever reached,
-            // we've got a bug.
-            unreachable!("Tried to generate issue name with no exception in exception list")
-        }
-    }
-
     pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
         OutputErrProps {
             exception_list: self.exception_list,
