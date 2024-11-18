@@ -52,6 +52,7 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.utils import BatchExportRangeHeartbeatDetails, DateRange
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -379,6 +380,13 @@ class S3MultiPartUpload:
         return False
 
 
+@dataclasses.dataclass
+class S3HeartbeatDetails(BatchExportRangeHeartbeatDetails):
+    """"""
+
+    upload_state: S3MultiPartUploadState | None = None
+
+
 class HeartbeatDetails(typing.NamedTuple):
     """This tuple allows us to enforce a schema on the Heartbeat details.
 
@@ -562,7 +570,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 records_since_last_flush: int,
                 bytes_since_last_flush: int,
                 flush_counter: int,
-                last_inserted_at: dt.datetime,
+                last_date_range: DateRange,
                 last: bool,
                 error: Exception | None,
             ):
@@ -586,6 +594,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                 rows_exported.add(records_since_last_flush)
                 bytes_exported.add(bytes_since_last_flush)
+                last_inserted_at = last_date_range[1]
 
                 heartbeater.details = (str(last_inserted_at), s3_upload.to_state())
 
