@@ -715,7 +715,7 @@ class ApiRequest {
     }
 
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('error_tracking_symbol_set')
+        return this.projectsDetail(teamId).addPathComponent('error_tracking/symbol_set')
     }
 
     public errorTrackingSymbolSet(ref: ErrorTrackingSymbolSet['ref']): ApiRequest {

@@ -501,7 +501,7 @@ projects_router.register(
 )
 
 projects_router.register(
-    r"error_tracking_symbol_set",
+    r"error_tracking/symbol_set",
     error_tracking.ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
     ["team_id"],
