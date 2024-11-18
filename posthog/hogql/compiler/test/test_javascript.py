@@ -1,13 +1,7 @@
-from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_program
+from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_expr, to_js_program
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql import ast
 from posthog.test.base import BaseTest
-
-
-def to_js_expr(expr: str) -> str:
-    from posthog.hogql.parser import parse_expr
-
-    return JavaScriptCompiler().visit(parse_expr(expr))
 
 
 class TestSanitizeIdentifier(BaseTest):

@@ -8,7 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.javascript_stl import STL_FUNCTIONS, import_stl_functions
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_program
+from posthog.hogql.parser import parse_expr, parse_program
 from posthog.hogql.visitor import Visitor
 
 _JS_GET_GLOBAL = "__getGlobal"
@@ -62,7 +62,7 @@ _JS_KEYWORDS = {
     "arguments",
     "eval",
     "Error",
-    _JS_GET_GLOBAL,  # don't allow this to be overridden
+    _JS_GET_GLOBAL,  # don't let this get overridden
 }
 
 
@@ -72,12 +72,15 @@ class Local:
     depth: int
 
 
-def to_js_program(expr: str) -> str:
+def to_js_program(code: str) -> str:
     compiler = JavaScriptCompiler()
-    program = parse_program(expr)
-    code = compiler.visit(program)
+    code = compiler.visit(parse_program(code))
     imports = compiler.get_inlined_stl()
     return imports + ("\n\n" if imports else "") + code
+
+
+def to_js_expr(expr: str) -> str:
+    return JavaScriptCompiler().visit(parse_expr(expr))
 
 
 def _as_block(node: ast.Statement) -> ast.Block:
@@ -163,8 +166,7 @@ class JavaScriptCompiler(Visitor):
         }
 
         if op in op_map:
-            op_str = op_map[op]
-            return f"({left_code} {op_str} {right_code})"
+            return f"({left_code} {op_map[op]} {right_code})"
         elif op == ast.CompareOperationOp.In:
             return f"({right_code}.includes({left_code}))"
         elif op == ast.CompareOperationOp.NotIn:
