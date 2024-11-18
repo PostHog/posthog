@@ -113,11 +113,13 @@ function RowItemTitle({
             ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
                 <ItemEvent item={item} expanded={expanded} />
             ) : item.type === 'offline-status' ? (
-                <div className="flex items-start p-2 text-xs">
+                <div className="flex items-start p-2 text-xs font-light font-mono">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
                 </div>
             ) : item.type === 'browser-visibility' ? (
-                <div className="flex items-start px-2 py-1 text-xs">Window became {item.status}</div>
+                <div className="flex items-start px-2 py-1 font-light font-mono text-xs">
+                    Window became {item.status}
+                </div>
             ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
                 <ItemDoctor item={item} expanded={expanded} />
             ) : item.type === 'comment' ? (
@@ -218,7 +220,7 @@ export function PlayerInspectorListItem({
                             </>
                         }
                     >
-                        <div className="shrink-0 text-2xl h-8 text-muted-alt flex items-center justify-center gap-1">
+                        <div className="pl-1 pt-1 h-8 text-muted-alt flex items-center justify-center gap-1">
                             {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
                             {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
                         </div>
@@ -232,8 +234,7 @@ export function PlayerInspectorListItem({
                     'flex-1 overflow-hidden',
                     isExpanded && 'border border-primary',
                     isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                    item.highlightColor && `bg-${item.highlightColor}-highlight`,
-                    !item.highlightColor && 'bg-bg-light'
+                    item.highlightColor && `bg-${item.highlightColor}-highlight`
                 )}
             >
                 <RowItemTitle item={item} finalTimestamp={end} onClick={() => seekToEvent()} expanded={isExpanded} />

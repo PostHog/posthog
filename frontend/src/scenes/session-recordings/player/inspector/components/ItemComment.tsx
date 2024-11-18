@@ -12,7 +12,7 @@ export function ItemComment({ item, expanded }: ItemCommentProps): JSX.Element {
     const { selectNotebook } = useActions(notebookPanelLogic)
 
     return (
-        <div data-attr="item-comment" className="font-normal w-full">
+        <div data-attr="item-comment" className="font-light w-full">
             {expanded ? (
                 <div className="px-2 py-1 text-xs border-t w-full flex justify-end">
                     <LemonButton

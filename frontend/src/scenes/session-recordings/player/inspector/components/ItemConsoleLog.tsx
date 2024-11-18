@@ -11,7 +11,7 @@ export interface ItemConsoleLogProps {
 
 export function ItemConsoleLog({ item, expanded }: ItemConsoleLogProps): JSX.Element {
     return (
-        <div className="w-full font-normal" data-attr="item-console-log">
+        <div className="w-full font-light" data-attr="item-console-log">
             <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
             {(item.data.count || 1) > 1 ? (
                 <span

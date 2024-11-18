@@ -9,7 +9,7 @@ export interface ItemDoctorProps {
 
 export function ItemDoctor({ item, expanded }: ItemDoctorProps): JSX.Element {
     return (
-        <div data-attr="item-doctor-item" className="font-normal w-full">
+        <div data-attr="item-doctor-item" className="font-light w-full">
             <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.tag}</div>
 
             {expanded && (

@@ -218,7 +218,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp, expanded }: ItemPer
     }, {} as Record<string, any>)
 
     return (
-        <div data-attr="item-performance-event" className="font-normal w-full">
+        <div data-attr="item-performance-event" className="font-light w-full">
             <div className="flex-1 overflow-hidden">
                 <div
                     className="absolute bg-primary rounded-sm opacity-75 h-1 bottom-0.5"

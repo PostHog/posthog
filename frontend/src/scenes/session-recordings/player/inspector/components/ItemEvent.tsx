@@ -67,7 +67,7 @@ export function ItemEvent({ item, expanded }: ItemEventProps): JSX.Element {
     const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
 
     return (
-        <div data-attr="item-event" className="font-normal w-full">
+        <div data-attr="item-event" className="font-light w-full">
             <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
                 <div className="truncate">
                     <PropertyKeyInfo
