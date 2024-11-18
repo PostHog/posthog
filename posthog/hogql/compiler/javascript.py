@@ -7,25 +7,72 @@ from typing import Any, Optional
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.javascript_stl import STL_FUNCTIONS, import_stl_functions
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
 
 # TODO: make sure _JS_GET_GLOBAL is unique!
 _JS_GET_GLOBAL = "__getGlobal"
-_JS_KEYWORDS = ["var", "let", "const", "function", "typeof", "Error"]
+_JS_KEYWORDS = set(
+    "await",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "function",
+    "if",
+    "import",
+    "in",
+    "instanceof",
+    "new",
+    "null",
+    "return",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "var",
+    "void",
+    "while",
+    "with",
+    "yield",
+    "implements",
+    "interface",
+    "let",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "static",
+    "arguments",
+    "eval",
+    "Error",
+)
 
 
 @dataclasses.dataclass
 class Local:
     name: str
     depth: int
-    is_captured: bool
 
 
 def to_js_program(expr: str) -> str:
-    from posthog.hogql.parser import parse_program
-
     compiler = JavaScriptCompiler()
     program = parse_program(expr)
     code = compiler.visit(program)
@@ -39,7 +86,7 @@ def _as_block(node: ast.Statement) -> ast.Block:
     return ast.Block(declarations=[node])
 
 
-def _sanitize_var_name(name: str | int) -> str:
+def _sanitize_identifier(name: str | int) -> str:
     name = str(name)
     if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
         if name in _JS_KEYWORDS:
@@ -52,19 +99,13 @@ def _sanitize_var_name(name: str | int) -> str:
 class JavaScriptCompiler(Visitor):
     def __init__(
         self,
-        supported_functions: Optional[set[str]] = None,
         args: Optional[list[str]] = None,
-        context: Optional[HogQLContext] = None,
-        in_repl: Optional[bool] = False,
         locals: Optional[list[Local]] = None,
     ):
         super().__init__()
-        self.supported_functions = supported_functions or set()
-        self.in_repl = in_repl
         self.locals: list[Local] = locals or []
         self.scope_depth = 0
         self.args = args or []
-        self.context = context or HogQLContext(team_id=None)
         self.indent_level = 0
         self.inlined_stl: set[str] = set()
 
@@ -86,7 +127,7 @@ class JavaScriptCompiler(Visitor):
         for local in reversed(self.locals):
             if local.depth == self.scope_depth and local.name == name:
                 raise QueryError(f"Variable `{name}` already declared in this scope")
-        self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
+        self.locals.append(Local(name=name, depth=self.scope_depth))
 
     def _indent(self, code: str) -> str:
         indentation = "    " * self.indent_level
@@ -179,10 +220,10 @@ class JavaScriptCompiler(Visitor):
         for index, element in enumerate(node.chain):
             if index == 0:
                 if found_local:
-                    array_code = _sanitize_var_name(element)
+                    array_code = _sanitize_identifier(element)
                 elif element in STL_FUNCTIONS:
                     self.inlined_stl.add(str(element))
-                    array_code = f"{_sanitize_var_name(element)}"
+                    array_code = f"{_sanitize_identifier(element)}"
                 else:
                     array_code = f"{_JS_GET_GLOBAL}({json.dumps(element)})"
                 continue
@@ -260,7 +301,7 @@ class JavaScriptCompiler(Visitor):
 
         if node.name in STL_FUNCTIONS:
             self.inlined_stl.add(node.name)
-            name = _sanitize_var_name(node.name)
+            name = _sanitize_identifier(node.name)
             args_code = ", ".join(self.visit(arg) for arg in node.args)
             return f"{name}({args_code})"
         else:
@@ -323,13 +364,13 @@ class JavaScriptCompiler(Visitor):
                 code += " else "
             if catch_type is not None and catch_type != "Error":
                 code += (
-                    f"if (__error.type === {json.dumps(catch_type)}) {{ let {_sanitize_var_name(catch_var)} = __error;\n"
+                    f"if (__error.type === {json.dumps(catch_type)}) {{ let {_sanitize_identifier(catch_var)} = __error;\n"
                     f"{catch_code}\n"
                     f"}}\n"
                 )
             else:
                 has_catch_all = True
-                code += f"if (true) {{ let {_sanitize_var_name(catch_var)} = __error;\n" f"{catch_code}\n" f"}}\n"
+                code += f"if (true) {{ let {_sanitize_identifier(catch_var)} = __error;\n" f"{catch_code}\n" f"}}\n"
             self._end_scope()
         if not has_catch_all:
             code += " else { throw __error; }"
@@ -374,7 +415,7 @@ class JavaScriptCompiler(Visitor):
             self._declare_local(node.valueVar)
             body_code = self.visit(_as_block(node.body))
             self.inlined_stl.add("keys")
-            resp = f"for (let {_sanitize_var_name(node.keyVar)} of keys({expr_code})) {{ let {_sanitize_var_name(node.valueVar)} = {expr_code}[{_sanitize_var_name(node.keyVar)}]; {body_code} }}"
+            resp = f"for (let {_sanitize_identifier(node.keyVar)} of keys({expr_code})) {{ let {_sanitize_identifier(node.valueVar)} = {expr_code}[{_sanitize_identifier(node.keyVar)}]; {body_code} }}"
             self._end_scope()
             return resp
         elif node.valueVar:
@@ -382,7 +423,7 @@ class JavaScriptCompiler(Visitor):
             self._declare_local(node.valueVar)
             body_code = self.visit(_as_block(node.body))
             self.inlined_stl.add("values")
-            resp = f"for (let {_sanitize_var_name(node.valueVar)} of values({expr_code})) {body_code}"
+            resp = f"for (let {_sanitize_identifier(node.valueVar)} of values({expr_code})) {body_code}"
             self._end_scope()
             return resp
         else:
@@ -392,9 +433,9 @@ class JavaScriptCompiler(Visitor):
         self._declare_local(node.name)
         if node.expr:
             expr_code = self.visit(node.expr)
-            return f"let {_sanitize_var_name(node.name)} = {expr_code};"
+            return f"let {_sanitize_identifier(node.name)} = {expr_code};"
         else:
-            return f"let {_sanitize_var_name(node.name)};"
+            return f"let {_sanitize_identifier(node.name)};"
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):
         if isinstance(node.left, ast.TupleAccess):
@@ -420,7 +461,7 @@ class JavaScriptCompiler(Visitor):
                 array_code = ""
                 for index, element in enumerate(chain):
                     if index == 0:
-                        array_code = _sanitize_var_name(element)
+                        array_code = _sanitize_identifier(element)
                         if len(chain) == 1:
                             array_code = f"{array_code} = {self.visit(node.right)}"
                     elif (isinstance(element, int) and not isinstance(element, bool)) or isinstance(element, str):
@@ -445,8 +486,8 @@ class JavaScriptCompiler(Visitor):
             return f"{left_code} = {right_code};"
 
     def visit_function(self, node: ast.Function):
-        self._declare_local(_sanitize_var_name(node.name))
-        params_code = ", ".join(_sanitize_var_name(p) for p in node.params)
+        self._declare_local(_sanitize_identifier(node.name))
+        params_code = ", ".join(_sanitize_identifier(p) for p in node.params)
         self._start_scope()
         for arg in node.params:
             self._declare_local(arg)
@@ -455,10 +496,10 @@ class JavaScriptCompiler(Visitor):
         else:
             body_code = self.visit(_as_block(node.body))
         self._end_scope()
-        return f"function {_sanitize_var_name(node.name)}({params_code}) {body_code}"
+        return f"function {_sanitize_identifier(node.name)}({params_code}) {body_code}"
 
     def visit_lambda(self, node: ast.Lambda):
-        params_code = ", ".join(_sanitize_var_name(p) for p in node.args)
+        params_code = ", ".join(_sanitize_identifier(p) for p in node.args)
         self._start_scope()
         for arg in node.args:
             self._declare_local(arg)
