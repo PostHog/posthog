@@ -4,7 +4,7 @@ import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { isHumanMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -13,6 +13,7 @@ import {
     AssistantGenerationStatusType,
     AssistantMessageType,
     FailureMessage,
+    HumanMessage,
     NodeKind,
     RefreshType,
     RootAssistantMessage,
@@ -28,12 +29,14 @@ export interface MaxLogicProps {
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
-    status?: MessageStatus
+    status: MessageStatus
 }
 
-const FAILURE_MESSAGE: FailureMessage = {
+const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
     content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
+    status: 'error',
+    done: true,
 }
 
 export const maxLogic = kea<maxLogicType>([
@@ -48,7 +51,7 @@ export const maxLogic = kea<maxLogicType>([
         setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
-        setMessageStatus: (index: number, status: ThreadMessage['status']) => ({ index, status }),
+        setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         setQuestion: (question: string) => ({ question }),
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
@@ -149,9 +152,7 @@ export const maxLogic = kea<maxLogicType>([
             )
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ type: AssistantMessageType.Human, content: prompt })
-            const newIndex = values.thread.length
-
+            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, done: true, status: 'completed' })
             try {
                 const response = await api.chat({
                     session_id: props.sessionId,
@@ -165,8 +166,6 @@ export const maxLogic = kea<maxLogicType>([
 
                 const decoder = new TextDecoder()
 
-                let firstChunk = true
-
                 const parser = createParser({
                     onEvent: ({ data, event }) => {
                         if (event === AssistantEventType.Message) {
@@ -175,16 +174,15 @@ export const maxLogic = kea<maxLogicType>([
                                 return
                             }
 
-                            if (firstChunk) {
-                                firstChunk = false
-
-                                if (parsedResponse) {
-                                    actions.addMessage({ ...parsedResponse, status: 'loading' })
-                                }
-                            } else if (parsedResponse) {
-                                actions.replaceMessage(newIndex, {
+                            if (values.thread[values.thread.length - 1].status === 'completed') {
+                                actions.addMessage({
                                     ...parsedResponse,
-                                    status: values.thread[newIndex].status,
+                                    status: !parsedResponse.done ? 'loading' : 'completed',
+                                })
+                            } else if (parsedResponse) {
+                                actions.replaceMessage(values.thread.length - 1, {
+                                    ...parsedResponse,
+                                    status: !parsedResponse.done ? 'loading' : 'completed',
                                 })
                             }
                         } else if (event === AssistantEventType.Status) {
@@ -194,7 +192,7 @@ export const maxLogic = kea<maxLogicType>([
                             }
 
                             if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
-                                actions.setMessageStatus(newIndex, 'error')
+                                actions.setMessageStatus(values.thread.length - 1, 'error')
                             }
                         }
                     },
@@ -202,30 +200,17 @@ export const maxLogic = kea<maxLogicType>([
 
                 while (true) {
                     const { done, value } = await reader.read()
-
                     parser.feed(decoder.decode(value))
-
                     if (done) {
-                        const generatedMessage = values.thread[newIndex]
-                        if (generatedMessage && isVisualizationMessage(generatedMessage) && generatedMessage.plan) {
-                            actions.setMessageStatus(newIndex, 'completed')
-                        } else if (generatedMessage) {
-                            actions.replaceMessage(newIndex, FAILURE_MESSAGE)
-                        } else {
-                            actions.addMessage({
-                                ...FAILURE_MESSAGE,
-                                status: 'completed',
-                            })
-                        }
                         break
                     }
                 }
             } catch (e) {
                 captureException(e)
 
-                if (values.thread[newIndex]) {
-                    actions.replaceMessage(newIndex, FAILURE_MESSAGE)
-                } else {
+                if (values.thread[values.thread.length - 1]?.status === 'loading') {
+                    actions.replaceMessage(values.thread.length - 1, FAILURE_MESSAGE)
+                } else if (values.thread[values.thread.length - 1]?.status !== 'error') {
                     actions.addMessage({
                         ...FAILURE_MESSAGE,
                         status: 'completed',
@@ -236,7 +221,7 @@ export const maxLogic = kea<maxLogicType>([
             actions.setThreadLoaded()
         },
         retryLastMessage: () => {
-            const lastMessage = values.thread.filter(isHumanMessage).pop()
+            const lastMessage = values.thread.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
                 actions.askMax(lastMessage.content)
             }

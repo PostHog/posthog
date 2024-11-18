@@ -1,11 +1,11 @@
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { TeamId } from '../../types'
+import { ProjectId, TeamId } from '../../types'
 import { GroupTypeManager } from './group-type-manager'
 
 export async function addGroupProperties(
     teamId: TeamId,
-    projectId: TeamId,
+    projectId: ProjectId,
     properties: Properties,
     groupTypeManager: GroupTypeManager
 ): Promise<Properties> {
