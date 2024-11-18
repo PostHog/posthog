@@ -68,6 +68,8 @@ export default function SurveyEdit(): JSX.Element {
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
         dataCollectionType,
+        surveyUsesLimit,
+        surveyUsesAdaptiveLimit,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -99,20 +101,14 @@ export default function SurveyEdit(): JSX.Element {
         : 'Upgrade your plan to use an adaptive limit on survey responses'
 
     useMemo(() => {
-        if (survey.responses_limit && survey.responses_limit > 0) {
+        if (surveyUsesLimit) {
             setDataCollectionType('until_limit')
-        } else if (
-            survey.response_sampling_interval &&
-            survey.response_sampling_interval > 0 &&
-            survey.response_sampling_interval_type !== '' &&
-            survey.response_sampling_limit &&
-            survey.response_sampling_limit > 0
-        ) {
+        } else if (surveyUsesAdaptiveLimit) {
             setDataCollectionType('until_adaptive_limit')
         } else {
             setDataCollectionType('until_stopped')
         }
-    }, [survey, setDataCollectionType])
+    }, [surveyUsesLimit, surveyUsesAdaptiveLimit, setDataCollectionType])
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
@@ -882,7 +878,7 @@ export default function SurveyEdit(): JSX.Element {
                             content: (
                                 <>
                                     <div className="mt-2">
-                                        <h3> How should we manage survey responses? </h3>
+                                        <h3> How long would you like to collect survey responses? </h3>
                                         <LemonField.Pure>
                                             <LemonRadio
                                                 value={dataCollectionType}

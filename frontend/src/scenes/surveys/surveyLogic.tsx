@@ -902,6 +902,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
+        surveyUsesLimit: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return !!(survey.responses_limit && survey.responses_limit > 0)
+            },
+        ],
+        surveyUsesAdaptiveLimit: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return !!(
+                    survey.response_sampling_interval &&
+                    survey.response_sampling_interval > 0 &&
+                    survey.response_sampling_interval_type !== '' &&
+                    survey.response_sampling_limit &&
+                    survey.response_sampling_limit > 0
+                )
+            },
+        ],
         surveyShufflingQuestionsAvailable: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
