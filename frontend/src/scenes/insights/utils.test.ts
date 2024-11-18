@@ -519,7 +519,7 @@ describe('getTrendDatasetKey()', () => {
     it('handles insights with formulas', () => {
         const dataset: Partial<GraphDataset> = {
             label: 'Formula (A+B)',
-            action: null,
+            action: undefined,
         }
 
         expect(getTrendDatasetKey(dataset as GraphDataset)).toEqual('{"series":"formula"}')

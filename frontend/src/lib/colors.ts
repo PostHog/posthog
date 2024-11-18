@@ -44,7 +44,9 @@ export type DataColorToken =
     | 'preset-14'
     | 'preset-15'
 
-export type DataColorTheme = Record<DataColorToken, string>
+export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
+    [key: `preset-${number}`]: string
+}
 
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
@@ -57,7 +59,7 @@ export function getColorVar(variable: string): string {
 }
 
 export function getDataThemeColor(theme: DataColorTheme, color: DataColorToken): string {
-    return theme[color]
+    return theme[color] as string
 }
 
 /** Returns the color for the given series index.
