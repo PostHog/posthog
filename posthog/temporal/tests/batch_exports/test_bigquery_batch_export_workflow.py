@@ -175,10 +175,17 @@ async def assert_clickhouse_records_in_bigquery(
 
     if expect_duplicates:
         seen = set()
-        # A bit of a hackish way to populate seen with unique values as we go.
-        inserted_records = [
-            record for record in inserted_records if record["uuid"] not in seen and seen.add(record["uuid"]) is None
-        ]
+
+        def is_record_seen(record) -> bool:
+            nonlocal seen
+
+            if record["uuid"] in seen:
+                return True
+
+            seen.add(record["uuid"])
+            return False
+
+        inserted_records = [record for record in inserted_records if not is_record_seen(record)]
 
     assert len(inserted_records) == len(expected_records)
 
@@ -573,9 +580,7 @@ async def test_insert_into_bigquery_activity_completes_range(
 ):
     """Test we complete a full range of data into a BigQuery table when resuming.
 
-    In particular, we are interested in no duplicate events generated in the boundary
-    between one run and the next. So, we look for a cutoff event around the middle of
-    the set of exported events, and then run two activities:
+    We run two activities:
     1. First activity, up to (and including) the cutoff event.
     2. Second activity with a heartbeat detail matching the cutoff event.
 
