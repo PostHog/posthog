@@ -1287,14 +1287,15 @@ export const experimentLogic = kea<experimentLogicType>([
                         | CachedSecondaryMetricExperimentFunnelsQueryResponse
                         | CachedSecondaryMetricExperimentTrendsQueryResponse
                         | null,
-                    variantKey: string
+                    variantKey: string,
+                    metricType: InsightType
                 ): [number, number] | null => {
                     const credibleInterval = experimentResults?.credible_intervals?.[variantKey]
                     if (!credibleInterval) {
                         return null
                     }
 
-                    if (experimentResults.filters?.insight === InsightType.FUNNELS) {
+                    if (metricType === InsightType.FUNNELS) {
                         const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
                             ({ key }) => key === 'control'
                         ) as FunnelExperimentVariant

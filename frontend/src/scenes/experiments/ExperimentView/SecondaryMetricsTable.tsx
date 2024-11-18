@@ -167,7 +167,11 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                             if (item.variant === 'control') {
                                 return <em>Baseline</em>
                             }
-                            const credibleInterval = credibleIntervalForVariant(targetResults || null, item.variant)
+                            const credibleInterval = credibleIntervalForVariant(
+                                targetResults || null,
+                                item.variant,
+                                metricType
+                            )
                             if (!credibleInterval) {
                                 return <>—</>
                             }
@@ -218,7 +222,11 @@ export function SecondaryMetricsTable({ experimentId }: { experimentId: Experime
                                 return <em>Baseline</em>
                             }
 
-                            const credibleInterval = credibleIntervalForVariant(targetResults || null, item.variant)
+                            const credibleInterval = credibleIntervalForVariant(
+                                targetResults || null,
+                                item.variant,
+                                metricType
+                            )
                             if (!credibleInterval) {
                                 return <>—</>
                             }
