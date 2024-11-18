@@ -154,7 +154,6 @@ class JavaScriptCompiler(Visitor):
         op = node.op
 
         op_map = {
-            # TODO: check nulls
             ast.CompareOperationOp.Eq: "==",
             ast.CompareOperationOp.NotEq: "!=",
             ast.CompareOperationOp.Gt: ">",
@@ -258,10 +257,10 @@ class JavaScriptCompiler(Visitor):
             return "false"
         elif value is None:
             return "null"
-        elif isinstance(value, int) or isinstance(value, float) or isinstance(value, str):
+        elif isinstance(value, int | float | str):
             return json.dumps(value)
         else:
-            raise QueryError(f"Constant type `{type(value)}` is not supported")
+            raise QueryError(f"Unsupported constant type: {type(value)}")
 
     def visit_call(self, node: ast.Call):
         if node.params is not None:

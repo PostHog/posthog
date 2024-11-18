@@ -138,3 +138,7 @@ print("------");
 let c = [1, 2, 3];
 print(__getProperty(c, 1, false), __getProperty(c, 2, false), __getProperty(c, 3, false), __getProperty(c, 4, false));
 print(__getProperty(c, -1, false), __getProperty(c, -2, false), __getProperty(c, -3, false), __getProperty(c, -4, false));
+print("------");
+print(["a", "b", "c"].includes("a"));
+print(["a", "b", "c"].includes("d"));
+print([].includes("a"));
