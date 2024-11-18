@@ -34,7 +34,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
         isSingleSeries,
         hiddenLegendIndexes,
         resultCustomizationBy,
-        legendEntries,
+        resultCustomizations,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
 
@@ -64,7 +64,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const isPrevious = !!item.compare && item.compare_label === 'previous'
 
     const theme = getTheme('posthog')
-    const colorToken = getTrendLegendColorToken(resultCustomizationBy, legendEntries, theme, item)
+    const colorToken = getTrendLegendColorToken(resultCustomizationBy, resultCustomizations, theme, item)
 
     const themeColor = theme[colorToken]
     const mainColor = isPrevious ? `${themeColor}80` : themeColor

@@ -77,7 +77,7 @@ export function InsightsTable({
         trendsFilter,
         isSingleSeries,
         hiddenLegendIndexes,
-        legendEntries,
+        resultCustomizations,
         resultCustomizationBy,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
@@ -288,7 +288,7 @@ export function InsightsTable({
 
                               const colorToken = getTrendLegendColorToken(
                                   resultCustomizationBy,
-                                  legendEntries,
+                                  resultCustomizations,
                                   theme,
                                   item
                               )

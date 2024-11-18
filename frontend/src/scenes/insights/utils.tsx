@@ -16,12 +16,12 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightVizNode,
-    LegendEntryConfig,
-    LegendEntryConfigByKey,
-    LegendEntryConfigByPosition,
     NodeKind,
     PathsFilter,
+    ResultCustomization,
     ResultCustomizationBy,
+    ResultCustomizationByKey,
+    ResultCustomizationByPosition,
 } from '~/queries/schema'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
@@ -464,27 +464,29 @@ export function getTrendLegendEntryKey(
 export function getTrendsLegendEntry(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: GraphDataset,
-    legendEntries:
-        | Record<string, LegendEntryConfigByKey>
-        | Record<number, LegendEntryConfigByPosition>
+    resultCustomizations:
+        | Record<string, ResultCustomizationByKey>
+        | Record<number, ResultCustomizationByPosition>
         | null
         | undefined
-): LegendEntryConfig | undefined {
+): ResultCustomization | undefined {
     const legendKey = getTrendLegendEntryKey(resultCustomizationBy, dataset)
-    return legendEntries && Object.keys(legendEntries).includes(legendKey) ? legendEntries[legendKey] : undefined
+    return resultCustomizations && Object.keys(resultCustomizations).includes(legendKey)
+        ? resultCustomizations[legendKey]
+        : undefined
 }
 
 export function getTrendLegendColorToken(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
-    legendEntries:
-        | Record<string, LegendEntryConfigByKey>
-        | Record<number, LegendEntryConfigByPosition>
+    resultCustomizations:
+        | Record<string, ResultCustomizationByKey>
+        | Record<number, ResultCustomizationByPosition>
         | null
         | undefined,
     theme: DataColorTheme,
     dataset: GraphDataset
 ): DataColorToken {
-    const legendEntry = getTrendsLegendEntry(resultCustomizationBy, dataset, legendEntries)
+    const legendEntry = getTrendsLegendEntry(resultCustomizationBy, dataset, resultCustomizations)
 
     // for legend entries without a configuration, the color is determined
     // by the position in the dataset. colors repeat after all options

@@ -1145,29 +1145,6 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
-class LegendEntryConfigBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    color: DataColorToken
-
-
-class LegendEntryConfigByKey(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignmentBy: Literal["key"] = "key"
-    color: DataColorToken
-
-
-class LegendEntryConfigByPosition(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignmentBy: Literal["position"] = "position"
-    color: DataColorToken
-
-
 class LifecycleToggle(StrEnum):
     NEW = "new"
     RESURRECTING = "resurrecting"
@@ -1460,9 +1437,32 @@ class RecordingPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class ResultCustomizationBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: DataColorToken
+
+
 class ResultCustomizationBy(StrEnum):
     VALUE = "value"
     POSITION = "position"
+
+
+class ResultCustomizationByKey(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["key"] = "key"
+    color: DataColorToken
+
+
+class ResultCustomizationByPosition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["position"] = "position"
+    color: DataColorToken
 
 
 class RetentionEntityKind(StrEnum):
@@ -2389,10 +2389,6 @@ class InsightThreshold(BaseModel):
     type: InsightThresholdType
 
 
-class LegendEntryConfig(RootModel[Union[LegendEntryConfigByKey, LegendEntryConfigByPosition]]):
-    root: Union[LegendEntryConfigByKey, LegendEntryConfigByPosition]
-
-
 class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3112,6 +3108,10 @@ class QueryResponseAlternative41(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class ResultCustomization(RootModel[Union[ResultCustomizationByKey, ResultCustomizationByPosition]]):
+    root: Union[ResultCustomizationByKey, ResultCustomizationByPosition]
 
 
 class RetentionEntity(BaseModel):
@@ -6061,9 +6061,6 @@ class TrendsQuery(BaseModel):
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
-    legendEntries: Optional[Union[dict[str, LegendEntryConfigByKey], dict[str, LegendEntryConfigByPosition]]] = Field(
-        default=None, description="Display configuration for the result datasets."
-    )
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
@@ -6090,6 +6087,9 @@ class TrendsQuery(BaseModel):
         ]
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
+    resultCustomizations: Optional[
+        Union[dict[str, ResultCustomizationByKey], dict[str, ResultCustomizationByPosition]]
+    ] = Field(default=None, description="Display configuration for the result datasets.")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
