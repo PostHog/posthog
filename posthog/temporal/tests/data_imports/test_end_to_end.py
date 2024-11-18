@@ -1011,4 +1011,3 @@ async def test_delta_table_deleted(team, stripe_balance_transaction):
         await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
 
         mock_delta_table_delete.assert_called_once()
-
