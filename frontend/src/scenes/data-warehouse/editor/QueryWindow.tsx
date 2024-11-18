@@ -60,7 +60,7 @@ export function QueryWindow(): JSX.Element {
                 onQueryInputChange={runQuery}
                 onSave={saveAsView}
                 saveDisabledReason={
-                    hasErrors ? error ?? 'Query has errors' : !isValidView ? 'All fields must have an alias' : ''
+                    hasErrors ? error ?? 'Query has errors' : !isValidView ? 'Some fields may need an alias' : ''
                 }
             />
         </div>

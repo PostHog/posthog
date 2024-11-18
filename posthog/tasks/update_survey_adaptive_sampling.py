@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.utils.timezone import now
 
 from posthog.clickhouse.client import sync_execute
@@ -28,6 +28,12 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
         internal_response_sampling_flag = survey.internal_response_sampling_flag
         internal_response_sampling_flag.rollout_percentage = today_entry["rollout_percentage"]
         internal_response_sampling_flag.save()
+
+    # this also doubles as a way to check that we're processing the final entry in the current sequence.
+    if today_entry["rollout_percentage"] == 100:
+        tomorrow = today_date + timedelta(days=1)
+        survey.response_sampling_start_date = tomorrow
+        survey.save(update_fields=["response_sampling_start_date", "response_sampling_daily_limits"])
 
 
 def _get_survey_responses_count(survey_id: int) -> int:

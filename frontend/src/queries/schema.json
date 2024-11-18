@@ -1089,6 +1089,10 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "description": "We only need this \"done\" value to tell when the particular message is finished during its streaming. It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.",
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai",
                     "type": "string"
@@ -6089,11 +6093,14 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
                 }
             },
-            "required": ["experiment_id", "funnels_query", "kind"],
+            "required": ["funnels_query", "kind"],
             "type": "object"
         },
         "ExperimentFunnelsQueryResponse": {
@@ -6184,11 +6191,14 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
                 }
             },
-            "required": ["count_query", "experiment_id", "kind"],
+            "required": ["count_query", "kind"],
             "type": "object"
         },
         "ExperimentTrendsQueryResponse": {
@@ -6296,12 +6306,16 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "const": true,
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["type", "done"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -7618,12 +7632,17 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "const": true,
+                    "description": "Human messages are only appended when done.",
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "human",
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": ["type", "content", "done"],
             "type": "object"
         },
         "InsightActorsQuery": {
@@ -11687,12 +11706,17 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "const": true,
+                    "description": "Router messages are not streamed, so they can only be done.",
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai/router",
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": ["type", "content", "done"],
             "type": "object"
         },
         "SamplingRate": {
@@ -12836,6 +12860,9 @@
                             "$ref": "#/definitions/AssistantFunnelsQuery"
                         }
                     ]
+                },
+                "done": {
+                    "type": "boolean"
                 },
                 "plan": {
                     "type": "string"
