@@ -2,16 +2,17 @@ import './ErrorDisplay.scss'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { EventType } from '~/types'
 
-import { StackFrame } from './stackFrameLogic'
+import { StackFrame, StackFrameContext, stackFrameLogic } from './stackFrameLogic'
 
 interface RawStackTrace {
     type: 'raw'
@@ -30,9 +31,17 @@ interface Exception {
 }
 
 function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFrames: boolean }): JSX.Element | null {
+    const { stackFrameContexts } = useValues(stackFrameLogic)
+    const { loadFrameContexts } = useActions(stackFrameLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
-    const panels = displayFrames.map(({ filename, lineno, colno, function: functionName }, index) => {
+    useEffect(() => {
+        const frameIds = frames.map((f) => f.raw_id)
+        loadFrameContexts({ frameIds })
+    }, [frames, loadFrameContexts])
+
+    const panels = displayFrames.map(({ raw_id, filename, lineno, colno, function: functionName }, index) => {
+        const frameContext = stackFrameContexts[raw_id]
         return {
             key: index,
             header: (
@@ -54,11 +63,29 @@ function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFr
                     ) : null}
                 </div>
             ),
-            content: null,
+            content: frameContext ? <FrameContext context={frameContext} /> : null,
         }
     })
 
     return <LemonCollapse defaultActiveKeys={[]} multiple panels={panels} size="xsmall" />
+}
+
+function FrameContext({
+    context: { pre_context, line_context, post_context },
+}: {
+    context: StackFrameContext
+}): JSX.Element {
+    return (
+        <div>
+            {pre_context.map((line, index) => (
+                <div key={index}>{line}</div>
+            ))}
+            <div>{line_context}</div>
+            {post_context.map((line, index) => (
+                <div key={index}>{line}</div>
+            ))}
+        </div>
+    )
 }
 
 function ChainedStackTraces({ exceptionList }: { exceptionList: Exception[] }): JSX.Element {
