@@ -7,7 +7,7 @@ from typing import Any, Optional
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.javascript_stl import STL_FUNCTIONS, import_stl_functions
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, NotImplementedError
 from posthog.hogql.parser import parse_expr, parse_program
 from posthog.hogql.visitor import Visitor
 
@@ -310,8 +310,9 @@ class JavaScriptCompiler(Visitor):
             return f"{name}({args_code})"
         else:
             # Regular function calls
+            name = _sanitize_identifier(node.name)
             args_code = ", ".join([self.visit(arg) for arg in node.args or []])
-            return f"{node.name}({args_code})"
+            return f"{name}({args_code})"
 
     def visit_expr_call(self, node: ast.ExprCall):
         func_code = self.visit(node.expr)
@@ -515,6 +516,7 @@ class JavaScriptCompiler(Visitor):
             expr_code = self.visit(node.expr)
         self._end_scope()
         self.inlined_stl.add("__lambda")
+        # we wrap it in __lambda() to make the function anonymous (a true lambda without a name)
         return f"__lambda(({params_code}) => {expr_code})"
 
     def visit_dict(self, node: ast.Dict):
@@ -556,14 +558,15 @@ class JavaScriptCompiler(Visitor):
             return f"{{{items}}}"
         if isinstance(value, StrEnum):
             return '"' + str(value.value) + '"'
-        if isinstance(value, int):
-            return str(value)
-        if isinstance(value, float):
-            return str(value)
-        if isinstance(value, str):
-            return '"' + value.replace('"', '\\"') + '"'
         if value is True:
             return "true"
         if value is False:
             return "false"
+        if isinstance(value, int | float):
+            return str(value)
+        if isinstance(value, str):
+            return json.dumps(value)
         return "null"
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        raise NotImplementedError("JavaScriptCompiler does not support SelectQuery")

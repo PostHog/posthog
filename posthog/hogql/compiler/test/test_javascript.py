@@ -1,4 +1,4 @@
-from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_expr, to_js_program
+from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_program, to_js_expr
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql import ast
 from posthog.test.base import BaseTest
@@ -26,37 +26,39 @@ class TestSanitizeIdentifier(BaseTest):
 
 class TestJavaScript(BaseTest):
     def test_javascript_create_basic_expressions(self):
-        assert to_js_expr("1 + 2") == "(1 + 2)"
-        assert to_js_expr("1 and 2") == "!!(1 && 2)"
-        assert to_js_expr("1 or 2") == "!!(1 || 2)"
-        assert to_js_expr("not true") == "(!true)"
-        assert to_js_expr("1 < 2") == "(1 < 2)"
-        assert to_js_expr("properties.bla") == '__getProperty(__getGlobal("properties"), "bla", true)'
+        self.assertEqual(to_js_expr("1 + 2"), "(1 + 2)")
+        self.assertEqual(to_js_expr("1 and 2"), "!!(1 && 2)")
+        self.assertEqual(to_js_expr("1 or 2"), "!!(1 || 2)")
+        self.assertEqual(to_js_expr("not true"), "(!true)")
+        self.assertEqual(to_js_expr("1 < 2"), "(1 < 2)")
+        self.assertEqual(to_js_expr("properties.bla"), '__getProperty(__getGlobal("properties"), "bla", true)')
 
     def test_javascript_string_functions(self):
-        assert to_js_expr("concat('a', 'b')") == 'concat("a", "b")'
-        assert to_js_expr("lower('HELLO')") == 'lower("HELLO")'
-        assert to_js_expr("upper('hello')") == 'upper("hello")'
-        assert to_js_expr("reverse('abc')") == 'reverse("abc")'
+        self.assertEqual(to_js_expr("concat('a', 'b')"), 'concat("a", "b")')
+        self.assertEqual(to_js_expr("lower('HELLO')"), 'lower("HELLO")')
+        self.assertEqual(to_js_expr("upper('hello')"), 'upper("hello")')
+        self.assertEqual(to_js_expr("reverse('abc')"), 'reverse("abc")')
 
     def test_arithmetic_operations(self):
-        assert to_js_expr("3 - 1") == "(3 - 1)"
-        assert to_js_expr("2 * 3") == "(2 * 3)"
-        assert to_js_expr("5 / 2") == "(5 / 2)"
-        assert to_js_expr("10 % 3") == "(10 % 3)"
+        self.assertEqual(to_js_expr("3 - 1"), "(3 - 1)")
+        self.assertEqual(to_js_expr("2 * 3"), "(2 * 3)")
+        self.assertEqual(to_js_expr("5 / 2"), "(5 / 2)")
+        self.assertEqual(to_js_expr("10 % 3"), "(10 % 3)")
 
     def test_comparison_operations(self):
-        assert to_js_expr("3 = 4") == "(3 == 4)"
-        assert to_js_expr("3 != 4") == "(3 != 4)"
-        assert to_js_expr("3 < 4") == "(3 < 4)"
-        assert to_js_expr("3 <= 4") == "(3 <= 4)"
-        assert to_js_expr("3 > 4") == "(3 > 4)"
-        assert to_js_expr("3 >= 4") == "(3 >= 4)"
+        self.assertEqual(to_js_expr("3 = 4"), "(3 == 4)")
+        self.assertEqual(to_js_expr("3 != 4"), "(3 != 4)")
+        self.assertEqual(to_js_expr("3 < 4"), "(3 < 4)")
+        self.assertEqual(to_js_expr("3 <= 4"), "(3 <= 4)")
+        self.assertEqual(to_js_expr("3 > 4"), "(3 > 4)")
+        self.assertEqual(to_js_expr("3 >= 4"), "(3 >= 4)")
 
     def test_javascript_create_query_error(self):
         with self.assertRaises(QueryError) as e:
             to_js_expr("1 in cohort 2")
-        assert "Can't use cohorts in real-time filters. Please inline the relevant expressions" in str(e.exception)
+        self.assertIn(
+            "Can't use cohorts in real-time filters. Please inline the relevant expressions", str(e.exception)
+        )
 
     def test_scope_errors(self):
         compiler = JavaScriptCompiler(locals=[Local(name="existing_var", depth=0)])
@@ -76,7 +78,8 @@ class TestJavaScript(BaseTest):
 
     def test_if_else(self):
         code = to_js_program("if (1 < 2) { return true } else { return false }")
-        self.assertEqual(code.strip(), "if ((1 < 2)) {\n    return true;\n} else {\n    return false;\n}")
+        expected_code = "if ((1 < 2)) {\n    return true;\n} else {\n    return false;\n}"
+        self.assertEqual(code.strip(), expected_code.strip())
 
     def test_declare_local(self):
         compiler = JavaScriptCompiler()
@@ -89,8 +92,9 @@ class TestJavaScript(BaseTest):
         self.assertEqual(code, 'return "test";')
 
     def test_not_implemented_visit_select_query(self):
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises(NotImplementedError) as e:
             to_js_expr("(select 1)")
+        self.assertEqual(str(e.exception), "JavaScriptCompiler does not support SelectQuery")
 
     def test_throw_statement(self):
         compiler = JavaScriptCompiler()
@@ -107,7 +111,6 @@ class TestJavaScript(BaseTest):
 
     def test_visit_lambda(self):
         code = to_js_expr("x -> x + 1")
-        self.assertIn("__lambda", code)
         self.assertTrue(code.startswith("__lambda((x) => (x + 1))"))
 
     def test_inlined_stl(self):
@@ -122,36 +125,31 @@ class TestJavaScript(BaseTest):
 
     def test_json_parse(self):
         code = to_js_expr('jsonParse(\'{"key": "value"}\')')
-        self.assertIn("jsonParse", code)
+        self.assertEqual(code, 'jsonParse("{\\"key\\": \\"value\\"}")')
 
     def test_javascript_create_2(self):
-        assert to_js_expr("1 + 2") == "(1 + 2)"
-        assert to_js_expr("1 and 2") == "!!(1 && 2)"
-        assert to_js_expr("1 or 2") == "!!(1 || 2)"
-        assert to_js_expr("1 or (2 and 1) or 2") == "!!(1 || !!(2 && 1) || 2)"
-        assert to_js_expr("(1 or 2) and (1 or 2)") == "!!(!!(1 || 2) && !!(1 || 2))"
-        assert to_js_expr("not true") == "(!true)"
-        assert to_js_expr("true") == "true"
-        assert to_js_expr("false") == "false"
-        assert to_js_expr("null") == "null"
-        assert to_js_expr("3.14") == "3.14"
-        assert to_js_expr("properties.bla") == '__getProperty(__getGlobal("properties"), "bla", true)'
-        assert to_js_expr("concat('arg', 'another')"), '(String("arg") + String("another"))'
-        assert (
-            to_js_expr("ifNull(properties.email, false)")
-            == '(__getProperty(__getGlobal("properties"), "email", true) ?? false)'
+        self.assertEqual(to_js_expr("1 + 2"), "(1 + 2)")
+        self.assertEqual(to_js_expr("1 and 2"), "!!(1 && 2)")
+        self.assertEqual(to_js_expr("1 or 2"), "!!(1 || 2)")
+        self.assertEqual(to_js_expr("1 or (2 and 1) or 2"), "!!(1 || !!(2 && 1) || 2)")
+        self.assertEqual(to_js_expr("(1 or 2) and (1 or 2)"), "!!(!!(1 || 2) && !!(1 || 2))")
+        self.assertEqual(to_js_expr("not true"), "(!true)")
+        self.assertEqual(to_js_expr("true"), "true")
+        self.assertEqual(to_js_expr("false"), "false")
+        self.assertEqual(to_js_expr("null"), "null")
+        self.assertEqual(to_js_expr("3.14"), "3.14")
+        self.assertEqual(to_js_expr("properties.bla"), '__getProperty(__getGlobal("properties"), "bla", true)')
+        self.assertEqual(to_js_expr("concat('arg', 'another')"), 'concat("arg", "another")')
+        self.assertEqual(
+            to_js_expr("ifNull(properties.email, false)"),
+            '(__getProperty(__getGlobal("properties"), "email", true) ?? false)',
         )
-        assert to_js_expr("1 in 2") == "(2.includes(1))"
-        assert to_js_expr("1 not in 2") == "(!2.includes(1))"
-        assert to_js_expr("match('test', 'e.*')") == 'match("test", "e.*")'
-        assert to_js_expr("not('test')") == '(!"test")'
-        assert to_js_expr("or('test', 'test2')") == '("test" || "test2")'
-        assert to_js_expr("and('test', 'test2')") == '("test" && "test2")'
-
-    def test_javascript_create_not_implemented_error(self):
-        with self.assertRaises(NotImplementedError) as e:
-            to_js_expr("(select 1)")
-        self.assertEqual(str(e.exception), "JavaScriptCompiler has no method visit_select_query")
+        self.assertEqual(to_js_expr("1 in 2"), "(2.includes(1))")
+        self.assertEqual(to_js_expr("1 not in 2"), "(!2.includes(1))")
+        self.assertEqual(to_js_expr("match('test', 'e.*')"), 'match("test", "e.*")')
+        self.assertEqual(to_js_expr("not('test')"), '(!"test")')
+        self.assertEqual(to_js_expr("or('test', 'test2')"), '("test" || "test2")')
+        self.assertEqual(to_js_expr("and('test', 'test2')"), '("test" && "test2")')
 
     def test_javascript_code_generation(self):
         js_code = to_js_program("""
@@ -171,10 +169,59 @@ class TestJavaScript(BaseTest):
             return (fibonacci((number - 1)) + fibonacci((number - 2)));
         }
 }
-return fibonacci(6);
-"""
+return fibonacci(6);"""
         self.assertEqual(js_code.strip(), expected_js.strip())
 
     def test_javascript_hogqlx(self):
         code = to_js_expr("<Sparkline data={[1,2,3]} />")
-        assert code.strip() == '{"__hx_tag": "Sparkline", "data": [1, 2, 3]}'
+        self.assertEqual(code.strip(), '{"__hx_tag": "Sparkline", "data": [1, 2, 3]}')
+
+    def test_sanitized_function_names(self):
+        code = to_js_expr("typeof('test')")
+        self.assertEqual(code, '__x_typeof("test")')
+
+    def test_function_name_sanitization(self):
+        code = to_js_expr("Error('An error occurred')")
+        self.assertEqual(code, '__x_Error("An error occurred")')
+
+    def test_ilike(self):
+        code = to_js_expr("'hello' ilike '%ELLO%'")
+        self.assertEqual(code, 'ilike("hello", "%ELLO%")')
+
+    def test_not_ilike(self):
+        code = to_js_expr("'hello' not ilike '%ELLO%'")
+        self.assertEqual(code, '!ilike("hello", "%ELLO%")')
+
+    def test_regex(self):
+        code = to_js_expr("'hello' =~ 'h.*o'")
+        self.assertEqual(code, 'new RegExp("h.*o").test("hello")')
+
+    def test_not_regex(self):
+        code = to_js_expr("'hello' !~ 'h.*o'")
+        self.assertEqual(code, '!(new RegExp("h.*o").test("hello"))')
+
+    def test_i_regex(self):
+        code = to_js_expr("'hello' =~* 'H.*O'")
+        self.assertEqual(code, 'new RegExp("H.*O", "i").test("hello")')
+
+    def test_not_i_regex(self):
+        code = to_js_expr("'hello' !~* 'H.*O'")
+        self.assertEqual(code, '!(new RegExp("H.*O", "i").test("hello"))')
+
+    def test_array_access(self):
+        code = to_js_expr("array[2]")
+        self.assertEqual(code, '__getProperty(__getGlobal("array"), 2, false)')
+
+    def test_tuple_access(self):
+        code = to_js_expr("(1, 2, 3).2")
+        self.assertEqual(code, "__getProperty(tuple(1, 2, 3), 2, false)")
+
+    def test_function_assignment_error(self):
+        compiler = JavaScriptCompiler()
+        with self.assertRaises(QueryError) as context:
+            compiler.visit_variable_assignment(
+                ast.VariableAssignment(left=ast.Field(chain=["globalVar"]), right=ast.Constant(value=42))
+            )
+        self.assertIn(
+            'Variable "globalVar" not declared in this scope. Cannot assign to globals.', str(context.exception)
+        )

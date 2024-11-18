@@ -900,7 +900,7 @@ def import_stl_functions(requested_functions):
             if node in visited:
                 return
             if node in temp_mark:
-                raise ValueError("Circular dependency detected")
+                raise ValueError(f"Circular dependency detected involving {node}")
             temp_mark.add(node)
             for neighbor in sorted(graph.get(node, [])):
                 visit(neighbor)
