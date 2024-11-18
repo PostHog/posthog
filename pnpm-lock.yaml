@@ -53,8 +53,8 @@ dependencies:
     specifier: ^1.0.58
     version: 1.0.58(luxon@3.5.0)
   '@posthog/icons':
-    specifier: 0.8.5
-    version: 0.8.5(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.9.1
+    version: 0.9.1(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -284,8 +284,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.184.0
-    version: 1.184.0
+    specifier: 1.186.0
+    version: 1.186.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -5426,8 +5426,8 @@ packages:
       luxon: 3.5.0
     dev: false
 
-  /@posthog/icons@0.8.5(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-bFPMgnR3ZaNnMQ81OznYFQRd7KaCqXcI8xS3qS49UBkSZpKeJgH86JbWXBXI2q2GZWX00gc+gZxEo5EBkY7KcQ==}
+  /@posthog/icons@0.9.1(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-9zlU1H7MZm2gSh1JsDzM25km6VDc/Y7HdNf6RyP5sUiHCHVMKhQQ8TA2IMq55v/uTFRc5Yen6BagOUvunD2kqQ==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -17789,8 +17789,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.184.0:
-    resolution: {integrity: sha512-SYnvdIsLXnq4/+IgxlRGrSfD+RbTETHAExNWZqXJ04HMXKWfYefXP3Z3WjxCrRA7TkSo7BCJxbxqtYZfgUp75w==}
+  /posthog-js@1.186.0:
+    resolution: {integrity: sha512-WagGNrDtvyOhmX1Gtf1hJQMBy1mB1vx9gtC6BKEfJi2pvEFtQuAzQ9c/tMUTmY0o2ZF5ZBFiZ2IRs4kbFLMvPQ==}
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
