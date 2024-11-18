@@ -8,6 +8,17 @@ export function sha256Hex(data: string, options?: ExecOptions): string {
     return crypto.createHash('sha256').update(data).digest('hex')
 }
 
+export function sha256HexWithNull(data: string | null, options?: ExecOptions): string | null {
+    const crypto = options?.external?.crypto
+    if (!crypto) {
+        throw new Error('The crypto module is required for "sha256Hex" to work.')
+    }
+    if (data === null) {
+        return null
+    }
+    return crypto.createHash('sha256').update(data).digest('hex')
+}
+
 export function md5Hex(data: string, options?: ExecOptions): string {
     const crypto = options?.external?.crypto
     if (!crypto) {

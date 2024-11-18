@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
-import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
+import {md5Hex, sha256Hex, sha256HexWithNull, sha256HmacChainHex} from './crypto'
 import {
     formatDateTime,
     fromUnixTimestamp,
@@ -517,6 +517,11 @@ export const STL: Record<string, STLFunction> = {
     },
     sha256Hex: {
         fn: ([str], _, options) => sha256Hex(str, options),
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    sha256HexWithNull: {
+        fn: ([str], _, options) => sha256HexWithNull(str, options),
         minArgs: 1,
         maxArgs: 1,
     },

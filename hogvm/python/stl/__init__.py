@@ -22,7 +22,7 @@ from .date import (
     is_hog_datetime,
     is_hog_date,
 )
-from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
+from .crypto import sha256Hex, md5Hex, sha256HmacChainHex, sha256HexWithNull
 from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure
 from ..utils import like, get_nested_value
 
@@ -491,6 +491,9 @@ STL: dict[str, STLFunction] = {
     "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
     "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
     "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256Hex(args[0]), minArgs=1, maxArgs=1),
+    "sha256HexWithNull": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha256HexWithNull(args[0]), minArgs=1, maxArgs=1
+    ),
     "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5Hex(args[0]), minArgs=1, maxArgs=1),
     "sha256HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChainHex(args[0]), minArgs=1, maxArgs=1

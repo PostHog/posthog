@@ -10,6 +10,12 @@ def sha256Hex(data: str) -> str:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
+def sha256HexWithNull(data: str | None) -> str | None:
+    if data is None:
+        return None
+    return hashlib.sha256(data.encode()).hexdigest()
+
+
 def sha256HmacChainHex(data: list) -> str:
     if len(data) < 2:
         raise ValueError("Data array must contain at least two elements.")
