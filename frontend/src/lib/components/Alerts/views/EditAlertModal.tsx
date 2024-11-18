@@ -162,6 +162,11 @@ export function EditAlertModal({
                                                         label: `${alphabet[index]} - ${event}`,
                                                         value: index,
                                                     }))}
+                                                    disabledReason={
+                                                        !!breakdownFilter &&
+                                                        `For trends with breakdown, the alert will fire if any of the breakdown
+                                            values breaches the threshold.`
+                                                    }
                                                 />
                                             </LemonField>
                                         </Group>
