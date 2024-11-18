@@ -1,7 +1,7 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::{kafka_consumer::RecvErr, kafka_producer::send_iter_to_kafka};
+use common_kafka::{kafka_consumer::RecvErr, kafka_producer::send_keyed_iter_to_kafka};
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
@@ -88,9 +88,10 @@ async fn main() {
             }
         };
 
-        send_iter_to_kafka(
+        send_keyed_iter_to_kafka(
             &context.kafka_producer,
             &context.config.events_topic,
+            |ev| Some(ev.uuid.to_string()),
             &[event],
         )
         .await
