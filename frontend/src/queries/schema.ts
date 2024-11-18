@@ -905,19 +905,19 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
-export type LegendEntryConfigBase = {
+export type ResultCustomizationBase = {
     color: DataColorToken
 }
 
-export interface LegendEntryConfigByPosition extends LegendEntryConfigBase {
+export interface ResultCustomizationByPosition extends ResultCustomizationBase {
     assignmentBy: 'position'
 }
 
-export interface LegendEntryConfigByKey extends LegendEntryConfigBase {
+export interface ResultCustomizationByKey extends ResultCustomizationBase {
     assignmentBy: 'key'
 }
 
-export type LegendEntryConfig = LegendEntryConfigByKey | LegendEntryConfigByPosition
+export type ResultCustomization = ResultCustomizationByKey | ResultCustomizationByPosition
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
@@ -936,7 +936,9 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     /** Compare to date range */
     compareFilter?: CompareFilter
     /** Display configuration for the result datasets. */
-    legendEntries?: Record<string, LegendEntryConfigByKey> | Record<numerical_key, LegendEntryConfigByPosition>
+    resultCustomizations?:
+        | Record<string, ResultCustomizationByKey>
+        | Record<numerical_key, ResultCustomizationByPosition>
     /**  Whether we should be comparing against a specific conversion goal */
     conversionGoal?: WebAnalyticsConversionGoal | null
 }

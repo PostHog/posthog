@@ -30,9 +30,9 @@ import {
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
-    LegendEntryConfig,
     Node,
     NodeKind,
+    ResultCustomization,
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema'
@@ -101,7 +101,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
-        updateLegendEntry: (key: number | string, config: LegendEntryConfig) => ({ key, config }),
+        updateResultCustomization: (key: number | string, config: ResultCustomization) => ({ key, config }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
     }),
@@ -197,7 +197,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
         funnelPathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.funnelPathsFilter : null)],
-        legendEntries: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.legendEntries : null)],
+        resultCustomizations: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.resultCustomizations : null)],
 
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
@@ -474,8 +474,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         // legend entries
-        updateLegendEntry: ({ key, config }) => {
-            const update: Partial<TrendsQuery> = { legendEntries: { ...values.legendEntries, [key]: config } }
+        updateResultCustomization: ({ key, config }) => {
+            const update: Partial<TrendsQuery> = {
+                resultCustomizations: { ...values.resultCustomizations, [key]: config },
+            }
             actions.updateQuerySource(update)
         },
 

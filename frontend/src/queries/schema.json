@@ -8271,54 +8271,6 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
-        "LegendEntryConfig": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/LegendEntryConfigByKey"
-                },
-                {
-                    "$ref": "#/definitions/LegendEntryConfigByPosition"
-                }
-            ]
-        },
-        "LegendEntryConfigBase": {
-            "additionalProperties": false,
-            "properties": {
-                "color": {
-                    "$ref": "#/definitions/DataColorToken"
-                }
-            },
-            "required": ["color"],
-            "type": "object"
-        },
-        "LegendEntryConfigByKey": {
-            "additionalProperties": false,
-            "properties": {
-                "assignmentBy": {
-                    "const": "key",
-                    "type": "string"
-                },
-                "color": {
-                    "$ref": "#/definitions/DataColorToken"
-                }
-            },
-            "required": ["assignmentBy", "color"],
-            "type": "object"
-        },
-        "LegendEntryConfigByPosition": {
-            "additionalProperties": false,
-            "properties": {
-                "assignmentBy": {
-                    "const": "position",
-                    "type": "string"
-                },
-                "color": {
-                    "$ref": "#/definitions/DataColorToken"
-                }
-            },
-            "required": ["assignmentBy", "color"],
-            "type": "object"
-        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -11434,9 +11386,57 @@
                 }
             ]
         },
+        "ResultCustomization": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ResultCustomizationByKey"
+                },
+                {
+                    "$ref": "#/definitions/ResultCustomizationByPosition"
+                }
+            ]
+        },
+        "ResultCustomizationBase": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["color"],
+            "type": "object"
+        },
         "ResultCustomizationBy": {
             "enum": ["value", "position"],
             "type": "string"
+        },
+        "ResultCustomizationByKey": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "key",
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
+        },
+        "ResultCustomizationByPosition": {
+            "additionalProperties": false,
+            "properties": {
+                "assignmentBy": {
+                    "const": "position",
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/DataColorToken"
+                }
+            },
+            "required": ["assignmentBy", "color"],
+            "type": "object"
         },
         "RetentionEntity": {
             "additionalProperties": false,
@@ -12796,26 +12796,6 @@
                     "const": "TrendsQuery",
                     "type": "string"
                 },
-                "legendEntries": {
-                    "anyOf": [
-                        {
-                            "additionalProperties": {
-                                "$ref": "#/definitions/LegendEntryConfigByKey"
-                            },
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": {
-                                "$ref": "#/definitions/LegendEntryConfigByPosition"
-                            },
-                            "propertyNames": {
-                                "type": "string"
-                            },
-                            "type": "object"
-                        }
-                    ],
-                    "description": "Display configuration for the result datasets."
-                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -12837,6 +12817,26 @@
                 },
                 "response": {
                     "$ref": "#/definitions/TrendsQueryResponse"
+                },
+                "resultCustomizations": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByKey"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Display configuration for the result datasets."
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",

@@ -15,8 +15,13 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     path((key) => ['scenes', 'insights', 'views', 'InsightsTable', 'resultCustomizationsModalLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [trendsDataLogic(props), ['resultCustomizationBy', 'legendEntries'], dataThemeLogic, ['getTheme']],
-        actions: [trendsDataLogic(props), ['updateLegendEntry']],
+        values: [
+            trendsDataLogic(props),
+            ['resultCustomizationBy', 'resultCustomizations'],
+            dataThemeLogic,
+            ['getTheme'],
+        ],
+        actions: [trendsDataLogic(props), ['updateResultCustomization']],
     })),
 
     actions({
@@ -52,14 +57,14 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
-            (s) => [s.resultCustomizationBy, s.legendEntries, s.getTheme, s.dataset],
-            (resultCustomizationBy, legendEntries, getTheme, dataset): DataColorToken | null => {
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.dataset],
+            (resultCustomizationBy, resultCustomizations, getTheme, dataset): DataColorToken | null => {
                 if (!dataset) {
                     return null
                 }
 
                 const theme = getTheme('posthog')
-                return getTrendLegendColorToken(resultCustomizationBy, legendEntries, theme, dataset)
+                return getTrendLegendColorToken(resultCustomizationBy, resultCustomizations, theme, dataset)
             },
         ],
     }),
@@ -68,7 +73,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
         save: () => {
             if (values.localColorToken != null) {
                 const legendEntryKey = getTrendLegendEntryKey(values.resultCustomizationBy, values.dataset)
-                actions.updateLegendEntry(legendEntryKey, { color: values.localColorToken })
+                actions.updateResultCustomization(legendEntryKey, { color: values.localColorToken })
             }
 
             actions.closeModal()
