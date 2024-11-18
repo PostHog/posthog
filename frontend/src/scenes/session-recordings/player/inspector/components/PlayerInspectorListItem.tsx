@@ -211,58 +211,79 @@ export function PlayerInspectorListItem({
     return (
         <div
             ref={ref}
-            className={clsx('flex flex-1 overflow-hidden relative items-center')}
+            className={clsx(
+                'ml-1 flex flex-col flex-1 overflow-hidden items-center',
+                isExpanded && 'border border-primary',
+                isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`
+            )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            <Tooltip
-                placement="left"
-                title={
-                    <>
-                        <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
+            <div className={clsx('flex flex-row w-full items-center')}>
+                <Tooltip
+                    placement="left"
+                    title={
+                        <>
+                            <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
 
-                        {windowNumber ? (
-                            <>
-                                <br />
-                                {windowNumber !== '?' ? (
-                                    <>
-                                        {' '}
-                                        occurred in Window <b>{windowNumber}</b>
-                                    </>
-                                ) : (
-                                    <>
-                                        {' '}
-                                        not linked to any specific window. Either an event tracked from the backend or
-                                        otherwise not able to be linked to a given window.
-                                    </>
-                                )}
-                            </>
-                        ) : null}
-                    </>
-                }
-            >
-                <div className="pl-1 text-muted-alt flex items-center justify-center gap-1">
-                    {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
-                    {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
+                            {windowNumber ? (
+                                <>
+                                    <br />
+                                    {windowNumber !== '?' ? (
+                                        <>
+                                            {' '}
+                                            occurred in Window <b>{windowNumber}</b>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {' '}
+                                            not linked to any specific window. Either an event tracked from the backend
+                                            or otherwise not able to be linked to a given window.
+                                        </>
+                                    )}
+                                </>
+                            ) : null}
+                        </>
+                    }
+                >
+                    <div className="pl-1 text-muted-alt flex items-center justify-center gap-1">
+                        {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
+                        {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
+                    </div>
+                </Tooltip>
+
+                <ItemTimeDisplay item={item} />
+
+                <div
+                    className={clsx(
+                        'flex-1 overflow-hidden',
+                        item.highlightColor && `bg-${item.highlightColor}-highlight`
+                    )}
+                >
+                    <RowItemTitle item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
                 </div>
-            </Tooltip>
 
-            <ItemTimeDisplay item={item} />
+                <LemonButton
+                    icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
+                    size="small"
+                    noPadding
+                    onClick={() => setItemExpanded(index, !isExpanded)}
+                    data-attr="expand-inspector-row"
+                    disabledReason={rowItemDetail ? undefined : 'This event type does not have a detail view'}
+                />
+            </div>
 
-            <span
-                className={clsx(
-                    'flex-1 overflow-hidden',
-                    isExpanded && 'border border-primary',
-                    isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                    item.highlightColor && `bg-${item.highlightColor}-highlight`
-                )}
-            >
-                <RowItemTitle item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
-                {isExpanded && rowItemDetail}
-                {isExpanded ? (
+            {isExpanded && rowItemDetail ? (
+                <div
+                    className={clsx(
+                        'mx-2 w-full overflow-hidden',
+                        item.highlightColor && `bg-${item.highlightColor}-highlight`
+                    )}
+                >
                     <div className="text-xs">
+                        {rowItemDetail}
                         <LemonDivider dashed />
 
                         <div
@@ -272,17 +293,8 @@ export function PlayerInspectorListItem({
                             <span className="text-muted-alt">Collapse</span>
                         </div>
                     </div>
-                ) : null}
-            </span>
-
-            <LemonButton
-                icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
-                size="small"
-                noPadding
-                onClick={() => setItemExpanded(index, !isExpanded)}
-                data-attr="expand-inspector-row"
-                disabledReason={rowItemDetail ? undefined : 'This event type does not have a detail view'}
-            />
+                </div>
+            ) : null}
         </div>
     )
 }
