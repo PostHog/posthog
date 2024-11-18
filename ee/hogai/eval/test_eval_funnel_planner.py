@@ -8,26 +8,26 @@ from ee.hogai.eval.utils import EvalBaseTest
 from ee.hogai.utils import AssistantNodeName
 from posthog.schema import HumanMessage
 
-plan_correctness_metric = GEval(
-    name="Funnel Plan Correctness",
-    criteria="You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a funnel insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about funnel insights.",
-    evaluation_steps=[
-        "A plan must define at least two series in the sequence, but it is not required to define any filters, exclusion steps, or a breakdown.",
-        "Compare events, properties, math types, and property values of 'expected output' and 'actual output'.",
-        "Check if the combination of events, properties, and property values in 'actual output' can answer the user's question according to the 'expected output'.",
-        # The criteria for aggregations must be more specific because there isn't a way to bypass them.
-        "Check if the math types in 'actual output' match those in 'expected output.' If the aggregation type is specified by a property, user, or group in 'expected output', the same property, user, or group must be used in 'actual output'.",
-        "If 'expected output' contains exclusion steps, check if 'actual output' contains those, and heavily penalize if the exclusion steps are not present or different.",
-        "If 'expected output' contains a breakdown, check if 'actual output' contains a similar breakdown, and heavily penalize if the breakdown is not present or different. Plans may only have one breakdown.",
-        # We don't want to see in the output unnecessary property filters. The assistant tries to use them all the time.
-        "Heavily penalize if the 'actual output' contains any excessive output not present in the 'expected output'. For example, the `is set` operator in filters should not be used unless the user explicitly asks for it.",
-    ],
-    evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.EXPECTED_OUTPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-    threshold=0.7,
-)
-
 
 class TestEvalFunnelPlanner(EvalBaseTest):
+    plan_correctness_metric = GEval(
+        name="Funnel Plan Correctness",
+        criteria="You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a funnel insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about funnel insights.",
+        evaluation_steps=[
+            "A plan must define at least two series in the sequence, but it is not required to define any filters, exclusion steps, or a breakdown.",
+            "Compare events, properties, math types, and property values of 'expected output' and 'actual output'.",
+            "Check if the combination of events, properties, and property values in 'actual output' can answer the user's question according to the 'expected output'.",
+            # The criteria for aggregations must be more specific because there isn't a way to bypass them.
+            "Check if the math types in 'actual output' match those in 'expected output.' If the aggregation type is specified by a property, user, or group in 'expected output', the same property, user, or group must be used in 'actual output'.",
+            "If 'expected output' contains exclusion steps, check if 'actual output' contains those, and heavily penalize if the exclusion steps are not present or different.",
+            "If 'expected output' contains a breakdown, check if 'actual output' contains a similar breakdown, and heavily penalize if the breakdown is not present or different. Plans may only have one breakdown.",
+            # We don't want to see in the output unnecessary property filters. The assistant tries to use them all the time.
+            "Heavily penalize if the 'actual output' contains any excessive output not present in the 'expected output'. For example, the `is set` operator in filters should not be used unless the user explicitly asks for it.",
+        ],
+        evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.EXPECTED_OUTPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
+        threshold=0.7,
+    )
+
     def _call_node(self, query):
         graph: CompiledStateGraph = (
             AssistantGraph(self.team)
@@ -49,7 +49,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [plan_correctness_metric])
+        assert_test(test_case, [self.plan_correctness_metric])
 
     def test_outputs_at_least_two_events(self):
         """
@@ -65,7 +65,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [plan_correctness_metric])
+        assert_test(test_case, [self.plan_correctness_metric])
 
     def test_no_excessive_property_filters(self):
         query = "Show the user conversion from a sign up to a file download"
@@ -78,7 +78,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [plan_correctness_metric])
+        assert_test(test_case, [self.plan_correctness_metric])
 
     def test_basic_filtering(self):
         query = (
@@ -121,7 +121,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [plan_correctness_metric])
+        assert_test(test_case, [self.plan_correctness_metric])
 
     def test_exclusion_steps(self):
         query = "What was the conversion from uploading a file to downloading it in the last 30d excluding users that deleted a file?"
@@ -139,7 +139,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [plan_correctness_metric])
+        assert_test(test_case, [self.plan_correctness_metric])
 
     def test_breakdown(self):
         query = "Show a conversion from uploading a file to downloading it segmented by a user's email"
@@ -156,7 +156,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [plan_correctness_metric])
+        assert_test(test_case, [self.plan_correctness_metric])
 
     def test_needle_in_a_haystack(self):
         query = "What was the conversion from a sign up to a paying customer on the personal-pro plan?"
@@ -175,4 +175,4 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [plan_correctness_metric])
+        assert_test(test_case, [self.plan_correctness_metric])
