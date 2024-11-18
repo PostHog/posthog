@@ -1,13 +1,15 @@
 import './ErrorDisplay.scss'
 
-import { IconFlag } from '@posthog/icons'
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { IconFlag, IconUpload } from '@posthog/icons'
+import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
+import { errorTrackingSymbolSetLogic } from 'scenes/error-tracking/errorTrackingSymbolSetLogic'
 
 import { EventType } from '~/types'
 
@@ -29,29 +31,53 @@ interface Exception {
     value: string
 }
 
-function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFrames: boolean }): JSX.Element | null {
+function StackTrace({
+    frames,
+    showAllFrames,
+    resolved,
+}: {
+    frames: StackFrame[]
+    showAllFrames: boolean
+    resolved: boolean
+}): JSX.Element | null {
+    const { setUploadSymbolSetReference } = useActions(errorTrackingSymbolSetLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map(({ filename, lineno, colno, function: functionName }, index) => {
         return {
             key: index,
             header: (
-                <div className="flex flex-wrap space-x-0.5">
-                    <span>{filename}</span>
-                    {functionName ? (
-                        <div className="flex space-x-0.5">
-                            <span className="text-muted">in</span>
-                            <span>{functionName}</span>
-                        </div>
-                    ) : null}
-                    {lineno && colno ? (
-                        <div className="flex space-x-0.5">
-                            <span className="text-muted">at line</span>
+                <div className="flex flex-1 justify-between items-center">
+                    <div className="flex flex-wrap space-x-0.5">
+                        <span>{filename}</span>
+                        {functionName ? (
+                            <div className="flex space-x-0.5">
+                                <span className="text-muted">in</span>
+                                <span>{functionName}</span>
+                            </div>
+                        ) : null}
+                        {lineno && colno ? (
+                            <div className="flex space-x-0.5">
+                                <span className="text-muted">at line</span>
+                                <span>
+                                    {lineno}:{colno}
+                                </span>
+                            </div>
+                        ) : null}
+                    </div>
+                    {!resolved && (
+                        <div className="flex items-center space-x-1">
                             <span>
-                                {lineno}:{colno}
+                                <LemonTag>Unresolved</LemonTag>
                             </span>
+                            <LemonButton
+                                icon={<IconUpload />}
+                                size="xsmall"
+                                onClick={() => setUploadSymbolSetReference(filename)}
+                                tooltip="Upload source map"
+                            />
                         </div>
-                    ) : null}
+                    )}
                 </div>
             ),
             content: null,
@@ -78,7 +104,7 @@ function ChainedStackTraces({ exceptionList }: { exceptionList: Exception[] }): 
                 />
             </div>
             {exceptionList.map(({ stacktrace, value }, index) => {
-                const { frames } = stacktrace || {}
+                const { frames, type } = stacktrace || {}
                 if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
                     // if we're not showing all frames and there are no in_app frames, skip this exception
                     return null
@@ -87,7 +113,11 @@ function ChainedStackTraces({ exceptionList }: { exceptionList: Exception[] }): 
                 return (
                     <div key={index} className="ErrorDisplay__stacktrace flex flex-col gap-1 mt-6">
                         <h3 className="mb-0">{value}</h3>
-                        <StackTrace frames={frames || []} showAllFrames={showAllFrames} />
+                        <StackTrace
+                            frames={frames || []}
+                            resolved={type === 'resolved'}
+                            showAllFrames={showAllFrames}
+                        />
                     </div>
                 )
             })}

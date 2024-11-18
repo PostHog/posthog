@@ -5,7 +5,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { ErrorTrackingSymbolSet } from 'scenes/error-tracking/errorTrackingConfigurationSceneLogic'
+import { ErrorTrackingSymbolSet } from 'scenes/error-tracking/errorTrackingSymbolSetLogic'
 import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -724,10 +724,6 @@ class ApiRequest {
 
     public errorTrackingMissingSymbolSets(): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent('missing')
-    }
-
-    public errorTrackingStackFrames(ids: string[]): ApiRequest {
-        return this.errorTracking().addPathComponent('stack_frames').withQueryString({ ids })
     }
 
     // # Warehouse
@@ -1871,10 +1867,6 @@ const api = {
 
         async missingSymbolSets(): Promise<ErrorTrackingSymbolSet[]> {
             return await new ApiRequest().errorTrackingMissingSymbolSets().get()
-        },
-
-        async fetchStackFrames(ids: string[]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingStackFrames(ids).get()
         },
     },
 

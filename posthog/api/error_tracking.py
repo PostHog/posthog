@@ -63,6 +63,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, mixins.UpdateModelMi
         storage_ptr = upload_symbol_set(request.FILES["source_map"], self.team_id)
         symbol_set.storage_ptr = storage_ptr
         symbol_set.save()
+        # TODO: cascade delete the associated frame resolutions
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(exclude=True)

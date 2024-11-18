@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { errorTrackingConfigurationSceneLogicType } from './errorTrackingConfigurationSceneLogicType'
+import type { errorTrackingSymbolSetLogicType } from './errorTrackingSymbolSetLogicType'
 
 export enum ErrorGroupTab {
     Overview = 'overview',
@@ -19,8 +19,8 @@ export interface ErrorTrackingSymbolSet {
     ref: string
 }
 
-export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurationSceneLogicType>([
-    path((key) => ['scenes', 'error-tracking', 'errorTrackingConfigurationSceneLogic', key]),
+export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>([
+    path(['scenes', 'error-tracking', 'errorTrackingSymbolSetLogic']),
 
     actions({
         setUploadSymbolSetReference: (ref: string | null) => ({ ref }),
