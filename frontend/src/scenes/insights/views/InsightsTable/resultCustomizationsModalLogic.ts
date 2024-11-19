@@ -1,5 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DataColorToken } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getTrendResultCustomizationColorToken, getTrendResultCustomizationKey } from 'scenes/insights/utils'
@@ -20,6 +22,8 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             ['resultCustomizationBy', 'resultCustomizations'],
             dataThemeLogic,
             ['getTheme'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [trendsDataLogic(props), ['updateResultCustomization']],
     })),
@@ -51,6 +55,10 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     }),
 
     selectors({
+        hasInsightColors: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INSIGHT_COLORS],
+        ],
         modalVisible: [(s) => [s.dataset], (dataset): boolean => dataset !== null],
         colorToken: [
             (s) => [s.localColorToken, s.colorTokenFromQuery],

@@ -28,6 +28,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { resultCustomizationsModalLogic } from 'scenes/insights/views/InsightsTable/resultCustomizationsModalLogic'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { useDebouncedCallback } from 'use-debounce'
@@ -63,6 +64,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
 
     const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
@@ -90,10 +92,9 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(supportsResultCustomizationBy
+        ...(supportsResultCustomizationBy && hasInsightColors
             ? [
                   {
-                      //   title: 'Result customization by',
                       title: (
                           <>
                               <h5 className="mx-2 my-1">

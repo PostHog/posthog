@@ -29,6 +29,7 @@ export function SeriesColumnItem({
     hasBreakdown,
 }: SeriesColumnItemProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
@@ -50,7 +51,7 @@ export function SeriesColumnItem({
                 compareValue={item.compare ? formatCompareLabel(item) : undefined}
                 onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
             />
-            {!hasBreakdown && (
+            {hasInsightColors && !hasBreakdown && (
                 <Link
                     className="align-middle"
                     onClick={(e) => {
