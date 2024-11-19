@@ -46,9 +46,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     await api.dataWarehouseSavedQueries.delete(viewId)
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
-                updateDataWarehouseSavedQuery: async (
-                    view: Partial<DatabaseSchemaViewTable> & Pick<DatabaseSchemaViewTable, 'id'>
-                ) => {
+                updateDataWarehouseSavedQuery: async (view: Partial<DatabaseSchemaViewTable> & { id: string }) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {
