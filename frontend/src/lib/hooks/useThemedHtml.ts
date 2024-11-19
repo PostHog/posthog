@@ -1,28 +1,15 @@
 import { captureException } from '@sentry/react'
 import { useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export function useThemedHtml(overflowHidden = true): void {
-    const { isDarkModeOn, customThemeId, customThemes } = useValues(themeLogic)
+    const { isDarkModeOn, customCss } = useValues(themeLogic)
     const { sceneConfig } = useValues(sceneLogic)
 
     const CUSTOM_THEME_STYLES_ID = 'ph-custom-theme-styles'
-
-    const customCss = useMemo(() => {
-        if (!customThemeId) {
-            return
-        }
-
-        const customTheme = customThemes[customThemeId]
-        if (!customTheme) {
-            return
-        }
-
-        return customTheme.styles
-    }, [customThemeId, customThemes])
 
     useEffect(() => {
         const oldStyle = document.getElementById(CUSTOM_THEME_STYLES_ID)

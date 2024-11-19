@@ -131,13 +131,9 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
     },
-    [Scene.ThemeLibrary]: {
+    [Scene.CustomCss]: {
         projectBased: true,
-        name: 'Theme library',
-    },
-    [Scene.ThemeCreator]: {
-        projectBased: true,
-        name: 'Theme creator',
+        name: 'Custom CSS',
     },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
@@ -547,8 +543,7 @@ export const routes: Record<string, Scene> = {
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.pipelineNode(':stage', ':id')]: Scene.PipelineNode,
-    [urls.themeLibrary()]: Scene.ThemeLibrary,
-    [urls.themeCreator()]: Scene.ThemeCreator,
+    [urls.customCss()]: Scene.CustomCss,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,

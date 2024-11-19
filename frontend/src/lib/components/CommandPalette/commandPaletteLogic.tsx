@@ -861,10 +861,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             },
                             {
                                 icon: IconPalette,
-                                display: 'Custom theme',
-                                executor: () => {
-                                    push(urls.settings('user-customization', 'custom-theme'))
-                                },
+                                display: 'Add custom CSS',
+                                executor: () => push(urls.customCss()),
                             },
                         ],
                     }),
