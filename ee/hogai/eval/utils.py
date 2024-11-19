@@ -16,7 +16,7 @@ class EvalBaseTest(BaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
         matrix = HedgeboxMatrix(
-            now=dt.datetime.now(dt.UTC) - dt.timedelta(days=20),
+            now=dt.datetime.now(dt.UTC) - dt.timedelta(days=25),
             days_past=60,
             days_future=30,
             n_clusters=60,
