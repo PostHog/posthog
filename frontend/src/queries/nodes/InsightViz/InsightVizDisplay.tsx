@@ -32,6 +32,7 @@ import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 export function InsightVizDisplay({
     disableHeader,
@@ -265,7 +266,10 @@ export function InsightVizDisplay({
                                     </div>
                                 </>
                             ) : (
-                                renderActiveView()
+                                <>
+                                    {renderActiveView()}
+                                    <ResultCustomizationsModal />
+                                </>
                             )}
                         </div>
                     </>

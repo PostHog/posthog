@@ -24,7 +24,6 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -265,45 +264,42 @@ export function InsightsTable({
     const theme = getTheme('posthog')
 
     return (
-        <>
-            <LemonTable
-                id={isInDashboardContext ? insight.short_id : undefined}
-                dataSource={
-                    isLegend || isMainInsightView
-                        ? indexedResults
-                        : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
-                }
-                embedded={embedded}
-                columns={columns}
-                rowKey="id"
-                loading={insightDataLoading}
-                disableTableWhileLoading={false}
-                emptyState="No insight results"
-                data-attr="insights-table-graph"
-                useURLForSorting={insightMode !== ItemMode.Edit}
-                rowRibbonColor={
-                    isLegend
-                        ? (item) => {
-                              const isPrevious = !!item.compare && item.compare_label === 'previous'
+        <LemonTable
+            id={isInDashboardContext ? insight.short_id : undefined}
+            dataSource={
+                isLegend || isMainInsightView
+                    ? indexedResults
+                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
+            }
+            embedded={embedded}
+            columns={columns}
+            rowKey="id"
+            loading={insightDataLoading}
+            disableTableWhileLoading={false}
+            emptyState="No insight results"
+            data-attr="insights-table-graph"
+            useURLForSorting={insightMode !== ItemMode.Edit}
+            rowRibbonColor={
+                isLegend
+                    ? (item) => {
+                          const isPrevious = !!item.compare && item.compare_label === 'previous'
 
-                              const colorToken = getTrendResultCustomizationColorToken(
-                                  resultCustomizationBy,
-                                  resultCustomizations,
-                                  theme,
-                                  item
-                              )
+                          const colorToken = getTrendResultCustomizationColorToken(
+                              resultCustomizationBy,
+                              resultCustomizations,
+                              theme,
+                              item
+                          )
 
-                              const themeColor = theme[colorToken]
-                              const mainColor = isPrevious ? `${themeColor}80` : themeColor
+                          const themeColor = theme[colorToken]
+                          const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
-                              return mainColor
-                          }
-                        : undefined
-                }
-                firstColumnSticky
-                maxHeaderWidth="20rem"
-            />
-            <ResultCustomizationsModal />
-        </>
+                          return mainColor
+                      }
+                    : undefined
+            }
+            firstColumnSticky
+            maxHeaderWidth="20rem"
+        />
     )
 }

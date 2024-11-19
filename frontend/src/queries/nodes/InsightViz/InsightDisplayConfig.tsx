@@ -28,11 +28,11 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
-import { resultCustomizationsModalLogic } from 'scenes/insights/views/InsightsTable/resultCustomizationsModalLogic'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 

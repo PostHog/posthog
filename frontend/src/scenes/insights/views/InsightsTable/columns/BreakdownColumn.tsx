@@ -10,7 +10,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { BreakdownFilter } from '~/queries/schema'
 
-import { resultCustomizationsModalLogic } from '../resultCustomizationsModalLogic'
+import { resultCustomizationsModalLogic } from '../../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter

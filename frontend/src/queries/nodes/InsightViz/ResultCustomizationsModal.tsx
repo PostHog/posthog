@@ -12,7 +12,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ResultCustomizationBy } from '~/queries/schema'
 
-import { formatCompareLabel } from './columns/SeriesColumn'
+import { formatCompareLabel } from '../../../scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic'
 
 export function ResultCustomizationsModal(): JSX.Element | null {
