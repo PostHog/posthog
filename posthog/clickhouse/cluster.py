@@ -20,8 +20,7 @@ T = TypeVar("T")
 
 
 class ClickhouseCluster:
-    def __init__(self, bootstrap_client: Client, name: str = settings.CLICKHOUSE_CLUSTER) -> None:
-        self.name = name
+    def __init__(self, bootstrap_client: Client) -> None:
         self.hosts = [
             HostInfo(shard_num, replica_num, host_address, port)
             for (shard_num, replica_num, host_address, port) in bootstrap_client.execute(
@@ -31,10 +30,9 @@ class ClickhouseCluster:
                 WHERE name = %(name)s
                 ORDER BY shard_num, replica_num
                 """,
-                {"name": name},
+                {"name": settings.CLICKHOUSE_CLUSTER},
             )
         ]
-
         self.__pools: dict[HostInfo, ChPool] = {}
 
     def __get_pool(self, host: HostInfo) -> ChPool:
