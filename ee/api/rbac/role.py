@@ -78,8 +78,7 @@ class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
-    permission_classes = [RolePermissions, PremiumFeaturePermission]
-    premium_feature = AvailableFeature.ROLE_BASED_ACCESS
+    permission_classes = [RolePermissions]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(**self.request.GET.dict())
