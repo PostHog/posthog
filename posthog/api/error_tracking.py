@@ -1,9 +1,10 @@
 import structlog
 
-from rest_framework import viewsets, request, response, serializers
+from rest_framework import viewsets, response, serializers
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from .forbid_destroy_model import ForbidDestroyModel
 
+from posthog.api.utils import action
 from posthog.models.error_tracking import ErrorTrackingStackFrame
 
 FIFTY_MEGABYTES = 50 * 1024 * 1024
@@ -73,8 +74,10 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     queryset = ErrorTrackingStackFrame.objects.all()
     serializer_class = ErrorTrackingStackFrameSerializer
 
-    def list(self, request: request.Request, *args, **kwargs) -> response.Response:
+    @action(methods=["GET"], detail=False)
+    def contexts(self, request, **kwargs) -> response.Response:
         ids = request.GET.getlist("ids", [])
         queryset = self.filter_queryset(self.queryset.filter(team=self.team, raw_id__in=ids))
         serializer = self.get_serializer(queryset, many=True)
-        return response.Response(serializer.data)
+        keyed_data = {frame["raw_id"]: frame["context"] for frame in serializer.data}
+        return response.Response(keyed_data)

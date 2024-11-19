@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react'
 
 import { EventType } from '~/types'
 
-import { StackFrame, StackFrameContext, stackFrameLogic } from './stackFrameLogic'
+import { ContextLine, StackFrame, StackFrameContext, stackFrameLogic } from './stackFrameLogic'
 
 interface RawStackTrace {
     type: 'raw'
@@ -31,17 +31,16 @@ interface Exception {
 }
 
 function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFrames: boolean }): JSX.Element | null {
-    const { stackFrameContexts } = useValues(stackFrameLogic)
+    const { frameContexts } = useValues(stackFrameLogic)
     const { loadFrameContexts } = useActions(stackFrameLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     useEffect(() => {
-        const frameIds = frames.map((f) => f.raw_id)
-        loadFrameContexts({ frameIds })
+        loadFrameContexts({ frames })
     }, [frames, loadFrameContexts])
 
     const panels = displayFrames.map(({ raw_id, filename, lineno, colno, function: functionName }, index) => {
-        const frameContext = stackFrameContexts[raw_id]
+        const frameContext = frameContexts[raw_id]
         return {
             key: index,
             header: (
@@ -64,30 +63,36 @@ function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFr
                 </div>
             ),
             content: frameContext ? <FrameContext context={frameContext} /> : null,
+            className: 'p-0',
         }
     })
 
     return <LemonCollapse defaultActiveKeys={[]} multiple panels={panels} size="xsmall" />
 }
 
-function FrameContext({
-    context: { pre_context, line_context, post_context },
-}: {
-    context: StackFrameContext
-}): JSX.Element {
+function FrameContext({ context }: { context: string }): JSX.Element {
+    const { before, line, after } = JSON.parse(context) as StackFrameContext
     return (
-        <div>
-            {pre_context.map((line, index) => (
-                <div key={index}>{line}</div>
-            ))}
-            <div>{line_context}</div>
-            {post_context.map((line, index) => (
-                <div key={index}>{line}</div>
+        <>
+            <FrameContextLine lines={before} />
+            <FrameContextLine lines={[line]} highlight />
+            <FrameContextLine lines={after} />
+        </>
+    )
+}
+
+function FrameContextLine({ lines, highlight }: { lines: ContextLine[]; highlight?: boolean }): JSX.Element {
+    return (
+        <div className={highlight ? 'bg-accent-3000' : 'bg-bg-light'}>
+            {lines.map(({ number, line }) => (
+                <div key={number} className="flex">
+                    <div className="w-12 text-center">{number}</div>
+                    <div className="whitespace-pre">{line}</div>
+                </div>
             ))}
         </div>
     )
 }
-
 function ChainedStackTraces({ exceptionList }: { exceptionList: Exception[] }): JSX.Element {
     const [showAllFrames, setShowAllFrames] = useState(false)
 

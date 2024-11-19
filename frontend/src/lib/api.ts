@@ -113,7 +113,6 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
-import { StackFrameContext } from './components/Errors/stackFrameLogic'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -720,8 +719,12 @@ class ApiRequest {
         return this.errorTracking().addPathComponent('upload_source_maps')
     }
 
-    public errorTrackingStackFrames(ids: string[]): ApiRequest {
-        return this.errorTracking().addPathComponent('stack_frames').withQueryString(toParams({ ids }, true))
+    public errorTrackingStackFrames(): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames')
+    }
+
+    public errorTrackingStackFrameContexts(ids: string[]): ApiRequest {
+        return this.errorTrackingStackFrames().addPathComponent('contexts').withQueryString(toParams({ ids }, true))
     }
 
     // # Warehouse
@@ -1863,8 +1866,8 @@ const api = {
             return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
         },
 
-        async fetchStackFrames(ids: string[]): Promise<{ raw_id: string; context: StackFrameContext }[]> {
-            return await new ApiRequest().errorTrackingStackFrames(ids).get()
+        async fetchStackFrames(ids: string[]): Promise<Record<string, string>> {
+            return await new ApiRequest().errorTrackingStackFrameContexts(ids).get()
         },
     },
 

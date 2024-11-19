@@ -13,23 +13,22 @@ export interface StackFrame {
     in_app?: boolean
 }
 
-export type StackFrameContext = { pre_context: string[]; line_context: string; post_context: string[] }
+export type ContextLine = { number: number; line: string }
+export type StackFrameContext = { before: ContextLine[]; line: ContextLine; after: ContextLine[] }
 
 export const stackFrameLogic = kea<stackFrameLogicType>([
     path(['components', 'Errors', 'stackFrameLogic']),
     loaders(({ values }) => ({
-        stackFrameContexts: [
-            {} as Record<string, StackFrameContext>,
+        frameContexts: [
+            {} as Record<string, string>,
             {
-                loadFrameContexts: async ({ frameIds }: { frameIds: string[] }) => {
-                    const loadedFrameIds = Object.keys(values.stackFrameContexts)
-                    const ids = frameIds.filter((id) => loadedFrameIds.includes(id))
+                loadFrameContexts: async ({ frames }: { frames: StackFrame[] }) => {
+                    const loadedFrameIds = Object.keys(values.frameContexts)
+                    const ids = frames
+                        .filter(({ raw_id }) => loadedFrameIds.includes(raw_id))
+                        .map(({ raw_id }) => raw_id)
                     const response = await api.errorTracking.fetchStackFrames(ids)
-                    const newValues = { ...values.stackFrameContexts }
-                    response.forEach(({ raw_id, context }) => {
-                        newValues[raw_id] = context
-                    })
-                    return newValues
+                    return { ...values.frameContexts, ...response }
                 },
             },
         ],
