@@ -3,6 +3,9 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.models import LazyJoin
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
@@ -17,9 +20,10 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
-    BreakdownType,
     CachedExperimentTrendsQueryResponse,
     ChartDisplayType,
+    DataWarehouseNode,
+    DataWarehousePropertyFilter,
     EventPropertyFilter,
     EventsNode,
     ExperimentSignificanceCode,
@@ -91,10 +95,16 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
-    def _get_breakdown_filter(self) -> BreakdownFilter:
+    def _get_event_breakdown_filter(self) -> BreakdownFilter:
         return BreakdownFilter(
             breakdown=self.breakdown_key,
-            breakdown_type=BreakdownType.EVENT,
+            breakdown_type="event",
+        )
+
+    def _get_data_warehouse_breakdown_filter(self, column_name: str) -> BreakdownFilter:
+        return BreakdownFilter(
+            breakdown=f"{column_name}.properties.`{self.breakdown_key}`",
+            breakdown_type="data_warehouse",
         )
 
     def _prepare_count_query(self) -> TrendsQuery:
@@ -112,7 +122,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
 
         # TODO:
-        # - Fetch the column name if the series type is a data warehouse query (create_hogql_database)
         # - Apply the column name to the breakdown filter and transform the breakdown type to datawarehouse_property
         # - Apply the column name to the properties filter and transform the property type to datawarehouse property
 
@@ -125,15 +134,35 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_insight_date_range()
-        prepared_count_query.breakdownFilter = self._get_breakdown_filter()
-        prepared_count_query.properties = [
-            EventPropertyFilter(
-                key=self.breakdown_key,
-                value=self.variants,
-                operator=PropertyOperator.EXACT,
-                type="event",
-            )
-        ]
+        if self._is_data_warehouse_query(prepared_count_query):
+            column_name = self._get_data_warehouse_events_column_name(prepared_count_query)
+            if not column_name:
+                raise ValueError("Data warehouse table is expected to have a lazy join to the events table")
+            prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
+            prepared_count_query.properties = [
+                DataWarehousePropertyFilter(
+                    key=f"{column_name}.event",
+                    value="$feature_flag_called",
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+                DataWarehousePropertyFilter(
+                    key=f"properties.`{self.breakdown_key}`",
+                    value=self.variants,
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+            ]
+        else:
+            prepared_count_query.breakdownFilter = self._get_event_breakdown_filter()
+            prepared_count_query.properties = [
+                EventPropertyFilter(
+                    key=self.breakdown_key,
+                    value=self.variants,
+                    operator=PropertyOperator.EXACT,
+                    type="event",
+                )
+            ]
 
         return prepared_count_query
 
@@ -159,7 +188,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
             if hasattr(count_event, "event"):
                 prepared_exposure_query.dateRange = self._get_insight_date_range()
-                prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+                prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
                 prepared_exposure_query.trendsFilter = TrendsFilter(
                     display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
                 )
@@ -184,16 +213,30 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         elif self.query.exposure_query:
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
             prepared_exposure_query.dateRange = self._get_insight_date_range()
-            prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
-            prepared_exposure_query.properties = [
-                EventPropertyFilter(
-                    key=self.breakdown_key,
-                    value=self.variants,
-                    operator=PropertyOperator.EXACT,
-                    type="event",
-                )
-            ]
+            if self._is_data_warehouse_query(prepared_exposure_query):
+                column_name = self._get_data_warehouse_events_column_name(prepared_exposure_query)
+                if not column_name:
+                    raise ValueError("Data warehouse table is expected to have a lazy join to the events table")
+                prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
+                prepared_exposure_query.properties = [
+                    DataWarehousePropertyFilter(
+                        key=f"properties.`{self.breakdown_key}`",
+                        value=self.variants,
+                        operator=PropertyOperator.EXACT,
+                        type="data_warehouse",
+                    )
+                ]
+            else:
+                prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
+                prepared_exposure_query.properties = [
+                    EventPropertyFilter(
+                        key=self.breakdown_key,
+                        value=self.variants,
+                        operator=PropertyOperator.EXACT,
+                        type="event",
+                    )
+                ]
         # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
             prepared_exposure_query = TrendsQuery(
@@ -201,7 +244,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
                 breakdownFilter=BreakdownFilter(
                     breakdown="$feature_flag_response",
-                    breakdown_type=BreakdownType.EVENT,
+                    breakdown_type="event",
                 ),
                 series=[
                     EventsNode(
@@ -368,6 +411,39 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         has_errors = any(errors.values())
         if has_errors:
             raise ValidationError(detail=json.dumps(errors))
+
+    def _is_data_warehouse_query(self, query: TrendsQuery) -> bool:
+        return any(isinstance(series, DataWarehouseNode) for series in query.series)
+
+    def _get_data_warehouse_events_column_name(self, query: TrendsQuery) -> Optional[str]:
+        if hasattr(self, "data_warehouse_events_column_name"):
+            return self.data_warehouse_events_column_name
+
+        self.data_warehouse_events_column_name = None
+
+        try:
+            if not query.series:
+                raise ValueError("Query series is empty")
+
+            database = create_hogql_database(self.team.pk)
+            if not database:
+                raise ValueError("Failed to create HogQL database")
+
+            table_name = query.series[0].table_name
+            if table_name not in database.model_extra:
+                raise ValueError(f"Table '{table_name}' not found in database model")
+
+            table_fields = database.model_extra[table_name].fields
+            for field_name, field in table_fields.items():
+                if isinstance(field, LazyJoin) and isinstance(field.join_table, EventsTable):
+                    self.data_warehouse_events_column_name = field_name
+                    break
+
+            return self.data_warehouse_events_column_name
+
+        except Exception as e:
+            # You might want to log the error here
+            raise ValueError(f"Failed to get data warehouse events column name: {str(e)}") from e
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
