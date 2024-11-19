@@ -120,7 +120,7 @@ export function PlayerInspectorList(): JSX.Element {
             new CellMeasurerCache({
                 fixedWidth: true,
                 minHeight: 10,
-                defaultHeight: 42,
+                defaultHeight: 40,
             }),
         []
     )
