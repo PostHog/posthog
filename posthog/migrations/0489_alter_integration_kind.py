@@ -20,6 +20,7 @@ class Migration(migrations.Migration):
                     ("google-pubsub", "Google Pubsub"),
                     ("google-cloud-storage", "Google Cloud Storage"),
                     ("google-ads", "Google Ads"),
+                    ("linkedin-ads", "LinkedIn Ads"),
                 ],
                 max_length=20,
             ),

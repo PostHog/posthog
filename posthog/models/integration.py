@@ -46,6 +46,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
+        LINKEDIN_ADS = "linkedin-ads"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -112,7 +113,7 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "linkedin-ads"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -175,9 +176,6 @@ class OauthIntegration:
                 name_path="hub_domain",
             )
         elif kind == "google-ads":
-            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
-                raise NotImplementedError("Google Ads app not configured")
-
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
                 # forces the consent screen, otherwise we won't receive a refresh token
@@ -185,9 +183,24 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
-                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
+                client_id="settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY",
+                client_secret="settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
                 scope="https://www.googleapis.com/auth/adwords email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "linkedin-ads":
+            if not settings.LINKEDIN_CLIENT_ID or not settings.LINKEDIN_CLIENT_SECRET:
+                raise NotImplementedError("LinkedIn Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.linkedin.com/oauth/v2/authorization",
+                token_info_url="https://api.linkedin.com/v2/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://www.linkedin.com/oauth/v2/accessToken",
+                client_id=settings.LINKEDIN_CLIENT_ID,
+                client_secret=settings.LINKEDIN_CLIENT_SECRET,
+                scope="r_ads rw_conversions openid profile email",
                 id_path="sub",
                 name_path="email",
             )

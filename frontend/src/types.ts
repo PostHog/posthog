@@ -3732,6 +3732,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'linkedin-ads'
 
 export interface IntegrationType {
     id: number

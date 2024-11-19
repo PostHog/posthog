@@ -8,6 +8,7 @@ import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
+import IconLinkedIn from 'public/services/linkedin.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -24,6 +25,7 @@ const ICONS: Record<IntegrationKind, any> = {
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-ads': IconGoogleAds,
+    'linkedin-ads': IconLinkedIn,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
