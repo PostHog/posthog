@@ -154,26 +154,12 @@ function RowItemDetail({
     )
 }
 
-function WindowScrub(): JSX.Element {
-    return (
-        <div className="h-6 w-2 ml-2">
-            <div
-                /* eslint-disable-next-line react/forbid-dom-props */
-                style={{ marginTop: '-125%' }}
-                className="h-full border-l-2 border-muted-alt"
-            />
-        </div>
-    )
-}
-
 export function PlayerInspectorListItem({
     item,
-    previousItem,
     index,
     onLayout,
 }: {
     item: InspectorListItem
-    previousItem: InspectorListItem | null
     index: number
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
@@ -215,6 +201,7 @@ export function PlayerInspectorListItem({
         onLayout({ width, height: totalHeight })
     }, [totalHeight])
 
+    // TODO reintroduce icons
     // const TypeIcon = typeToIconAndDescription[item.type].Icon
 
     return (
@@ -258,12 +245,7 @@ export function PlayerInspectorListItem({
                     }
                 >
                     <div className="pl-1 text-muted-alt flex items-center justify-center gap-1">
-                        {/*{showIcon && TypeIcon ? <TypeIcon /> : null}*/}
-                        {item.windowNumber === previousItem?.windowNumber ? (
-                            <WindowScrub />
-                        ) : (
-                            <IconWindow size="small" value={item.windowNumber || '?'} />
-                        )}
+                        <IconWindow size="small" value={item.windowNumber || '?'} />
                     </div>
                 </Tooltip>
 
@@ -275,6 +257,10 @@ export function PlayerInspectorListItem({
                         item.highlightColor && `bg-${item.highlightColor}-highlight`
                     )}
                 >
+                    {/*
+                    TODO reintroduce icons
+                    {showIcon && TypeIcon ? <TypeIcon /> : null}
+                    */}
                     <RowItemTitle item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
                 </div>
 

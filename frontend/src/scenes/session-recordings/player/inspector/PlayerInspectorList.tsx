@@ -169,7 +169,6 @@ export function PlayerInspectorList(): JSX.Element {
                         <PlayerInspectorListItem
                             key={index}
                             item={items[index]}
-                            previousItem={index - 1 >= 0 ? items[index - 1] : null}
                             index={index}
                             onLayout={({ height }) => {
                                 // Optimization to ensure that we only call measure if the dimensions have actually changed
