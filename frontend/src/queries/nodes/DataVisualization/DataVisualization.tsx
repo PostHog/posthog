@@ -46,7 +46,7 @@ import { variablesLogic } from './Components/Variables/variablesLogic'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 
-export interface DataTableVisualizationProps {
+interface DataTableVisualizationProps {
     uniqueKey?: string | number
     query: DataVisualizationNode
     setQuery: (query: DataVisualizationNode) => void
