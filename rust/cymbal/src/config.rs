@@ -70,11 +70,6 @@ pub struct Config {
     pub frame_cache_ttl_seconds: u64,
 }
 
-pub enum AwsRegion {
-    USEast1,
-    USWest1,
-}
-
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         ConsumerConfig::set_defaults("error-tracking-rs", "exception_symbolification_events");

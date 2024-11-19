@@ -59,7 +59,7 @@ pub async fn handle_event(
     Ok(event)
 }
 
-fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
+pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
     if event.event != "$exception" {
         return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
     }
