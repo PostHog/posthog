@@ -24,6 +24,13 @@ function LogCaptureSettings(): JSX.Element {
                 This setting controls if browser console logs will be captured as a part of recordings. The console logs
                 will be shown in the recording player to help you debug any issues.
             </p>
+            <p>
+                Log capture is also available for{' '}
+                <Link to="https://posthog.com/docs/session-replay/mobile" target="_blank">
+                    Mobile session replay
+                </Link>{' '}
+                , where they can be configured directly in code.
+            </p>
             <LemonSwitch
                 data-attr="opt-in-capture-console-log-switch"
                 onChange={(checked) => {
@@ -51,6 +58,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     <i>There is no way to mask canvas elements right now so please make sure they are free of PII.</i>
                 </b>
             </p>
+            <p>Canvas capture is only available for JavaScript Web.</p>
             <LemonSwitch
                 data-attr="opt-in-capture-canvas-switch"
                 onChange={(checked) => {
@@ -197,6 +205,13 @@ export function NetworkCaptureSettings(): JSX.Element {
                     />
                 </div>
             </div>
+            <p>
+                Network capture is also available for{' '}
+                <Link to="https://posthog.com/docs/session-replay/network-recording" target="_blank">
+                    Mobile session replay
+                </Link>{' '}
+                , where they can be configured directly in code.
+            </p>
         </>
     )
 }
@@ -213,6 +228,7 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 wildcarded top-level domains cannot be used (for security reasons).
             </p>
             <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />
+            <p>Authorized domains is only available for JavaScript Web.</p>
         </div>
     )
 }

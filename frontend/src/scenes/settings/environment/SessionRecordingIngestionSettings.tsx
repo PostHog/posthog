@@ -482,6 +482,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                             useful if you want to reduce the amount of data you collect. 100% means all sessions will be
                             collected. 50% means roughly half of sessions will be collected.
                         </p>
+                        <p>Sampling is only available for JavaScript Web.</p>
                     </>
                 )}
                 {recordingDurationMinimumFeatureEnabled && (
@@ -502,6 +503,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                             value are collected. This helps you avoid collecting sessions that are too short to be
                             useful.
                         </p>
+                        <p>Minimum session duration is only available for JavaScript Web.</p>
                     </>
                 )}
                 <LinkedFlagSelector />
