@@ -31,6 +31,7 @@ pub struct AppContext {
     pub pool: PgPool,
     pub catalog: Catalog,
     pub resolver: Resolver,
+    pub config: Config,
 }
 
 impl AppContext {
@@ -103,6 +104,7 @@ impl AppContext {
             pool,
             catalog,
             resolver,
+            config: config.clone(),
         })
     }
 }

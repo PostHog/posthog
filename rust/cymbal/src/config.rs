@@ -12,6 +12,12 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
+    #[envconfig(default = "clickhouse_events_json")]
+    pub events_topic: String,
+
+    #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
+    pub issue_overrides_topic: String,
+
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
