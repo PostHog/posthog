@@ -1,4 +1,4 @@
-use aws_config::Region;
+use aws_config::{BehaviorVersion, Region};
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer, kafka_producer::create_kafka_producer,
     kafka_producer::KafkaContext,
@@ -12,10 +12,11 @@ use tracing::info;
 
 use crate::{
     config::Config,
-    error::Error,
+    error::UnhandledError,
     frames::resolver::Resolver,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
+        concurrency,
         saving::Saving,
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
@@ -30,10 +31,11 @@ pub struct AppContext {
     pub pool: PgPool,
     pub catalog: Catalog,
     pub resolver: Resolver,
+    pub config: Config,
 }
 
 impl AppContext {
-    pub async fn new(config: &Config) -> Result<Self, Error> {
+    pub async fn new(config: &Config) -> Result<Self, UnhandledError> {
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
             .register("worker".to_string(), Duration::from_secs(60))
@@ -62,6 +64,7 @@ impl AppContext {
             .region(Region::new(config.object_storage_region.clone()))
             .endpoint_url(&config.object_storage_endpoint)
             .credentials_provider(aws_credentials)
+            .behavior_version(BehaviorVersion::latest())
             .build();
         let s3_client = aws_sdk_s3::Client::from_conf(aws_conf);
         let s3_client = S3Client::new(s3_client);
@@ -79,13 +82,18 @@ impl AppContext {
             config.ss_prefix.clone(),
         );
         let caching_smp = Caching::new(saving_smp, ss_cache);
+        // We want to fetch each sourcemap from the outside world
+        // exactly once, and if it isn't in the cache, load/parse
+        // it from s3 exactly once too. Limiting the per symbol set
+        // reference concurreny to 1 ensures this.
+        let limited_smp = concurrency::AtMostOne::new(caching_smp);
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(caching_smp);
+        let catalog = Catalog::new(limited_smp);
         let resolver = Resolver::new(config);
 
         Ok(Self {
@@ -96,6 +104,7 @@ impl AppContext {
             pool,
             catalog,
             resolver,
+            config: config.clone(),
         })
     }
 }

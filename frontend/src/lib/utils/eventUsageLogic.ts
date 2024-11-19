@@ -408,6 +408,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsJoinModeUpdated: (mode: string) => ({ mode }),
         reportBounceRatePageViewModeUpdated: (mode: string) => ({ mode }),
         reportSessionTableVersionUpdated: (version: string) => ({ version }),
+        reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -810,6 +811,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSessionTableVersionUpdated: async ({ version }) => {
             posthog.capture('session table version updated', { version })
         },
+        reportCustomChannelTypeRulesUpdated: async ({ numRules }) => {
+            posthog.capture('custom channel type rules updated', { numRules })
+        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
@@ -988,6 +992,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment created', {
                 name: experiment.name,
                 id: experiment.id,
+                type: experiment.type,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,

@@ -93,6 +93,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
+        restoreFeatureFlag,
         editFeatureFlag,
         loadFeatureFlag,
         saveFeatureFlag,
@@ -544,11 +545,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     )}
                                                     <LemonDivider />
                                                     <LemonButton
-                                                        data-attr="delete-feature-flag"
+                                                        data-attr={
+                                                            featureFlag.deleted
+                                                                ? 'restore-feature-flag'
+                                                                : 'delete-feature-flag'
+                                                        }
                                                         status="danger"
                                                         fullWidth
                                                         onClick={() => {
-                                                            deleteFeatureFlag(featureFlag)
+                                                            featureFlag.deleted
+                                                                ? restoreFeatureFlag(featureFlag)
+                                                                : deleteFeatureFlag(featureFlag)
                                                         }}
                                                         disabledReason={
                                                             !featureFlag.can_edit
@@ -560,7 +567,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 : null
                                                         }
                                                     >
-                                                        Delete feature flag
+                                                        {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
                                                     </LemonButton>
                                                 </>
                                             }
@@ -577,8 +584,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             disabledReason={
-                                                !featureFlag.can_edit &&
-                                                "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                !featureFlag.can_edit
+                                                    ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    : featureFlag.deleted
+                                                    ? 'This feature flag has been deleted. Restore it to edit.'
+                                                    : null
                                             }
                                             onClick={() => {
                                                 editFeatureFlag(true)
@@ -642,8 +652,16 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         },
     ]
 
+    if (featureFlag.deleted) {
+        return (
+            <div data-attr="feature-flag-usage-deleted-banner">
+                <LemonBanner type="error">This feature flag has been deleted.</LemonBanner>
+            </div>
+        )
+    }
+
     return (
-        <div>
+        <div data-attr="feature-flag-usage-container">
             {dashboard ? (
                 <>
                     {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
@@ -765,38 +783,44 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             <div className="col-span-2 card-secondary">Status</div>
                             <div className="col-span-6 card-secondary">Type</div>
                             <div className="col-span-2">
-                                <LemonSwitch
-                                    onChange={(newValue) => {
-                                        LemonDialog.open({
-                                            title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                            description: `This flag will be immediately ${
-                                                newValue === true ? 'rolled out to' : 'rolled back from'
-                                            } the users matching the release conditions.`,
-                                            primaryButton: {
-                                                children: 'Confirm',
-                                                type: 'primary',
-                                                onClick: () => {
-                                                    const updatedFlag = { ...featureFlag, active: newValue }
-                                                    setFeatureFlag(updatedFlag)
-                                                    saveFeatureFlag(updatedFlag)
+                                {featureFlag.deleted ? (
+                                    <LemonTag size="medium" type="danger" className="uppercase">
+                                        Deleted
+                                    </LemonTag>
+                                ) : (
+                                    <LemonSwitch
+                                        onChange={(newValue) => {
+                                            LemonDialog.open({
+                                                title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                                description: `This flag will be immediately ${
+                                                    newValue === true ? 'rolled out to' : 'rolled back from'
+                                                } the users matching the release conditions.`,
+                                                primaryButton: {
+                                                    children: 'Confirm',
+                                                    type: 'primary',
+                                                    onClick: () => {
+                                                        const updatedFlag = { ...featureFlag, active: newValue }
+                                                        setFeatureFlag(updatedFlag)
+                                                        saveFeatureFlag(updatedFlag)
+                                                    },
+                                                    size: 'small',
                                                 },
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
-                                    label="Enabled"
-                                    disabledReason={
-                                        !featureFlag.can_edit
-                                            ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                            : null
-                                    }
-                                    checked={featureFlag.active}
-                                />
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
+                                        }}
+                                        label="Enabled"
+                                        disabledReason={
+                                            !featureFlag.can_edit
+                                                ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                                : null
+                                        }
+                                        checked={featureFlag.active}
+                                    />
+                                )}
                             </div>
                             <div className="col-span-6">
                                 <span className="mt-1">
@@ -893,7 +917,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             ) : (
                 <div className="mb-8">
                     <h3 className="l3">Served value</h3>
-                    <div className="mb-2">
+                    <div className="mb-2" data-attr="feature-flag-served-value-segmented-button">
                         <LemonSegmentedButton
                             size="small"
                             options={[
@@ -1067,19 +1091,18 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         type="number"
                                                         min={0}
                                                         max={100}
-                                                        value={value}
+                                                        // .toString() prevents user from typing leading zeroes
+                                                        value={value.toString()}
                                                         onChange={(changedValue) => {
-                                                            if (changedValue !== null) {
-                                                                const valueInt =
-                                                                    changedValue !== undefined
-                                                                        ? parseInt(changedValue.toString())
-                                                                        : 0
-                                                                if (!isNaN(valueInt)) {
-                                                                    onChange(valueInt)
-                                                                }
-                                                            }
+                                                            const valueInt =
+                                                                changedValue !== undefined && !isNaN(changedValue)
+                                                                    ? parseInt(changedValue.toString())
+                                                                    : 0
+
+                                                            onChange(valueInt)
                                                         }}
                                                         suffix={<span>%</span>}
+                                                        data-attr="feature-flag-variant-rollout-percentage-input"
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (

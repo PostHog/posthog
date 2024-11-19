@@ -11,8 +11,6 @@ import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import {
-    _FunnelExperimentResults,
-    _TrendsExperimentResults,
     FilterLogicalOperator,
     FunnelExperimentVariant,
     InsightType,
@@ -33,13 +31,15 @@ export function SummaryTable(): JSX.Element {
         experiment,
         experimentResults,
         tabularExperimentResults,
-        experimentInsightType,
+        getMetricType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
         countDataForVariant,
         getHighestProbabilityVariant,
+        credibleIntervalForVariant,
     } = useValues(experimentLogic)
+    const metricType = getMetricType(0)
 
     if (!experimentResults) {
         return <></>
@@ -61,7 +61,7 @@ export function SummaryTable(): JSX.Element {
         },
     ]
 
-    if (experimentInsightType === InsightType.TRENDS) {
+    if (metricType === InsightType.TRENDS) {
         columns.push({
             key: 'counts',
             title: (
@@ -163,22 +163,11 @@ export function SummaryTable(): JSX.Element {
                     return <em>Baseline</em>
                 }
 
-                const credibleInterval = (experimentResults as _TrendsExperimentResults)?.credible_intervals?.[
-                    variant.key
-                ]
+                const credibleInterval = credibleIntervalForVariant(experimentResults || null, variant.key, metricType)
                 if (!credibleInterval) {
                     return <>—</>
                 }
-
-                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
-                    ({ key }) => key === 'control'
-                ) as TrendExperimentVariant
-                const controlMean = controlVariant.count / controlVariant.absolute_exposure
-
-                // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
-                // This represents the range in which the true percentage change relative to the control is likely to fall.
-                const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
-                const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
+                const [lowerBound, upperBound] = credibleInterval
 
                 return (
                     <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
@@ -189,7 +178,7 @@ export function SummaryTable(): JSX.Element {
         })
     }
 
-    if (experimentInsightType === InsightType.FUNNELS) {
+    if (metricType === InsightType.FUNNELS) {
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -248,27 +237,11 @@ export function SummaryTable(): JSX.Element {
                         return <em>Baseline</em>
                     }
 
-                    const credibleInterval = (experimentResults as _FunnelExperimentResults)?.credible_intervals?.[
-                        item.key
-                    ]
+                    const credibleInterval = credibleIntervalForVariant(experimentResults || null, item.key, metricType)
                     if (!credibleInterval) {
                         return <>—</>
                     }
-
-                    const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
-                        ({ key }) => key === 'control'
-                    ) as FunnelExperimentVariant
-                    const controlConversionRate =
-                        controlVariant.success_count / (controlVariant.success_count + controlVariant.failure_count)
-
-                    if (!controlConversionRate) {
-                        return <>—</>
-                    }
-
-                    // Calculate the percentage difference between the credible interval bounds of the variant and the control's conversion rate.
-                    // This represents the range in which the true percentage change relative to the control is likely to fall.
-                    const lowerBound = ((credibleInterval[0] - controlConversionRate) / controlConversionRate) * 100
-                    const upperBound = ((credibleInterval[1] - controlConversionRate) / controlConversionRate) * 100
+                    const [lowerBound, upperBound] = credibleInterval
 
                     return (
                         <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${

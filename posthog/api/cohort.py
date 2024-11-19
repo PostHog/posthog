@@ -1,5 +1,4 @@
 import csv
-from posthog.clickhouse.client.connection import Workload
 
 from django.db import DatabaseError
 from loginas.utils import is_impersonated_session
@@ -359,7 +358,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         raw_result = sync_execute(
             query,
             {**params, **filter.hogql_context.values},
-            workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+            # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_result]
         serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
