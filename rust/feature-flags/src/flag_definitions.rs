@@ -1,4 +1,7 @@
-use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
+use crate::{
+    api::FlagError, cohort_models::CohortId, database::Client as DatabaseClient,
+    redis::Client as RedisClient,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::instrument;
@@ -7,7 +10,7 @@ use tracing::instrument;
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
     Exact,
@@ -25,6 +28,8 @@ pub enum OperatorType {
     IsDateExact,
     IsDateAfter,
     IsDateBefore,
+    In,
+    NotIn,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -36,8 +41,26 @@ pub struct PropertyFilter {
     pub value: serde_json::Value,
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
+    // TODO: worth making a enum here to differentiate between cohort and person filters?
     pub prop_type: String,
+    pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
+}
+
+impl PropertyFilter {
+    /// Checks if the filter is a cohort filter
+    pub fn is_cohort(&self) -> bool {
+        self.key == "id" && self.prop_type == "cohort"
+    }
+
+    /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
+    /// or if the value cannot be parsed as a cohort id
+    pub fn get_cohort_id(&self) -> Option<CohortId> {
+        if !self.is_cohort() {
+            return None;
+        }
+        self.value.as_i64().map(|id| id as CohortId)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -68,6 +91,9 @@ pub struct FlagFilters {
     pub super_groups: Option<Vec<FlagGroupType>>,
 }
 
+// TODO: see if you can combine these two structs, like we do with cohort models
+// this will require not deserializing on read and instead doing it lazily, on-demand
+// (which, tbh, is probably a better idea)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: i32,
@@ -142,7 +168,7 @@ impl FeatureFlagList {
                 tracing::error!("failed to parse data to flags list: {}", e);
                 println!("failed to parse data: {}", e);
 
-                FlagError::DataParsingError
+                FlagError::RedisDataParsingError
             })?;
 
         Ok(FeatureFlagList { flags: flags_list })
@@ -174,7 +200,7 @@ impl FeatureFlagList {
             .map(|row| {
                 let filters = serde_json::from_value(row.filters).map_err(|e| {
                     tracing::error!("Failed to deserialize filters for flag {}: {}", row.key, e);
-                    FlagError::DataParsingError
+                    FlagError::RedisDataParsingError
                 })?;
 
                 Ok(FeatureFlag {
@@ -200,7 +226,7 @@ impl FeatureFlagList {
     ) -> Result<(), FlagError> {
         let payload = serde_json::to_string(&flags.flags).map_err(|e| {
             tracing::error!("Failed to serialize flags: {}", e);
-            FlagError::DataParsingError
+            FlagError::RedisDataParsingError
         })?;
 
         client
@@ -1095,7 +1121,7 @@ mod tests {
             .expect("Failed to set malformed JSON in Redis");
 
         let result = FeatureFlagList::from_redis(redis_client, team.id).await;
-        assert!(matches!(result, Err(FlagError::DataParsingError)));
+        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
 
         // Test database query error (using a non-existent table)
         let result = sqlx::query("SELECT * FROM non_existent_table")

@@ -199,7 +199,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, referenceRef?.current, floatingElement, ...additionalRefs])
+    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs])
 
     const floatingContainer = useFloatingContainer()
 
