@@ -120,7 +120,11 @@ export function OutputPane({
         }
 
         if (activeTab === OutputTab.Visualization) {
-            return (
+            return !response ? (
+                <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
+                    <span className="text-muted mt-3">Query results will visualized here</span>
+                </div>
+            ) : (
                 <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
                     <DataTableVisualizationContent
                         activeTab={activeTab}
