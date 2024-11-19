@@ -1,4 +1,5 @@
-import { IconFlag } from '@posthog/icons'
+import { IconFlag, IconGear } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -19,6 +20,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { resultCustomizationsModalLogic } from '../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
@@ -28,6 +30,8 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
@@ -73,11 +77,23 @@ export function FunnelStepsTable(): JSX.Element | null {
                             breakdown.breakdown_value?.length == 1
                                 ? breakdown.breakdown_value[0]
                                 : breakdown.breakdown_value
-                        const label = formatBreakdownLabel(
-                            value,
-                            breakdownFilter,
-                            cohorts,
-                            formatPropertyValueForDisplay
+                        const label = (
+                            <>
+                                {formatBreakdownLabel(value, breakdownFilter, cohorts, formatPropertyValueForDisplay)}
+                                {hasInsightColors && (
+                                    <Link
+                                        className="align-middle"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+
+                                            openModal(value)
+                                        }}
+                                    >
+                                        <IconGear fontSize={16} />
+                                    </Link>
+                                )}
+                            </>
                         )
                         return isOnlySeries ? (
                             <span className="font-medium">{label}</span>
