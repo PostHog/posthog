@@ -461,6 +461,10 @@ export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
     return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
 }
 
+export function getFunnelDatasetPosition(dataset: FlattenedFunnelStepByBreakdown): number {
+    return dataset?.breakdownIndex ?? 0
+}
+
 export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: IndexedTrendResult
@@ -478,9 +482,19 @@ export function getTrendResultCustomization(
         | null
         | undefined
 ): ResultCustomization | undefined {
-    const legendKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
-    return resultCustomizations && Object.keys(resultCustomizations).includes(legendKey)
-        ? resultCustomizations[legendKey]
+    const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
+    return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
+        ? resultCustomizations[resultCustomizationKey]
+        : undefined
+}
+
+export function getFunnelResultCustomization(
+    dataset: FlattenedFunnelStepByBreakdown,
+    resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined
+): ResultCustomization | undefined {
+    const resultCustomizationKey = getFunnelDatasetKey(dataset)
+    return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
+        ? resultCustomizations[resultCustomizationKey]
         : undefined
 }
 
@@ -502,5 +516,22 @@ export function getTrendResultCustomizationColorToken(
     const datasetPosition = getTrendDatasetPosition(dataset)
     const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
 
-    return resultCustomization ? resultCustomization.color : (`preset-${tokenIndex}` as DataColorToken)
+    return resultCustomization && resultCustomization.color
+        ? resultCustomization.color
+        : (`preset-${tokenIndex}` as DataColorToken)
+}
+
+export function getFunnelResultCustomizationColorToken(
+    resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined,
+    theme: DataColorTheme,
+    dataset: FlattenedFunnelStepByBreakdown
+): DataColorToken {
+    const resultCustomization = getFunnelResultCustomization(dataset, resultCustomizations)
+
+    const datasetPosition = getFunnelDatasetPosition(dataset)
+    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+
+    return resultCustomization && resultCustomization.color
+        ? resultCustomization.color
+        : (`preset-${tokenIndex}` as DataColorToken)
 }

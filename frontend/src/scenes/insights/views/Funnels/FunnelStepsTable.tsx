@@ -1,20 +1,20 @@
 import { IconFlag, IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -30,8 +30,9 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { hasInsightColors, resultCustomizations } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
+    const { getTheme } = useValues(dataThemeLogic)
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
@@ -299,6 +300,8 @@ export function FunnelStepsTable(): JSX.Element | null {
         })),
     ] as LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[]
 
+    const theme = getTheme('posthog')
+
     return (
         <LemonTable
             dataSource={flattenedBreakdowns}
@@ -306,7 +309,10 @@ export function FunnelStepsTable(): JSX.Element | null {
             loading={insightLoading}
             rowKey="breakdownIndex"
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
-            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex ?? 0)}
+            rowRibbonColor={(series) => {
+                const colorToken = getFunnelResultCustomizationColorToken(resultCustomizations, theme, series)
+                return theme[colorToken]
+            }}
             firstColumnSticky
         />
     )
