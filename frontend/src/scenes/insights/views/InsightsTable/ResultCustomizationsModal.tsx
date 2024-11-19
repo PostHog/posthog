@@ -111,7 +111,7 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
     const { getTheme } = useValues(dataThemeLogic)
 
     const theme = getTheme('posthog')
-    const color = theme[colorToken]
+    const color = theme[colorToken] as string
 
     return (
         <LemonButton

@@ -5,6 +5,7 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
+import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
@@ -33,7 +34,6 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
-    GraphDataset,
     GroupTypeIndex,
     InsightShortId,
     InsightType,
@@ -441,7 +441,7 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     return query ? urls.insightNew(undefined, undefined, query) : undefined
 }
 
-export function getTrendDatasetKey(dataset: GraphDataset): string {
+export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
     const payload = {
         series: Number.isInteger(dataset.action?.order) ? dataset.action?.order : 'formula',
         breakdown_value: dataset.breakdown_value,
@@ -450,13 +450,13 @@ export function getTrendDatasetKey(dataset: GraphDataset): string {
 
     return JSON.stringify(payload)
 }
-export function getTrendDatasetPosition(dataset: GraphDataset): number {
-    return dataset.colorIndex ?? dataset.seriesIndex ?? dataset.index
+export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
+    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
 }
 
 export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
-    dataset: GraphDataset
+    dataset: IndexedTrendResult
 ): string {
     const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
     return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
@@ -464,7 +464,7 @@ export function getTrendResultCustomizationKey(
 
 export function getTrendResultCustomization(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
-    dataset: GraphDataset,
+    dataset: IndexedTrendResult,
     resultCustomizations:
         | Record<string, ResultCustomizationByValue>
         | Record<number, ResultCustomizationByPosition>
@@ -485,7 +485,7 @@ export function getTrendResultCustomizationColorToken(
         | null
         | undefined,
     theme: DataColorTheme,
-    dataset: GraphDataset
+    dataset: IndexedTrendResult
 ): DataColorToken {
     const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
 

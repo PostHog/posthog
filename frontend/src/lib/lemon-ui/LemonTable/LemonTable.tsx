@@ -41,7 +41,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Class to append to each row. */
     rowClassName?: string | ((record: T, rowIndex: number) => string | null)
     /** Color to mark each row with. */
-    rowRibbonColor?: string | ((record: T, rowIndex: number) => string | null)
+    rowRibbonColor?: string | ((record: T, rowIndex: number) => string | null | undefined)
     /** Status of each row. Defaults no status. */
     rowStatus?: 'highlighted' | ((record: T, rowIndex: number) => 'highlighted' | null)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
