@@ -28,7 +28,7 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
         if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
             base_code = transpile_template_code(value, compiler)
             config_switch += f"case {key_string}: return {base_code};\n"
-            config_dict_items.append(f"{key_string}: getConfigKey({json.dumps(key)}, initial)")
+            config_dict_items.append(f"{key_string}: getInputsKey({json.dumps(key)}, initial)")
         else:
             config_dict_items.append(f"{key_string}: {json.dumps(value)}")
 
@@ -38,32 +38,31 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
     # Start with the STL functions
     response += compiler.get_stl_code() + "\n"
 
-    # This will be used by Hog code to access globals
-    response += "let __globals = {};\n"
-    response += "function __getGlobal(key) { return __globals[key] }\n"
-
+    response += "function getInputs(globals, initial) {\n"
+    response += "let __getGlobal = (key) => globals[key];\n"
+    # response += f"__globals = globals || {'{}'};\n"
     if config_switch:
-        response += f"function getConfigKey(key, initial) {{ try {{ switch (key) {{\n\n///// calculated properties\n"
+        response += "function getInputsKey(key, initial) { try { switch (key) {\n\n///// calculated properties\n"
         response += config_switch
         response += "\ndefault: return null; }\n"
         response += "} catch (e) { if(!initial) {console.warn('[POSTHOG-JS] Unable to get config field', key, e);} return null } }\n"
-
-    response += f"function getConfig(globals, initial) {{ __globals = globals || {'{}'}; return {{\n\n///// config\n"
+    response += "return {\n\n///// config\n"
     response += ",\n".join(config_dict_items)
     response += "\n\n} }\n"
 
     response += f"const response = {transpiled}();"
 
-    response += "if ('inject' in response) { response.inject({config:getConfig({}, true),getConfig:getConfig,posthog:posthog}); }"
-    response += "if ('onLoad' in response) { response.onLoad({inputs:getConfig({}, true),posthog: posthog}); }"
-    response += "if ('onEvent' in response) { posthog.on('eventCaptured', (event) => { "
+    response += "if ('onLoad' in response) { response.onLoad({ inputs: getInputs({}, true), posthog: posthog }); }"
+    response += "if ('onEvent' in response) {"
+    response += "posthog.on('eventCaptured', (event) => { "
     response += "const person = { properties: posthog.get_property('$stored_person_properties') }; "
-    response += "const inputs = getConfig({ event, person });"
-    response += "const __newGlobals = __globals;"
-    response += "__globals = { ...event, person };"
+    response += "const inputs = getInputs({ event, person });"
+
+    response += "let __globals = { ...event, person };"
+    response += "let __getGlobal = (key) => __globals[key];\n"
     response += f"const filterMatches = {filters_code};"
-    response += "__globals = __newGlobals;"
-    response += "if (filterMatches) { response.onEvent({ event, person, inputs: inputs, posthog: posthog }); } "
+
+    response += "if (filterMatches) { response.onEvent({ event, person, inputs, posthog }); } "
     response += "} ) }"
 
     response += "\n\n})();"
