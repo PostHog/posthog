@@ -47,7 +47,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_person(self):
         distinct_id = str(uuid7())
-        return _create_person(
+        p = _create_person(
             uuid=distinct_id,
             team_id=self.team.pk,
             distinct_ids=[distinct_id],
@@ -56,6 +56,13 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
             },
         )
+        # do a pageview with this person so that they show up in results even if they don't perform a goal
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+        )
+        return p
 
     def _visit_web_analytics(self, person: Person, session_id: Optional[str] = None):
         _create_event(
@@ -79,7 +86,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _create_actions(self):
-        Action.objects.create(
+        a0 = Action.objects.create(
             team=self.team,
             name="Clicked Pay",
             steps_json=[
@@ -90,7 +97,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-        Action.objects.create(
+        a1 = Action.objects.create(
             team=self.team,
             name="Contacted Sales",
             steps_json=[
@@ -102,7 +109,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             pinned_at=datetime.now(),
         )
-        Action.objects.create(
+        a2 = Action.objects.create(
             team=self.team,
             name="Visited Web Analytics",
             steps_json=[
@@ -113,6 +120,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+        return a0, a1, a2
 
     def _run_web_goals_query(
         self,
@@ -213,4 +221,17 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Contacted Sales", 0, 0, 0],
             ["Visited Web Analytics", 11, 12, 11 / 15],
             ["Clicked Pay", 7, 8, 7 / 15],
+        ]
+
+    def test_dont_show_deleted_actions(self):
+        actions = self._create_actions()
+        actions[0].delete()
+        p1 = self._create_person()
+        p2 = self._create_person()
+        self._visit_web_analytics(p1)
+        self._click_pay(p2)
+        results = self._run_web_goals_query("all", None).results
+        assert results == [
+            ["Contacted Sales", 0, 0, 0],
+            ["Visited Web Analytics", 1, 1, 0.5],
         ]
