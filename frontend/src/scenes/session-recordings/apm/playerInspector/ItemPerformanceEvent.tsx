@@ -149,7 +149,7 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
     )
 }
 
-export function ItemPerformanceEvent({ item, finalTimestamp, expanded }: ItemPerformanceEventProps): JSX.Element {
+export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEventProps): JSX.Element {
     const sizeInfo = itemSizeInfo(item)
 
     const startTime = item.start_time || item.fetch_start || 0
@@ -189,11 +189,11 @@ export function ItemPerformanceEvent({ item, finalTimestamp, expanded }: ItemPer
                     }}
                 />
                 {item.entry_type === 'navigation' ? (
-                    <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
+                    <NavigationItem item={item} expanded={false} navigationURL={shortEventName} />
                 ) : (
                     <div className="flex gap-2 p-2 text-xs cursor-pointer items-center">
                         <MethodTag item={item} />
-                        <PerformanceEventLabel expanded={expanded} name={item.name} />
+                        <PerformanceEventLabel name={item.name} expanded={false} />
                         {/* We only show the status if it exists and is an error status */}
                         {otherProps.response_status && otherProps.response_status >= 400 ? (
                             <span
