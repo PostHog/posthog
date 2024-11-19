@@ -13,6 +13,7 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
+pub mod hack;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
@@ -59,7 +60,7 @@ pub async fn handle_event(
     Ok(event)
 }
 
-fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
+pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
     if event.event != "$exception" {
         return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
     }
