@@ -4,6 +4,8 @@ from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     KAFKA_COLUMNS,
+    KAFKA_COLUMNS_WITH_PARTITION,
+    KAFKA_TIMESTAMP_MS_COLUMN,
     STORAGE_POLICY,
     kafka_engine,
     trim_quotes_expr,
@@ -228,7 +230,9 @@ group3_created_at,
 group4_created_at,
 person_mode,
 _timestamp,
-_offset
+_timestamp_ms,
+_offset,
+_partition
 FROM {database}.kafka_events_json
 """.format(
         target_table=EVENTS_RECENT_DATA_TABLE(),
@@ -248,10 +252,19 @@ TTL _timestamp + INTERVAL 7 DAY
     table_name=EVENTS_RECENT_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
-    extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
     materialized_columns="",
     indexes="",
     storage_policy=STORAGE_POLICY(),
+)
+
+DISTRIBUTED_EVENTS_RECENT_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="distributed_events_recent",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table=EVENTS_RECENT_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+    materialized_columns="",
+    indexes="",
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
