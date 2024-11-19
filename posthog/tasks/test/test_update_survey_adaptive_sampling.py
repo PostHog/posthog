@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 from django.utils import timezone
@@ -38,6 +39,18 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
         self.assertEqual(internal_response_sampling_flag.rollout_percentage, 20)
         mock_get_count.assert_called_once_with(self.survey.id)
+
+    @freeze_time("2024-12-21T12:00:00Z")
+    @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
+    def test_updates_rollout_after_interval_is_over(self, mock_get_count: MagicMock) -> None:
+        mock_get_count.return_value = 50
+        update_survey_adaptive_sampling()
+        internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
+        self.assertEqual(internal_response_sampling_flag.rollout_percentage, 100)
+        mock_get_count.assert_called_once_with(self.survey.id)
+        survey = Survey.objects.get(id=self.survey.id)
+        response_sampling_daily_limits = json.loads(survey.response_sampling_daily_limits)
+        self.assertEqual(response_sampling_daily_limits[0].get("date"), "2024-12-22")
 
     @freeze_time("2024-12-13T12:00:00Z")
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")

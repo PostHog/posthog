@@ -42,7 +42,7 @@ impl Team {
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
             tracing::error!("failed to parse data to team: {}", e);
-            FlagError::DataParsingError
+            FlagError::RedisDataParsingError
         })?;
 
         Ok(team)
@@ -55,7 +55,7 @@ impl Team {
     ) -> Result<(), FlagError> {
         let serialized_team = serde_json::to_string(&team).map_err(|e| {
             tracing::error!("Failed to serialize team: {}", e);
-            FlagError::DataParsingError
+            FlagError::RedisDataParsingError
         })?;
 
         client
@@ -173,7 +173,7 @@ mod tests {
         let client = setup_redis_client(None);
 
         match Team::from_redis(client.clone(), team.api_token.clone()).await {
-            Err(FlagError::DataParsingError) => (),
+            Err(FlagError::RedisDataParsingError) => (),
             Err(other) => panic!("Expected DataParsingError, got {:?}", other),
             Ok(_) => panic!("Expected DataParsingError"),
         };

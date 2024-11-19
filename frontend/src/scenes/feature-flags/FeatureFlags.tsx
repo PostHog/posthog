@@ -436,6 +436,7 @@ export function FeatureFlags(): JSX.Element {
                         content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} />,
                     },
                 ]}
+                data-attr="feature-flags-tab-navigation"
             />
         </div>
     )

@@ -4,9 +4,11 @@ import { useActions, useValues } from 'kea'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
 export function QuestionSuggestions(): JSX.Element {
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { visibleSuggestions, allSuggestionsLoading, currentProject } = useValues(maxLogic)
     const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
@@ -54,6 +56,11 @@ export function QuestionSuggestions(): JSX.Element {
                                 size="xsmall"
                                 type="secondary"
                                 sideIcon={<IconArrowUpRight />}
+                                center
+                                className="shrink"
+                                disabledReason={
+                                    !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
+                                }
                             >
                                 {suggestion}
                             </LemonButton>
