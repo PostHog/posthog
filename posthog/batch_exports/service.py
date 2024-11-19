@@ -24,7 +24,7 @@ from posthog.batch_exports.models import (
     BatchExportDestination,
     BatchExportRun,
 )
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -643,6 +643,11 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
+    task_queue = (
+        BATCH_EXPORTS_TASK_QUEUE
+        if batch_export.destination.type in ("BigQuery", "Redshift")
+        else SYNC_BATCH_EXPORTS_TASK_QUEUE
+    )
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -667,7 +672,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 )
             ),
             id=str(batch_export.id),
-            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=task_queue,
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
