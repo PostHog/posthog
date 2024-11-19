@@ -37,19 +37,19 @@ class ClickhouseCluster:
 
         self.__pools: dict[HostInfo, ChPool] = {}
 
+    def __get_pool(self, host: HostInfo) -> ChPool:
+        pool = self.__pools.get(host)
+        if pool is None:
+            pool = self.__pools[host] = make_ch_pool(host=host.host_address, port=host.port)
+        return pool
+
     def map_hosts(self, fn: Callable[[Client], T]) -> Mapping[HostInfo, Future[T]]:
         def task(pool):
             with pool.get_client() as client:
                 return fn(client)
 
         with ThreadPoolExecutor() as executor:
-            results = {}
-            for host in self.hosts:
-                pool = self.__pools.get(host)
-                if pool is None:
-                    pool = self.__pools[pool] = make_ch_pool(host=host.host_address, port=host.port)
-                results[host] = executor.submit(task, pool)
-            return results
+            return {host: executor.submit(task, self.__get_pool(host)) for host in self.hosts}
 
     def map_shards(self, fn: Callable[[Client], T]) -> Mapping[int, Future[T]]:
         def task(pool):
@@ -62,10 +62,4 @@ class ClickhouseCluster:
                 shard_hosts[host.shard_num] = host
 
         with ThreadPoolExecutor() as executor:
-            results = {}
-            for shard_num, host in shard_hosts.items():
-                pool = self.__pools.get(host)
-                if pool is None:
-                    pool = self.__pools[pool] = make_ch_pool(host=host.host_address, port=host.port)
-                results[shard_num] = executor.submit(task, pool)
-            return results
+            return {shard_num: executor.submit(task, self.__get_pool(host)) for shard_num, host in shard_hosts.items()}
