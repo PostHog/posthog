@@ -1,6 +1,6 @@
-use crate::api::FlagError;
-use crate::cohort_models::Cohort;
-use crate::flag_matching::{PostgresReader, TeamId};
+use crate::api::errors::FlagError;
+use crate::cohort::cohort_models::Cohort;
+use crate::flags::flag_matching::{PostgresReader, TeamId};
 use moka::future::Cache;
 use std::time::Duration;
 
@@ -74,8 +74,8 @@ impl CohortCacheManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cohort_models::Cohort;
-    use crate::test_utils::{
+    use crate::cohort::cohort_models::Cohort;
+    use crate::utils::test_utils::{
         insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
         setup_pg_writer_client,
     };
@@ -84,15 +84,15 @@ mod tests {
 
     /// Helper function to setup a new team for testing.
     async fn setup_test_team(
-        writer_client: Arc<dyn crate::database::Client + Send + Sync>,
+        writer_client: Arc<dyn crate::client::database::Client + Send + Sync>,
     ) -> Result<TeamId, anyhow::Error> {
-        let team = crate::test_utils::insert_new_team_in_pg(writer_client, None).await?;
+        let team = insert_new_team_in_pg(writer_client, None).await?;
         Ok(team.id)
     }
 
     /// Helper function to insert a cohort for a team.
     async fn setup_test_cohort(
-        writer_client: Arc<dyn crate::database::Client + Send + Sync>,
+        writer_client: Arc<dyn crate::client::database::Client + Send + Sync>,
         team_id: TeamId,
         name: Option<String>,
     ) -> Result<Cohort, anyhow::Error> {
