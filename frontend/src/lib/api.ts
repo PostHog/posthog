@@ -769,6 +769,21 @@ class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
     }
 
+    public integrationLinkedInAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('linkedin_ads_accessible_accounts')
+    }
+
+    public integrationLinkedInAdsConversionRules(
+        id: IntegrationType['id'],
+        accountId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('linkedin_ads_conversion_rules')
+            .withQueryString({ accountId })
+    }
+
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -2391,6 +2406,15 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+        async linkedInAdsAccounts(id: IntegrationType['id']): Promise<{ accessibleAccounts: { id: string }[] }> {
+            return await new ApiRequest().integrationLinkedInAdsAccounts(id).get()
+        },
+        async linkedInAdsConversionRules(
+            id: IntegrationType['id'],
+            accountId: string
+        ): Promise<{ conversionRules: LinkedInAdsConversionRuleType[] }> {
+            return await new ApiRequest().integrationLinkedInAdsConversionRules(id, accountId).get()
         },
     },
 

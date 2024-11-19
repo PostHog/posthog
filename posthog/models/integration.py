@@ -509,3 +509,43 @@ class GoogleCloudIntegration:
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+
+class LinkedInAdsIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "linkedin-ads":
+            raise Exception("LinkedInAdsIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    @property
+    def client(self) -> WebClient:
+        return WebClient(self.integration.sensitive_config["access_token"])
+
+    def list_linkedin_ads_conversion_rules(self, account_id) -> list[dict]:
+        response = requests.request(
+            "GET",
+            f"https://api.linkedin.com/rest/conversions?q=account&account=urn%3Ali%3AsponsoredAccount%3A{account_id}&fields=conversionMethod%2Cenabled%2Ctype%2Cname%2Cid%2Ccampaigns%2CattributionType",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "LinkedIn-Version": "202409",
+            },
+        )
+
+        return response.json()
+
+    def list_linkedin_ads_accessible_accounts(self) -> dict:
+        response = requests.request(
+            "GET",
+            "https://api.linkedin.com/rest/adAccountUsers?q=authenticatedUser&fields=role%2Caccount%2Cuser",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "LinkedIn-Version": "202409",
+            },
+        )
+
+        return response.json()
