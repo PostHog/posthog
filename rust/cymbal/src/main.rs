@@ -1,12 +1,12 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
+    hack::kafka::{send_keyed_iter_to_kafka, RecvErr},
     handle_event,
     metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
 };
@@ -78,11 +78,8 @@ async fn main() {
         };
         metrics::counter!(EVENT_RECEIVED).increment(1);
 
-        let _processed_event = match handle_event(context.clone(), event).await {
-            Ok(r) => {
-                offset.store().unwrap();
-                r
-            }
+        let event = match handle_event(context.clone(), event).await {
+            Ok(e) => e,
             Err(e) => {
                 error!("Error handling event: {:?}", e);
                 // If we get an unhandled error, it means we have some logical error in the code, or a
@@ -91,7 +88,16 @@ async fn main() {
             }
         };
 
-        // TODO - emit the event to the next Kafka topic
+        send_keyed_iter_to_kafka(
+            &context.kafka_producer,
+            &context.config.events_topic,
+            |ev| Some(ev.uuid.to_string()),
+            &[event],
+        )
+        .await
+        .expect("Failed to send event to Kafka");
+
+        offset.store().unwrap();
 
         metrics::counter!(STACK_PROCESSED).increment(1);
         whole_loop.label("finished", "true").fin();

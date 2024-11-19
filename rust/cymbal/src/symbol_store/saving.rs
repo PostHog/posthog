@@ -2,7 +2,7 @@ use axum::async_trait;
 use chrono::{DateTime, Utc};
 
 use sqlx::PgPool;
-use tracing::error;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{
@@ -71,6 +71,7 @@ impl<F> Saving<F> {
         set_ref: String,
         data: Vec<u8>,
     ) -> Result<String, UnhandledError> {
+        info!("Saving symbol set data for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
         // Generate a new opaque key, appending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
@@ -96,6 +97,7 @@ impl<F> Saving<F> {
         set_ref: String,
         reason: &FrameError,
     ) -> Result<(), UnhandledError> {
+        info!("Saving symbol set error for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "false");
         SymbolSetRecord {
             id: Uuid::now_v7(),
@@ -127,8 +129,10 @@ where
 
     async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Error> {
         let set_ref = r.to_string();
+        info!("Fetching symbol set data for {}", set_ref);
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
             if let Some(storage_ptr) = record.storage_ptr {
+                info!("Found symbol set data for {}", set_ref);
                 let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
                 metrics::counter!(SAVED_SYMBOL_SET_LOADED).increment(1);
                 return Ok(Saveable {
@@ -138,6 +142,7 @@ where
                     set_ref,
                 });
             } else if Utc::now() - record.created_at < chrono::Duration::days(1) {
+                info!("Found recent symbol set error for {}", set_ref);
                 // We tried less than a day ago to get the set data, and failed, so bail out
                 // with the stored error. We unwrap here because we should never store a "no set"
                 // row without also storing the error, and if we do, we want to panic, but we
@@ -155,18 +160,22 @@ where
                     .map_err(UnhandledError::from)?;
                 return Err(Error::ResolutionError(error));
             }
+            info!("Found stale symbol set error for {}", set_ref);
             // We last tried to get the symbol set more than a day ago, so we should try again
             metrics::counter!(SYMBOL_SET_FETCH_RETRY).increment(1);
         }
 
         match self.inner.fetch(team_id, r).await {
             // NOTE: We don't save the data here, because we want to save it only after parsing
-            Ok(data) => Ok(Saveable {
-                data,
-                storage_ptr: None,
-                team_id,
-                set_ref,
-            }),
+            Ok(data) => {
+                info!("Inner fetched symbol set data for {}", set_ref);
+                Ok(Saveable {
+                    data,
+                    storage_ptr: None,
+                    team_id,
+                    set_ref,
+                })
+            }
             Err(Error::ResolutionError(e)) => {
                 // But if we failed to get any data, we save that fact
                 self.save_no_data(team_id, set_ref, &e).await?;
@@ -188,6 +197,7 @@ where
     async fn parse(&self, data: Saveable) -> Result<Self::Set, Error> {
         match self.inner.parse(data.data.clone()).await {
             Ok(s) => {
+                info!("Parsed symbol set data for {}", data.set_ref);
                 if data.storage_ptr.is_none() {
                     // We only save the data if we fetched it from the underlying fetcher
                     self.save_data(data.team_id, data.set_ref, data.data)
@@ -196,6 +206,7 @@ where
                 return Ok(s);
             }
             Err(Error::ResolutionError(e)) => {
+                info!("Failed to parse symbol set data for {}", data.set_ref);
                 // We save the no-data case here, to prevent us from fetching again for day
                 self.save_no_data(data.team_id, data.set_ref, &e).await?;
                 return Err(Error::ResolutionError(e));
