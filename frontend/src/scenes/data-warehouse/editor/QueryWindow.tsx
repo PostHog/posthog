@@ -22,8 +22,17 @@ export function QueryWindow(): JSX.Element {
         monaco,
         editor,
     })
-    const { allTabs, activeModelUri, queryInput, activeQuery, activeTabKey, hasErrors, error, isValidView } =
-        useValues(logic)
+    const {
+        allTabs,
+        activeModelUri,
+        queryInput,
+        activeQuery,
+        activeTabKey,
+        hasErrors,
+        error,
+        isValidView,
+        editingView,
+    } = useValues(logic)
     const { selectTab, deleteTab, createTab, setQueryInput, runQuery, saveAsView } = useActions(logic)
 
     return (
@@ -35,6 +44,11 @@ export function QueryWindow(): JSX.Element {
                 onAdd={createTab}
                 activeModelUri={activeModelUri}
             />
+            {editingView && (
+                <div className="h-7 bg-warning-highlight p-1">
+                    <span> Editing view "{editingView.name}"</span>
+                </div>
+            )}
             <QueryPane
                 queryInput={queryInput}
                 promptError={null}
