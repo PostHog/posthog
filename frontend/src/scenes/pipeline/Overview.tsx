@@ -2,6 +2,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { urls } from 'scenes/urls'
@@ -9,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { PipelineTab } from '~/types'
 
 import { DestinationsTable } from './destinations/Destinations'
-import { overlayForNewPipelineMenu } from './NewMenu'
 import { TransformationsTable } from './Transformations'
 
 export function Overview(): JSX.Element {
@@ -17,25 +17,24 @@ export function Overview(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <>
-                        <LemonButton
-                            type="primary"
-                            sideAction={{
-                                dropdown: {
-                                    placement: 'bottom-end',
-                                    className: 'new-pipeline-overlay',
-                                    actionable: true,
-                                    overlay: overlayForNewPipelineMenu('some-data-attr-here'),
-                                },
-                                'data-attr': 'new-pipeline-dropdown',
-                            }}
-                            data-attr="new-pipeline-button"
-                            size="small"
-                            icon={<IconPlusSmall />}
+                    <div className="shrink-0 flex items-center m-2">
+                        <LemonMenu
+                            items={[
+                                { label: 'Source', to: `/pipeline/new/sources` },
+                                { label: 'Transformation', to: `/pipeline/new/transformations` },
+                                { label: 'Destination', to: `/pipeline/new/destinations` },
+                            ]}
                         >
-                            New
-                        </LemonButton>
-                    </>
+                            <LemonButton
+                                data-attr="new-pipeline-button"
+                                icon={<IconPlusSmall />}
+                                size="small"
+                                type="primary"
+                            >
+                                New
+                            </LemonButton>
+                        </LemonMenu>
+                    </div>
                 }
             />
             <div className="space-y-4">
