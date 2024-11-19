@@ -22,13 +22,13 @@ pub mod types;
 pub async fn handle_event(
     context: Arc<AppContext>,
     mut event: ClickHouseEvent,
-) -> Result<Option<ClickHouseEvent>, UnhandledError> {
+) -> Result<ClickHouseEvent, UnhandledError> {
     let mut props = match get_props(&event) {
         Ok(r) => r,
         Err(e) => {
             warn!("Failed to get props: {}", e);
             add_error_to_event(&mut event, e)?;
-            return Ok(Some(event));
+            return Ok(event);
         }
     };
 
@@ -37,7 +37,7 @@ pub async fn handle_event(
     if exceptions.is_empty() {
         props.add_error_message("No exceptions found on exception event");
         event.properties = Some(serde_json::to_string(&props).unwrap());
-        return Ok(Some(event));
+        return Ok(event);
     }
 
     let mut results = Vec::new();
@@ -56,7 +56,7 @@ pub async fn handle_event(
 
     event.properties = Some(serde_json::to_string(&output).unwrap());
 
-    Ok(Some(event))
+    Ok(event)
 }
 
 fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
