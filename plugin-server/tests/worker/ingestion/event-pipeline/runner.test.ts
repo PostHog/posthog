@@ -145,7 +145,6 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
-                'enrichExceptionEventStep',
                 'createEventStep',
                 'emitEventStep',
             ])
@@ -175,7 +174,6 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
-                'enrichExceptionEventStep',
                 'createEventStep',
                 'emitEventStep',
             ])
@@ -398,7 +396,6 @@ describe('EventPipelineRunner', () => {
                     'processPersonsStep',
                     'prepareEventStep',
                     'extractHeatmapDataStep',
-                    'enrichExceptionEventStep',
                     'createEventStep',
                     'emitEventStep',
                 ])
