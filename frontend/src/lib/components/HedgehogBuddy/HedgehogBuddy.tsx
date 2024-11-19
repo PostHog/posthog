@@ -959,7 +959,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     useEffect(() => {
         onPositionChange?.(actor)
-    }, [actor.x, actor.y])
+    }, [actor.x, actor.y, actor.direction])
 
     const onClick = (): void => {
         !actor.isDragging && _onClick?.(actor)
