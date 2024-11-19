@@ -9,42 +9,51 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/linkedin.png",
     category=["Advertisement"],
     hog="""
-if (empty(inputs.gclid)) {
-    print('Empty `gclid`. Skipping...')
-    return
-}
-
 let body := {
-    'conversions': [
-        {
-            'gclid': inputs.gclid,
-            'conversion_action': f'customers/{replaceAll(inputs.customerId, '-', '')}/conversionActions/{replaceAll(inputs.conversionActionId, 'AW-', '')}',
-            'conversion_date_time': inputs.conversionDateTime
-        }
-    ],
-    'partialFailure': true,
-    'validateOnly': true
+    'conversion': f'urn:lla:llaPartnerConversion:{conversionRuleId}',
+    'conversionHappenedAt': inputs.conversionDateTime,
+    'conversionValue': {
+        'currencyCode': 'USD',
+        'amount': '500.0'
+    },
+    'user': {
+        'userIds': [],
+        'userInfo': {}
+     },
+    'eventId' : event.uuid
 }
 
-if (not empty(inputs.conversionValue)) {
-    body.conversions[1].conversion_value := inputs.conversionValue
-}
 if (not empty(inputs.currencyCode)) {
-    body.conversions[1].currency_code := inputs.currencyCode
+    body.conversionValue.currencyCode := inputs.currencyCode
+}
+if (not empty(inputs.conversionValue)) {
+    body.conversionValue.amount := inputs.conversionValue
 }
 
-let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(inputs.customerId, '-', '')}:uploadClickConversions', {
+for (let key, value in inputs.userInfo) {
+    if (not empty(value)) {
+        body.user.userInfo[key] := value
+    }
+}
+
+for (let key, value in inputs.userIds) {
+    if (not empty(value)) {
+        body.user.userIds := arrayPushBack(body.user.userIds, {'idType': key, 'idValue': value})
+    }
+}
+
+let res := fetch('https://api.linkedin.com/rest/conversionEvents', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',
         'Content-Type': 'application/json',
-        'developer-token': inputs.developerToken
+        'LinkedIn-Version': '202409'
     },
     'body': body
 })
 
 if (res.status >= 400) {
-    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body}')
+    throw Error(f'Error from api.linkedin.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[
@@ -77,20 +86,11 @@ if (res.status >= 400) {
             "required": True,
         },
         {
-            "key": "gclid",
-            "type": "string",
-            "label": "Google Click ID (gclid)",
-            "description": "The Google click ID (gclid) associated with this conversion.",
-            "default": "{person.properties.gclid ?? person.properties.$initial_gclid}",
-            "secret": False,
-            "required": True,
-        },
-        {
             "key": "conversionDateTime",
             "type": "string",
             "label": "Conversion Date Time",
-            "description": 'The date time at which the conversion occurred. Must be after the click time. The timezone must be specified. The format is "yyyy-mm-dd hh:mm:ss+|-hh:mm", e.g. "2019-01-01 12:32:45-08:00".',
-            "default": "{event.timestamp}",
+            "description": "The timestamp at which the conversion occurred in milliseconds. Must be after the click time.",
+            "default": "{toUnixTimestampMilli(event.timestamp)}",
             "secret": False,
             "required": True,
         },
@@ -98,7 +98,7 @@ if (res.status >= 400) {
             "key": "conversionValue",
             "type": "string",
             "label": "Conversion value",
-            "description": "The value of the conversion for the advertiser.",
+            "description": "The value of the conversion for the advertiser in decimal string. (e.g. “100.05”).",
             "default": "",
             "secret": False,
             "required": False,
@@ -111,6 +111,33 @@ if (res.status >= 400) {
             "default": "",
             "secret": False,
             "required": False,
+        },
+        {
+            "key": "userIds",
+            "type": "dictionary",
+            "label": "User ids",
+            "description": "A map that contains user ids. See this page for options: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api?view=li-lms-2024-03&tabs=curl#idtype",
+            "default": {
+                "SHA256_EMAIL": "{sha256Hex(person.properties.email)}",
+                "LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID": "{person.properties.li_fat_id ?? person.properties.$initial_li_fat_id}",
+            },
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "userInfo",
+            "type": "dictionary",
+            "label": "User information",
+            "description": "A map that contains user information data. See this page for options: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api?view=li-lms-2024-03&tabs=curl#userinfo",
+            "default": {
+                "firstName": "{person.properties.firstname}",
+                "lastName": "{person.properties.lastname}",
+                "title": "{person.properties.title}",
+                "companyName": "{person.properties.company}",
+                "countryCode": "{person.properties.$geoip_country_code}",
+            },
+            "secret": False,
+            "required": True,
         },
     ],
     filters={
