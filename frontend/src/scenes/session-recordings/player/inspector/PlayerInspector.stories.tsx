@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { largeRecordingJSONL } from 'scenes/session-recordings/__mocks__/large_recording_blob_one'
 import largeRecordingEventsJson from 'scenes/session-recordings/__mocks__/large_recording_load_events_one.json'
 import largeRecordingMetaJson from 'scenes/session-recordings/__mocks__/large_recording_meta.json'
+import largeRecordingWebVitalsEventsPropertiesJson from 'scenes/session-recordings/__mocks__/large_recording_web_vitals_props.json'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -44,6 +45,10 @@ const meta: Meta<typeof PlayerInspector> = {
                     const body = req.body as Record<string, any>
                     if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
                         return res(ctx.json(largeRecordingEventsJson))
+                    }
+
+                    if (body.query.kind === 'HogQLQuery' && body.query.query.includes("event in ['$web_vitals']")) {
+                        return res(ctx.json(largeRecordingWebVitalsEventsPropertiesJson))
                     }
 
                     // default to an empty response or we duplicate information
