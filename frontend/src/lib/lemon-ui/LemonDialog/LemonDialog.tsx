@@ -134,7 +134,7 @@ export const LemonFormDialog = ({
         children: 'Submit',
         htmlType: 'submit',
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        onClick: props.shouldAwaitSubmit ? async () => await onSubmit(form) : undefined,
+        onClick: props.shouldAwaitSubmit ? async () => await onSubmit(form) : () => void onSubmit(form),
         disabledReason: !isFormValid ? firstError : undefined,
     }
 
