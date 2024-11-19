@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::error::UnhandledError;
 
-use super::Frame;
+use super::{Context, Frame};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErrorTrackingStackFrame {
@@ -16,7 +16,7 @@ pub struct ErrorTrackingStackFrame {
     pub symbol_set_id: Option<Uuid>,
     pub contents: Frame,
     pub resolved: bool,
-    pub context: Option<String>,
+    pub context: Option<Context>,
 }
 
 impl ErrorTrackingStackFrame {
@@ -26,7 +26,7 @@ impl ErrorTrackingStackFrame {
         symbol_set_id: Option<Uuid>,
         contents: Frame,
         resolved: bool,
-        context: Option<String>,
+        context: Option<Context>,
     ) -> Self {
         Self {
             raw_id,
@@ -61,7 +61,7 @@ impl ErrorTrackingStackFrame {
             serde_json::to_value(&self.contents)?,
             self.resolved,
             Uuid::now_v7(),
-            self.context
+            serde_json::to_string(&self.context)?
         ).execute(e).await?;
         Ok(())
     }
@@ -103,9 +103,16 @@ impl ErrorTrackingStackFrame {
         // We don't serialise frame contexts on the Frame itself, but save it on the frame record,
         // and so when we load a frame record we need to patch back up the context onto the frame,
         // since we dropped it when we serialised the frame during saving.
-
         let mut frame: Frame = serde_json::from_value(found.contents)?;
-        frame.context = found.context.clone();
+        let context = if let Some(context) = found.context.as_ref() {
+            // We serialise the frame context as a json string, but it's a structure we have to manually
+            // deserialise back into the frame.
+            Some(serde_json::from_str(context)?)
+        } else {
+            None
+        };
+
+        frame.context = context.clone();
 
         Ok(Some(Self {
             raw_id: found.raw_id,
@@ -114,7 +121,7 @@ impl ErrorTrackingStackFrame {
             symbol_set_id: found.symbol_set_id,
             contents: frame,
             resolved: found.resolved,
-            context: found.context,
+            context,
         }))
     }
 }

@@ -1,5 +1,3 @@
-use std::cmp::min;
-
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
@@ -7,7 +5,7 @@ use sourcemap::{SourceMap, Token};
 
 use crate::{
     error::{Error, FrameError, JsResolveErr, UnhandledError},
-    frames::Frame,
+    frames::{Context, ContextLine, Frame},
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     symbol_store::SymbolCatalog,
 };
@@ -160,28 +158,39 @@ impl From<(&RawJSFrame, JsResolveErr)> for Frame {
     }
 }
 
-fn get_context(token: &Token) -> Option<String> {
+fn get_context(token: &Token) -> Option<Context> {
     let sv = token.get_source_view()?;
 
-    let token_line = token.get_src_line();
-    let start_line = token_line.saturating_sub(5);
-    let end_line = min(token_line.saturating_add(5) as usize, sv.line_count()) as u32;
+    let token_line_num = token.get_src_line();
 
-    // Rough guess on capacity here
-    let mut context = String::with_capacity(((end_line - start_line) * 100) as usize);
+    let Some(token_line) = sv.get_line(token_line_num) else {
+        return None;
+    };
 
-    for line in start_line..end_line {
-        if let Some(l) = sv.get_line(line) {
-            context.push_str(l);
-            context.push('\n');
+    let mut before = Vec::new();
+    let mut i = token_line_num;
+    while before.len() < 5 && i > 0 {
+        i -= 1;
+        if let Some(line) = sv.get_line(i) {
+            before.push(ContextLine::new(i, line));
+        }
+    }
+    before.reverse();
+
+    let mut after = Vec::new();
+    let mut i = token_line_num;
+    while after.len() < 5 && i < sv.line_count() as u32 {
+        i += 1;
+        if let Some(line) = sv.get_line(i) {
+            after.push(ContextLine::new(i, line));
         }
     }
 
-    if !context.is_empty() {
-        Some(context)
-    } else {
-        None
-    }
+    Some(Context {
+        before,
+        line: ContextLine::new(token_line_num, token_line),
+        after,
+    })
 }
 
 #[cfg(test)]

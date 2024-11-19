@@ -108,10 +108,13 @@ async fn process_exception(
         // process those groups in-order (but the individual frames in them can still be
         // thrown at the wall), with some cross-group concurrency.
         handles.push(tokio::spawn(async move {
-            context
+            context.worker_liveness.report_healthy().await;
+            let res = context
                 .resolver
                 .resolve(&frame, team_id, &context.pool, &context.catalog)
-                .await
+                .await;
+            context.worker_liveness.report_healthy().await;
+            res
         }));
     }
 
