@@ -10,6 +10,7 @@ from django.db import models
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from sentry_sdk import capture_exception
 from slack_sdk import WebClient
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest
@@ -439,6 +440,12 @@ class GoogleAdsIntegration:
             },
         )
 
+        if response.status_code != 200:
+            capture_exception(
+                Exception(f"GoogleAdsIntegration: Failed to list ads conversion actions: {response.text}")
+            )
+            raise Exception(f"There was an internal error")
+
         return response.json()
 
     def list_google_ads_accessible_accounts(self) -> dict:
@@ -451,6 +458,10 @@ class GoogleAdsIntegration:
                 "developer-token": settings.ADWORDS_DEVELOPER_TOKEN,
             },
         )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
+            raise Exception(f"There was an internal error")
 
         return response.json()
 
