@@ -34,6 +34,7 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
+    FlattenedFunnelStepByBreakdown,
     GroupTypeIndex,
     InsightShortId,
     InsightType,
@@ -441,6 +442,11 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     return query ? urls.insightNew(undefined, undefined, query) : undefined
 }
 
+export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown): string {
+    const payload = { breakdown_value: dataset.breakdown_value }
+    return JSON.stringify(payload)
+}
+
 export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
     const payload = {
         series: Number.isInteger(dataset.action?.order) ? dataset.action?.order : 'formula',
@@ -450,6 +456,7 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
 
     return JSON.stringify(payload)
 }
+
 export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
     return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
 }

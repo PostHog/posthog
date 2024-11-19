@@ -6892,6 +6892,13 @@
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
                 },
+                "resultCustomizations": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ResultCustomizationByValue"
+                    },
+                    "description": "Display configuration for the result datasets.",
+                    "type": "object"
+                },
                 "useUdf": {
                     "type": "boolean"
                 }

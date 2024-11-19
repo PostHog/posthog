@@ -5871,6 +5871,9 @@ class FunnelsFilter(BaseModel):
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.DAY
     hiddenLegendBreakdowns: Optional[list[str]] = None
     layout: Optional[FunnelLayout] = FunnelLayout.VERTICAL
+    resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
+        default=None, description="Display configuration for the result datasets."
+    )
     useUdf: Optional[bool] = None
 
 

@@ -4,12 +4,18 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { RESULT_CUSTOMIZATION_DEFAULT } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getTrendResultCustomizationColorToken, getTrendResultCustomizationKey } from 'scenes/insights/utils'
+import {
+    getFunnelDatasetKey,
+    getTrendResultCustomizationColorToken,
+    getTrendResultCustomizationKey,
+} from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { InsightLogicProps } from '~/types'
+import { ResultCustomizationBy } from '~/queries/schema'
+import { FlattenedFunnelStepByBreakdown, InsightLogicProps } from '~/types'
 
 import type { resultCustomizationsModalLogicType } from './resultCustomizationsModalLogicType'
 
@@ -20,18 +26,20 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
 
     connect((props: InsightLogicProps) => ({
         values: [
+            insightVizDataLogic,
+            ['isTrends', 'isFunnels', 'insightFilter'],
             trendsDataLogic(props),
-            ['resultCustomizationBy', 'resultCustomizations'],
+            ['resultCustomizationBy as resultCustomizationByRaw', 'resultCustomizations'],
             dataThemeLogic,
             ['getTheme'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [trendsDataLogic(props), ['updateResultCustomization']],
+        actions: [trendsDataLogic(props), ['updateResultCustomization'], insightVizDataLogic, ['updateInsightFilter']],
     })),
 
     actions({
-        openModal: (dataset: IndexedTrendResult) => ({ dataset }),
+        openModal: (dataset: IndexedTrendResult | FlattenedFunnelStepByBreakdown) => ({ dataset }),
         closeModal: true,
 
         setColorToken: (token: DataColorToken) => ({ token }),
@@ -41,7 +49,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
 
     reducers({
         dataset: [
-            null as IndexedTrendResult | null,
+            null as IndexedTrendResult | FlattenedFunnelStepByBreakdown | null,
             {
                 openModal: (_, { dataset }) => dataset,
                 closeModal: () => null,
@@ -82,18 +90,40 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                 )
             },
         ],
+        resultCustomizationBy: [
+            (s) => [s.resultCustomizationByRaw],
+            (resultCustomizationByRaw) => resultCustomizationByRaw || RESULT_CUSTOMIZATION_DEFAULT,
+        ],
     }),
 
     listeners(({ actions, values }) => ({
         save: () => {
-            if (values.localColorToken != null) {
+            if (values.localColorToken == null) {
+                actions.closeModal()
+                return
+            }
+
+            if (values.isTrends) {
                 const resultCustomizationKey = getTrendResultCustomizationKey(
                     values.resultCustomizationBy,
                     values.dataset as IndexedTrendResult
                 )
                 actions.updateResultCustomization(resultCustomizationKey, {
-                    assignmentBy: values.resultCustomizationBy || RESULT_CUSTOMIZATION_DEFAULT,
+                    assignmentBy: values.resultCustomizationBy,
                     color: values.localColorToken,
+                })
+            }
+
+            if (values.isFunnels) {
+                const resultCustomizationKey = getFunnelDatasetKey(values.dataset)
+                actions.updateInsightFilter({
+                    resultCustomizations: {
+                        ...values.insightFilter?.resultCustomizations,
+                        [resultCustomizationKey]: {
+                            assignmentBy: ResultCustomizationBy.Value,
+                            color: values.localColorToken,
+                        },
+                    },
                 })
             }
 

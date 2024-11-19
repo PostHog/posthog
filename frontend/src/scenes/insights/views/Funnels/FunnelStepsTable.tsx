@@ -87,7 +87,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                             e.preventDefault()
                                             e.stopPropagation()
 
-                                            openModal(value)
+                                            openModal(breakdown)
                                         }}
                                     >
                                         <IconGear fontSize={16} />

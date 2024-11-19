@@ -1409,6 +1409,9 @@ export type FunnelsFilter = {
     /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
     useUdf?: boolean
+
+    /** Display configuration for the result datasets. */
+    resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
