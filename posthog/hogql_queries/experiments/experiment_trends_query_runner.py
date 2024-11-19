@@ -140,14 +140,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 raise ValueError("Data warehouse table is expected to have a lazy join to the events table")
             prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
             prepared_count_query.properties = [
-                # DataWarehousePropertyFilter(
-                #     key=f"{column_name}.event",
-                #     value="$feature_flag_called",
-                #     operator=PropertyOperator.EXACT,
-                #     type="data_warehouse",
-                # ),
                 DataWarehousePropertyFilter(
-                    key=f"properties.`{self.breakdown_key}`",
+                    key=f"{column_name}.event",
+                    value="$feature_flag_called",
+                    operator=PropertyOperator.EXACT,
+                    type="data_warehouse",
+                ),
+                DataWarehousePropertyFilter(
+                    key=f"{column_name}.properties.`{self.breakdown_key}`",
                     value=self.variants,
                     operator=PropertyOperator.EXACT,
                     type="data_warehouse",
