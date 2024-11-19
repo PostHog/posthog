@@ -308,7 +308,7 @@ export function LineGraph_({
     }
 
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
-    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
+    const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
@@ -332,17 +332,20 @@ export function LineGraph_({
             dataset
         )
 
-        const themeColor = dataset?.status ? getBarColorFromStatus(dataset.status) : theme[colorToken]
+        const themeColor = dataset?.status
+            ? getBarColorFromStatus(dataset.status)
+            : isHorizontal
+            ? dataset.backgroundColor
+            : theme[colorToken]
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
-        const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
-        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
+
         let backgroundColor: string | undefined = undefined
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor
         } else if (isArea) {
-            backgroundColor = areaBackgroundColor
+            backgroundColor = hexToRGBA(mainColor, 0.5)
         }
 
         let adjustedData = dataset.data
@@ -379,6 +382,8 @@ export function LineGraph_({
                     const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
                     const isActive = !dataset.compare || dataset.compare_label != 'previous'
                     // if last date is still active show dotted line
+                    const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
+                    const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
                     return isIncomplete && isActive ? areaIncompletePattern : undefined
                 },
             },
