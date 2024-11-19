@@ -74,3 +74,5 @@ pyrightconfig.json
 .deepeval-cache.json
 .deepeval_telemtry.txt
 .temporal-worker-settings
+temp_test_run_data.json
+.temp-deepeval-cache.json
