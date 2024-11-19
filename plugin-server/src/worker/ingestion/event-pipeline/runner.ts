@@ -12,7 +12,6 @@ import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
-import { enrichExceptionEventStep } from './enrichExceptionEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
     eventProcessedAndIngestedCounter,
@@ -254,15 +253,9 @@ export class EventPipelineRunner {
             heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
-        const enrichedIfErrorEvent = await this.runStep(
-            enrichExceptionEventStep,
-            [this, preparedEventWithoutHeatmaps],
-            event.team_id
-        )
-
         const rawEvent = await this.runStep(
             createEventStep,
-            [this, enrichedIfErrorEvent, person, processPerson],
+            [this, preparedEventWithoutHeatmaps, person, processPerson],
             event.team_id
         )
 
