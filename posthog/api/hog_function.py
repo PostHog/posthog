@@ -189,7 +189,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if attrs["type"] == "web":
                 # TODO: do we always have instance.id available?
                 attrs["transpiled"] = get_transpiled_function(
-                    str(instance.id), attrs["hog"], attrs["filters"], attrs["inputs"]
+                    str(instance.id), attrs["hog"], attrs["filters"], attrs["inputs"], team
                 )
                 attrs["bytecode"] = None
             else:

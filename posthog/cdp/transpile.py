@@ -1,18 +1,20 @@
 import json
 
+from posthog.cdp.filters import hog_function_filters_to_expr
 from posthog.cdp.validation import transpile_template_code
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.models.plugin import transpile
+from posthog.models.team.team import Team
 
 
-def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict) -> str:
+def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, team: Team) -> str:
     # Transpile the plugin TS into JS
     transpiled = transpile(source, "site")
 
     # Wrap in IIFE = Immediately Invoked Function Expression = to avoid polluting global scope
     response = "(function() {\n\n"
 
-    response += "const posthog = window['__$$ph_site_app_{id}'] || window['posthog'];\n"
+    response += f"const posthog = window['__$$ph_site_app_{id}'] || window['posthog'];\n"
 
     # Build a switch statement within a try/catch loop and a static dict
     config_switch = ""
@@ -30,7 +32,8 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict) -
         else:
             config_dict_items.append(f"{key_string}: {json.dumps(value)}")
 
-    # TODO: use the filters as well
+    filters_expr = hog_function_filters_to_expr(filters, team, None)
+    filters_code = compiler.visit(filters_expr)
 
     # Start with the STL functions
     response += compiler.get_stl_code() + "\n"
@@ -51,12 +54,17 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict) -
 
     response += f"const response = {transpiled}();"
 
-    response += f"if ('inject' in response) {{ response.inject({{config:getConfig({'{}'}, true),getConfig:getConfig,posthog:posthog}}); }}"
-    response += f"if ('onLoad' in response) {{ response.onLoad({{inputs:getConfig({'{}'}, true),posthog: posthog}}); }}"
-    response += f"if ('onEvent' in response) {{ posthog.on('eventCaptured', (event) => {{ "
-    response += f"const person = {{ properties: posthog.get_property('$stored_person_properties') }}; "
-    response += f"response.onEvent({{ event, person, inputs: getConfig({{ event, person }}), posthog: posthog }}); "
-    response += f"}} ) }}"
+    response += "if ('inject' in response) { response.inject({config:getConfig({}, true),getConfig:getConfig,posthog:posthog}); }"
+    response += "if ('onLoad' in response) { response.onLoad({inputs:getConfig({}, true),posthog: posthog}); }"
+    response += "if ('onEvent' in response) { posthog.on('eventCaptured', (event) => { "
+    response += "const person = { properties: posthog.get_property('$stored_person_properties') }; "
+    response += "const inputs = getConfig({ event, person });"
+    response += "const __newGlobals = __globals;"
+    response += "__globals = { ...event, person };"
+    response += f"const filterMatches = {filters_code};"
+    response += "__globals = __newGlobals;"
+    response += "if (filterMatches) { response.onEvent({ event, person, inputs: inputs, posthog: posthog }); } "
+    response += "} ) }"
 
     response += "\n\n})();"
 
