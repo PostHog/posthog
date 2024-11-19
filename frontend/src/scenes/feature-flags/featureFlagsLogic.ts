@@ -235,8 +235,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 order,
             }
 
-            pageFiltersFromUrl.active = active ? String(active) : undefined
-            pageFiltersFromUrl.page = page ? parseInt(page) : undefined
+            pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
+            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
 
             actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
