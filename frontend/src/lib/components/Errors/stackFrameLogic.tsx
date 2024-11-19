@@ -13,8 +13,8 @@ export interface ErrorTrackingStackFrame {
     raw_id: string
     created_at: string
     resolved: boolean
-    context: string | null
-    contents: Record<string, any> // More flexible for varying content structures
+    context: string | null // TODO - switch this to the structure we've discussed once the migration is merged
+    contents: Record<string, any> // For now, while we're not 100% on content structure
 }
 
 export interface ErrorTrackingSymbolSet {
