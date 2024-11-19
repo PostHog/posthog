@@ -4,10 +4,9 @@ import {
     IconThumbsDownFilled,
     IconThumbsUp,
     IconThumbsUpFilled,
-    IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonRow, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -35,6 +34,7 @@ import {
     isAssistantMessage,
     isFailureMessage,
     isHumanMessage,
+    isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
 
@@ -58,6 +58,8 @@ export function Thread(): JSX.Element | null {
                     return <TextAnswer key={index} message={message} index={index} />
                 } else if (isVisualizationMessage(message)) {
                     return <VisualizationAnswer key={index} message={message} status={message.status} />
+                } else if (isReasoningMessage(message)) {
+                    return <div key={index}>{message.content}</div>
                 }
                 return null // We currently skip other types of messages
             })}
@@ -130,7 +132,7 @@ function VisualizationAnswer({
 }: {
     message: VisualizationMessage
     status?: MessageStatus
-}): JSX.Element {
+}): JSX.Element | null {
     const query = useMemo<InsightVizNode | null>(() => {
         if (message.answer) {
             return {
@@ -143,54 +145,33 @@ function VisualizationAnswer({
         return null
     }, [message])
 
-    return (
-        <>
-            {message.reasoning_steps && (
-                <MessageTemplate
-                    type="ai"
-                    action={
-                        status === 'error' && (
-                            <LemonRow icon={<IconWarning />} status="warning" size="small">
-                                Max is generating this answer one more time because the previous attempt has failed.
-                            </LemonRow>
-                        )
-                    }
-                    className={status === 'error' ? 'border-warning' : undefined}
-                >
-                    <ul className="list-disc ml-4">
-                        {message.reasoning_steps.map((step, index) => (
-                            <li key={index}>{step}</li>
-                        ))}
-                    </ul>
-                </MessageTemplate>
-            )}
-            {status === 'completed' && query && (
-                <>
-                    <MessageTemplate type="ai">
-                        <div className="h-96 flex">
-                            <Query query={query} readOnly embedded />
-                        </div>
-                        <div className="relative mb-1">
-                            <LemonButton
-                                to={urls.insightNew(undefined, undefined, query)}
-                                sideIcon={<IconOpenInNew />}
-                                size="xsmall"
-                                targetBlank
-                                className="absolute right-0 -top-px"
-                            >
-                                Open as new insight
-                            </LemonButton>
-                            <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
-                            <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                <PropertiesSummary properties={query.source.properties} />
-                                <BreakdownSummary query={query.source} />
-                            </div>
-                        </div>
-                    </MessageTemplate>
-                </>
-            )}
-        </>
-    )
+    return status !== 'completed'
+        ? null
+        : query && (
+              <>
+                  <MessageTemplate type="ai">
+                      <div className="h-96 flex">
+                          <Query query={query} readOnly embedded />
+                      </div>
+                      <div className="relative mb-1">
+                          <LemonButton
+                              to={urls.insightNew(undefined, undefined, query)}
+                              sideIcon={<IconOpenInNew />}
+                              size="xsmall"
+                              targetBlank
+                              className="absolute right-0 -top-px"
+                          >
+                              Open as new insight
+                          </LemonButton>
+                          <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
+                          <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                              <PropertiesSummary properties={query.source.properties} />
+                              <BreakdownSummary query={query.source} />
+                          </div>
+                      </div>
+                  </MessageTemplate>
+              </>
+          )
 }
 
 function RetriableAnswerActions(): JSX.Element {

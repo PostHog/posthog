@@ -5,7 +5,6 @@ from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import BaseModel
-from sentry_sdk import capture_exception
 
 from ee import settings
 from ee.hogai.funnels.nodes import (
@@ -30,6 +29,7 @@ from posthog.schema import (
     AssistantGenerationStatusType,
     AssistantMessage,
     FailureMessage,
+    ReasoningMessage,
     VisualizationMessage,
 )
 
@@ -68,9 +68,27 @@ def is_state_update(update: list[Any]) -> TypeGuard[tuple[Literal["updates"], As
     return len(update) == 2 and update[0] == "values"
 
 
+def is_task_started_update(
+    update: list[Any],
+) -> TypeGuard[tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]]:
+    """
+    Streaming of messages. Returns a partial state.
+    """
+    return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
+
+
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
+}
+
+
+NODE_TO_REASONING_MESSAGE: dict[AssistantNodeName, str] = {
+    AssistantNodeName.ROUTER: "Identifying type of analysis",
+    AssistantNodeName.TRENDS_PLANNER: "Picking relevant events and properties",
+    AssistantNodeName.FUNNEL_PLANNER: "Picking relevant events and properties",
+    AssistantNodeName.TRENDS_GENERATOR: "Creating trends query",
+    AssistantNodeName.FUNNEL_GENERATOR: "Creating funnel query",
 }
 
 
@@ -247,7 +265,7 @@ class Assistant:
         generator: Iterator[Any] = self._graph.stream(
             state,
             config={"recursion_limit": 24, "callbacks": callbacks},
-            stream_mode=["messages", "values", "updates"],
+            stream_mode=["messages", "values", "updates", "debug"],
         )
 
         chunks = AIMessageChunk(content="")
@@ -290,12 +308,15 @@ class Assistant:
                                 chunks.tool_calls[0]["args"]
                             )
                             if parsed_message:
-                                yield VisualizationMessage(
-                                    reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
-                                )
+                                yield VisualizationMessage(answer=parsed_message.query)
                         elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
                             chunks += langchain_message  # type: ignore
                             yield AssistantMessage(content=chunks.content)
-        except Exception as e:
-            capture_exception(e)
+                elif is_task_started_update(update):
+                    _, task_update = update
+                    node_name = task_update["payload"]["name"]
+                    if reasoning_message := NODE_TO_REASONING_MESSAGE.get(node_name):
+                        yield ReasoningMessage(content=reasoning_message)
+        except:
             yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point
+            raise  # Re-raise, so that this is printed or  goes into Sentry

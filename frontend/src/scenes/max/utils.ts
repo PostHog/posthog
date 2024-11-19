@@ -6,12 +6,17 @@ import {
     FailureMessage,
     FunnelsQuery,
     HumanMessage,
+    ReasoningMessage,
     RootAssistantMessage,
     RouterMessage,
     TrendsQuery,
     VisualizationMessage,
 } from '~/queries/schema'
 import { isTrendsQuery } from '~/queries/utils'
+
+export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
+    return message?.type === AssistantMessageType.Reasoning
+}
 
 export function isVisualizationMessage(
     message: RootAssistantMessage | undefined | null
