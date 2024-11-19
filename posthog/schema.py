@@ -6783,12 +6783,13 @@ class ExperimentTrendsQuery(BaseModel):
         extra="forbid",
     )
     count_query: TrendsQuery
-    experiment_id: int
+    experiment_id: Optional[int] = None
     exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
 
 
@@ -6897,12 +6898,13 @@ class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    experiment_id: int
+    experiment_id: Optional[int] = None
     funnels_query: FunnelsQuery
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
 
 

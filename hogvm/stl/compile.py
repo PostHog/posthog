@@ -5,7 +5,7 @@ import glob
 import json
 
 from posthog.hogql import ast
-from posthog.hogql.bytecode import create_bytecode, parse_program
+from posthog.hogql.compiler.bytecode import create_bytecode, parse_program
 
 source = "hogvm/stl/src/*.hog"
 target_ts = "hogvm/typescript/src/stl/bytecode.ts"

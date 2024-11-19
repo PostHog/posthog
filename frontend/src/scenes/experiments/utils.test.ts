@@ -4,7 +4,7 @@ import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from '.
 
 describe('utils', () => {
     it('Funnel experiment returns correct MDE', async () => {
-        const experimentInsightType = InsightType.FUNNELS
+        const metricType = InsightType.FUNNELS
         const trendResults = [
             {
                 action: {
@@ -26,36 +26,36 @@ describe('utils', () => {
         ]
 
         let conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(1)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 1 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(1)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
 
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.01 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(1)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.99 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(1)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
 
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.1 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(5)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.9 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(5)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
 
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.3 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(3)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(3)
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.7 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(3)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(3)
 
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.2 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(4)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(4)
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.8 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(4)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(4)
 
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.5 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(5)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
     })
 
     it('Trend experiment returns correct MDE', async () => {
-        const experimentInsightType = InsightType.TRENDS
+        const metricType = InsightType.TRENDS
         const conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0 }
         const trendResults = [
             {
@@ -78,19 +78,19 @@ describe('utils', () => {
         ]
 
         trendResults[0].count = 0
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(100)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(100)
 
         trendResults[0].count = 200
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(100)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(100)
 
         trendResults[0].count = 201
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(20)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(20)
 
         trendResults[0].count = 1001
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(5)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
 
         trendResults[0].count = 20000
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(5)
+        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
     })
 
     it('transforms filters for a winning variant', async () => {
