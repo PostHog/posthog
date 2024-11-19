@@ -4579,7 +4579,7 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
-export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+export type HogFunctionTypeType = 'destination' | 'web' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
 
 export type HogFunctionType = {
     id: string

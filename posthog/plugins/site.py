@@ -76,6 +76,32 @@ def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[
     return [asdict(WebJsUrl(source[0], site_app_url(source))) for source in sources]
 
 
+# TODO: is this too much per /decide ?
+def get_decide_site_functions(team: "Team", using_database: str = "default") -> list[dict]:
+    from posthog.models import HogFunction
+
+    sources = (
+        HogFunction.objects.db_manager(using_database)
+        .filter(
+            team=team,
+            enabled=True,
+            type="web",
+            transpiled__isnull=False,
+        )
+        .values_list(
+            "id",
+            "updated_at",
+        )
+        .all()
+    )
+
+    def site_function_url(source: tuple) -> str:
+        hash = md5(str(source[1]).encode()).hexdigest()
+        return f"/site_function/{source[0]}/{hash}/"
+
+    return [asdict(WebJsUrl(source[0], site_function_url(source))) for source in sources]
+
+
 def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Optional[dict]):
     if not config or not config_schema:
         return {}

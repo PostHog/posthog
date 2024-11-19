@@ -75,12 +75,14 @@ class Local:
 def to_js_program(code: str) -> str:
     compiler = JavaScriptCompiler()
     code = compiler.visit(parse_program(code))
-    imports = compiler.get_inlined_stl()
+    imports = compiler.get_stl_code()
     return imports + ("\n\n" if imports else "") + code
 
 
-def to_js_expr(expr: str) -> str:
-    return JavaScriptCompiler().visit(parse_expr(expr))
+def to_js_expr(expr: str | ast.Expr) -> str:
+    if isinstance(expr, str):
+        expr = parse_expr(expr)
+    return JavaScriptCompiler().visit(expr)
 
 
 def _as_block(node: ast.Statement) -> ast.Block:
@@ -113,14 +115,14 @@ class JavaScriptCompiler(Visitor):
         self.scope_depth = 0
         self.args = args or []
         self.indent_level = 0
-        self.inlined_stl: set[str] = set()
+        self.stl_functions: set[str] = set()
 
         # Initialize locals with function arguments
         for arg in self.args:
             self._declare_local(arg)
 
-    def get_inlined_stl(self) -> str:
-        return import_stl_functions(self.inlined_stl)
+    def get_stl_code(self) -> str:
+        return import_stl_functions(self.stl_functions)
 
     def _start_scope(self):
         self.scope_depth += 1
@@ -172,16 +174,16 @@ class JavaScriptCompiler(Visitor):
         elif op == ast.CompareOperationOp.NotIn:
             return f"(!{right_code}.includes({left_code}))"
         elif op == ast.CompareOperationOp.Like:
-            self.inlined_stl.add("like")
+            self.stl_functions.add("like")
             return f"like({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.ILike:
-            self.inlined_stl.add("ilike")
+            self.stl_functions.add("ilike")
             return f"ilike({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.NotLike:
-            self.inlined_stl.add("like")
+            self.stl_functions.add("like")
             return f"!like({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.NotILike:
-            self.inlined_stl.add("ilike")
+            self.stl_functions.add("ilike")
             return f"!ilike({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.Regex:
             # TODO: re2?
@@ -226,14 +228,14 @@ class JavaScriptCompiler(Visitor):
                 if found_local:
                     array_code = _sanitize_identifier(element)
                 elif element in STL_FUNCTIONS:
-                    self.inlined_stl.add(str(element))
+                    self.stl_functions.add(str(element))
                     array_code = f"{_sanitize_identifier(element)}"
                 else:
                     array_code = f"{_JS_GET_GLOBAL}({json.dumps(element)})"
                 continue
 
             if (isinstance(element, int) and not isinstance(element, bool)) or isinstance(element, str):
-                self.inlined_stl.add("__getProperty")
+                self.stl_functions.add("__getProperty")
                 array_code = f"__getProperty({array_code}, {json.dumps(element)}, true)"
             else:
                 raise QueryError(f"Unsupported element: {element} ({type(element)})")
@@ -242,13 +244,13 @@ class JavaScriptCompiler(Visitor):
     def visit_tuple_access(self, node: ast.TupleAccess):
         tuple_code = self.visit(node.tuple)
         index_code = str(node.index)
-        self.inlined_stl.add("__getProperty")
+        self.stl_functions.add("__getProperty")
         return f"__getProperty({tuple_code}, {index_code}, {json.dumps(node.nullish)})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
         array_code = self.visit(node.array)
         property_code = self.visit(node.property)
-        self.inlined_stl.add("__getProperty")
+        self.stl_functions.add("__getProperty")
         return f"__getProperty({array_code}, {property_code}, {json.dumps(node.nullish)})"
 
     def visit_constant(self, node: ast.Constant):
@@ -304,7 +306,7 @@ class JavaScriptCompiler(Visitor):
             return f"({expr_code} ?? {if_null_code})"
 
         if node.name in STL_FUNCTIONS:
-            self.inlined_stl.add(node.name)
+            self.stl_functions.add(node.name)
             name = _sanitize_identifier(node.name)
             args_code = ", ".join(self.visit(arg) for arg in node.args)
             return f"{name}({args_code})"
@@ -419,7 +421,7 @@ class JavaScriptCompiler(Visitor):
             self._declare_local(node.keyVar)
             self._declare_local(node.valueVar)
             body_code = self.visit(_as_block(node.body))
-            self.inlined_stl.add("keys")
+            self.stl_functions.add("keys")
             resp = f"for (let {_sanitize_identifier(node.keyVar)} of keys({expr_code})) {{ let {_sanitize_identifier(node.valueVar)} = {expr_code}[{_sanitize_identifier(node.keyVar)}]; {body_code} }}"
             self._end_scope()
             return resp
@@ -427,7 +429,7 @@ class JavaScriptCompiler(Visitor):
             self._start_scope()
             self._declare_local(node.valueVar)
             body_code = self.visit(_as_block(node.body))
-            self.inlined_stl.add("values")
+            self.stl_functions.add("values")
             resp = f"for (let {_sanitize_identifier(node.valueVar)} of values({expr_code})) {body_code}"
             self._end_scope()
             return resp
@@ -447,14 +449,14 @@ class JavaScriptCompiler(Visitor):
             tuple_code = self.visit(node.left.tuple)
             index = node.left.index
             right_code = self.visit(node.right)
-            self.inlined_stl.add("__setProperty")
+            self.stl_functions.add("__setProperty")
             return f"__setProperty({tuple_code}, {index}, {right_code});"
 
         elif isinstance(node.left, ast.ArrayAccess):
             array_code = self.visit(node.left.array)
             property_code = self.visit(node.left.property)
             right_code = self.visit(node.right)
-            self.inlined_stl.add("__setProperty")
+            self.stl_functions.add("__setProperty")
             return f"__setProperty({array_code}, {property_code}, {right_code});"
 
         elif isinstance(node.left, ast.Field):
@@ -472,10 +474,10 @@ class JavaScriptCompiler(Visitor):
                     elif (isinstance(element, int) and not isinstance(element, bool)) or isinstance(element, str):
                         if index == len(chain) - 1:
                             right_code = self.visit(node.right)
-                            self.inlined_stl.add("__setProperty")
+                            self.stl_functions.add("__setProperty")
                             array_code = f"__setProperty({array_code}, {json.dumps(element)}, {right_code})"
                         else:
-                            self.inlined_stl.add("__getProperty")
+                            self.stl_functions.add("__getProperty")
                             array_code = f"__getProperty({array_code}, {json.dumps(element)}, true)"
                     else:
                         raise QueryError(f"Unsupported element: {element} ({type(element)})")
@@ -515,7 +517,7 @@ class JavaScriptCompiler(Visitor):
         else:
             expr_code = self.visit(node.expr)
         self._end_scope()
-        self.inlined_stl.add("__lambda")
+        self.stl_functions.add("__lambda")
         # we wrap it in __lambda() to make the function anonymous (a true lambda without a name)
         return f"__lambda(({params_code}) => {expr_code})"
 
@@ -536,7 +538,7 @@ class JavaScriptCompiler(Visitor):
 
     def visit_tuple(self, node: ast.Tuple):
         items_code = ", ".join([self.visit(expr) for expr in node.exprs])
-        self.inlined_stl.add("tuple")
+        self.stl_functions.add("tuple")
         return f"tuple({items_code})"
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):

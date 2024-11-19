@@ -135,6 +135,7 @@ def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction
         inputs=validate_inputs(
             webhook_template.inputs_schema,
             {"url": {"value": webhook_url}, "method": {"value": "POST"}, "body": {"value": body}},
+            function_type="destination",
         ),
         inputs_schema=webhook_template.inputs_schema,
         template_id=webhook_template.id,

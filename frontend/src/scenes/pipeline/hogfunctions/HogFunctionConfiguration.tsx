@@ -151,11 +151,13 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = type === 'destination' || type === 'broadcast'
-    const showExpectedVolume = type === 'destination'
-    const showEnabled = type === 'destination' || type === 'email'
-    const canEditSource = type === 'destination' || type === 'email'
+    const showFilters = type === 'destination' || type === 'web' || type === 'broadcast'
+    const showExpectedVolume = type === 'destination' || type === 'web'
+    const showStatus = type === 'destination' || type === 'email'
+    const showEnabled = type === 'destination' || type === 'email' || type === 'web'
+    const canEditSource = type === 'destination' || type === 'email' || type === 'web'
     const showPersonsCount = type === 'broadcast'
+    const showTesting = type === 'destination' || type === 'broadcast' || type === 'email'
 
     return (
         <div className="space-y-3">
@@ -210,7 +212,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         {template && <DestinationTag status={template.status} />}
                                     </div>
 
-                                    {showEnabled && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
+                                    {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
                                     {showEnabled && (
                                         <LemonField name="enabled">
                                             {({ value, onChange }) => (
@@ -465,7 +467,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                                         more info
                                                     </span>
                                                     <CodeEditorResizeable
-                                                        language="hog"
+                                                        language={type === 'web' ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
                                                         onChange={(v) => onChange(v ?? '')}
                                                         globals={globalsWithInputs}
@@ -490,7 +492,13 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                 </div>
                             )}
 
-                            {!id || id === 'new' ? <HogFunctionTestPlaceholder /> : <HogFunctionTest id={id} />}
+                            {showTesting ? (
+                                !id || id === 'new' ? (
+                                    <HogFunctionTestPlaceholder />
+                                ) : (
+                                    <HogFunctionTest id={id} />
+                                )
+                            ) : null}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

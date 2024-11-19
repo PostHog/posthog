@@ -2,13 +2,15 @@ import enum
 from typing import Optional
 
 from django.db import models
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
 import structlog
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
+from posthog.models.plugin import sync_team_inject_web_apps
+from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 from posthog.plugins.plugin_server_api import (
@@ -33,6 +35,7 @@ class HogFunctionState(enum.Enum):
 
 class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
+    WEB = "web"
     EMAIL = "email"
     SMS = "sms"
     PUSH = "push"
@@ -43,6 +46,7 @@ class HogFunctionType(models.TextChoices):
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
 TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION,)
+TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.WEB,)
 
 
 class HogFunction(UUIDModel):
@@ -57,8 +61,15 @@ class HogFunction(UUIDModel):
     type = models.CharField(max_length=24, choices=HogFunctionType.choices, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
+
+    # hog: contains Hog source, except for the "web" type, when it contains TypeScript
+    # TODO: rename to "source" ?
     hog = models.TextField()
+    # Used when the source language is Hog (everything except the "web" type)
     bytecode = models.JSONField(null=True, blank=True)
+    # Transpiled JavasScript. Used with the "web" type
+    transpiled = models.TextField(null=True, blank=True)
+
     inputs_schema = models.JSONField(null=True)
     inputs = models.JSONField(null=True)
     encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
@@ -175,3 +186,14 @@ def team_saved(sender, instance: Team, created, **kwargs):
     from posthog.tasks.hog_functions import refresh_affected_hog_functions
 
     refresh_affected_hog_functions.delay(team_id=instance.id)
+
+
+@mutable_receiver([post_save, post_delete], sender=HogFunction)
+def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
+    try:
+        team = instance.team
+    except Team.DoesNotExist:
+        team = None
+    if team is not None:
+        # This controls whether /decide makes extra queries to get the site apps or not
+        sync_team_inject_web_apps(instance.team)

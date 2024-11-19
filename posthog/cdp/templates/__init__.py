@@ -39,6 +39,7 @@ from .google_cloud_storage.template_google_cloud_storage import (
 )
 from .airtable.template_airtable import template as airtable
 from .brevo.template_brevo import template as brevo
+from .pineapple.template_pineapple import template as pineapple
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
 
 HOG_FUNCTION_TEMPLATES = [
@@ -75,6 +76,7 @@ HOG_FUNCTION_TEMPLATES = [
     mailset_send_email,
     meta_ads,
     microsoft_teams,
+    pineapple,
     posthog,
     rudderstack,
     salesforce_create,

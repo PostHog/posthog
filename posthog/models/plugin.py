@@ -22,7 +22,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
-from posthog.plugins.site import get_decide_site_apps
+from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.plugins.utils import (
     download_plugin_archive,
     extract_plugin_code,
@@ -584,7 +584,7 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 
 
 def sync_team_inject_web_apps(team: Team):
-    inject_web_apps = len(get_decide_site_apps(team)) > 0
+    inject_web_apps = len(get_decide_site_apps(team)) > 0 or len(get_decide_site_functions(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         team.inject_web_apps = inject_web_apps
         team.save(update_fields=["inject_web_apps"])

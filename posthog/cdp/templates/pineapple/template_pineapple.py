@@ -1,14 +1,14 @@
-from posthog.cdp.templates.hog_function_template import SiteFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
-template: SiteFunctionTemplate = SiteFunctionTemplate(
-    status="beta",
-    type="destination",
+template: HogFunctionTemplate = HogFunctionTemplate(
+    status="free",
+    type="web",
     id="template-pineapple",
     name="Pineapple Analytics",
     description="Client side destination for Pineapple Analytics",
-    icon_url="/static/posthog-icon.svg",
+    icon_url="/static/services/pineapple.png",
     category=["Custom", "Analytics"],
-    source="""
+    hog="""
 export async function onLoad({ inputs, posthog }) {
     const url = inputs.host
     console.log('🍍 Loading Pineapple Analytics', { url, inputs })
@@ -17,8 +17,8 @@ export async function onLoad({ inputs, posthog }) {
 
 // behind the scenes: posthog.on('eventCaptured', (event) => {})
 export function onEvent({ event, person, inputs, posthog }) {
-    const { browser, userId } = inputs
-    const payload = { event, person, browser, userId }
+    const { userId, additionalProperties } = inputs
+    const payload = { event, person, userId, additionalProperties }
 
     console.log('🍍 Sending event', { payload })
     // window.pineappleAnalytics.capture(payload)
@@ -29,8 +29,8 @@ export function onEvent({ event, person, inputs, posthog }) {
             "key": "host",
             "type": "string",
             "label": "Pineapple API host",
-            "description": "Normally https://t.pineapple.space",
-            "default": "https://t.pineapple.space",
+            "description": "Normally https://nom.pineapple.now",
+            "default": "https://nom.pineapple.now",
             "secret": False,
             "required": True,
         },
@@ -51,12 +51,16 @@ export function onEvent({ event, person, inputs, posthog }) {
             "required": True,
         },
         {
-            "key": "browser",
-            "type": "string",
-            "label": "Browser",
-            "default": "{event.properties.$browser}",
+            "key": "additionalProperties",
+            "type": "json",
+            "label": "Additional properties",
+            "description": "Additional properties for the Exported Object.",
+            "default": {
+                "email": "{person.properties.email}",
+                "browser": "{event.properties.$browser}",
+            },
             "secret": False,
-            "required": False,
+            "required": True,
         },
     ],
 )
