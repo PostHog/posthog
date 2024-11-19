@@ -32,7 +32,10 @@ import {
     InsightQueryNode,
     Node,
     NodeKind,
+    numerical_key,
     ResultCustomization,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema'
@@ -476,7 +479,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // legend entries
         updateResultCustomization: ({ key, config }) => {
             const update: Partial<TrendsQuery> = {
-                resultCustomizations: { ...values.resultCustomizations, [key]: config },
+                resultCustomizations: { ...values.resultCustomizations, [key]: config } as
+                    | Record<string, ResultCustomizationByValue>
+                    | Record<numerical_key, ResultCustomizationByPosition>,
             }
             actions.updateQuerySource(update)
         },

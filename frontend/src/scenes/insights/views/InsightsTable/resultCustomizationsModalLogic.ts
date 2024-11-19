@@ -7,8 +7,9 @@ import { RESULT_CUSTOMIZATION_DEFAULT } from 'scenes/insights/EditorFilters/Resu
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getTrendResultCustomizationColorToken, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { GraphDataset, InsightLogicProps } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 import type { resultCustomizationsModalLogicType } from './resultCustomizationsModalLogicType'
 
@@ -30,7 +31,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     })),
 
     actions({
-        openModal: (dataset: GraphDataset) => ({ dataset }),
+        openModal: (dataset: IndexedTrendResult) => ({ dataset }),
         closeModal: true,
 
         setColorToken: (token: DataColorToken) => ({ token }),
@@ -40,7 +41,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
 
     reducers({
         dataset: [
-            null as GraphDataset | null,
+            null as IndexedTrendResult | null,
             {
                 openModal: (_, { dataset }) => dataset,
                 closeModal: () => null,
@@ -88,7 +89,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             if (values.localColorToken != null) {
                 const resultCustomizationKey = getTrendResultCustomizationKey(
                     values.resultCustomizationBy,
-                    values.dataset
+                    values.dataset as IndexedTrendResult
                 )
                 actions.updateResultCustomization(resultCustomizationKey, {
                     assignmentBy: values.resultCustomizationBy || RESULT_CUSTOMIZATION_DEFAULT,
