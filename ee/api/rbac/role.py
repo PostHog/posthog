@@ -11,8 +11,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
-from posthog.constants import AvailableFeature
-from posthog.permissions import PremiumFeaturePermission
 
 
 class RolePermissions(BasePermission):
@@ -120,8 +118,7 @@ class RoleMembershipViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "organization"
-    permission_classes = [RolePermissions, PremiumFeaturePermission]
-    premium_feature = AvailableFeature.ROLE_BASED_ACCESS
+    permission_classes = [RolePermissions]
     serializer_class = RoleMembershipSerializer
     queryset = RoleMembership.objects.select_related("role")
     filter_rewrite_rules = {"organization_id": "role__organization_id"}
