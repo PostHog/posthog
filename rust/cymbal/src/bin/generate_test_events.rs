@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
-use common_kafka::{
-    config::KafkaConfig,
-    kafka_producer::{create_kafka_producer, send_iter_to_kafka},
-};
 use common_types::ClickHouseEvent;
-use cymbal::get_props;
+use cymbal::{
+    get_props,
+    hack::kafka::{create_kafka_producer, send_iter_to_kafka, KafkaConfig},
+};
 use envconfig::Envconfig;
 use health::HealthRegistry;
 
@@ -21,10 +20,7 @@ async fn main() {
     let producer = create_kafka_producer(&config, handle).await.unwrap();
 
     let exception: ClickHouseEvent = serde_json::from_str(EXCEPTION_DATA).unwrap();
-    let exceptions = (0..10000)
-        .into_iter()
-        .map(|_| exception.clone())
-        .collect::<Vec<_>>();
+    let exceptions = (0..10000).map(|_| exception.clone()).collect::<Vec<_>>();
     get_props(&exception).unwrap();
 
     loop {

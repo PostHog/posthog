@@ -1,5 +1,6 @@
-use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
+
+use crate::hack::kafka::{ConsumerConfig, KafkaConfig};
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
