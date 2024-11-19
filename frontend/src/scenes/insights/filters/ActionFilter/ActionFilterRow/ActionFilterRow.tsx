@@ -381,6 +381,29 @@ export function ActionFilterRow({
           ].filter(Boolean)
         : []
 
+    const eventsTableLazyJoinName =
+        filter.type === TaxonomicFilterGroupType.DataWarehouse &&
+        filter.name &&
+        Object.values(dataWarehouseTablesMap[filter.name]?.fields || {}).find(
+            (field) => field.type === 'lazy_table' && field.table === 'events'
+        )?.name
+
+    const localTaxonomicGroupTypes =
+        filter.type == TaxonomicFilterGroupType.DataWarehouse
+            ? [
+                  TaxonomicFilterGroupType.DataWarehouseProperties,
+                  eventsTableLazyJoinName ? TaxonomicFilterGroupType.EventProperties : undefined,
+                  TaxonomicFilterGroupType.HogQLExpression,
+              ]
+            : propertiesTaxonomicGroupTypes
+
+    const schemaColumns =
+        filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+            ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? []).filter(
+                  (field) => field.name !== eventsTableLazyJoinName
+              )
+            : []
+
     return (
         <li
             className="ActionFilterRow relative"
@@ -438,14 +461,7 @@ export function ActionFilterRow({
                                                         TaxonomicFilterGroupType.PersonProperties,
                                                         TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
-                                                    schemaColumns={
-                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                        filter.name
-                                                            ? Object.values(
-                                                                  dataWarehouseTablesMap[filter.name]?.fields ?? []
-                                                              )
-                                                            : []
-                                                    }
+                                                    schemaColumns={schemaColumns}
                                                     value={mathProperty}
                                                     onChange={(currentValue, groupType) =>
                                                         onMathPropertySelect(index, currentValue, groupType)
@@ -605,14 +621,7 @@ export function ActionFilterRow({
                                   }
                                 : undefined
                         }
-                        taxonomicGroupTypes={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? [
-                                      TaxonomicFilterGroupType.DataWarehouseProperties,
-                                      TaxonomicFilterGroupType.HogQLExpression,
-                                  ]
-                                : propertiesTaxonomicGroupTypes
-                        }
+                        taxonomicGroupTypes={localTaxonomicGroupTypes}
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]
@@ -620,11 +629,7 @@ export function ActionFilterRow({
                                 ? getEventNamesForAction(parseInt(String(filter.id)), actions)
                                 : []
                         }
-                        schemaColumns={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
-                                : []
-                        }
+                        schemaColumns={schemaColumns}
                     />
                 </div>
             )}
