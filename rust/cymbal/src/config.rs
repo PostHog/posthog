@@ -1,5 +1,6 @@
-use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
+
+use crate::hack::kafka::{ConsumerConfig, KafkaConfig};
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -11,6 +12,12 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
+
+    #[envconfig(default = "clickhouse_events_json")]
+    pub events_topic: String,
+
+    #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
+    pub issue_overrides_topic: String,
 
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
@@ -62,11 +69,6 @@ pub struct Config {
 
     #[envconfig(default = "600")]
     pub frame_cache_ttl_seconds: u64,
-}
-
-pub enum AwsRegion {
-    USEast1,
-    USWest1,
 }
 
 impl Config {

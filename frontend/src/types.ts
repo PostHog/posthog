@@ -2767,6 +2767,11 @@ export interface Survey {
     iteration_start_dates?: string[]
     current_iteration?: number | null
     current_iteration_start_date?: string
+    response_sampling_start_date?: string | null
+    response_sampling_interval_type?: string | null
+    response_sampling_interval?: number | null
+    response_sampling_limit?: number | null
+    response_sampling_daily_limits?: string[] | null
 }
 
 export enum SurveyUrlMatchType {
@@ -3286,7 +3291,7 @@ export interface Experiment {
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
-        variant_screenshot_media_ids?: Record<string, string>
+        variant_screenshot_media_ids?: Record<string, string[]>
     }
     start_date?: string | null
     end_date?: string | null

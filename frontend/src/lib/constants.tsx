@@ -169,6 +169,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_EVENTS: 'surveys-events', // owner: #team-feature-success
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-feature-success
     SURVEYS_RECURRING: 'surveys-recurring', // owner: #team-feature-success
+    SURVEYS_ADAPTIVE_COLLECTION: 'surveys-recurring', // owner: #team-feature-success
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
@@ -229,6 +230,7 @@ export const FEATURE_FLAGS = {
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: @pauldambra
     CUSTOM_CHANNEL_TYPE_RULES: 'custom-channel-type-rules', // owner: @robbie-c #team-web-analytics
+    EXPERIMENTS_MIGRATION_DISABLE_UI: 'experiments-migration-disable-ui', // owner: @jurajmajerik #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
