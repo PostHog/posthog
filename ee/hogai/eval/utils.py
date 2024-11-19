@@ -16,6 +16,7 @@ class EvalBaseTest(BaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
         matrix = HedgeboxMatrix(
+            seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
             now=dt.datetime.now(dt.UTC) - dt.timedelta(days=25),
             days_past=60,
             days_future=30,
