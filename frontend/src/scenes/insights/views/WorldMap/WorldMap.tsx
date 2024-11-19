@@ -1,6 +1,7 @@
 import './WorldMap.scss'
 
 import { useActions, useValues } from 'kea'
+import { BRAND_BLUE_HSL, gradateColor } from 'lib/utils'
 import React, { HTMLProps, useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,7 +17,6 @@ import { ensureTooltip } from '../LineGraph/LineGraph'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { countryVectors } from './countryVectors'
 import { worldMapLogic } from './worldMapLogic'
-import { BRAND_BLUE_HSL, gradateColor } from 'lib/utils'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
