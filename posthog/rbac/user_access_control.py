@@ -445,6 +445,10 @@ class UserAccessControl:
 
 
 class UserAccessControlSerializerMixin(serializers.Serializer):
+    """
+    Mixin for serializers to add user access control fields
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._preloaded_access_controls = False
