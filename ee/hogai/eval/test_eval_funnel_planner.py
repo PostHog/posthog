@@ -10,8 +10,7 @@ from posthog.schema import HumanMessage
 
 
 class TestEvalFunnelPlanner(EvalBaseTest):
-    @property
-    def _plan_correctness_metric(self):
+    def _get_plan_correctness_metric(self):
         return GEval(
             name="Funnel Plan Correctness",
             criteria="You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a funnel insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about funnel insights.",
@@ -55,7 +54,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [self._plan_correctness_metric])
+        assert_test(test_case, [self._get_plan_correctness_metric()])
 
     def test_outputs_at_least_two_events(self):
         """
@@ -71,7 +70,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [self._plan_correctness_metric])
+        assert_test(test_case, [self._get_plan_correctness_metric()])
 
     def test_no_excessive_property_filters(self):
         query = "Show the user conversion from a sign up to a file download"
@@ -84,7 +83,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [self._plan_correctness_metric])
+        assert_test(test_case, [self._get_plan_correctness_metric()])
 
     def test_basic_filtering(self):
         query = (
@@ -123,7 +122,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [self._plan_correctness_metric])
+        assert_test(test_case, [self._get_plan_correctness_metric()])
 
     def test_exclusion_steps(self):
         query = "What was the conversion from uploading a file to downloading it in the last 30d excluding users that deleted a file?"
@@ -141,7 +140,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [self._plan_correctness_metric])
+        assert_test(test_case, [self._get_plan_correctness_metric()])
 
     def test_breakdown(self):
         query = "Show a conversion from uploading a file to downloading it segmented by a user's email"
@@ -158,7 +157,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [self._plan_correctness_metric])
+        assert_test(test_case, [self._get_plan_correctness_metric()])
 
     def test_needle_in_a_haystack(self):
         query = "What was the conversion from a sign up to a paying customer on the personal-pro plan?"
@@ -177,4 +176,4 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             """,
             actual_output=self._call_node(query),
         )
-        assert_test(test_case, [self._plan_correctness_metric])
+        assert_test(test_case, [self._get_plan_correctness_metric()])
