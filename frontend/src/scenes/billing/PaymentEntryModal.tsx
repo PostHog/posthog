@@ -71,18 +71,22 @@ export const PaymentEntryModal = ({
     const [stripePromise, setStripePromise] = useState<any>(null)
 
     useEffect(() => {
-        // Load Stripe.js asynchronously
-        const loadStripeJs = async (): Promise<void> => {
-            const { loadStripe } = await stripeJs()
-            const publicKey = window.STRIPE_PUBLIC_KEY!
-            setStripePromise(await loadStripe(publicKey))
+        // Only load Stripe.js when the modal is opened
+        if (paymentEntryModalOpen && !stripePromise) {
+            const loadStripeJs = async (): Promise<void> => {
+                const { loadStripe } = await stripeJs()
+                const publicKey = window.STRIPE_PUBLIC_KEY!
+                setStripePromise(await loadStripe(publicKey))
+            }
+            void loadStripeJs()
         }
-        void loadStripeJs()
-    }, [])
+    }, [paymentEntryModalOpen, stripePromise])
 
     useEffect(() => {
-        initiateAuthorization(redirectPath)
-    }, [initiateAuthorization, redirectPath])
+        if (paymentEntryModalOpen) {
+            initiateAuthorization(redirectPath)
+        }
+    }, [paymentEntryModalOpen, initiateAuthorization, redirectPath])
 
     return (
         <LemonModal
