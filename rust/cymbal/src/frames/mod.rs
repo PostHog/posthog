@@ -68,7 +68,20 @@ pub struct Frame {
     // it should never go in clickhouse / be queried over, but we do store it in PG for
     // use in the frontend
     #[serde(skip)]
-    pub context: Option<String>,
+    pub context: Option<Context>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct Context {
+    pub before: Vec<ContextLine>,
+    pub line: ContextLine,
+    pub after: Vec<ContextLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct ContextLine {
+    number: u32,
+    line: String,
 }
 
 impl Frame {
@@ -96,5 +109,14 @@ impl Frame {
         }
 
         h.update(self.lang.as_bytes());
+    }
+}
+
+impl ContextLine {
+    pub fn new(number: u32, line: impl ToString) -> Self {
+        Self {
+            number,
+            line: line.to_string(),
+        }
     }
 }

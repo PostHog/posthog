@@ -1,7 +1,7 @@
 import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ExperimentsHog } from 'lib/components/hedgehogs'
+import { DetectiveHog, ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -16,6 +16,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import posthog from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -28,6 +29,33 @@ import { Holdouts } from './Holdouts'
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
+}
+
+export const ExperimentsDisabledBanner = (): JSX.Element => {
+    const payload = posthog.getFeatureFlagPayload(FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI)
+
+    return (
+        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
+            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
+                <div>
+                    <div className="w-50 mx-auto mb-4">
+                        <DetectiveHog className="w-full h-full" />
+                    </div>
+                </div>
+                <div className="flex-shrink max-w-140">
+                    <h2>We'll be right back!</h2>
+                    <p>
+                        We’re upgrading experiments to a new schema to make them faster, more reliable, and ready for
+                        future improvements.
+                    </p>
+                    <p>
+                        We expect to be done by <span className="font-semibold">{payload}</span>. Thanks for your
+                        patience!
+                    </p>
+                </div>
+            </div>
+        </div>
+    )
 }
 
 export function Experiments(): JSX.Element {
@@ -189,7 +217,9 @@ export function Experiments(): JSX.Element {
         },
     ]
 
-    return (
+    return featureFlags[FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI] ? (
+        <ExperimentsDisabledBanner />
+    ) : (
         <div>
             <PageHeader
                 buttons={
