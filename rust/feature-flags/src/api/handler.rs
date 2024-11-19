@@ -1,11 +1,12 @@
 use crate::{
-    api::{FlagError, FlagsResponse},
-    cohort_cache::CohortCacheManager,
-    database::Client,
-    flag_definitions::FeatureFlagList,
-    flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
-    flag_request::FlagRequest,
-    geoip::GeoIpClient,
+    api::errors::FlagError,
+    api::types::FlagsResponse,
+    client::database::Client,
+    client::geoip::GeoIpClient,
+    cohort::cohort_cache_manager::CohortCacheManager,
+    flags::flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
+    flags::flag_models::FeatureFlagList,
+    flags::flag_request::FlagRequest,
     router,
 };
 use axum::{extract::State, http::HeaderMap};
@@ -254,10 +255,13 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::FlagValue,
+        api::types::FlagValue,
         config::Config,
-        flag_definitions::{FeatureFlag, FlagFilters, FlagGroupType, OperatorType, PropertyFilter},
-        test_utils::{insert_new_team_in_pg, setup_pg_reader_client, setup_pg_writer_client},
+        flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType},
+        properties::property_models::{OperatorType, PropertyFilter},
+        utils::test_utils::{
+            insert_new_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+        },
     };
 
     use super::*;

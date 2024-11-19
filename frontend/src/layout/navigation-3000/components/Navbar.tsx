@@ -27,7 +27,7 @@ export function Navbar(): JSX.Element {
     const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
-    const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
+    const { toggleNavCollapsed, hideNavOnMobile, showSidebar, hideSidebar } = useActions(navigation3000Logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
 
