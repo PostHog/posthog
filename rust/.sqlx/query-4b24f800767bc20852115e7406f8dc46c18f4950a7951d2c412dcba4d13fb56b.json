@@ -36,7 +36,7 @@
       {
         "ordinal": 6,
         "name": "context",
-        "type_info": "Text"
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
