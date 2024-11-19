@@ -180,6 +180,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             await breakpoint(300)
             actions.loadFeatureFlags()
         },
+        setActiveTab: () => {
+            // Don't carry over pagination from previous tab
+            actions.setFeatureFlagsFilters({ page: 1 }, true)
+        },
     })),
     actionToUrl(({ values }) => {
         const changeUrl = ():
@@ -231,25 +235,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 order,
             }
 
-            if (active !== undefined) {
-                pageFiltersFromUrl.active = String(active)
-            }
+            pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
+            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
 
-            if (page !== undefined) {
-                pageFiltersFromUrl.page = parseInt(page)
-            }
-
-            // Initialize filters with the URL params if none are set
-            const isInitializingFilters =
-                objectsEqual(DEFAULT_FILTERS, values.filters) && !objectsEqual(DEFAULT_FILTERS, pageFiltersFromUrl)
-            /**
-             * Pagination search param in the URL is modified directly by the LemonTable component,
-             * so let's update filter state if it changes
-             */
-            const isChangingPage = page !== undefined && page !== values.filters.page
-            if (isInitializingFilters || isChangingPage) {
-                actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
-            }
+            actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
     })),
     events(({ actions }) => ({

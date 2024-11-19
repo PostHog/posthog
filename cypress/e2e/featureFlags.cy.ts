@@ -17,10 +17,8 @@ describe('Feature Flags', () => {
     })
 
     it('Display product introduction when no feature flags exist', () => {
-        // ensure unique names to avoid clashes
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
-        cy.get('[data-attr=new-feature-flag]').click()
-        cy.contains('Create your first feature flag').should('exist')
+        cy.contains('Welcome to Feature flags!').should('exist')
     })
 
     it('Create feature flag', () => {
@@ -104,6 +102,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-key]').focus().type(name).should('have.value', name)
         cy.get('[data-attr=rollout-percentage]').type('{selectall}50').should('have.value', '50')
         cy.get('[data-attr=save-feature-flag]').first().click()
+        cy.get('[data-attr=toast-close-button]').click()
 
         // after save there should be a delete button
         cy.get('[data-attr="more-button"]').click()
@@ -336,6 +335,9 @@ describe('Feature Flags', () => {
 
         cy.get('[data-attr=feature-flags-tab-navigation]').contains('Overview').click()
         cy.url().should('include', `tab=overview`)
+
+        cy.get('[data-attr=feature-flags-tab-navigation]').contains('History').click()
+        cy.url().should('include', `tab=history`)
     })
 
     it('Renders flags in FlagSelector', () => {
