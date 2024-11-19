@@ -1,14 +1,14 @@
-use crate::{
-    api::{FlagError, FlagValue, FlagsResponse},
-    cohort_cache::CohortCacheManager,
-    cohort_models::{Cohort, CohortId},
-    database::Client as DatabaseClient,
-    feature_flag_match_reason::FeatureFlagMatchReason,
-    flag_definitions::{FeatureFlag, FeatureFlagList, FlagGroupType, OperatorType, PropertyFilter},
-    metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER},
-    metrics_utils::parse_exception_for_prometheus_label,
-    property_matching::match_property,
-};
+use crate::api::errors::FlagError;
+use crate::api::types::{FlagValue, FlagsResponse};
+use crate::client::database::Client as DatabaseClient;
+use crate::cohort::cohort_cache_manager::CohortCacheManager;
+use crate::cohort::cohort_models::{Cohort, CohortId};
+use crate::flags::flag_match_reason::FeatureFlagMatchReason;
+use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
+use crate::metrics::metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER};
+use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
+use crate::properties::property_matching::match_property;
+use crate::properties::property_models::{OperatorType, PropertyFilter};
 use anyhow::Result;
 use common_metrics::inc;
 use petgraph::algo::{is_cyclic_directed, toposort};
@@ -1796,11 +1796,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        flag_definitions::{
+        flags::flag_models::{
             FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
-            OperatorType,
         },
-        test_utils::{
+        properties::property_models::OperatorType,
+        utils::test_utils::{
             add_person_to_cohort, get_person_id_by_distinct_id, insert_cohort_for_team_in_pg,
             insert_flag_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
             setup_pg_reader_client, setup_pg_writer_client,
