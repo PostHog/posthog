@@ -8,6 +8,7 @@ use reqwest::Url;
 use crate::error::Error;
 
 pub mod caching;
+pub mod concurrency;
 pub mod saving;
 pub mod sourcemap;
 
