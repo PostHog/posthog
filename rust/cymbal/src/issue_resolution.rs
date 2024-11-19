@@ -179,7 +179,6 @@ where
         conn.rollback().await?;
     } else {
         conn.commit().await?;
-        // TODO - emit new issue and override to kafka
     }
 
     Ok(fingerprinted.to_output(issue_override.issue_id))

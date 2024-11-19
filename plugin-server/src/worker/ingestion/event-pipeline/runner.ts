@@ -11,6 +11,7 @@ import { status } from '../../../utils/status'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import { emitEventStep } from './emitEventStep'
 import { enrichExceptionEventStep } from './enrichExceptionEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
@@ -259,24 +260,25 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        const [rawClickhouseEvent, eventAck] = await this.runStep(
+        const rawEvent = await this.runStep(
             createEventStep,
             [this, enrichedIfErrorEvent, person, processPerson],
             event.team_id
         )
-        kafkaAcks.push(eventAck)
 
         if (event.event === '$exception' && event.team_id == 2) {
             const [exceptionAck] = await this.runStep(
                 produceExceptionSymbolificationEventStep,
-                [this, rawClickhouseEvent],
+                [this, rawEvent],
                 event.team_id
             )
             kafkaAcks.push(exceptionAck)
-            return this.registerLastStep('produceExceptionSymbolificationEventStep', [rawClickhouseEvent], kafkaAcks)
+            return this.registerLastStep('produceExceptionSymbolificationEventStep', [rawEvent], kafkaAcks)
+        } else {
+            const [clickhouseAck] = await this.runStep(emitEventStep, [this, rawEvent], event.team_id)
+            kafkaAcks.push(clickhouseAck)
+            return this.registerLastStep('emitEventStep', [rawEvent], kafkaAcks)
         }
-
-        return this.registerLastStep('createEventStep', [rawClickhouseEvent], kafkaAcks)
     }
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {

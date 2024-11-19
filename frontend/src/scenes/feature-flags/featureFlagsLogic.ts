@@ -180,6 +180,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             await breakpoint(300)
             actions.loadFeatureFlags()
         },
+        setActiveTab: () => {
+            // Don't carry over pagination from previous tab
+            actions.setFeatureFlagsFilters({ page: 1 }, true)
+        },
     })),
     actionToUrl(({ values }) => {
         const changeUrl = ():
@@ -231,13 +235,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 order,
             }
 
-            if (active !== undefined) {
-                pageFiltersFromUrl.active = String(active)
-            }
-
-            if (page !== undefined) {
-                pageFiltersFromUrl.page = parseInt(page)
-            }
+            pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
+            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
 
             actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },

@@ -12,7 +12,7 @@ import pyarrow as pa
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
-from snowflake.connector.errors import OperationalError
+from snowflake.connector.errors import OperationalError, InterfaceError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -205,6 +205,9 @@ class SnowflakeClient:
                 ) from err
             else:
                 raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
+
+        except InterfaceError as err:
+            raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
 
         self._connection = connection
 
