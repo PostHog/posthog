@@ -97,6 +97,8 @@ async fn main() {
         .await
         .expect("Failed to send event to Kafka");
 
+        info!("Processed event");
+
         offset.store().unwrap();
 
         metrics::counter!(STACK_PROCESSED).increment(1);

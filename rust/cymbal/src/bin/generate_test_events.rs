@@ -7,6 +7,7 @@ use cymbal::{
 };
 use envconfig::Envconfig;
 use health::HealthRegistry;
+use uuid::Uuid;
 
 const EXCEPTION_DATA: &str = include_str!("../../tests/static/raw_ch_exception_list.json");
 
@@ -19,13 +20,20 @@ async fn main() {
         .await;
     let producer = create_kafka_producer(&config, handle).await.unwrap();
 
-    let exception: ClickHouseEvent = serde_json::from_str(EXCEPTION_DATA).unwrap();
-    let exceptions = (0..10000).map(|_| exception.clone()).collect::<Vec<_>>();
+    let mut exception: ClickHouseEvent = serde_json::from_str(EXCEPTION_DATA).unwrap();
+    exception.team_id = 1;
+    exception.project_id = 1;
+    let exceptions = (0..100).map(|_| exception.clone()).collect::<Vec<_>>();
     get_props(&exception).unwrap();
 
     loop {
         println!("Sending {} exception kafka", exceptions.len());
-        send_iter_to_kafka(&producer, "exception_symbolification_events", &exceptions)
+        let to_send = exceptions.iter().map(|e| {
+            let mut e = e.clone();
+            e.uuid = Uuid::now_v7();
+            e
+        });
+        send_iter_to_kafka(&producer, "exception_symbolification_events", to_send)
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;

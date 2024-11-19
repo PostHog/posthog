@@ -11,15 +11,15 @@ import { useState } from 'react'
 
 import { EventType } from '~/types'
 
-import { StackFrame } from './stackFrameLogic'
+import { ErrorTrackingStackFrame } from './stackFrameLogic'
 
 interface RawStackTrace {
     type: 'raw'
-    frames: StackFrame[]
+    frames: ErrorTrackingStackFrame[]
 }
 interface ResolvedStackTrace {
     type: 'resolved'
-    frames: StackFrame[]
+    frames: ErrorTrackingStackFrame[]
 }
 
 interface Exception {
@@ -29,7 +29,13 @@ interface Exception {
     value: string
 }
 
-function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFrames: boolean }): JSX.Element | null {
+function StackTrace({
+    frames,
+    showAllFrames,
+}: {
+    frames: ErrorTrackingStackFrame[]
+    showAllFrames: boolean
+}): JSX.Element | null {
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map(({ filename, lineno, colno, function: functionName }, index) => {
