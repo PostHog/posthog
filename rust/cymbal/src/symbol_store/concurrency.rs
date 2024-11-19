@@ -71,7 +71,7 @@ where
     type Set = P::Set;
 
     async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Error> {
-        let lock = self.acquire(r.to_string()).await;
+        let lock = self.acquire(format!("{}:{}", team_id, r.to_string())).await;
         let result = self.inner.lookup(team_id, r).await;
         drop(lock);
         result
