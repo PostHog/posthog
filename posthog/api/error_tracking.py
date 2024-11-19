@@ -31,7 +31,7 @@ class ErrorTrackingSymbolSetViewSet(
     serializer_class = ErrorTrackingSymbolSetSerializer
     queryset = ErrorTrackingSymbolSet.objects.all()
 
-    scope_object_read_actions = ["list", "retrieve", "stack_frames"]  # Add this line
+    scope_object_read_actions = ["list", "retrieve", "stack_frames"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team.id)
