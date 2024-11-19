@@ -1480,19 +1480,19 @@ class ResultCustomizationBy(StrEnum):
     POSITION = "position"
 
 
-class ResultCustomizationByKey(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignmentBy: Literal["key"] = "key"
-    color: DataColorToken
-
-
 class ResultCustomizationByPosition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     assignmentBy: Literal["position"] = "position"
+    color: DataColorToken
+
+
+class ResultCustomizationByValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignmentBy: Literal["value"] = "value"
     color: DataColorToken
 
 
@@ -3039,8 +3039,8 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
-class ResultCustomization(RootModel[Union[ResultCustomizationByKey, ResultCustomizationByPosition]]):
-    root: Union[ResultCustomizationByKey, ResultCustomizationByPosition]
+class ResultCustomization(RootModel[Union[ResultCustomizationByValue, ResultCustomizationByPosition]]):
+    root: Union[ResultCustomizationByValue, ResultCustomizationByPosition]
 
 
 class RetentionEntity(BaseModel):
@@ -5918,7 +5918,7 @@ class TrendsQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     resultCustomizations: Optional[
-        Union[dict[str, ResultCustomizationByKey], dict[str, ResultCustomizationByPosition]]
+        Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
     ] = Field(default=None, description="Display configuration for the result datasets.")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
