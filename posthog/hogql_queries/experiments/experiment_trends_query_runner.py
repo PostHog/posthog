@@ -27,7 +27,6 @@ from posthog.schema import (
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     InsightDateRange,
-    PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
     TrendsFilter,
@@ -131,8 +130,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             EventPropertyFilter(
                 key=self.breakdown_key,
                 value=self.variants,
-                operator="exact",
-                type=PropertyFilterType.EVENT,
+                operator=PropertyOperator.EXACT,
+                type="event",
             )
         ]
 
@@ -175,7 +174,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                         key=self.breakdown_key,
                         value=self.variants,
                         operator=PropertyOperator.EXACT,
-                        type=PropertyFilterType.EVENT,
+                        type="event",
                     )
                 ]
             else:
@@ -192,7 +191,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     key=self.breakdown_key,
                     value=self.variants,
                     operator=PropertyOperator.EXACT,
-                    type=PropertyFilterType.EVENT,
+                    type="event",
                 )
             ]
         # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
@@ -215,13 +214,13 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                         key="$feature_flag_response",
                         value=self.variants,
                         operator=PropertyOperator.EXACT,
-                        type=PropertyFilterType.EVENT,
+                        type="event",
                     ),
                     EventPropertyFilter(
                         key="$feature_flag",
                         value=[self.feature_flag.key],
                         operator=PropertyOperator.EXACT,
-                        type=PropertyFilterType.EVENT,
+                        type="event",
                     ),
                 ],
             )
