@@ -17,6 +17,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
+    BreakdownType,
     CachedExperimentTrendsQueryResponse,
     ChartDisplayType,
     EventPropertyFilter,
@@ -26,7 +27,9 @@ from posthog.schema import (
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     InsightDateRange,
+    PropertyFilterType,
     PropertyMathType,
+    PropertyOperator,
     TrendsFilter,
     TrendsQuery,
     TrendsQueryResponse,
@@ -92,7 +95,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def _get_breakdown_filter(self) -> BreakdownFilter:
         return BreakdownFilter(
             breakdown=self.breakdown_key,
-            breakdown_type="event",
+            breakdown_type=BreakdownType.EVENT,
         )
 
     def _prepare_count_query(self) -> TrendsQuery:
@@ -129,7 +132,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 key=self.breakdown_key,
                 value=self.variants,
                 operator="exact",
-                type="event",
+                type=PropertyFilterType.EVENT,
             )
         ]
 
@@ -171,8 +174,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     EventPropertyFilter(
                         key=self.breakdown_key,
                         value=self.variants,
-                        operator="exact",
-                        type="event",
+                        operator=PropertyOperator.EXACT,
+                        type=PropertyFilterType.EVENT,
                     )
                 ]
             else:
@@ -188,8 +191,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 EventPropertyFilter(
                     key=self.breakdown_key,
                     value=self.variants,
-                    operator="exact",
-                    type="event",
+                    operator=PropertyOperator.EXACT,
+                    type=PropertyFilterType.EVENT,
                 )
             ]
         # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
@@ -199,7 +202,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
                 breakdownFilter=BreakdownFilter(
                     breakdown="$feature_flag_response",
-                    breakdown_type="event",
+                    breakdown_type=BreakdownType.EVENT,
                 ),
                 series=[
                     EventsNode(
@@ -211,14 +214,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     EventPropertyFilter(
                         key="$feature_flag_response",
                         value=self.variants,
-                        operator="exact",
-                        type="event",
+                        operator=PropertyOperator.EXACT,
+                        type=PropertyFilterType.EVENT,
                     ),
                     EventPropertyFilter(
                         key="$feature_flag",
                         value=[self.feature_flag.key],
-                        operator="exact",
-                        type="event",
+                        operator=PropertyOperator.EXACT,
+                        type=PropertyFilterType.EVENT,
                     ),
                 ],
             )
