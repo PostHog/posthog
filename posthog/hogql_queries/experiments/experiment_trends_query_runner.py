@@ -109,6 +109,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
 
+        # TODO:
+        # - Fetch the column name if the series type is a data warehouse query
+        # - Apply the column name to the breakdown filter and transform the breakdown type to datawarehouse_property
+        # - Apply the column name to the properties filter and transform the property type to datawarehouse property
+
         # :TRICKY: for `avg` aggregation, use `sum` data as an approximation
         if prepared_count_query.series[0].math == PropertyMathType.AVG:
             prepared_count_query.series[0].math = PropertyMathType.SUM
