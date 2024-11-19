@@ -302,7 +302,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
-            defaults: { ...NEW_FLAG } as FeatureFlagType,
+            defaults: { ...NEW_FLAG },
             errors: ({ key, filters }) => {
                 return {
                     key: validateFeatureFlagKey(key),

@@ -1904,7 +1904,8 @@
          "posthog_experiment"."archived",
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
-         "posthog_experiment"."metrics"
+         "posthog_experiment"."metrics",
+         "posthog_experiment"."metrics_secondary"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''

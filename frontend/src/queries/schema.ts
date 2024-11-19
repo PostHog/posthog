@@ -221,7 +221,7 @@ export interface DataNode<R extends Record<string, any> = Record<string, any>> e
     modifiers?: HogQLQueryModifiers
 }
 
-/** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
+/** HogQL Query Options are automatically set per team. However, they can be overridden in the query. */
 export interface HogQLQueryModifiers {
     personsOnEventsMode?:
         | 'disabled' // `disabled` is deprecated and set for removal - `person_id_override_properties_joined` is its faster functional equivalent
@@ -240,6 +240,7 @@ export interface HogQLQueryModifiers {
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    customChannelTypeRules?: CustomChannelRule[]
 }
 
 export interface DataWarehouseEventsModifier {
@@ -2019,17 +2020,19 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
+    name?: string
+    experiment_id?: integer
     funnels_query: FunnelsQuery
-    experiment_id: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
     kind: NodeKind.ExperimentTrendsQuery
+    name?: string
+    experiment_id?: integer
     count_query: TrendsQuery
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
-    experiment_id: integer
 }
 
 /**
@@ -2477,11 +2480,18 @@ export enum AssistantMessageType {
 export interface HumanMessage {
     type: AssistantMessageType.Human
     content: string
+    /** Human messages are only appended when done. */
+    done: true
 }
 
 export interface AssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
+    /**
+     * We only need this "done" value to tell when the particular message is finished during its streaming.
+     * It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.
+     */
+    done?: boolean
 }
 
 export interface VisualizationMessage {
@@ -2489,16 +2499,20 @@ export interface VisualizationMessage {
     plan?: string
     reasoning_steps?: string[] | null
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
+    done?: boolean
 }
 
 export interface FailureMessage {
     type: AssistantMessageType.Failure
     content?: string
+    done: true
 }
 
 export interface RouterMessage {
     type: AssistantMessageType.Router
     content: string
+    /** Router messages are not streamed, so they can only be done. */
+    done: true
 }
 
 export type RootAssistantMessage =
@@ -2520,4 +2534,34 @@ export enum AssistantGenerationStatusType {
 
 export interface AssistantGenerationStatusEvent {
     type: AssistantGenerationStatusType
+}
+
+export enum CustomChannelField {
+    UTMSource = 'utm_source',
+    UTMMedium = 'utm_medium',
+    UTMCampaign = 'utm_campaign',
+    ReferringDomain = 'referring_domain',
+}
+
+export enum CustomChannelOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    IContains = 'icontains',
+    NotIContains = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+}
+
+export interface CustomChannelCondition {
+    key: CustomChannelField
+    value?: string | string[]
+    op: CustomChannelOperator
+}
+
+export interface CustomChannelRule {
+    conditions: CustomChannelCondition[]
+    combiner: FilterLogicalOperator
+    channel_type: string
 }
