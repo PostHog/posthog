@@ -2,10 +2,8 @@ import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -37,6 +35,7 @@ type BreakdownColumnItemProps = {
 
 export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: BreakdownColumnItemProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const breakdownLabel = formatItemBreakdownLabel(item)
@@ -56,17 +55,19 @@ export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: Breakdow
                         </div>
                     )}
 
-                    <Link
-                        className="align-middle"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
+                    {hasInsightColors && (
+                        <Link
+                            className="align-middle"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
 
-                            openModal(item)
-                        }}
-                    >
-                        <IconGear fontSize={16} />
-                    </Link>
+                                openModal(item)
+                            }}
+                        >
+                            <IconGear fontSize={16} />
+                        </Link>
+                    )}
                 </>
             )}
         </div>
