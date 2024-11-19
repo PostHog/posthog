@@ -558,9 +558,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return columns.filter((n) => n.type.isNumerical)
             },
         ],
-        dashboardId: [(_state, props) => [props.dashboardId], (dashboardId) => dashboardId],
+        dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
-            (_state, props) => [props.insightMode, props.dashboardId],
+            (state, props) => [props.insightMode, state.dashboardId],
             (insightMode, dashboardId) => {
                 if (dashboardId) {
                     return false
@@ -570,7 +570,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         showResultControls: [
-            (_state, props) => [props.insightMode, props.dashboardId],
+            (state, props) => [props.insightMode, state.dashboardId],
             (insightMode, dashboardId) => {
                 if (insightMode === ItemMode.Edit) {
                     return true
@@ -580,7 +580,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         presetChartHeight: [
-            (_state, props) => [props.dashboardId],
+            (state) => [state.dashboardId],
             (dashboardId) => {
                 return !dashboardId
             },

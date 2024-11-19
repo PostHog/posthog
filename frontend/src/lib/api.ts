@@ -719,6 +719,10 @@ class ApiRequest {
         return this.errorTracking().addPathComponent('upload_source_maps')
     }
 
+    public errorTrackingStackFrames(ids: string[]): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames').withQueryString({ ids })
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -1856,6 +1860,10 @@ const api = {
 
         async uploadSourceMaps(data: FormData): Promise<{ content: string }> {
             return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
+        },
+
+        async fetchStackFrames(ids: string[]): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingStackFrames(ids).get()
         },
     },
 
