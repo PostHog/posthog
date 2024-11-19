@@ -163,9 +163,7 @@ fn get_context(token: &Token) -> Option<Context> {
 
     let token_line_num = token.get_src_line();
 
-    let Some(token_line) = sv.get_line(token_line_num) else {
-        return None;
-    };
+    let token_line = sv.get_line(token_line_num)?;
 
     let mut before = Vec::new();
     let mut i = token_line_num;
