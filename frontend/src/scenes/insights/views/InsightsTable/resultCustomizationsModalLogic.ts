@@ -3,6 +3,7 @@ import { DataColorToken } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { RESULT_CUSTOMIZATION_DEFAULT } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getTrendResultCustomizationColorToken, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -89,7 +90,10 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                     values.resultCustomizationBy,
                     values.dataset
                 )
-                actions.updateResultCustomization(resultCustomizationKey, { color: values.localColorToken })
+                actions.updateResultCustomization(resultCustomizationKey, {
+                    assignmentBy: values.resultCustomizationBy || RESULT_CUSTOMIZATION_DEFAULT,
+                    color: values.localColorToken,
+                })
             }
 
             actions.closeModal()

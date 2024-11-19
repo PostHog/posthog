@@ -904,14 +904,14 @@ export type ResultCustomizationBase = {
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
-    assignmentBy: 'position'
+    assignmentBy: ResultCustomizationBy.Position
 }
 
-export interface ResultCustomizationByKey extends ResultCustomizationBase {
-    assignmentBy: 'key'
+export interface ResultCustomizationByValue extends ResultCustomizationBase {
+    assignmentBy: ResultCustomizationBy.Value
 }
 
-export type ResultCustomization = ResultCustomizationByKey | ResultCustomizationByPosition
+export type ResultCustomization = ResultCustomizationByValue | ResultCustomizationByPosition
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
@@ -931,7 +931,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
     /** Display configuration for the result datasets. */
     resultCustomizations?:
-        | Record<string, ResultCustomizationByKey>
+        | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
 }
 

@@ -20,8 +20,8 @@ import {
     PathsFilter,
     ResultCustomization,
     ResultCustomizationBy,
-    ResultCustomizationByKey,
     ResultCustomizationByPosition,
+    ResultCustomizationByValue,
 } from '~/queries/schema'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
@@ -41,8 +41,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
-import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 
+import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
@@ -466,7 +466,7 @@ export function getTrendResultCustomization(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: GraphDataset,
     resultCustomizations:
-        | Record<string, ResultCustomizationByKey>
+        | Record<string, ResultCustomizationByValue>
         | Record<number, ResultCustomizationByPosition>
         | null
         | undefined
@@ -480,7 +480,7 @@ export function getTrendResultCustomization(
 export function getTrendResultCustomizationColorToken(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     resultCustomizations:
-        | Record<string, ResultCustomizationByKey>
+        | Record<string, ResultCustomizationByValue>
         | Record<number, ResultCustomizationByPosition>
         | null
         | undefined,

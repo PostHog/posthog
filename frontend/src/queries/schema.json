@@ -11474,7 +11474,7 @@
         "ResultCustomization": {
             "anyOf": [
                 {
-                    "$ref": "#/definitions/ResultCustomizationByKey"
+                    "$ref": "#/definitions/ResultCustomizationByValue"
                 },
                 {
                     "$ref": "#/definitions/ResultCustomizationByPosition"
@@ -11495,11 +11495,11 @@
             "enum": ["value", "position"],
             "type": "string"
         },
-        "ResultCustomizationByKey": {
+        "ResultCustomizationByPosition": {
             "additionalProperties": false,
             "properties": {
                 "assignmentBy": {
-                    "const": "key",
+                    "const": "position",
                     "type": "string"
                 },
                 "color": {
@@ -11509,11 +11509,11 @@
             "required": ["assignmentBy", "color"],
             "type": "object"
         },
-        "ResultCustomizationByPosition": {
+        "ResultCustomizationByValue": {
             "additionalProperties": false,
             "properties": {
                 "assignmentBy": {
-                    "const": "position",
+                    "const": "value",
                     "type": "string"
                 },
                 "color": {
@@ -12862,7 +12862,7 @@
                     "anyOf": [
                         {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ResultCustomizationByKey"
+                                "$ref": "#/definitions/ResultCustomizationByValue"
                             },
                             "type": "object"
                         },
