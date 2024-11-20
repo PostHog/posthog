@@ -6,12 +6,14 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    cohort_models::Cohort,
+    client::{
+        database::{get_pool, Client, CustomDatabaseError},
+        redis::{Client as RedisClientTrait, RedisClient},
+    },
+    cohort::cohort_models::Cohort,
     config::{Config, DEFAULT_TEST_CONFIG},
-    database::{get_pool, Client, CustomDatabaseError},
-    flag_definitions::{self, FeatureFlag, FeatureFlagRow},
-    redis::{Client as RedisClientTrait, RedisClient},
-    team::{self, Team},
+    flags::flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
+    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use rand::{distributions::Alphanumeric, Rng};
 
@@ -38,11 +40,7 @@ pub async fn insert_new_team_in_redis(
     let serialized_team = serde_json::to_string(&team)?;
     client
         .set(
-            format!(
-                "{}{}",
-                team::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
+            format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, team.api_token.clone()),
             serialized_team,
         )
         .await?;
@@ -82,10 +80,7 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     client
-        .set(
-            format!("{}{}", flag_definitions::TEAM_FLAGS_CACHE_PREFIX, team_id),
-            payload,
-        )
+        .set(format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, team_id), payload)
         .await?;
 
     Ok(())
