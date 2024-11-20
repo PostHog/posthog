@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, ActionType } from '~/types'
+import { ActionStepType, ActionType, FilterLogicalOperator, PropertyGroupFilterValue } from '~/types'
 
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
@@ -25,11 +25,34 @@ export interface SetActionProps {
 export interface ActionEditLogicProps {
     id?: number
     action?: ActionType | null
+    propertyFilter: PropertyGroupFilterValue | null
 }
 
 export const DEFAULT_ACTION_STEP: ActionStepType = {
     event: '$pageview',
     href_matching: 'contains',
+}
+
+const getDefaultActionSteps = (propertyFilter: PropertyGroupFilterValue | null): ActionStepType[] => {
+    if (!propertyFilter) {
+        return [DEFAULT_ACTION_STEP]
+    }
+
+    if (propertyFilter.type === FilterLogicalOperator.And) {
+        // return just one match group
+        return [
+            {
+                event: null,
+                properties: propertyFilter.values,
+            } as ActionStepType,
+        ]
+    }
+
+    // separate step for each filter
+    return propertyFilter.values.map((property) => ({
+        event: null,
+        properties: [property],
+    })) as ActionStepType[]
 }
 
 export const actionEditLogic = kea<actionEditLogicType>([
@@ -71,7 +94,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 props.action ??
                 ({
                     name: '',
-                    steps: [DEFAULT_ACTION_STEP],
+                    steps: getDefaultActionSteps(props.propertyFilter),
                 } as ActionType),
 
             submit: async (updatedAction, breakpoint) => {
@@ -156,8 +179,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
                         if (hogFunctionListLogic.isMounted()) {
                             hogFunctionListLogic.actions.addHogFunction(hogFunction)
                         }
-                        if (actionLogic({ id: props.id }).isMounted()) {
-                            actionLogic({ id: props.id }).actions.updateAction({ post_to_slack: false })
+                        if (actionLogic({ id: props.id, propertyFilter: null }).isMounted()) {
+                            actionLogic({ id: props.id, propertyFilter: null }).actions.updateAction({
+                                post_to_slack: false,
+                            })
                         }
                         lemonToast.success('Action migrated to a destination!')
                     }
@@ -195,7 +220,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     afterMount(({ actions, props }) => {
         if (!props.id) {
-            actions.setActionValue('steps', [{ ...DEFAULT_ACTION_STEP }])
+            actions.setActionValue('steps', getDefaultActionSteps(props.propertyFilter))
         }
     }),
 

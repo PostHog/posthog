@@ -1,7 +1,9 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
 
 import { StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { FilterLogicalOperator, PropertyGroupFilter } from '~/types'
@@ -33,6 +35,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         setPropertyFilters: (properties, index: number) => ({ properties, index }),
         setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
         duplicateFilterGroup: (propertyGroupIndex: number) => ({ propertyGroupIndex }),
+        saveFilterGroupAsAction: (propertyGroupIndex: number) => ({ propertyGroupIndex }),
         addFilterGroup: true,
     }),
 
@@ -103,6 +106,11 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         },
         update: () => {
             props.setQuery({ ...props.query, properties: values.filters })
+        },
+        saveFilterGroupAsAction: ({ propertyGroupIndex }) => {
+            const filterGroup = values.filters.values[propertyGroupIndex]
+
+            router.actions.push(urls.createAction(filterGroup))
         },
     })),
 

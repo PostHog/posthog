@@ -24,11 +24,13 @@ import { ActionStepType, FilterLogicalOperator, ReplayTabs } from '~/types'
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
 
-export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
+export function ActionEdit({ action: loadedAction, id, propertyFilter }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
         id: id,
         action: loadedAction,
+        propertyFilter,
     }
+
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionChanged, migrationLoading, hasCohortFilters } = useValues(logic)
     const { submitAction, deleteAction, migrateToHogFunction } = useActions(logic)

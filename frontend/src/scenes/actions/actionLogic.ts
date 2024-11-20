@@ -5,13 +5,14 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionType, Breadcrumb, HogFunctionType } from '~/types'
+import { ActionType, Breadcrumb, HogFunctionType, PropertyGroupFilterValue } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
 
 export interface ActionLogicProps {
     id?: ActionType['id']
+    propertyFilter: PropertyGroupFilterValue | null
 }
 
 export const actionLogic = kea<actionLogicType>([
@@ -104,6 +105,7 @@ export const actionLogic = kea<actionLogicType>([
             (s) => [s.action],
             (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
         ],
+        propertyFilter: [(_, p) => [p.propertyFilter], (propertyFilter) => propertyFilter],
     }),
     listeners(({ actions, values }) => ({
         checkIsFinished: ({ action }) => {

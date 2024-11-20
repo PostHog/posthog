@@ -8,18 +8,28 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { ActionType } from '~/types'
+import { ActionType, PropertyGroupFilterValue } from '~/types'
 
 import { ActionEdit } from './ActionEdit'
 
 export const scene: SceneExport = {
     logic: actionLogic,
     component: Action,
-    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: id ? parseInt(id) : undefined }),
+    paramsToProps: ({ params: { id }, searchParams: { propertyFilter } }): ActionLogicProps => ({
+        id: id ? parseInt(id) : undefined,
+        propertyFilter: propertyFilter
+            ? (JSON.parse(decodeURIComponent(propertyFilter)) as PropertyGroupFilterValue)
+            : null,
+    }),
 }
 
-export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
-    const { action, actionLoading, isComplete } = useValues(actionLogic)
+export interface ActionProps {
+    id?: ActionType['id']
+    propertyFilter?: PropertyGroupFilterValue
+}
+
+export function Action({ id }: ActionProps = {}): JSX.Element {
+    const { action, actionLoading, isComplete, propertyFilter } = useValues(actionLogic)
 
     if (actionLoading) {
         return (
@@ -43,7 +53,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     return (
         <>
-            <ActionEdit id={id} action={action} />
+            <ActionEdit id={id} action={action} propertyFilter={propertyFilter} />
             {id && (
                 <>
                     {isComplete ? (
