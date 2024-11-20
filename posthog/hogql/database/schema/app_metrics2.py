@@ -1,12 +1,9 @@
-from posthog.hogql import ast
 from posthog.hogql.database.models import (
     Table,
     IntegerDatabaseField,
     StringDatabaseField,
     DateTimeDatabaseField,
-    LazyTable,
     FieldOrTable,
-    LazyTableToAdd,
 )
 
 APP_METRICS2_FIELDS: dict[str, FieldOrTable] = {

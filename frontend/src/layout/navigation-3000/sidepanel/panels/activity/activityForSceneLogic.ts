@@ -65,9 +65,9 @@ export const activityForSceneLogic = kea<activityForSceneLogicType>([
     subscriptions({
         sceneActivityFilters: async (obj) => {
             if (obj) {
-                await api.create('/api/projects/@current/internal_metrics/', {
+                await api.create('/api/projects/@current/metalytics/', {
                     metric_name: 'viewed',
-                    metric_kind: 'misc',
+                    // metric_kind: 'misc',
                     instance_id: obj.item_id ? `${obj.scope}:${obj.item_id}` : obj.scope,
 
                     // API sets these
