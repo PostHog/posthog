@@ -713,6 +713,22 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.5
   '''
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE "posthog_group"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.6
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -734,6 +750,22 @@
   FROM "posthog_cohort"
   WHERE (NOT "posthog_cohort"."deleted"
          AND "posthog_cohort"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.7
+  '''
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE "posthog_group"."team_id" = 99999
+  LIMIT 21
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts
