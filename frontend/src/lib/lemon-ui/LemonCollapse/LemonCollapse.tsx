@@ -116,18 +116,28 @@ function LemonCollapsePanel({
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
-            <LemonButton
-                onClick={() => {
-                    onHeaderClick && onHeaderClick()
-                    onChange(!isExpanded)
-                }}
-                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                className="LemonCollapsePanel__header"
-                {...(dataAttr ? { 'data-attr': dataAttr } : {})}
-                size={size}
-            >
-                {header}
-            </LemonButton>
+            {content ? (
+                <LemonButton
+                    onClick={() => {
+                        onHeaderClick && onHeaderClick()
+                        onChange(!isExpanded)
+                    }}
+                    icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                    className="LemonCollapsePanel__header"
+                    {...(dataAttr ? { 'data-attr': dataAttr } : {})}
+                    size={size}
+                >
+                    {header}
+                </LemonButton>
+            ) : (
+                <LemonButton
+                    className="LemonCollapsePanel__header LemonCollapsePanel__header--disabled"
+                    {...(dataAttr ? { 'data-attr': dataAttr } : {})}
+                    size={size}
+                >
+                    {header}
+                </LemonButton>
+            )}
             <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
                 {(status) => (
                     <div

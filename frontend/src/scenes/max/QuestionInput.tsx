@@ -4,9 +4,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question, thread, threadLoading } = useValues(maxLogic)
     const { askMax, setQuestion } = useActions(maxLogic)
 
@@ -48,7 +50,15 @@ export function QuestionInput(): JSX.Element {
                     type={isFloating && !question ? 'secondary' : 'primary'}
                     onClick={() => askMax(question)}
                     tooltip="Let's go!"
-                    disabledReason={!question ? 'I need some input first' : threadLoading ? 'Thinking…' : undefined}
+                    disabledReason={
+                        !dataProcessingAccepted
+                            ? 'Please accept OpenAI processing data'
+                            : !question
+                            ? 'I need some input first'
+                            : threadLoading
+                            ? 'Thinking…'
+                            : undefined
+                    }
                     size="small"
                     icon={<IconArrowRight />}
                 />
