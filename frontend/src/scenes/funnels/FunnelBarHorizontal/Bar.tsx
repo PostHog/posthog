@@ -1,9 +1,13 @@
 import { LemonDropdown } from '@posthog/lemon-ui'
-import { getSeriesColor } from 'lib/colors'
+import { useValues } from 'kea'
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { BreakdownFilter } from '~/queries/schema'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
@@ -43,6 +47,10 @@ export function Bar({
     aggregationTargetLabel,
     wrapperWidth,
 }: BarProps): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { resultCustomizations } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { getTheme } = useValues(dataThemeLogic)
+
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
@@ -88,6 +96,14 @@ export function Bar({
         return null
     }
 
+    const theme = getTheme('posthog')
+    const colorToken = getFunnelResultCustomizationColorToken(
+        resultCustomizations,
+        theme,
+        step,
+        insightProps.cachedInsight?.disable_baseline
+    )
+
     return (
         <LemonDropdown
             trigger="hover"
@@ -111,7 +127,7 @@ export function Bar({
                 style={{
                     flex: `${conversionPercentage} 1 0`,
                     cursor: cursorType,
-                    backgroundColor: getSeriesColor(breakdownIndex ?? 0),
+                    backgroundColor: theme[colorToken],
                 }}
                 onClick={() => {
                     if (!disabled && onBarClick) {
