@@ -11,7 +11,7 @@ import { useState } from 'react'
 
 import { EventType } from '~/types'
 
-import { ErrorTrackingStackFrame } from './stackFrameLogic'
+import { ErrorTrackingStackFrame } from './types'
 
 interface RawStackTrace {
     type: 'raw'
@@ -38,23 +38,24 @@ function StackTrace({
 }): JSX.Element | null {
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
-    const panels = displayFrames.map(({ filename, lineno, colno, function: functionName }, index) => {
+    // TODO - this doesn't account for nulls
+    const panels = displayFrames.map(({ source, line, column, resolved_name: functionName }, index) => {
         return {
             key: index,
             header: (
                 <div className="flex flex-wrap space-x-0.5">
-                    <span>{filename}</span>
+                    <span>{source}</span>
                     {functionName ? (
                         <div className="flex space-x-0.5">
                             <span className="text-muted">in</span>
                             <span>{functionName}</span>
                         </div>
                     ) : null}
-                    {lineno && colno ? (
+                    {line && column ? (
                         <div className="flex space-x-0.5">
                             <span className="text-muted">at line</span>
                             <span>
-                                {lineno}:{colno}
+                                {line}:{column}
                             </span>
                         </div>
                     ) : null}

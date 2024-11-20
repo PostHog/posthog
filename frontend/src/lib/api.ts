@@ -113,7 +113,7 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
-import { ErrorTrackingStackFrame, ErrorTrackingSymbolSet } from './components/Errors/stackFrameLogic'
+import { ErrorTrackingStackFrameRecord, ErrorTrackingSymbolSet } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -1875,12 +1875,16 @@ const api = {
             return await new ApiRequest().errorTrackingStackFrames(ids).get()
         },
 
-        async fetchSymbolSetStackFrames(symbolSetId: string): Promise<ErrorTrackingStackFrame[]> {
+        async fetchSymbolSets(): Promise<ErrorTrackingSymbolSet[]> {
+            return await api.loadPaginatedResults(new ApiRequest().symbolSets().assembleFullUrl())
+        },
+
+        async fetchSymbolSetStackFrames(symbolSetId: string): Promise<ErrorTrackingStackFrameRecord[]> {
             return await new ApiRequest().symbolSetStackFrames(symbolSetId).get()
         },
 
-        async fetchSymbolSets(): Promise<ErrorTrackingSymbolSet[]> {
-            return await new ApiRequest().symbolSets().get()
+        async fetchSymbolSet(symbolSetId: string): Promise<ErrorTrackingSymbolSet> {
+            return await new ApiRequest().symbolSets().withAction(symbolSetId).get()
         },
     },
 
