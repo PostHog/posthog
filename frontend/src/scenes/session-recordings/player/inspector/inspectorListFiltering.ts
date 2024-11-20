@@ -50,10 +50,6 @@ function isNetworkError(item: InspectorListItem): boolean {
     return isNetworkEvent(item) && (item.data.response_status || -1) >= 400
 }
 
-function isSlowNetwork(item: InspectorListItem): boolean {
-    return isNetworkEvent(item) && (item.data.duration || -1) >= 1000
-}
-
 function isEvent(item: InspectorListItem): item is InspectorListItemEvent {
     return item.type === SessionRecordingPlayerTab.EVENTS
 }
@@ -90,6 +86,85 @@ function isComment(item: InspectorListItem): item is InspectorListItemComment {
     return item.type === 'comment'
 }
 
+const inspectorTabFilters: Record<
+    SessionRecordingPlayerTab,
+    (
+        item: InspectorListItem,
+        miniFiltersByKey: {
+            [key: string]: SharedListMiniFilter
+        }
+    ) => boolean
+> = {
+    [SessionRecordingPlayerTab.ALL]: (item, miniFiltersByKey) => {
+        // even in everything mode we don't show doctor events
+        const isAllEverything = miniFiltersByKey['all-everything']?.enabled === true && !isDoctorEvent(item)
+        const isAllAutomatic =
+            !!miniFiltersByKey['all-automatic']?.enabled &&
+            (isOfflineStatusChange(item) || isBrowserVisibilityEvent(item) || isEvent(item) || isComment(item))
+        const isAllErrors =
+            !!miniFiltersByKey['all-errors']?.enabled &&
+            (isNetworkError(item) || isConsoleError(item) || isException(item) || isErrorEvent(item))
+        return isAllEverything || isAllAutomatic || isAllErrors
+    },
+    [SessionRecordingPlayerTab.EVENTS]: (item, miniFiltersByKey) => {
+        if (item.type !== SessionRecordingPlayerTab.EVENTS) {
+            return false
+        }
+        return (
+            !!miniFiltersByKey['events-all']?.enabled ||
+            (!!miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) ||
+            (!!miniFiltersByKey['events-custom']?.enabled && !isPostHogEvent(item)) ||
+            (!!miniFiltersByKey['events-pageview']?.enabled && isPageviewOrScreen(item)) ||
+            (!!miniFiltersByKey['events-autocapture']?.enabled && isAutocapture(item)) ||
+            (!!miniFiltersByKey['events-exceptions']?.enabled && isException(item))
+        )
+    },
+    [SessionRecordingPlayerTab.CONSOLE]: (item, miniFiltersByKey) => {
+        if (item.type !== SessionRecordingPlayerTab.CONSOLE) {
+            return false
+        }
+        return (
+            !!miniFiltersByKey['console-all']?.enabled ||
+            (!!miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) ||
+            (!!miniFiltersByKey['console-warn']?.enabled && item.data.level === 'warn') ||
+            (!!miniFiltersByKey['console-error']?.enabled && isConsoleError(item))
+        )
+    },
+    [SessionRecordingPlayerTab.NETWORK]: (item, miniFiltersByKey) => {
+        if (item.type !== SessionRecordingPlayerTab.NETWORK) {
+            return false
+        }
+        return (
+            !!miniFiltersByKey['performance-all']?.enabled === true ||
+            (!!miniFiltersByKey['performance-document']?.enabled && isNavigationEvent(item)) ||
+            (!!miniFiltersByKey['performance-fetch']?.enabled &&
+                item.data.entry_type === 'resource' &&
+                ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) ||
+            (!!miniFiltersByKey['performance-assets-js']?.enabled &&
+                item.data.entry_type === 'resource' &&
+                (item.data.initiator_type === 'script' ||
+                    (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.js')))) ||
+            (!!miniFiltersByKey['performance-assets-css']?.enabled &&
+                item.data.entry_type === 'resource' &&
+                (item.data.initiator_type === 'css' ||
+                    (['link', 'other'].includes(item.data.initiator_type || '') &&
+                        item.data.name?.includes('.css')))) ||
+            (!!miniFiltersByKey['performance-assets-img']?.enabled &&
+                item.data.entry_type === 'resource' &&
+                (item.data.initiator_type === 'img' ||
+                    (['link', 'other'].includes(item.data.initiator_type || '') &&
+                        !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))) ||
+            (!!miniFiltersByKey['performance-other']?.enabled &&
+                item.data.entry_type === 'resource' &&
+                ['other'].includes(item.data.initiator_type || '') &&
+                ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
+        )
+    },
+    [SessionRecordingPlayerTab.DOCTOR]: (item) => {
+        return isOfflineStatusChange(item) || isBrowserVisibilityEvent(item) || isException(item) || isDoctorEvent(item)
+    },
+}
+
 export function filterInspectorListItems({
     allItems,
     tab,
@@ -118,94 +193,6 @@ export function filterInspectorListItems({
         return []
     }
 
-    const inspectorTabFilters: Record<SessionRecordingPlayerTab, (item: InspectorListItem) => boolean> = {
-        [SessionRecordingPlayerTab.ALL]: (item: InspectorListItem) => {
-            // even in everything mode we don't show doctor events
-            const isAllEverything = miniFiltersByKey['all-everything']?.enabled === true && !isDoctorEvent(item)
-            const isAllAutomatic =
-                (!!miniFiltersByKey['all-automatic']?.enabled &&
-                    (isOfflineStatusChange(item) ||
-                        isBrowserVisibilityEvent(item) ||
-                        isNavigationEvent(item) ||
-                        isNetworkError(item) ||
-                        isSlowNetwork(item) ||
-                        isPostHogMobileEvent(item) ||
-                        isPageviewOrScreen(item) ||
-                        isAutocapture(item))) ||
-                isComment(item)
-            const isAllErrors =
-                (!!miniFiltersByKey['all-errors']?.enabled && isNetworkError(item)) ||
-                isConsoleError(item) ||
-                isException(item) ||
-                isErrorEvent(item)
-            return isAllEverything || isAllAutomatic || isAllErrors
-        },
-        [SessionRecordingPlayerTab.EVENTS]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.EVENTS) {
-                return false
-            }
-            return (
-                !!miniFiltersByKey['events-all']?.enabled ||
-                (!!miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) ||
-                (!!miniFiltersByKey['events-custom']?.enabled && !isPostHogEvent(item)) ||
-                (!!miniFiltersByKey['events-pageview']?.enabled &&
-                    ['$pageview', '$screen'].includes(item.data.event)) ||
-                (!!miniFiltersByKey['events-autocapture']?.enabled && item.data.event === '$autocapture') ||
-                (!!miniFiltersByKey['events-exceptions']?.enabled && item.data.event === '$exception')
-            )
-        },
-        [SessionRecordingPlayerTab.CONSOLE]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.CONSOLE) {
-                return false
-            }
-            return (
-                !!miniFiltersByKey['console-all']?.enabled ||
-                (!!miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) ||
-                (!!miniFiltersByKey['console-warn']?.enabled && item.data.level === 'warn') ||
-                (!!miniFiltersByKey['console-error']?.enabled && isConsoleError(item))
-            )
-        },
-        [SessionRecordingPlayerTab.NETWORK]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.NETWORK) {
-                return false
-            }
-            return (
-                !!miniFiltersByKey['performance-all']?.enabled === true ||
-                (!!miniFiltersByKey['performance-document']?.enabled && isNavigationEvent(item)) ||
-                (!!miniFiltersByKey['performance-fetch']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) ||
-                (!!miniFiltersByKey['performance-assets-js']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'script' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            item.data.name?.includes('.js')))) ||
-                (!!miniFiltersByKey['performance-assets-css']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'css' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            item.data.name?.includes('.css')))) ||
-                (!!miniFiltersByKey['performance-assets-img']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'img' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))) ||
-                (!!miniFiltersByKey['performance-other']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    ['other'].includes(item.data.initiator_type || '') &&
-                    ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
-            )
-        },
-        [SessionRecordingPlayerTab.DOCTOR]: (item: InspectorListItem) => {
-            return (
-                isOfflineStatusChange(item) ||
-                isBrowserVisibilityEvent(item) ||
-                isException(item) ||
-                isDoctorEvent(item)
-            )
-        },
-    }
-
     for (const item of allItems) {
         let include = false
 
@@ -213,7 +200,7 @@ export function filterInspectorListItems({
             continue
         }
 
-        include = inspectorTabFilters[tab](item)
+        include = inspectorTabFilters[tab](item, miniFiltersByKey)
 
         if (showMatchingEventsFilter && showOnlyMatching) {
             // Special case - overrides the others
