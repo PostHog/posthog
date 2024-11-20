@@ -187,10 +187,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         if "hog" in attrs:
             if attrs["type"] == "web":
-                # TODO: do we always have instance.id available?
-                attrs["transpiled"] = get_transpiled_function(
-                    str(instance.id), attrs["hog"], attrs["filters"], attrs["inputs"], team
-                )
+                # Upon creation, this code will be run before the model has an "id".
+                # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
+                id = str(instance.id) if instance else "__"
+                attrs["transpiled"] = get_transpiled_function(id, attrs["hog"], attrs["filters"], attrs["inputs"], team)
                 attrs["bytecode"] = None
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"])
@@ -223,7 +223,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        return super().create(validated_data=validated_data)
+        hog_function = super().create(validated_data=validated_data)
+        if validated_data.get("type") == "web":
+            # Re-run the transpilation now that we have an ID
+            hog_function.transpiled = get_transpiled_function(
+                str(hog_function.id), hog_function.hog, hog_function.filters, hog_function.inputs, hog_function.team
+            )
+        return hog_function
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
         res: HogFunction = super().update(instance, validated_data)

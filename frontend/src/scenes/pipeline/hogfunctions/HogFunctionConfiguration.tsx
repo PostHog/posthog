@@ -460,12 +460,14 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         <LemonField name="hog">
                                             {({ value, onChange }) => (
                                                 <>
-                                                    <span className="text-xs text-muted-alt">
-                                                        This is the underlying Hog code that will run whenever the
-                                                        filters match.{' '}
-                                                        <Link to="https://posthog.com/docs/hog">See the docs</Link> for
-                                                        more info
-                                                    </span>
+                                                    {type !== 'web' ? (
+                                                        <span className="text-xs text-muted-alt">
+                                                            This is the underlying Hog code that will run whenever the
+                                                            filters match.{' '}
+                                                            <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
+                                                            for more info
+                                                        </span>
+                                                    ) : null}
                                                     <CodeEditorResizeable
                                                         language={type === 'web' ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
