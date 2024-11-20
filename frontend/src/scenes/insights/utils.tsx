@@ -468,7 +468,7 @@ export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
 function isFunnelStepWithConversionMetrics(
     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
 ): dataset is FunnelStepWithConversionMetrics {
-    return dataset.conversionRates != null
+    return (dataset as FlattenedFunnelStepByBreakdown).breakdownIndex == null
 }
 
 export function getFunnelDatasetPosition(
