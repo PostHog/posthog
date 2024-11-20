@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
-import { IconComment, IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconComment, IconOffline } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useRef } from 'react'
@@ -29,7 +29,7 @@ const typeToIconAndDescription = {
         tooltip: 'All events',
     },
     [SessionRecordingPlayerTab.EVENTS]: {
-        Icon: IconUnverifiedEvent,
+        Icon: undefined,
         tooltip: 'Recording event',
     },
     [SessionRecordingPlayerTab.CONSOLE]: {
@@ -71,7 +71,7 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
     const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     return (
-        <span className="px-2 py-1 text-xs">
+        <span className="px-2 py-1 text-xs min-w-12">
             {timestampFormat != TimestampFormat.Relative ? (
                 (timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp).format(
                     'DD, MMM HH:mm:ss'
@@ -97,12 +97,17 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
 function RowItemTitle({
     item,
     finalTimestamp,
+    showIcon,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
+    showIcon?: boolean
 }): JSX.Element {
+    const TypeIcon = typeToIconAndDescription[item.type].Icon
+
     return (
-        <>
+        <div className="flex gap-1 items-center">
+            {showIcon && TypeIcon ? <TypeIcon /> : null}
             {item.type === SessionRecordingPlayerTab.NETWORK ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
@@ -122,7 +127,7 @@ function RowItemTitle({
             ) : item.type === 'comment' ? (
                 <ItemComment item={item} />
             ) : null}
-        </>
+        </div>
     )
 }
 
@@ -167,14 +172,10 @@ export function PlayerInspectorListItem({
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
-    const {
-        // tab,
-        end,
-        expandedItems,
-    } = useValues(playerInspectorLogic(logicProps))
+    const { tab, end, expandedItems } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
 
-    //const showIcon = tab === SessionRecordingPlayerTab.ALL
+    const showIcon = tab === SessionRecordingPlayerTab.ALL
 
     const isExpanded = expandedItems.includes(index)
 
@@ -188,30 +189,37 @@ export function PlayerInspectorListItem({
     const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
 
     // Height changes should lay out immediately but width ones (browser resize can be much slower)
-    useEffect(() => {
-        if (!width || !totalHeight) {
-            return
-        }
-        onLayoutDebounced({ width, height: totalHeight })
-    }, [width])
+    useEffect(
+        () => {
+            if (!width || !totalHeight) {
+                return
+            }
+            onLayoutDebounced({ width, height: totalHeight })
+        },
+        // purposefully only triggering on width
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [width]
+    )
 
-    useEffect(() => {
-        if (!width || !totalHeight) {
-            return
-        }
-        onLayout({ width, height: totalHeight })
-    }, [totalHeight])
+    useEffect(
+        () => {
+            if (!width || !totalHeight) {
+                return
+            }
+            onLayout({ width, height: totalHeight })
+        },
+        // purposefully only triggering on total height
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [totalHeight]
+    )
 
     const isHovering = useIsHovering(hoverRef)
-
-    // TODO reintroduce icons
-    // const TypeIcon = typeToIconAndDescription[item.type].Icon
 
     return (
         <div
             ref={ref}
             className={clsx(
-                'ml-1 flex flex-col flex-1 items-center w-full relative',
+                'ml-1 flex flex-col items-center',
                 isExpanded && 'border border-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
                 isHovering && 'bg-bg-light'
@@ -227,16 +235,17 @@ export function PlayerInspectorListItem({
                     ref={hoverRef}
                     onClick={() => seekToEvent()}
                 >
-                    <Tooltip
-                        placement="left"
-                        title={
-                            <>
-                                <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
+                    {/*TODO this tooltip doesn't trigger whether its inside or outside of this hover container */}
+                    {item.windowNumber ? (
+                        <Tooltip
+                            placement="left"
+                            title={
+                                <>
+                                    <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
 
-                                {item.windowNumber ? (
                                     <>
                                         <br />
-                                        {item.windowNumber ? (
+                                        {item.windowNumber !== '?' ? (
                                             <>
                                                 {' '}
                                                 occurred in Window <b>{item.windowNumber}</b>
@@ -249,12 +258,12 @@ export function PlayerInspectorListItem({
                                             </>
                                         )}
                                     </>
-                                ) : null}
-                            </>
-                        }
-                    >
-                        <IconWindow size="small" value={item.windowNumber || '?'} />
-                    </Tooltip>
+                                </>
+                            }
+                        >
+                            <IconWindow size="small" value={item.windowNumber || '?'} />
+                        </Tooltip>
+                    ) : null}
 
                     <ItemTimeDisplay item={item} />
 
@@ -264,11 +273,7 @@ export function PlayerInspectorListItem({
                             item.highlightColor && `bg-${item.highlightColor}-highlight`
                         )}
                     >
-                        {/*
-                    TODO reintroduce icons
-                    {showIcon && TypeIcon ? <TypeIcon /> : null}
-                    */}
-                        <RowItemTitle item={item} finalTimestamp={end} />
+                        <RowItemTitle item={item} finalTimestamp={end} showIcon={showIcon} />
                     </div>
                 </div>
                 <LemonButton
@@ -288,7 +293,7 @@ export function PlayerInspectorListItem({
             {isExpanded ? (
                 <div
                     className={clsx(
-                        'mx-2 overflow-hidden',
+                        'w-full mx-2 overflow-hidden',
                         item.highlightColor && `bg-${item.highlightColor}-highlight`
                     )}
                 >

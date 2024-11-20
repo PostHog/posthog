@@ -60,7 +60,7 @@ export type InspectorListItemBase = {
     search: string
     highlightColor?: 'danger' | 'warning' | 'primary'
     windowId?: string
-    windowNumber?: number | undefined
+    windowNumber?: number | '?' | undefined
 }
 
 export type InspectorListItemEvent = InspectorListItemBase & {
@@ -300,12 +300,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         windowNumberForID: [
             (s) => [s.windowIds],
             (windowIds) => {
-                return (windowId: string | undefined): number | undefined => {
-                    return windowIds.length > 1
-                        ? windowId
-                            ? windowIds.indexOf(windowId) + 1 || undefined
-                            : undefined
-                        : undefined
+                return (windowId: string | undefined): number | '?' | undefined => {
+                    return windowIds.length > 1 ? (windowId ? windowIds.indexOf(windowId) + 1 || '?' : '?') : undefined
                 }
             },
         ],
