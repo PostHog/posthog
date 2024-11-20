@@ -233,7 +233,7 @@ _timestamp,
 _timestamp_ms,
 _offset,
 _partition
-FROM {database}.kafka_events_json
+FROM {database}.kafka_events_recent_json
 """.format(
         target_table=EVENTS_RECENT_DATA_TABLE(),
         cluster=settings.CLICKHOUSE_CLUSTER,
