@@ -1,9 +1,11 @@
 import api from 'lib/api'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
+import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
@@ -17,6 +19,10 @@ import {
     InsightVizNode,
     NodeKind,
     PathsFilter,
+    ResultCustomization,
+    ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
 } from '~/queries/schema'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
@@ -36,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
@@ -432,4 +439,61 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     }
 
     return query ? urls.insightNew(undefined, undefined, query) : undefined
+}
+
+export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
+    const payload = {
+        series: Number.isInteger(dataset.action?.order) ? dataset.action?.order : 'formula',
+        breakdown_value: dataset.breakdown_value,
+        compare_label: dataset.compare_label,
+    }
+
+    return JSON.stringify(payload)
+}
+export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
+    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
+}
+
+export function getTrendResultCustomizationKey(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    dataset: IndexedTrendResult
+): string {
+    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
+    return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
+}
+
+export function getTrendResultCustomization(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    dataset: IndexedTrendResult,
+    resultCustomizations:
+        | Record<string, ResultCustomizationByValue>
+        | Record<number, ResultCustomizationByPosition>
+        | null
+        | undefined
+): ResultCustomization | undefined {
+    const legendKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
+    return resultCustomizations && Object.keys(resultCustomizations).includes(legendKey)
+        ? resultCustomizations[legendKey]
+        : undefined
+}
+
+export function getTrendResultCustomizationColorToken(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    resultCustomizations:
+        | Record<string, ResultCustomizationByValue>
+        | Record<number, ResultCustomizationByPosition>
+        | null
+        | undefined,
+    theme: DataColorTheme,
+    dataset: IndexedTrendResult
+): DataColorToken {
+    const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
+
+    // for result customizations without a configuration, the color is determined
+    // by the position in the dataset. colors repeat after all options
+    // have been exhausted.
+    const datasetPosition = getTrendDatasetPosition(dataset)
+    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+
+    return resultCustomization ? resultCustomization.color : (`preset-${tokenIndex}` as DataColorToken)
 }

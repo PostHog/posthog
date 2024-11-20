@@ -1,11 +1,16 @@
+import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { BreakdownFilter } from '~/queries/schema'
+
+import { resultCustomizationsModalLogic } from '../resultCustomizationsModalLogic'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter
@@ -25,35 +30,43 @@ export function MultipleBreakdownColumnTitle({ children }: MultipleBreakdownColu
 
 type BreakdownColumnItemProps = {
     item: IndexedTrendResult
-    canCheckUncheckSeries: boolean
-    isMainInsightView: boolean
-    toggleHiddenLegendIndex: (index: number) => void
     formatItemBreakdownLabel: (item: IndexedTrendResult) => string
 }
 
-export function BreakdownColumnItem({
-    item,
-    canCheckUncheckSeries,
-    isMainInsightView,
-    toggleHiddenLegendIndex,
-    formatItemBreakdownLabel,
-}: BreakdownColumnItemProps): JSX.Element {
+export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: BreakdownColumnItemProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
+
     const breakdownLabel = formatItemBreakdownLabel(item)
     const formattedLabel = stringWithWBR(breakdownLabel, 20)
-    const multiEntityAndToggleable = !isMainInsightView && canCheckUncheckSeries
+
     return (
-        <div
-            className={multiEntityAndToggleable ? 'cursor-pointer' : ''}
-            onClick={multiEntityAndToggleable ? () => toggleHiddenLegendIndex(item.id) : undefined}
-        >
+        <div className="flex">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
-                        <Link to={breakdownLabel} target="_blank" className="value-link" targetBlankIcon>
+                        <Link to={breakdownLabel} target="_blank" className="value-link font-medium" targetBlankIcon>
                             {formattedLabel}
                         </Link>
                     ) : (
-                        <div title={breakdownLabel}>{formattedLabel}</div>
+                        <div title={breakdownLabel} className="font-medium">
+                            {formattedLabel}
+                        </div>
+                    )}
+
+                    {hasInsightColors && (
+                        <Link
+                            className="align-middle"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+
+                                openModal(item)
+                            }}
+                        >
+                            <IconGear fontSize={16} />
+                        </Link>
                     )}
                 </>
             )}

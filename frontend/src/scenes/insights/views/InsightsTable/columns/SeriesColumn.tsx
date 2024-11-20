@@ -1,19 +1,23 @@
-import { IconPencil } from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { getTrendLikeSeriesColor } from 'lib/colors'
+import { useActions, useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendResult } from '~/types'
+
+import { resultCustomizationsModalLogic } from '../resultCustomizationsModalLogic'
 
 type SeriesColumnItemProps = {
     item: IndexedTrendResult
     indexedResults: IndexedTrendResult[]
     canEditSeriesNameInline: boolean
     handleEditClick: (item: IndexedTrendResult) => void
-    hasMultipleSeries?: boolean
+    hasMultipleSeries: boolean
+    hasBreakdown: boolean
 }
 
 export function SeriesColumnItem({
@@ -22,36 +26,43 @@ export function SeriesColumnItem({
     canEditSeriesNameInline,
     handleEditClick,
     hasMultipleSeries,
+    hasBreakdown,
 }: SeriesColumnItemProps): JSX.Element {
-    const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
+    const { insightProps } = useValues(insightLogic)
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
-    const isPrevious = !!item.compare && item.compare_label === 'previous'
+    const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     return (
         <div className="series-name-wrapper-col space-x-1">
             <InsightLabel
-                seriesColor={getTrendLikeSeriesColor(item.colorIndex, isPrevious)}
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                 hasMultipleSeries={hasMultipleSeries}
                 showEventName
                 showCountedByTag={showCountedByTag}
-                breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                 hideBreakdown
                 hideIcon
                 className={clsx({
-                    editable: canEditSeriesNameInline,
+                    'font-medium': !hasBreakdown,
                 })}
                 pillMaxWidth={165}
                 compareValue={item.compare ? formatCompareLabel(item) : undefined}
                 onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
             />
-            {canEditSeriesNameInline && (
-                <LemonButton
-                    onClick={() => handleEditClick(item)}
-                    title="Rename graph series"
-                    icon={<IconPencil className="edit-icon" />}
-                />
+            {hasInsightColors && !hasBreakdown && (
+                <Link
+                    className="align-middle"
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+
+                        openModal(item)
+                    }}
+                >
+                    <IconGear fontSize={16} />
+                </Link>
             )}
         </div>
     )

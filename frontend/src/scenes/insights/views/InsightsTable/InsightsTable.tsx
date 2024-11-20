@@ -1,17 +1,18 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { getTrendLikeSeriesColor } from 'lib/colors'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -23,6 +24,7 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -75,10 +77,14 @@ export function InsightsTable({
         trendsFilter,
         isSingleSeries,
         hiddenLegendIndexes,
+        resultCustomizations,
+        resultCustomizationBy,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
+
+    const { getTheme } = useValues(dataThemeLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -120,6 +126,7 @@ export function InsightsTable({
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
+                    hasBreakdown={isValidBreakdown(breakdownFilter)}
                 />
             )
             return hasCheckboxes ? (
@@ -148,15 +155,9 @@ export function InsightsTable({
 
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
-            render: (_, item) => (
-                <BreakdownColumnItem
-                    item={item}
-                    canCheckUncheckSeries={canCheckUncheckSeries}
-                    isMainInsightView={isMainInsightView}
-                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
-                    formatItemBreakdownLabel={formatItemBreakdownLabel}
-                />
-            ),
+            render: (_, item) => {
+                return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+            },
             key: 'breakdown',
             sorter: (a, b) => {
                 if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
@@ -193,15 +194,9 @@ export function InsightsTable({
 
             columns.push({
                 title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
-                render: (_, item) => (
-                    <BreakdownColumnItem
-                        item={item}
-                        canCheckUncheckSeries={canCheckUncheckSeries}
-                        isMainInsightView={isMainInsightView}
-                        toggleHiddenLegendIndex={toggleHiddenLegendIndex}
-                        formatItemBreakdownLabel={formatItemBreakdownLabel}
-                    />
-                ),
+                render: (_, item) => {
+                    return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                },
                 key: `breakdown-${breakdown.property?.toString() || index}`,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
@@ -267,30 +262,48 @@ export function InsightsTable({
         columns.push(...valueColumns)
     }
 
+    const theme = getTheme('posthog')
+
     return (
-        <LemonTable
-            id={isInDashboardContext ? insight.short_id : undefined}
-            dataSource={
-                isLegend || isMainInsightView
-                    ? indexedResults
-                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
-            }
-            embedded={embedded}
-            columns={columns}
-            rowKey="id"
-            loading={insightDataLoading}
-            disableTableWhileLoading={false}
-            emptyState="No insight results"
-            data-attr="insights-table-graph"
-            useURLForSorting={insightMode !== ItemMode.Edit}
-            rowRibbonColor={
-                isLegend
-                    ? (item) =>
-                          getTrendLikeSeriesColor(item.colorIndex, !!item.compare && item.compare_label === 'previous')
-                    : undefined
-            }
-            firstColumnSticky
-            maxHeaderWidth="20rem"
-        />
+        <>
+            <LemonTable
+                id={isInDashboardContext ? insight.short_id : undefined}
+                dataSource={
+                    isLegend || isMainInsightView
+                        ? indexedResults
+                        : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
+                }
+                embedded={embedded}
+                columns={columns}
+                rowKey="id"
+                loading={insightDataLoading}
+                disableTableWhileLoading={false}
+                emptyState="No insight results"
+                data-attr="insights-table-graph"
+                useURLForSorting={insightMode !== ItemMode.Edit}
+                rowRibbonColor={
+                    isLegend
+                        ? (item) => {
+                              const isPrevious = !!item.compare && item.compare_label === 'previous'
+
+                              const colorToken = getTrendResultCustomizationColorToken(
+                                  resultCustomizationBy,
+                                  resultCustomizations,
+                                  theme,
+                                  item
+                              )
+
+                              const themeColor = theme[colorToken]
+                              const mainColor = isPrevious ? `${themeColor}80` : themeColor
+
+                              return mainColor
+                          }
+                        : undefined
+                }
+                firstColumnSticky
+                maxHeaderWidth="20rem"
+            />
+            <ResultCustomizationsModal />
+        </>
     )
 }

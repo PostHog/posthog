@@ -32,6 +32,10 @@ import {
     InsightQueryNode,
     Node,
     NodeKind,
+    numerical_key,
+    ResultCustomization,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema'
@@ -43,6 +47,7 @@ import {
     getDisplay,
     getFormula,
     getInterval,
+    getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
     getShowLabelsOnSeries,
@@ -99,6 +104,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
+        updateResultCustomization: (key: number | string, config: ResultCustomization) => ({ key, config }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
 
@@ -149,6 +155,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return false
             },
         ],
+        supportsResultCustomizationBy: [
+            (s) => [s.isTrends, s.display],
+            (isTrends, display) =>
+                (isTrends && display) ||
+                [ChartDisplayType.ActionsLineGraph].includes(display || ChartDisplayType.ActionsLineGraph),
+        ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
         breakdownFilter: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
@@ -165,6 +177,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
+        resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -174,6 +187,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
         funnelPathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.funnelPathsFilter : null)],
+        resultCustomizations: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.resultCustomizations : null)],
 
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
@@ -443,6 +457,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
             actions.updateInsightFilter({ hiddenLegendIndexes })
+        },
+
+        // legend entries
+        updateResultCustomization: ({ key, config }) => {
+            const update: Partial<TrendsQuery> = {
+                resultCustomizations: { ...values.resultCustomizations, [key]: config } as
+                    | Record<string, ResultCustomizationByValue>
+                    | Record<numerical_key, ResultCustomizationByPosition>,
+            }
+            actions.updateQuerySource(update)
         },
 
         // data loading side effects i.e. diplaying loading screens for queries with longer duration

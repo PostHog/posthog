@@ -1,7 +1,7 @@
 import './WorldMap.scss'
 
 import { useActions, useValues } from 'kea'
-import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
+import { BRAND_BLUE_HSL, gradateColor } from 'lib/utils'
 import React, { HTMLProps, useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
