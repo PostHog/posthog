@@ -35,6 +35,7 @@ import {
     EntityTypes,
     EventType,
     FlattenedFunnelStepByBreakdown,
+    FunnelStepWithConversionMetrics,
     GroupTypeIndex,
     InsightShortId,
     InsightType,
@@ -442,8 +443,10 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     return query ? urls.insightNew(undefined, undefined, query) : undefined
 }
 
-export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown): string {
-    const payload = { breakdown_value: dataset.breakdown_value }
+export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics): string {
+    const breakdown_value = dataset.breakdown_value?.length == 1 ? dataset.breakdown_value[0] : dataset.breakdown_value
+    const payload = { breakdown_value }
+
     return JSON.stringify(payload)
 }
 
@@ -461,7 +464,23 @@ export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
     return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
 }
 
-export function getFunnelDatasetPosition(dataset: FlattenedFunnelStepByBreakdown): number {
+/** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
+function isFunnelStepWithConversionMetrics(
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
+): dataset is FunnelStepWithConversionMetrics {
+    return dataset.conversionRates != null
+}
+
+export function getFunnelDatasetPosition(
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
+    disableFunnelBreakdownBaseline?: boolean
+): number {
+    if (isFunnelStepWithConversionMetrics(dataset)) {
+        // increment the minimum order for funnels where there baseline is hidden
+        // i.e. funnels for experiments where only the respective variants matter
+        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : dataset.order ?? 0
+    }
+
     return dataset?.breakdownIndex ?? 0
 }
 
@@ -524,11 +543,12 @@ export function getTrendResultCustomizationColorToken(
 export function getFunnelResultCustomizationColorToken(
     resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined,
     theme: DataColorTheme,
-    dataset: FlattenedFunnelStepByBreakdown
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
+    disableFunnelBreakdownBaseline?: boolean
 ): DataColorToken {
     const resultCustomization = getFunnelResultCustomization(dataset, resultCustomizations)
 
-    const datasetPosition = getFunnelDatasetPosition(dataset)
+    const datasetPosition = getFunnelDatasetPosition(dataset, disableFunnelBreakdownBaseline)
     const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
 
     return resultCustomization && resultCustomization.color

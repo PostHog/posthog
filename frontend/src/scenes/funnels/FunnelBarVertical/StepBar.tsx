@@ -1,10 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { percentage } from 'lib/utils'
 import { useRef } from 'react'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
@@ -26,10 +28,18 @@ export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarPr
     const { disableFunnelBreakdownBaseline } = useValues(funnelDataLogic(insightProps))
     const { showTooltip, hideTooltip } = useActions(funnelTooltipLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
+    const { resultCustomizations } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { getTheme } = useValues(dataThemeLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
-    const seriesOrderForColor = disableFunnelBreakdownBaseline ? (series.order ?? 0) + 1 : series.order ?? 0
+    const theme = getTheme('posthog')
+    const colorToken = getFunnelResultCustomizationColorToken(
+        resultCustomizations,
+        theme,
+        series,
+        disableFunnelBreakdownBaseline
+    )
 
     return (
         <div
@@ -37,7 +47,7 @@ export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarPr
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {
-                    '--series-color': getSeriesColor(seriesOrderForColor),
+                    '--series-color': theme[colorToken],
                     '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
                 } as StepBarCSSProperties
             }
