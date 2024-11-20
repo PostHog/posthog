@@ -3,10 +3,11 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
+import useIsHovering from 'lib/hooks/useIsHovering'
 import { IconComment, IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
@@ -96,14 +97,12 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
 function RowItemTitle({
     item,
     finalTimestamp,
-    onClick,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
-    onClick: () => void
 }): JSX.Element {
     return (
-        <div onClick={onClick}>
+        <>
             {item.type === SessionRecordingPlayerTab.NETWORK ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
@@ -123,7 +122,7 @@ function RowItemTitle({
             ) : item.type === 'comment' ? (
                 <ItemComment item={item} />
             ) : null}
-        </div>
+        </>
     )
 }
 
@@ -163,6 +162,8 @@ export function PlayerInspectorListItem({
     index: number
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
+    const hoverRef = useRef<HTMLDivElement>(null)
+
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
@@ -201,6 +202,8 @@ export function PlayerInspectorListItem({
         onLayout({ width, height: totalHeight })
     }, [totalHeight])
 
+    const isHovering = useIsHovering(hoverRef)
+
     // TODO reintroduce icons
     // const TypeIcon = typeToIconAndDescription[item.type].Icon
 
@@ -208,62 +211,66 @@ export function PlayerInspectorListItem({
         <div
             ref={ref}
             className={clsx(
-                'ml-1 flex flex-col flex-1 items-center',
+                'ml-1 flex flex-col flex-1 items-center w-full relative',
                 isExpanded && 'border border-primary',
-                isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`
+                isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
+                isHovering && 'bg-bg-light'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            <div className={clsx('flex flex-row w-full items-center')}>
-                <Tooltip
-                    placement="left"
-                    title={
-                        <>
-                            <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
-
-                            {item.windowNumber ? (
-                                <>
-                                    <br />
-                                    {item.windowNumber ? (
-                                        <>
-                                            {' '}
-                                            occurred in Window <b>{item.windowNumber}</b>
-                                        </>
-                                    ) : (
-                                        <>
-                                            {' '}
-                                            not linked to any specific window. Either an event tracked from the backend
-                                            or otherwise not able to be linked to a given window.
-                                        </>
-                                    )}
-                                </>
-                            ) : null}
-                        </>
-                    }
-                >
-                    <div className="pl-1 text-muted-alt flex items-center justify-center gap-1">
-                        <IconWindow size="small" value={item.windowNumber || '?'} />
-                    </div>
-                </Tooltip>
-
-                <ItemTimeDisplay item={item} />
-
+            <div className="flex flex-row items-center w-full px-1">
                 <div
-                    className={clsx(
-                        'flex-1 overflow-hidden',
-                        item.highlightColor && `bg-${item.highlightColor}-highlight`
-                    )}
+                    className="flex flex-row flex-1 items-center overflow-hidden cursor-pointer"
+                    ref={hoverRef}
+                    onClick={() => seekToEvent()}
                 >
-                    {/*
+                    <Tooltip
+                        placement="left"
+                        title={
+                            <>
+                                <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
+
+                                {item.windowNumber ? (
+                                    <>
+                                        <br />
+                                        {item.windowNumber ? (
+                                            <>
+                                                {' '}
+                                                occurred in Window <b>{item.windowNumber}</b>
+                                            </>
+                                        ) : (
+                                            <>
+                                                {' '}
+                                                not linked to any specific window. Either an event tracked from the
+                                                backend or otherwise not able to be linked to a given window.
+                                            </>
+                                        )}
+                                    </>
+                                ) : null}
+                            </>
+                        }
+                    >
+                        <IconWindow size="small" value={item.windowNumber || '?'} />
+                    </Tooltip>
+
+                    <ItemTimeDisplay item={item} />
+
+                    <div
+                        className={clsx(
+                            'flex-1 overflow-hidden',
+                            item.highlightColor && `bg-${item.highlightColor}-highlight`
+                        )}
+                    >
+                        {/*
                     TODO reintroduce icons
                     {showIcon && TypeIcon ? <TypeIcon /> : null}
                     */}
-                    <RowItemTitle item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
+                        <RowItemTitle item={item} finalTimestamp={end} />
+                    </div>
                 </div>
-
                 <LemonButton
                     icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
                     size="small"
@@ -281,7 +288,7 @@ export function PlayerInspectorListItem({
             {isExpanded ? (
                 <div
                     className={clsx(
-                        'mx-2 w-full overflow-hidden',
+                        'mx-2 overflow-hidden',
                         item.highlightColor && `bg-${item.highlightColor}-highlight`
                     )}
                 >

@@ -30,6 +30,7 @@ export function ItemCommentDetail({ item }: ItemCommentProps): JSX.Element {
                         e.stopPropagation()
                         e.preventDefault()
                     }}
+                    size="xsmall"
                 >
                     Continue in {item.data.notebookTitle}
                 </LemonButton>

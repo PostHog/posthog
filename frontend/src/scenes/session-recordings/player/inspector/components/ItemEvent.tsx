@@ -96,7 +96,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                     <>
                         <div className="flex justify-end">
                             <LemonButton
-                                size="small"
+                                size="xsmall"
                                 type="secondary"
                                 sideIcon={<IconOpenInNew />}
                                 data-attr="recordings-event-to-insights"
