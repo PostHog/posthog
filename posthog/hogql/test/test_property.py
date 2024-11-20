@@ -801,7 +801,7 @@ class TestProperty(BaseTest):
             url_pattern="",
         )
 
-        expr = property_to_expr(
+        expr = self._property_to_expr(
             Property(
                 type="data_warehouse",
                 key="foobars.properties.$feature/test",
