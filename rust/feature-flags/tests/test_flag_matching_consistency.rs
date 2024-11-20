@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use feature_flags::cohort_cache::CohortCacheManager;
-use feature_flags::feature_flag_match_reason::FeatureFlagMatchReason;
 /// These tests are common between all libraries doing local evaluation of feature flags.
 /// This ensures there are no mismatches between implementations.
-use feature_flags::flag_matching::{FeatureFlagMatch, FeatureFlagMatcher};
-
-use feature_flags::test_utils::{
-    create_flag_from_json, setup_pg_reader_client, setup_pg_writer_client,
+use feature_flags::{
+    cohort::cohort_cache_manager::CohortCacheManager,
+    flags::{
+        flag_match_reason::FeatureFlagMatchReason,
+        flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
+    },
+    utils::test_utils::{create_flag_from_json, setup_pg_reader_client, setup_pg_writer_client},
 };
 use serde_json::json;
 

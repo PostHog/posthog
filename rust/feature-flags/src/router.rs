@@ -9,13 +9,13 @@ use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
 
 use crate::{
-    cohort_cache::CohortCacheManager,
+    api::endpoint,
+    client::{
+        database::Client as DatabaseClient, geoip::GeoIpClient, redis::Client as RedisClient,
+    },
+    cohort::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
-    database::Client as DatabaseClient,
-    geoip::GeoIpClient,
-    metrics_utils::team_id_label_filter,
-    redis::Client as RedisClient,
-    v0_endpoint,
+    metrics::metrics_utils::team_id_label_filter,
 };
 
 #[derive(Clone)]
@@ -56,7 +56,7 @@ where
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let flags_router = Router::new()
-        .route("/flags", post(v0_endpoint::flags).get(v0_endpoint::flags))
+        .route("/flags", post(endpoint::flags).get(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         .with_state(state);
 
