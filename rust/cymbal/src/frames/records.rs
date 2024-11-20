@@ -43,6 +43,11 @@ impl ErrorTrackingStackFrame {
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
+        let context = if let Some(context) = &self.context {
+            Some(serde_json::to_value(context)?)
+        } else {
+            None
+        };
         sqlx::query!(
             r#"
             INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved, id, context)
@@ -61,7 +66,7 @@ impl ErrorTrackingStackFrame {
             serde_json::to_value(&self.contents)?,
             self.resolved,
             Uuid::now_v7(),
-            serde_json::to_value(&self.context)?
+            context,
         ).execute(e).await?;
         Ok(())
     }
