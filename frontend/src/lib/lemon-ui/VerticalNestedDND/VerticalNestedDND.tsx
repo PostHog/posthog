@@ -30,7 +30,9 @@ import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
 import { IconBuilding, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import React, { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
+import debounce from 'lodash.debounce'
+import isEqual from 'lodash.isequal'
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, unstable_batchedUpdates } from 'react-dom'
 export interface VDNDChildItem {
     id: UniqueIdentifier
@@ -76,10 +78,18 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
     const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor))
     const isSortingContainer = activeId ? containers.includes(activeId) : false
 
+    const debouncedOnChanged = useMemo(
+        () => (onChange ? debounce(onChange, 200, { trailing: true }) : undefined),
+        [onChange]
+    )
+    const savedChanges = useRef<Item[]>(initialItems)
     useEffect(() => {
         const newItemsArray = containers.map((containerId) => items[containerId])
-        onChange?.(newItemsArray)
-    }, [containers, items, onChange])
+        if (!isEqual(newItemsArray, savedChanges.current)) {
+            savedChanges.current = newItemsArray
+            debouncedOnChanged?.(newItemsArray)
+        }
+    }, [containers, items, debouncedOnChanged])
 
     const collisionDetectionStrategy: CollisionDetection = useCallback(
         (args) => {
