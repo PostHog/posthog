@@ -153,8 +153,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         supportsResultCustomizationBy: [
             (s) => [s.isTrends, s.display],
             (isTrends, display) =>
-                (isTrends && display) ||
-                [ChartDisplayType.ActionsLineGraph].includes(display || ChartDisplayType.ActionsLineGraph),
+                isTrends && [ChartDisplayType.ActionsLineGraph].includes(display || ChartDisplayType.ActionsLineGraph),
         ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
