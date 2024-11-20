@@ -133,6 +133,13 @@ export function NetworkCaptureSettings(): JSX.Element {
                         Learn how to mask header and payload values in our docs
                     </Link>
                 </p>
+                <p>
+                    Network capture is also available for{' '}
+                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="_blank">
+                        Mobile session replay
+                    </Link>{' '}
+                    , where they can be configured directly in code.
+                </p>
                 <LemonBanner type="info" className="mb-4">
                     <PayloadWarning />
                 </LemonBanner>
@@ -205,13 +212,6 @@ export function NetworkCaptureSettings(): JSX.Element {
                     />
                 </div>
             </div>
-            <p>
-                Network capture is also available for{' '}
-                <Link to="https://posthog.com/docs/session-replay/network-recording" target="_blank">
-                    Mobile session replay
-                </Link>{' '}
-                , where they can be configured directly in code.
-            </p>
         </>
     )
 }
@@ -223,12 +223,12 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 Use the settings below to restrict the domains where recordings will be captured. If no domains are
                 selected, then there will be no domain restriction.
             </p>
+            <p>Authorized domains is only available for JavaScript Web.</p>
             <p>
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).
             </p>
             <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />
-            <p>Authorized domains is only available for JavaScript Web.</p>
         </div>
     )
 }
