@@ -238,6 +238,44 @@ def _expr_to_compare_op(
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
 
+def _handle_property_values(
+    property: Property,
+    value: list,
+    team: Team,
+    scope: str,
+    field: ast.Expr,
+    operator: PropertyOperator,
+    is_json_field: bool,
+) -> ast.Expr:
+    if len(value) == 0:
+        return ast.Constant(value=1)
+    elif len(value) == 1:
+        return _expr_to_compare_op(
+            expr=field,
+            value=value[0],
+            operator=operator,
+            team=team,
+            property=property,
+            is_json_field=is_json_field,
+        )
+    else:
+        # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
+        exprs = [
+            _expr_to_compare_op(
+                expr=field,
+                value=v,
+                operator=operator,
+                team=team,
+                property=property,
+                is_json_field=is_json_field,
+            )
+            for v in value
+        ]
+        if operator in (PropertyOperator.NOT_ICONTAINS, PropertyOperator.NOT_REGEX, PropertyOperator.IS_NOT):
+            return ast.And(exprs=exprs)
+        return ast.Or(exprs=exprs)
+
+
 def property_to_expr(
     property: (
         list
@@ -354,38 +392,18 @@ def property_to_expr(
             else:
                 raise QueryError("Data warehouse property filter value must be a string")
 
-            # For data warehouse properties, we split the key on dots to get the table chain and property key
-            # e.g. "foobars.properties.$feature/flag" becomes chain=["foobars", "properties"] and property_key="$feature/flag"
-            # This allows us to properly reference nested fields in data warehouse tables while maintaining consistent
-            # property filtering behavior. The chain represents the path to traverse through nested table structures,
-            # while the property_key is the actual field name we want to filter on.
-            if isinstance(value, list):
-                if len(value) == 0:
-                    return ast.Constant(value=1)
-                elif len(value) == 1:
-                    value = value[0]
-                else:
-                    field = ast.Field(chain=[*chain, property_key])
-                    exprs = [
-                        _expr_to_compare_op(
-                            expr=field,
-                            value=v,
-                            operator=operator,
-                            team=team,
-                            property=property,
-                            is_json_field=False,
-                        )
-                        for v in value
-                    ]
-                    if (
-                        operator == PropertyOperator.NOT_ICONTAINS
-                        or operator == PropertyOperator.NOT_REGEX
-                        or operator == PropertyOperator.IS_NOT
-                    ):
-                        return ast.And(exprs=exprs)
-                    return ast.Or(exprs=exprs)
-
             field = ast.Field(chain=[*chain, property_key])
+            if isinstance(value, list):
+                return _handle_property_values(
+                    property=property,
+                    value=value,
+                    team=team,
+                    scope=scope,
+                    field=field,
+                    operator=operator,
+                    is_json_field=False,
+                )
+
             return _expr_to_compare_op(
                 expr=field,
                 value=value,
@@ -420,33 +438,15 @@ def property_to_expr(
             expr = ast.Call(name="argMinMerge", args=[field])
 
         if isinstance(value, list):
-            if len(value) == 0:
-                return ast.Constant(value=1)
-            elif len(value) == 1:
-                value = value[0]
-            else:
-                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
-                exprs = [
-                    property_to_expr(
-                        Property(
-                            type=property.type,
-                            key=property.key,
-                            operator=property.operator,
-                            group_type_index=property.group_type_index,
-                            value=v,
-                        ),
-                        team,
-                        scope,
-                    )
-                    for v in value
-                ]
-                if (
-                    operator == PropertyOperator.NOT_ICONTAINS
-                    or operator == PropertyOperator.NOT_REGEX
-                    or operator == PropertyOperator.IS_NOT
-                ):
-                    return ast.And(exprs=exprs)
-                return ast.Or(exprs=exprs)
+            return _handle_property_values(
+                property=property,
+                value=value,
+                team=team,
+                scope=scope,
+                field=expr,
+                operator=operator,
+                is_json_field=property.type != "session",
+            )
 
         return _expr_to_compare_op(
             expr=expr,
