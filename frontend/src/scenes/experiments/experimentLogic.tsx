@@ -162,6 +162,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentVariantScreenshotUploaded',
                 'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
+                'reportExperimentHoldoutAssigned',
             ],
         ],
     })),
