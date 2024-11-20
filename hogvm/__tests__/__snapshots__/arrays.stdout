@@ -54,3 +54,7 @@ true
 ------
 1 2 3 null
 3 2 1 null
+------
+true
+false
+false
