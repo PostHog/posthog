@@ -347,54 +347,33 @@ def property_to_expr(
         elif property.type == "session" and scope == "replay_entity":
             chain = ["events", "session"]
         elif property.type == "data_warehouse":
-            if isinstance(property.key, str):
+            if not isinstance(property.key, str):
+                raise QueryError("Data warehouse property filter value must be a string")
+            else:
                 split = property.key.split(".")
                 chain = split[:-1]
-                property_key = split[-1]
-            else:
-                raise QueryError("Data warehouse property filter value must be a string")
+                property.key = split[-1]
 
-            # For data warehouse properties, we split the key on dots to get the table chain and property key
-            # e.g. "foobars.properties.$feature/flag" becomes chain=["foobars", "properties"] and property_key="$feature/flag"
-            # This allows us to properly reference nested fields in data warehouse tables while maintaining consistent
-            # property filtering behavior. The chain represents the path to traverse through nested table structures,
-            # while the property_key is the actual field name we want to filter on.
-            if isinstance(value, list):
-                if len(value) == 0:
-                    return ast.Constant(value=1)
-                elif len(value) == 1:
-                    value = value[0]
-                else:
-                    field = ast.Field(chain=[*chain, property_key])
-                    exprs = [
-                        _expr_to_compare_op(
-                            expr=field,
-                            value=v,
-                            operator=operator,
-                            team=team,
-                            property=property,
-                            is_json_field=False,
-                        )
-                        for v in value
-                    ]
-                    if (
-                        operator == PropertyOperator.NOT_ICONTAINS
-                        or operator == PropertyOperator.NOT_REGEX
-                        or operator == PropertyOperator.IS_NOT
-                    ):
-                        return ast.And(exprs=exprs)
-                    return ast.Or(exprs=exprs)
-
-            field = ast.Field(chain=[*chain, property_key])
-            return _expr_to_compare_op(
-                expr=field,
-                value=value,
-                operator=operator,
-                team=team,
-                property=property,
-                is_json_field=False,
-            )
-
+            if isinstance(value, list) and len(value) > 1:
+                field = ast.Field(chain=[*chain, property.key])
+                exprs = [
+                    _expr_to_compare_op(
+                        expr=field,
+                        value=v,
+                        operator=operator,
+                        team=team,
+                        property=property,
+                        is_json_field=False,
+                    )
+                    for v in value
+                ]
+                if (
+                    operator == PropertyOperator.NOT_ICONTAINS
+                    or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.IS_NOT
+                ):
+                    return ast.And(exprs=exprs)
+                return ast.Or(exprs=exprs)
         elif property.type == "data_warehouse_person_property":
             if isinstance(property.key, str):
                 table, key = property.key.split(".")
