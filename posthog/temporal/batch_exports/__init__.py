@@ -56,7 +56,6 @@ WORKFLOWS = [
     NoOpWorkflow,
     BackfillBatchExportWorkflow,
     BigQueryBatchExportWorkflow,
-    NoOpWorkflow,
     RedshiftBatchExportWorkflow,
     SquashPersonOverridesWorkflow,
 ]
