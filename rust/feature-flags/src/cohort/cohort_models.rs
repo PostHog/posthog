@@ -1,4 +1,4 @@
-use crate::flag_definitions::PropertyFilter;
+use crate::properties::property_models::PropertyFilter;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 

@@ -89,7 +89,7 @@ describe('EventsProcessor#createEvent()', () => {
 
     it('emits event with person columns, re-using event properties', async () => {
         const processPerson = true
-        eventsProcessor.createEvent(preIngestionEvent, person, processPerson)
+        eventsProcessor.emitEvent(eventsProcessor.createEvent(preIngestionEvent, person, processPerson))
 
         await eventsProcessor.kafkaProducer.flush()
 
@@ -147,10 +147,12 @@ describe('EventsProcessor#createEvent()', () => {
         )
 
         const processPerson = true
-        eventsProcessor.createEvent(
-            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
-            person,
-            processPerson
+        eventsProcessor.emitEvent(
+            eventsProcessor.createEvent(
+                { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+                person,
+                processPerson
+            )
         )
 
         const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
@@ -169,10 +171,12 @@ describe('EventsProcessor#createEvent()', () => {
 
     it('when $process_person_profile=false, emits event with without person properties or groups', async () => {
         const processPerson = false
-        eventsProcessor.createEvent(
-            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
-            person,
-            processPerson
+        eventsProcessor.emitEvent(
+            eventsProcessor.createEvent(
+                { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+                person,
+                processPerson
+            )
         )
 
         await eventsProcessor.kafkaProducer.flush()
@@ -199,10 +203,12 @@ describe('EventsProcessor#createEvent()', () => {
     it('force_upgrade persons are recorded as such', async () => {
         const processPerson = false
         person.force_upgrade = true
-        eventsProcessor.createEvent(
-            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
-            person,
-            processPerson
+        eventsProcessor.emitEvent(
+            eventsProcessor.createEvent(
+                { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+                person,
+                processPerson
+            )
         )
 
         await eventsProcessor.kafkaProducer.flush()
@@ -236,10 +242,12 @@ describe('EventsProcessor#createEvent()', () => {
             uuid: uuid,
         }
         const processPerson = true
-        eventsProcessor.createEvent(
-            { ...preIngestionEvent, distinctId: 'no-such-person' },
-            nonExistingPerson,
-            processPerson
+        eventsProcessor.emitEvent(
+            eventsProcessor.createEvent(
+                { ...preIngestionEvent, distinctId: 'no-such-person' },
+                nonExistingPerson,
+                processPerson
+            )
         )
         await eventsProcessor.kafkaProducer.flush()
 
