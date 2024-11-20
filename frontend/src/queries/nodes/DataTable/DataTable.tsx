@@ -1,5 +1,6 @@
 import './DataTable.scss'
 
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,6 +13,7 @@ import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 
+import { actionsModel } from '~/models/actionsModel'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -134,6 +136,7 @@ export function DataTable({
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
+    const { actions } = useValues(actionsModel())
 
     const {
         showActions,
@@ -417,6 +420,24 @@ export function DataTable({
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
         ) : null,
+        showEventFilter && (
+            <LemonSelect
+                value={(query.source as EventsQuery).actionId}
+                options={
+                    (actions || []).map(({ id, name }) => ({
+                        value: id,
+                        label: name,
+                    })) as LemonSelectOptions<number>
+                }
+                data-attr="event-type-filter"
+                dropdownMatchSelectWidth={false}
+                onChange={(value) => {
+                    setQuerySource({ ...query.source, actionId: value } as EventsQuery)
+                }}
+                placeholder="Saved filters"
+                size="small"
+            />
+        ),
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,

@@ -1,6 +1,6 @@
 import './PropertyGroupFilters.scss'
 
-import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlusSmall, IconStar, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -44,6 +44,7 @@ export function PropertyGroupFilters({
         setOuterPropertyGroupsType,
         setInnerPropertyGroupType,
         setPropertyFilters,
+        saveFilterGroupAsAction,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
@@ -94,6 +95,12 @@ export function PropertyGroupFilters({
                                                             icon={<IconCopy />}
                                                             onClick={() => duplicateFilterGroup(propertyGroupIndex)}
                                                             size="small"
+                                                        />
+                                                        <LemonButton
+                                                            icon={<IconStar />}
+                                                            onClick={() => saveFilterGroupAsAction(propertyGroupIndex)}
+                                                            size="small"
+                                                            tooltip="Save filter as an action"
                                                         />
                                                         <LemonButton
                                                             icon={<IconTrash />}

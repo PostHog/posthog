@@ -9,7 +9,7 @@ import { HogFunctionFiltersType } from '~/types'
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
     const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
-        actionEditLogic({ id: action?.id, action })
+        actionEditLogic({ id: action?.id, action, propertyFilter: null })
     )
     if (!action) {
         return null

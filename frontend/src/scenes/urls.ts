@@ -15,6 +15,7 @@ import {
     PipelineStage,
     PipelineTab,
     ProductKey,
+    PropertyGroupFilterValue,
     RecordingUniversalFilters,
     ReplayTabs,
     SDKKey,
@@ -51,7 +52,11 @@ export const urls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    createAction: (): string => `/data-management/actions/new`,
+    createAction: (propertyFilter?: PropertyGroupFilterValue): string =>
+        combineUrl(
+            `/data-management/actions/new`,
+            propertyFilter ? { propertyFilter: encodeURIComponent(JSON.stringify(propertyFilter)) } : {}
+        ).url,
     duplicateAction: (action: ActionType | null): string => {
         const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
         return `/data-management/actions/new/${queryParams}`
