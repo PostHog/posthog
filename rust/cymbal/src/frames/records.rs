@@ -44,7 +44,7 @@ impl ErrorTrackingStackFrame {
         E: Executor<'c, Database = sqlx::Postgres>,
     {
         let context = if let Some(context) = &self.context {
-            Some(serde_json::to_string(context)?)
+            Some(serde_json::to_value(context)?)
         } else {
             None
         };
@@ -66,7 +66,7 @@ impl ErrorTrackingStackFrame {
             serde_json::to_value(&self.contents)?,
             self.resolved,
             Uuid::now_v7(),
-            context
+            context,
         ).execute(e).await?;
         Ok(())
     }
@@ -86,7 +86,7 @@ impl ErrorTrackingStackFrame {
             symbol_set_id: Option<Uuid>,
             contents: Value,
             resolved: bool,
-            context: Option<String>,
+            context: Option<Value>,
         }
         let res = sqlx::query_as!(
             Returned,
@@ -109,10 +109,11 @@ impl ErrorTrackingStackFrame {
         // and so when we load a frame record we need to patch back up the context onto the frame,
         // since we dropped it when we serialised the frame during saving.
         let mut frame: Frame = serde_json::from_value(found.contents)?;
-        let context = if let Some(context) = found.context.as_ref() {
+
+        let context = if let Some(context) = found.context {
             // We serialise the frame context as a json string, but it's a structure we have to manually
             // deserialise back into the frame.
-            Some(serde_json::from_str(context)?)
+            serde_json::from_value(context)?
         } else {
             None
         };
