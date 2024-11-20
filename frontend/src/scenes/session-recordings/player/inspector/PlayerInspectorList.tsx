@@ -196,7 +196,6 @@ export function PlayerInspectorList(): JSX.Element {
                     <AutoSizer>
                         {({ height, width }) => (
                             <List
-                                className="p-2"
                                 height={height}
                                 width={width}
                                 deferredMeasurementCache={cellMeasurerCache}
