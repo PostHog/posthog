@@ -1,6 +1,6 @@
 import { ExecOptions } from '../types'
 
-export function sha256Hex(data: string | null,options?: ExecOptions): string | null {
+export function sha256Hex(data: string | null, options?: ExecOptions): string | null {
     if (data === null) { return null }
     const crypto = options?.external?.crypto
     if (!crypto) {
