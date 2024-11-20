@@ -143,7 +143,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
         assert_test(test_case, [self._get_plan_correctness_metric()])
 
     def test_breakdown(self):
-        query = "Show a conversion from uploading a file to downloading it segmented by a user's email"
+        query = "Show a conversion from uploading a file to downloading it segmented by a browser"
         test_case = LLMTestCase(
             input=query,
             expected_output="""
@@ -152,8 +152,8 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             2. downloaded_file
 
             Breakdown by:
-            - entity: person
-            - property name: email
+            - entity: event
+            - property name: $browser
             """,
             actual_output=self._call_node(query),
         )
@@ -173,6 +173,19 @@ class TestEvalFunnelPlanner(EvalBaseTest):
                     - property type: String
                     - operator: equals
                     - property value: personal/pro
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [self._get_plan_correctness_metric()])
+
+    def test_planner_outputs_multiple_series_from_a_single_series_question(self):
+        query = "What's our sign-up funnel?"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Sequence:
+            1. $pageview
+            2. signed_up
             """,
             actual_output=self._call_node(query),
         )
