@@ -12,25 +12,21 @@ import { useEffect, useState } from 'react'
 
 import { EventType } from '~/types'
 
-import { ContextLine, StackFrame, StackFrameContext, stackFrameLogic } from './stackFrameLogic'
+import { stackFrameLogic } from './stackFrameLogic'
+import {
+    ErrorTrackingException,
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameContext,
+    ErrorTrackingStackFrameContextLine,
+} from './types'
 
-interface RawStackTrace {
-    type: 'raw'
-    frames: StackFrame[]
-}
-interface ResolvedStackTrace {
-    type: 'resolved'
-    frames: StackFrame[]
-}
-
-interface Exception {
-    stacktrace: ResolvedStackTrace | RawStackTrace
-    module: string
-    type: string
-    value: string
-}
-
-function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFrames: boolean }): JSX.Element | null {
+function StackTrace({
+    frames,
+    showAllFrames,
+}: {
+    frames: ErrorTrackingStackFrame[]
+    showAllFrames: boolean
+}): JSX.Element | null {
     const { frameContexts } = useValues(stackFrameLogic)
     const { loadFrameContexts } = useActions(stackFrameLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
@@ -39,24 +35,24 @@ function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFr
         loadFrameContexts({ frames })
     }, [frames, loadFrameContexts])
 
-    const panels = displayFrames.map(({ raw_id, filename, lineno, colno, function: functionName }, index) => {
+    const panels = displayFrames.map(({ raw_id, source, line, column, resolved_name: resolvedName }, index) => {
         const frameContext = frameContexts[raw_id]
         return {
             key: index,
             header: (
                 <div className="flex flex-wrap space-x-0.5">
-                    <span>{filename}</span>
-                    {functionName ? (
+                    <span>{source}</span>
+                    {resolvedName ? (
                         <div className="flex space-x-0.5">
                             <span className="text-muted">in</span>
-                            <span>{functionName}</span>
+                            <span>{resolvedName}</span>
                         </div>
                     ) : null}
-                    {lineno && colno ? (
+                    {line && column ? (
                         <div className="flex space-x-0.5">
                             <span className="text-muted">at line</span>
                             <span>
-                                {lineno}:{colno}
+                                {line}:{column}
                             </span>
                         </div>
                     ) : null}
@@ -70,8 +66,8 @@ function StackTrace({ frames, showAllFrames }: { frames: StackFrame[]; showAllFr
     return <LemonCollapse defaultActiveKeys={[]} multiple panels={panels} size="xsmall" />
 }
 
-function FrameContext({ context }: { context: string }): JSX.Element {
-    const { before, line, after } = JSON.parse(context) as StackFrameContext
+function FrameContext({ context }: { context: ErrorTrackingStackFrameContext }): JSX.Element {
+    const { before, line, after } = context
     return (
         <>
             <FrameContextLine lines={before} />
@@ -81,7 +77,13 @@ function FrameContext({ context }: { context: string }): JSX.Element {
     )
 }
 
-function FrameContextLine({ lines, highlight }: { lines: ContextLine[]; highlight?: boolean }): JSX.Element {
+function FrameContextLine({
+    lines,
+    highlight,
+}: {
+    lines: ErrorTrackingStackFrameContextLine[]
+    highlight?: boolean
+}): JSX.Element {
     return (
         <div className={highlight ? 'bg-accent-3000' : 'bg-bg-light'}>
             {lines.map(({ number, line }) => (
@@ -93,7 +95,7 @@ function FrameContextLine({ lines, highlight }: { lines: ContextLine[]; highligh
         </div>
     )
 }
-function ChainedStackTraces({ exceptionList }: { exceptionList: Exception[] }): JSX.Element {
+function ChainedStackTraces({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element {
     const [showAllFrames, setShowAllFrames] = useState(false)
 
     return (

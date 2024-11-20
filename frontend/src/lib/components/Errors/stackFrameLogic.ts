@@ -3,26 +3,15 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { stackFrameLogicType } from './stackFrameLogicType'
-
-export interface StackFrame {
-    raw_id: string
-    filename: string
-    lineno: number
-    colno: number
-    function: string
-    in_app?: boolean
-}
-
-export type ContextLine = { number: number; line: string }
-export type StackFrameContext = { before: ContextLine[]; line: ContextLine; after: ContextLine[] }
+import { ErrorTrackingStackFrame, ErrorTrackingStackFrameContext } from './types'
 
 export const stackFrameLogic = kea<stackFrameLogicType>([
     path(['components', 'Errors', 'stackFrameLogic']),
     loaders(({ values }) => ({
         frameContexts: [
-            {} as Record<string, string>,
+            {} as Record<string, ErrorTrackingStackFrameContext>,
             {
-                loadFrameContexts: async ({ frames }: { frames: StackFrame[] }) => {
+                loadFrameContexts: async ({ frames }: { frames: ErrorTrackingStackFrame[] }) => {
                     const loadedFrameIds = Object.keys(values.frameContexts)
                     const ids = frames
                         .filter(({ raw_id }) => loadedFrameIds.includes(raw_id))

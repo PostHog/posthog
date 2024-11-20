@@ -113,6 +113,7 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { ErrorTrackingStackFrameContext } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -1866,7 +1867,7 @@ const api = {
             return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
         },
 
-        async fetchStackFrames(ids: string[]): Promise<Record<string, string>> {
+        async fetchStackFrames(ids: string[]): Promise<Record<string, ErrorTrackingStackFrameContext>> {
             return await new ApiRequest().errorTrackingStackFrameContexts(ids).get()
         },
     },
