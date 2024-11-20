@@ -2206,7 +2206,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+            data: Partial<DataWarehouseSavedQuery>
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },

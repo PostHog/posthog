@@ -2,8 +2,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
-use crate::{api::FlagError, database::Client as DatabaseClient, flag_definitions::PropertyFilter};
+use crate::cohort::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
+use crate::{
+    api::errors::FlagError, client::database::Client as DatabaseClient,
+    properties::property_models::PropertyFilter,
+};
 
 impl Cohort {
     /// Returns a cohort from postgres given a cohort_id and team_id
@@ -185,8 +188,8 @@ impl InnerCohortProperty {
 mod tests {
     use super::*;
     use crate::{
-        cohort_models::{CohortPropertyType, CohortValues},
-        test_utils::{
+        cohort::cohort_models::{CohortPropertyType, CohortValues},
+        utils::test_utils::{
             insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
             setup_pg_writer_client,
         },
