@@ -24,6 +24,13 @@ function LogCaptureSettings(): JSX.Element {
                 This setting controls if browser console logs will be captured as a part of recordings. The console logs
                 will be shown in the recording player to help you debug any issues.
             </p>
+            <p>
+                Log capture is also available for{' '}
+                <Link to="https://posthog.com/docs/session-replay/console-log-recording" target="_blank">
+                    Mobile session replay
+                </Link>{' '}
+                , where they can be configured directly in code.
+            </p>
             <LemonSwitch
                 data-attr="opt-in-capture-console-log-switch"
                 onChange={(checked) => {
@@ -51,6 +58,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     <i>There is no way to mask canvas elements right now so please make sure they are free of PII.</i>
                 </b>
             </p>
+            <p>Canvas capture is only available for JavaScript Web.</p>
             <LemonSwitch
                 data-attr="opt-in-capture-canvas-switch"
                 onChange={(checked) => {
@@ -124,6 +132,13 @@ export function NetworkCaptureSettings(): JSX.Element {
                     <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
                         Learn how to mask header and payload values in our docs
                     </Link>
+                </p>
+                <p>
+                    Network capture is also available for{' '}
+                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="_blank">
+                        Mobile session replay
+                    </Link>{' '}
+                    , where they can be configured directly in code.
                 </p>
                 <LemonBanner type="info" className="mb-4">
                     <PayloadWarning />
@@ -208,6 +223,7 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 Use the settings below to restrict the domains where recordings will be captured. If no domains are
                 selected, then there will be no domain restriction.
             </p>
+            <p>Authorized domains is only available for JavaScript Web.</p>
             <p>
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).
