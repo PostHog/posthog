@@ -35,24 +35,27 @@ function StackTrace({
         loadFrameContexts({ frames })
     }, [frames, loadFrameContexts])
 
-    const panels = displayFrames.map(({ raw_id, source, line, column, resolved_name: resolvedName }, index) => {
+    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0
+
+    const panels = displayFrames.map(({ raw_id, source, line, column, resolved_name }, index) => {
         const frameContext = frameContexts[raw_id]
         return {
             key: index,
             header: (
                 <div className="flex flex-wrap space-x-0.5">
                     <span>{source}</span>
-                    {resolvedName ? (
+                    {resolved_name ? (
                         <div className="flex space-x-0.5">
                             <span className="text-muted">in</span>
-                            <span>{resolvedName}</span>
+                            <span>{resolved_name}</span>
                         </div>
                     ) : null}
-                    {line && column ? (
+                    {line ? (
                         <div className="flex space-x-0.5">
                             <span className="text-muted">at line</span>
                             <span>
-                                {line}:{column}
+                                {line}
+                                {column && `:${column}`}
                             </span>
                         </div>
                     ) : null}
@@ -63,7 +66,7 @@ function StackTrace({
         }
     })
 
-    return <LemonCollapse defaultActiveKeys={[]} multiple panels={panels} size="xsmall" />
+    return <LemonCollapse defaultActiveKeys={[initiallyActiveIndex]} multiple panels={panels} size="xsmall" />
 }
 
 function FrameContext({ context }: { context: ErrorTrackingStackFrameContext }): JSX.Element {
