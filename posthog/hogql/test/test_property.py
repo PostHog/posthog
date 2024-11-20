@@ -812,17 +812,17 @@ class TestProperty(BaseTest):
         )
 
         self.assertIsInstance(expr, ast.Or)
-        self.assertEqual(len(expr.exprs), 2)
+        self.assertEqual(len(getattr(expr, 'exprs')), 2)
 
         # First expression
-        compare_op_1 = expr.exprs[0]
+        compare_op_1 = getattr(expr, 'exprs')[0]
         self.assertIsInstance(compare_op_1, ast.CompareOperation)
         self.assertIsInstance(compare_op_1.left, ast.Field)
         self.assertEqual(compare_op_1.left.chain, ["foobars", "properties", "$feature/test"])
         self.assertEqual(compare_op_1.right.value, "control")
 
         # Second expression
-        compare_op_2 = expr.exprs[1]
+        compare_op_2 = getattr(expr, 'exprs')[1]
         self.assertIsInstance(compare_op_2, ast.CompareOperation)
         self.assertIsInstance(compare_op_2.left, ast.Field)
         self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
