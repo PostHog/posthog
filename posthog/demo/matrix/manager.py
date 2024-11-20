@@ -6,7 +6,6 @@ from typing import Any, Literal, Optional, cast
 from django.conf import settings
 from django.core import exceptions
 from django.db import transaction, IntegrityError
-from django.test import override_settings
 
 from posthog.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
@@ -119,21 +118,18 @@ class MatrixManager:
             source_team = self._prepare_master_team()
         else:
             source_team = team
-        with override_settings(TEST=False):
-            # Copying must occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't want to ingest
-            # via Kafka, but simulation saving is specifically designed to use that route - much faster than CH INSERTs
-            if does_clickhouse_data_need_saving:
-                if self.matrix.is_complete is None:
-                    if self.print_steps:
-                        print(f"Simulating data...")
-                    self.matrix.simulate()
+        if does_clickhouse_data_need_saving:
+            if self.matrix.is_complete is None:
                 if self.print_steps:
-                    print(f"Saving simulated data...")
-                self._save_analytics_data(source_team)
-            if self.use_pre_save:
-                if self.print_steps:
-                    print(f"Copying simulated data from master team...")
-                self._copy_analytics_data_from_master_team(team)
+                    print(f"Simulating data...")
+                self.matrix.simulate()
+            if self.print_steps:
+                print(f"Saving simulated data...")
+            self._save_analytics_data(source_team)
+        if self.use_pre_save:
+            if self.print_steps:
+                print(f"Copying simulated data from master team...")
+            self._copy_analytics_data_from_master_team(team)
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
         if self.print_steps:

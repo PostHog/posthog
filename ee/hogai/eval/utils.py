@@ -1,6 +1,7 @@
 import datetime as dt
 import os
 
+from django.test import override_settings
 import pytest
 from flaky import flaky
 
@@ -25,4 +26,7 @@ class EvalBaseTest(BaseTest):
         )
         matrix_manager = MatrixManager(matrix, print_steps=True)
         existing_user = cls.team.organization.members.first()
-        matrix_manager.run_on_team(cls.team, existing_user)
+        with override_settings(TEST=False):
+            # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
+            # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
+            matrix_manager.run_on_team(cls.team, existing_user)
