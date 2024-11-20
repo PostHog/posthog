@@ -26,7 +26,7 @@ function LogCaptureSettings(): JSX.Element {
             </p>
             <p>
                 Log capture is also available for{' '}
-                <Link to="https://posthog.com/docs/session-replay/mobile" target="_blank">
+                <Link to="https://posthog.com/docs/session-replay/console-log-recording" target="_blank">
                     Mobile session replay
                 </Link>{' '}
                 , where they can be configured directly in code.
