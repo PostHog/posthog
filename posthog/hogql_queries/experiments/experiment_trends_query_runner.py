@@ -103,7 +103,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _get_data_warehouse_breakdown_filter(self, column_name: str) -> BreakdownFilter:
         return BreakdownFilter(
-            breakdown=f"{column_name}.properties.`{self.breakdown_key}`",
+            breakdown=f"{column_name}.properties.{self.breakdown_key}",
             breakdown_type="data_warehouse",
         )
 
@@ -147,7 +147,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     type="data_warehouse",
                 ),
                 DataWarehousePropertyFilter(
-                    key=f"{column_name}.properties.`{self.breakdown_key}`",
+                    key=f"{column_name}.properties.{self.breakdown_key}",
                     value=self.variants,
                     operator=PropertyOperator.EXACT,
                     type="data_warehouse",
@@ -221,7 +221,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
                 prepared_exposure_query.properties = [
                     DataWarehousePropertyFilter(
-                        key=f"properties.`{self.breakdown_key}`",
+                        key=f"properties.{self.breakdown_key}",
                         value=self.variants,
                         operator=PropertyOperator.EXACT,
                         type="data_warehouse",
