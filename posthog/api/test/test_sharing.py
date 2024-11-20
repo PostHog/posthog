@@ -139,10 +139,36 @@ class TestSharing(APIBaseTest):
         # response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
         response = self.client.get(f"/shared_dashboard/{data['access_token']}")
         assert response.status_code == 200
+        assert """window.POSTHOG_EXPORTED_DATA = {"type": "login"}""" in response.content.decode(response.charset)
 
-        # TODO: Finish This
-        # assert response.json()["is_shared"]
-        # assert ActivityLog.objects.count() == 0
+        response = self.client.post(f"/shared_dashboard/{data['access_token']}", {"password": "this is not it"})
+        assert response.status_code == 401
+
+        response = self.client.post(f"/shared_dashboard/{data['access_token']}", {"password": "this is my password"})
+        assert response.status_code == 200
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_password_required_is_premium(self, patched_exporter_task: Mock):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "password": "this is my password", "password_required": True},
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert data["enabled"]
+        assert "this is my password" == data["password"]
+        assert data["password_required"]
+
+        # response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
+        response = self.client.get(f"/shared_dashboard/{data['access_token']}")
+        assert response.status_code == 200
+        assert """window.POSTHOG_EXPORTED_DATA = {"type": "login"}""" in response.content.decode(response.charset)
+
+        response = self.client.post(f"/shared_dashboard/{data['access_token']}", {"password": "this is not it"})
+        assert response.status_code == 401
+
+        response = self.client.post(f"/shared_dashboard/{data['access_token']}", {"password": "this is my password"})
+        assert response.status_code == 200
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
