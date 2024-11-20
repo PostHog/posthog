@@ -20,6 +20,7 @@ import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
+import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
@@ -124,6 +125,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                         </p>
                     )}
                 </div>
+                <HoldoutSelector />
             </div>
         </LemonModal>
     )
