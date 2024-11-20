@@ -81,7 +81,12 @@ export function FunnelStepsTable(): JSX.Element | null {
                         const label = (
                             <>
                                 {formatBreakdownLabel(value, breakdownFilter, cohorts, formatPropertyValueForDisplay)}
-                                {hasInsightColors && (
+                                {/** :HACKY: We don't want to allow changing of colors in experiments (they can't be
+                                saved there). Therefore we use the `disable_baseline` prop on the cached insight passed
+                                in by experiments as a measure of detecting wether we are in an experiment context.
+                                Likely this can be done in a better way once experiments are re-written to use their own
+                                queries. */}
+                                {hasInsightColors && !insightProps.cachedInsight?.disable_baseline && (
                                     <Link
                                         className="align-middle"
                                         onClick={(e) => {
