@@ -17,6 +17,8 @@ class ErrorTrackingIssue(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
+    name = models.TextField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):

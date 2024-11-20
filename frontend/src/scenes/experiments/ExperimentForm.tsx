@@ -14,20 +14,17 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { experimentLogic } from './experimentLogic'
+import { ExperimentsDisabledBanner } from './Experiments'
 
 const ExperimentFormFields = (): JSX.Element => {
     const { experiment, featureFlags, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
-    const {
-        addExperimentGroup,
-        removeExperimentGroup,
-        setExperiment,
-        setNewExperimentInsight,
-        createExperiment,
-        setExperimentType,
-    } = useActions(experimentLogic)
+    const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
+        useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
 
-    return (
+    return featureFlags[FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI] ? (
+        <ExperimentsDisabledBanner />
+    ) : (
         <div>
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
@@ -130,7 +127,6 @@ const ExperimentFormFields = (): JSX.Element => {
                                     aggregation_group_type_index: groupTypeIndex ?? undefined,
                                 },
                             })
-                            setNewExperimentInsight()
                         }}
                         options={[
                             { value: -1, label: 'Persons' },

@@ -14,6 +14,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
     def setUp(self):
         self.schema = AssistantTrendsQuery(series=[])
 
@@ -33,7 +35,9 @@ class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 new_state,
                 {
-                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"])],
+                    "messages": [
+                        VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"], done=True)
+                    ],
                     "intermediate_steps": None,
                 },
             )

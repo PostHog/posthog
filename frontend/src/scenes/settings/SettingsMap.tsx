@@ -81,7 +81,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
                 component: <ProjectProductDescription />,
-                flag: '!ENVIRONMENTS',
+                flag: ['ARTIFICIAL_HOG', '!ENVIRONMENTS'],
             },
             {
                 id: 'snippet',

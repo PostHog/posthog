@@ -50,6 +50,7 @@ class AssistantNodeName(StrEnum):
     FUNNEL_PLANNER_TOOLS = "funnel_planner_tools"
     FUNNEL_GENERATOR = "funnel_generator"
     FUNNEL_GENERATOR_TOOLS = "funnel_generator_tools"
+    SUMMARIZER = "summarizer"
 
 
 class AssistantNode(ABC):
