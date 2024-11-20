@@ -35,8 +35,8 @@ class SharingConfiguration(models.Model):
         unique=True,
     )
 
-    password_required = models.BooleanField(default=False)
-    password = models.CharField(max_length=256, null=False, blank=True, default="", unique=False)
+    password_required = models.BooleanField(default=False, null=True, blank=True)
+    password = models.CharField(max_length=256, null=True, blank=True, unique=False)
 
     def can_access_object(self, obj: models.Model):
         if obj.team_id != self.team_id:  # type: ignore
