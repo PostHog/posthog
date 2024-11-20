@@ -31,6 +31,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
+import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -103,9 +104,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     reducers({
         isSidebarShown: [
             true,
-            {
-                persist: true,
-            },
             {
                 hideSidebar: () => false,
                 showSidebar: () => true,
@@ -514,9 +512,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.SQL_EDITOR]
                             ? {
                                   identifier: Scene.SQLEditor,
-                                  label: 'SQL editor',
+                                  label: 'Data warehouse',
                                   icon: <IconServer />,
-                                  to: isUsingSidebar ? undefined : urls.sqlEditor(),
+                                  to: urls.sqlEditor(),
+                                  logic: editorSidebarLogic,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.DATA_MODELING] && hasOnboardedAnyProduct
@@ -598,6 +597,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         activeNavbarItemId: [
             (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
             (activeNavbarItemIdRaw, featureFlags): string | null => {
+                if (featureFlags[FEATURE_FLAGS.SQL_EDITOR] && activeNavbarItemIdRaw === Scene.SQLEditor) {
+                    return Scene.SQLEditor
+                }
                 if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {
                     return null
                 }

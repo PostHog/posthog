@@ -46,7 +46,7 @@ pub struct Config {
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
 
-    #[envconfig(default = "http://localhost:19000")] // minio
+    #[envconfig(default = "http://127.0.0.1:19000")] // minio
     pub object_storage_endpoint: String,
 
     #[envconfig(default = "symbol_sets")]

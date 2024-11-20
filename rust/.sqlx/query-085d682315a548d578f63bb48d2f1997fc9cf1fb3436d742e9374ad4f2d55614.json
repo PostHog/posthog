@@ -12,7 +12,7 @@
         "Jsonb",
         "Bool",
         "Uuid",
-        "Text"
+        "Jsonb"
       ]
     },
     "nullable": []
