@@ -12,7 +12,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
+from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker, start_test_worker_async
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.management.commands.create_batch_export_from_app import (
@@ -556,7 +556,12 @@ def test_create_batch_export_from_app_with_backfill(interval, plugin_config):
 
     temporal = sync_connect()
 
-    with start_test_worker(temporal):
+    if export_type in ("BigQuery", "Redshift"):
+        start_worker_func = start_test_worker_async
+    else:
+        start_worker_func = start_test_worker
+
+    with start_worker_func(temporal):
         output = call_command("create_batch_export_from_app", *args)
 
         batch_export_data = json.loads(output)
