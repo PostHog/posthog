@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 
 import { EventType } from '~/types'
 
+import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
 import { stackFrameLogic } from './stackFrameLogic'
 import {
     ErrorTrackingException,
@@ -37,7 +38,7 @@ function StackTrace({
 
     const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0
 
-    const panels = displayFrames.map(({ raw_id, source, line, column, resolved_name }, index) => {
+    const panels = displayFrames.map(({ raw_id, source, line, column, resolved_name, lang }, index) => {
         const frameContext = frameContexts[raw_id]
         return {
             key: index,
@@ -61,7 +62,7 @@ function StackTrace({
                     ) : null}
                 </div>
             ),
-            content: frameContext ? <FrameContext context={frameContext} /> : null,
+            content: frameContext ? <FrameContext context={frameContext} language={getLanguage(lang)} /> : null,
             className: 'p-0',
         }
     })
@@ -69,22 +70,30 @@ function StackTrace({
     return <LemonCollapse defaultActiveKeys={[initiallyActiveIndex]} multiple panels={panels} size="xsmall" />
 }
 
-function FrameContext({ context }: { context: ErrorTrackingStackFrameContext }): JSX.Element {
+function FrameContext({
+    context,
+    language,
+}: {
+    context: ErrorTrackingStackFrameContext
+    language: Language
+}): JSX.Element {
     const { before, line, after } = context
     return (
         <>
-            <FrameContextLine lines={before} />
-            <FrameContextLine lines={[line]} highlight />
-            <FrameContextLine lines={after} />
+            <FrameContextLine lines={before} language={language} />
+            <FrameContextLine lines={[line]} language={language} highlight />
+            <FrameContextLine lines={after} language={language} />
         </>
     )
 }
 
 function FrameContextLine({
     lines,
+    language,
     highlight,
 }: {
     lines: ErrorTrackingStackFrameContextLine[]
+    language: Language
     highlight?: boolean
 }): JSX.Element {
     return (
@@ -92,7 +101,7 @@ function FrameContextLine({
             {lines.map(({ number, line }) => (
                 <div key={number} className="flex">
                     <div className="w-12 text-center">{number}</div>
-                    <div className="whitespace-pre">{line}</div>
+                    <CodeLine text={line} wrapLines={true} language={language} />
                 </div>
             ))}
         </div>

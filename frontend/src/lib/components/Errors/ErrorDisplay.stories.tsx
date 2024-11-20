@@ -263,6 +263,7 @@ export function StackTraceWithLineContext(): JSX.Element {
                                     in_app: true,
                                     line: 1,
                                     column: 26,
+                                    lang: 'javascript',
                                 },
                             ],
                         },
