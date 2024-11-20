@@ -6,7 +6,7 @@ import { experimentLogic } from '../experimentLogic'
 
 export function HoldoutSelector(): JSX.Element {
     const { experiment, holdouts, isExperimentRunning } = useValues(experimentLogic)
-    const { setExperiment, updateExperiment } = useActions(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
 
     const holdoutOptions = holdouts.map((holdout) => ({
         value: holdout.id,
@@ -37,7 +37,6 @@ export function HoldoutSelector(): JSX.Element {
                             ...experiment,
                             holdout_id: value,
                         })
-                        updateExperiment({ holdout_id: value })
                     }}
                     data-attr="experiment-holdout-selector"
                 />
