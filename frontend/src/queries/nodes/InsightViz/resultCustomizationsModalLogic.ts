@@ -9,6 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     getFunnelDatasetKey,
+    getFunnelResultCustomizationColorToken,
     getTrendResultCustomizationColorToken,
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
@@ -38,7 +39,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [trendsDataLogic(props), ['updateResultCustomization'], insightVizDataLogic, ['updateInsightFilter']],
+        actions: [insightVizDataLogic, ['updateInsightFilter']],
     })),
 
     actions({
@@ -78,30 +79,65 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
-            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.dataset],
-            (resultCustomizationBy, resultCustomizations, getTheme, dataset): DataColorToken | null => {
+            (s) => [
+                s.isTrends,
+                s.isFunnels,
+                s.resultCustomizationBy,
+                s.trendsResultCustomizations,
+                s.funnelsResultCustomizations,
+                s.getTheme,
+                s.dataset,
+            ],
+            (
+                isTrends,
+                isFunnels,
+                resultCustomizationBy,
+                trendsResultCustomizations,
+                funnelsResultCustomizations,
+                getTheme,
+                dataset
+            ): DataColorToken | null => {
                 if (!dataset) {
                     return null
                 }
 
                 const theme = getTheme('posthog')
-                return getTrendResultCustomizationColorToken(
-                    resultCustomizationBy,
-                    resultCustomizations,
-                    theme,
-                    dataset
-                )
+
+                if (isTrends) {
+                    return getTrendResultCustomizationColorToken(
+                        resultCustomizationBy,
+                        trendsResultCustomizations,
+                        theme,
+                        dataset
+                    )
+                } else if (isFunnels) {
+                    return getFunnelResultCustomizationColorToken(funnelsResultCustomizations, theme, dataset)
+                }
+
+                return null
             },
         ],
         resultCustomizationBy: [
             (s) => [s.resultCustomizationByRaw],
             (resultCustomizationByRaw) => resultCustomizationByRaw || RESULT_CUSTOMIZATION_DEFAULT,
         ],
+        resultCustomizations: [
+            (s) => [s.isTrends, s.isFunnels, s.trendsResultCustomizations, s.funnelsResultCustomizations],
+            (isTrends, isFunnels, trendsResultCustomizations, funnelsResultCustomizations) => {
+                if (isTrends) {
+                    return trendsResultCustomizations
+                } else if (isFunnels) {
+                    return funnelsResultCustomizations
+                }
+
+                return null
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
         save: () => {
-            if (values.localColorToken == null) {
+            if (values.localColorToken == null || values.dataset == null) {
                 actions.closeModal()
                 return
             }
@@ -111,17 +147,22 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                     values.resultCustomizationBy,
                     values.dataset as IndexedTrendResult
                 )
-                actions.updateResultCustomization(resultCustomizationKey, {
-                    assignmentBy: values.resultCustomizationBy,
-                    color: values.localColorToken,
+                actions.updateInsightFilter({
+                    resultCustomizations: {
+                        ...values.trendsResultCustomizations,
+                        [resultCustomizationKey]: {
+                            assignmentBy: values.resultCustomizationBy,
+                            color: values.localColorToken,
+                        },
+                    },
                 })
             }
 
             if (values.isFunnels) {
-                const resultCustomizationKey = getFunnelDatasetKey(values.dataset)
+                const resultCustomizationKey = getFunnelDatasetKey(values.dataset as FlattenedFunnelStepByBreakdown)
                 actions.updateInsightFilter({
                     resultCustomizations: {
-                        ...values.insightFilter?.resultCustomizations,
+                        ...values.funnelsResultCustomizations,
                         [resultCustomizationKey]: {
                             assignmentBy: ResultCustomizationBy.Value,
                             color: values.localColorToken,

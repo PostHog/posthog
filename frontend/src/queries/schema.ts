@@ -872,7 +872,15 @@ export type TrendsFilter = {
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     hiddenLegendIndexes?: integer[]
+    /**
+     * Wether result datasets are associated by their values or by their order.
+     * @default value
+     **/
     resultCustomizationBy?: ResultCustomizationBy
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?:
+        | Record<string, ResultCustomizationByValue>
+        | Record<numerical_key, ResultCustomizationByPosition>
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -929,10 +937,6 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
-    /** Display configuration for the result datasets. */
-    resultCustomizations?:
-        | Record<string, ResultCustomizationByValue>
-        | Record<numerical_key, ResultCustomizationByPosition>
 }
 
 export type AssistantArrayPropertyFilterOperator = PropertyOperator.Exact | PropertyOperator.IsNot
@@ -1409,8 +1413,7 @@ export type FunnelsFilter = {
     /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
     useUdf?: boolean
-
-    /** Display configuration for the result datasets. */
+    /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
 

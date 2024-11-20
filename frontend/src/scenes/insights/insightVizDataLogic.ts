@@ -32,10 +32,6 @@ import {
     InsightQueryNode,
     Node,
     NodeKind,
-    numerical_key,
-    ResultCustomization,
-    ResultCustomizationByPosition,
-    ResultCustomizationByValue,
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema'
@@ -104,7 +100,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
-        updateResultCustomization: (key: number | string, config: ResultCustomization) => ({ key, config }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
 
@@ -456,16 +451,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
             actions.updateInsightFilter({ hiddenLegendIndexes })
-        },
-
-        // legend entries
-        updateResultCustomization: ({ key, config }) => {
-            const update: Partial<TrendsQuery> = {
-                resultCustomizations: { ...values.resultCustomizations, [key]: config } as
-                    | Record<string, ResultCustomizationByValue>
-                    | Record<numerical_key, ResultCustomizationByPosition>,
-            }
-            actions.updateQuerySource(update)
         },
 
         // data loading side effects i.e. diplaying loading screens for queries with longer duration

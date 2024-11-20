@@ -73,13 +73,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
         actions: [
             insightVizDataLogic(props),
-            [
-                'setInsightData',
-                'updateInsightFilter',
-                'updateBreakdownFilter',
-                'updateHiddenLegendIndexes',
-                'updateResultCustomization',
-            ],
+            ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter', 'updateHiddenLegendIndexes'],
         ],
     })),
 
@@ -253,6 +247,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 return trendsFilter?.hiddenLegendIndexes || stickinessFilter?.hiddenLegendIndexes || []
             },
         ],
+        resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
     })),
 
     listeners(({ actions, values }) => ({

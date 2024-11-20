@@ -1648,7 +1648,13 @@ class TrendsFilter(BaseModel):
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
     hiddenLegendIndexes: Optional[list[int]] = None
-    resultCustomizationBy: Optional[ResultCustomizationBy] = None
+    resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
+        default=ResultCustomizationBy.VALUE,
+        description="Wether result datasets are associated by their values or by their order.",
+    )
+    resultCustomizations: Optional[
+        Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
+    ] = Field(default=None, description="Customizations for the appearance of result datasets.")
     showAlertThresholdLines: Optional[bool] = False
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
@@ -5872,7 +5878,7 @@ class FunnelsFilter(BaseModel):
     hiddenLegendBreakdowns: Optional[list[str]] = None
     layout: Optional[FunnelLayout] = FunnelLayout.VERTICAL
     resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
-        default=None, description="Display configuration for the result datasets."
+        default=None, description="Customizations for the appearance of result datasets."
     )
     useUdf: Optional[bool] = None
 
@@ -6090,9 +6096,6 @@ class TrendsQuery(BaseModel):
         ]
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
-    resultCustomizations: Optional[
-        Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
-    ] = Field(default=None, description="Display configuration for the result datasets.")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
