@@ -99,6 +99,7 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     loaders({
+        // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
         allSuggestions: [
             null as string[] | null,
             {

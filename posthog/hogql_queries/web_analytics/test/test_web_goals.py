@@ -47,15 +47,23 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_person(self):
         distinct_id = str(uuid7())
-        return _create_person(
+        session_id = str(uuid7())
+        p = _create_person(
             uuid=distinct_id,
             team_id=self.team.pk,
             distinct_ids=[distinct_id],
             properties={
                 "name": distinct_id,
-                **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
             },
         )
+        # do a pageview with this person so that they show up in results even if they don't perform a goal
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+        )
+        return p, session_id
 
     def _visit_web_analytics(self, person: Person, session_id: Optional[str] = None):
         _create_event(
@@ -79,7 +87,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _create_actions(self):
-        Action.objects.create(
+        a0 = Action.objects.create(
             team=self.team,
             name="Clicked Pay",
             steps_json=[
@@ -90,7 +98,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-        Action.objects.create(
+        a1 = Action.objects.create(
             team=self.team,
             name="Contacted Sales",
             steps_json=[
@@ -102,7 +110,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             pinned_at=datetime.now(),
         )
-        Action.objects.create(
+        a2 = Action.objects.create(
             team=self.team,
             name="Visited Web Analytics",
             steps_json=[
@@ -113,6 +121,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+        return a0, a1, a2
 
     def _run_web_goals_query(
         self,
@@ -150,15 +159,15 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_one_user_one_action(self):
         self._create_actions()
-        p1 = self._create_person()
-        self._visit_web_analytics(p1)
+        p1, s1 = self._create_person()
+        self._visit_web_analytics(p1, s1)
         results = self._run_web_goals_query("all", None).results
         assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 1, 1, 1], ["Clicked Pay", 0, 0, 0]]
 
     def test_one_user_two_similar_actions_across_sessions(self):
         self._create_actions()
-        p1 = self._create_person()
-        self._visit_web_analytics(p1)
+        p1, s1 = self._create_person()
+        self._visit_web_analytics(p1, s1)
         s2 = str(uuid7())
         self._visit_web_analytics(p1, s2)
         results = self._run_web_goals_query("all", None).results
@@ -166,18 +175,18 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_one_user_two_different_actions(self):
         self._create_actions()
-        p1 = self._create_person()
-        self._visit_web_analytics(p1)
-        self._click_pay(p1)
+        p1, s1 = self._create_person()
+        self._visit_web_analytics(p1, s1)
+        self._click_pay(p1, s1)
         results = self._run_web_goals_query("all", None).results
         assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 1, 1, 1], ["Clicked Pay", 1, 1, 1]]
 
     def test_one_users_one_action_each(self):
         self._create_actions()
-        p1 = self._create_person()
-        p2 = self._create_person()
-        self._visit_web_analytics(p1)
-        self._click_pay(p2)
+        p1, s1 = self._create_person()
+        p2, s2 = self._create_person()
+        self._visit_web_analytics(p1, s1)
+        self._click_pay(p2, s2)
         results = self._run_web_goals_query("all", None).results
         assert results == [
             ["Contacted Sales", 0, 0, 0],
@@ -189,28 +198,41 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_actions()
         # create some users who visited web analytics
         for _ in range(8):
-            p = self._create_person()
-            self._visit_web_analytics(p)
+            p, s = self._create_person()
+            self._visit_web_analytics(p, s)
         # create some users who clicked pay
         for _ in range(4):
-            p = self._create_person()
-            self._click_pay(p)
+            p, s = self._create_person()
+            self._click_pay(p, s)
         # create some users who did both
         for _ in range(2):
-            p = self._create_person()
-            self._visit_web_analytics(p)
-            self._click_pay(p)
+            p, s = self._create_person()
+            self._visit_web_analytics(p, s)
+            self._click_pay(p, s)
         # create one user who did both twice
         for _ in range(1):
-            p = self._create_person()
-            self._visit_web_analytics(p)
-            self._visit_web_analytics(p)
-            self._click_pay(p)
-            self._click_pay(p)
+            p, s = self._create_person()
+            self._visit_web_analytics(p, s)
+            self._visit_web_analytics(p, s)
+            self._click_pay(p, s)
+            self._click_pay(p, s)
 
         results = self._run_web_goals_query("all", None).results
         assert results == [
             ["Contacted Sales", 0, 0, 0],
             ["Visited Web Analytics", 11, 12, 11 / 15],
             ["Clicked Pay", 7, 8, 7 / 15],
+        ]
+
+    def test_dont_show_deleted_actions(self):
+        actions = self._create_actions()
+        p1, s1 = self._create_person()
+        p2, s2 = self._create_person()
+        self._visit_web_analytics(p1, s1)
+        self._click_pay(p2, s2)
+        actions[0].delete()
+        results = self._run_web_goals_query("all", None).results
+        assert results == [
+            ["Contacted Sales", 0, 0, 0],
+            ["Visited Web Analytics", 1, 1, 0.5],
         ]
