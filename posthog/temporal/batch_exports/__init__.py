@@ -44,19 +44,15 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
     wait_for_table,
 )
 
-SYNC_WORKFLOWS = [
+WORKFLOWS = [
+    BackfillBatchExportWorkflow,
+    BigQueryBatchExportWorkflow,
     NoOpWorkflow,
     PostgresBatchExportWorkflow,
+    RedshiftBatchExportWorkflow,
     S3BatchExportWorkflow,
     SnowflakeBatchExportWorkflow,
     HttpBatchExportWorkflow,
-]
-
-WORKFLOWS = [
-    NoOpWorkflow,
-    BackfillBatchExportWorkflow,
-    BigQueryBatchExportWorkflow,
-    RedshiftBatchExportWorkflow,
     SquashPersonOverridesWorkflow,
 ]
 
@@ -69,25 +65,9 @@ ACTIVITIES = [
     finish_batch_export_run,
     get_schedule_frequency,
     insert_into_bigquery_activity,
-    insert_into_redshift_activity,
-    noop_activity,
-    optimize_person_distinct_id_overrides,
-    submit_mutation,
-    update_batch_export_backfill_model_status,
-    wait_for_mutation,
-    wait_for_table,
-]
-
-SYNC_ACTIVITIES = [
-    backfill_schedule,
-    create_batch_export_backfill_model,
-    start_batch_export_run,
-    create_table,
-    drop_table,
-    finish_batch_export_run,
-    get_schedule_frequency,
     insert_into_http_activity,
     insert_into_postgres_activity,
+    insert_into_redshift_activity,
     insert_into_s3_activity,
     insert_into_snowflake_activity,
     noop_activity,
