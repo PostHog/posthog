@@ -182,6 +182,9 @@ export function DistributionTable(): JSX.Element {
             key: 'variant_screenshot',
             title: 'Screenshot',
             render: function Key(_, item): JSX.Element {
+                if (item.key === `holdout-${experiment.holdout?.id}`) {
+                    return <div className="h-16" />
+                }
                 return (
                     <div className="my-2">
                         <VariantScreenshot variantKey={item.key} rolloutPercentage={item.rollout_percentage} />
@@ -216,6 +219,23 @@ export function DistributionTable(): JSX.Element {
         })
     }
 
+    const holdoutData = experiment.holdout
+        ? [
+              {
+                  key: `holdout-${experiment.holdout.id}`,
+                  rollout_percentage: experiment.holdout.filters[0].rollout_percentage,
+              } as MultivariateFlagVariant,
+          ]
+        : []
+
+    const variantData = (experiment.feature_flag?.filters.multivariate?.variants || []).map((variant) => ({
+        ...variant,
+        rollout_percentage:
+            variant.rollout_percentage * ((100 - (experiment.holdout?.filters[0].rollout_percentage || 0)) / 100),
+    }))
+
+    const tableData = [...variantData, ...holdoutData]
+
     return (
         <div>
             <div className="flex">
@@ -240,10 +260,17 @@ export function DistributionTable(): JSX.Element {
                     </div>
                 </div>
             </div>
+            {experiment.holdout && (
+                <LemonBanner type="info" className="mb-4">
+                    This experiment has a holdout group of {experiment.holdout.filters[0].rollout_percentage}%. The
+                    variants are modified to show their relative rollout percentage.
+                </LemonBanner>
+            )}
             <LemonTable
                 loading={false}
                 columns={columns}
-                dataSource={experiment.feature_flag?.filters.multivariate?.variants || []}
+                dataSource={tableData}
+                rowClassName={(item) => (item.key === `holdout-${experiment.holdout?.id}` ? 'bg-mid' : '')}
             />
         </div>
     )
