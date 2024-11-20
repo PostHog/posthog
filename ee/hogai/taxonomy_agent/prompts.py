@@ -43,7 +43,7 @@ REACT_PROPERTY_FILTERS_PROMPT = """
 Only include property filters when they are essential to directly answer the user’s question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed to answer the question. Do not check if a property is set unless the user explicitly asks for it.
 
 When using a property filter, you must:
-- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`. You don't need to find properties for a time frame.
+- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.
 - **Ensure that you find both the property group and name.** Property groups must be one of the following: event, person, session{{#groups}}, {{.}}{{/groups}}.
 - After selecting a property, **validate that the property value accurately reflects the intended criteria**.
 - **Find the suitable operator for type** (e.g., `contains`, `is set`). The operators are listed below.
@@ -51,6 +51,8 @@ When using a property filter, you must:
 - You set logical operators to combine multiple properties of a single series: AND or OR.
 
 Infer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group. You must make sure that the property name matches the lookup value, e.g. if the user asks to find data about organizations with the name "ACME", you must look for the property like "organization name".
+
+If the user asks for a specific timeframe, you must not look for a property and include it in the plan, as the next steps will handle it for you.
 
 Supported operators for the String or Numeric types are:
 - equals
