@@ -64,15 +64,17 @@ export const activityForSceneLogic = kea<activityForSceneLogicType>([
 
     subscriptions({
         sceneActivityFilters: async (obj) => {
-            await api.create('api/projects/@current/internal_metrics/', {
-                metric_name: 'viewed',
-                metric_kind: 'misc',
-                instance_id: 'dashboard:1234',
+            if (obj) {
+                await api.create('/api/projects/@current/internal_metrics/', {
+                    metric_name: 'viewed',
+                    metric_kind: 'misc',
+                    instance_id: obj.item_id ? `${obj.scope}:${obj.item_id}` : scope,
 
-                // API sets these
-                // app_source: 'internal_metrics',
-                // app_source_id: user.id,
-            })
+                    // API sets these
+                    // app_source: 'internal_metrics',
+                    // app_source_id: user.id,
+                })
+            }
         },
     }),
 ])
