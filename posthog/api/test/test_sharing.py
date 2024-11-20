@@ -74,7 +74,7 @@ class TestSharing(APIBaseTest):
             "access_token": data["access_token"],
             "created_at": None,
             "enabled": False,
-            "password": "",
+            "password": None,
             "password_required": False,
         }
 
@@ -93,7 +93,7 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": True,
-            "password": "",
+            "password": None,
             "password_required": False,
         }
 
@@ -105,7 +105,7 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": False,
-            "password": "",
+            "password": None,
             "password_required": False,
         }
 
