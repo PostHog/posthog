@@ -16,7 +16,7 @@ import {
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ResultCustomizationBy } from '~/queries/schema'
+import { ResultCustomizationBy, TrendsFilter } from '~/queries/schema'
 import { FlattenedFunnelStepByBreakdown, InsightLogicProps } from '~/types'
 
 import type { resultCustomizationsModalLogicType } from './resultCustomizationsModalLogicType'
@@ -108,10 +108,14 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                         resultCustomizationBy,
                         trendsResultCustomizations,
                         theme,
-                        dataset
+                        dataset as IndexedTrendResult
                     )
                 } else if (isFunnels) {
-                    return getFunnelResultCustomizationColorToken(funnelsResultCustomizations, theme, dataset)
+                    return getFunnelResultCustomizationColorToken(
+                        funnelsResultCustomizations,
+                        theme,
+                        dataset as FlattenedFunnelStepByBreakdown
+                    )
                 }
 
                 return null
@@ -155,7 +159,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                             color: values.localColorToken,
                         },
                     },
-                })
+                } as Partial<TrendsFilter>)
             }
 
             if (values.isFunnels) {

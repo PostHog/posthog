@@ -7,10 +7,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
-import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { BreakdownFilter } from '~/queries/schema'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
+import { funnelDataLogic } from '../funnelDataLogic'
 import { FunnelTooltip } from '../FunnelTooltip'
 import { getSeriesPositionName } from '../funnelUtils'
 
@@ -48,7 +48,7 @@ export function Bar({
     wrapperWidth,
 }: BarProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { resultCustomizations } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { resultCustomizations } = useValues(funnelDataLogic(insightProps))
     const { getTheme } = useValues(dataThemeLogic)
 
     const barRef = useRef<HTMLDivElement | null>(null)

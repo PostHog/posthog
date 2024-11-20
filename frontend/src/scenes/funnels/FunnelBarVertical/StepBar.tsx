@@ -6,7 +6,6 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
-import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
@@ -25,10 +24,9 @@ interface StepBarCSSProperties extends React.CSSProperties {
 }
 export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { disableFunnelBreakdownBaseline } = useValues(funnelDataLogic(insightProps))
+    const { disableFunnelBreakdownBaseline, resultCustomizations } = useValues(funnelDataLogic(insightProps))
     const { showTooltip, hideTooltip } = useActions(funnelTooltipLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
-    const { resultCustomizations } = useValues(resultCustomizationsModalLogic(insightProps))
     const { getTheme } = useValues(dataThemeLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)

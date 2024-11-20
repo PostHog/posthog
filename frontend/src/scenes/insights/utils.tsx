@@ -444,7 +444,10 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
 }
 
 export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics): string {
-    const breakdown_value = dataset.breakdown_value?.length == 1 ? dataset.breakdown_value[0] : dataset.breakdown_value
+    const breakdown_value =
+        Array.isArray(dataset.breakdown_value) && dataset.breakdown_value.length == 1
+            ? dataset.breakdown_value[0]
+            : dataset.breakdown_value
     const payload = { breakdown_value }
 
     return JSON.stringify(payload)
@@ -508,7 +511,7 @@ export function getTrendResultCustomization(
 }
 
 export function getFunnelResultCustomization(
-    dataset: FlattenedFunnelStepByBreakdown,
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
     resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined
 ): ResultCustomization | undefined {
     const resultCustomizationKey = getFunnelDatasetKey(dataset)
