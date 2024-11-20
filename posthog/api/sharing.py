@@ -17,6 +17,7 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.constants import AvailableFeature
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
@@ -157,6 +158,12 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         instance = self._get_sharing_configuration(context)
 
         check_can_edit_sharing_configuration(self, request, instance)
+
+        if request.data.get("password_required", False):
+            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+                return response.Response(
+                    {"error": "Sharing with password requires the Advanced Permissions feature"}, status=403
+                )
 
         if context.get("recording"):
             recording = cast(SessionRecording, context.get("recording"))
