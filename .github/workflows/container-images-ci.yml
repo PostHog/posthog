@@ -37,6 +37,9 @@ jobs:
             - name: Check out
               uses: actions/checkout@v3
 
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
             # Configure AWS credentials
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v4
