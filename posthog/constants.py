@@ -37,6 +37,7 @@ class AvailableFeature(StrEnum):
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
+    ALERTS = "alerts"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
