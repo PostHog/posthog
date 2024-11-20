@@ -25,7 +25,7 @@ import { VariantScreenshot } from './VariantScreenshot'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const { experiment, experimentLoading, isDistributionModalOpen } = useValues(experimentLogic({ experimentId }))
-    const { closeDistributionModal } = useActions(experimentLogic({ experimentId }))
+    const { closeDistributionModal, updateExperiment } = useActions(experimentLogic({ experimentId }))
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
     const { featureFlag, areVariantRolloutsValid, variantRolloutSum } = useValues(_featureFlagLogic)
@@ -64,6 +64,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                     <LemonButton
                         onClick={() => {
                             saveSidebarExperimentFeatureFlag(featureFlag)
+                            updateExperiment({ holdout_id: experiment.holdout_id })
                             closeDistributionModal()
                         }}
                         type="primary"
