@@ -2,13 +2,13 @@ import hashlib
 import hmac
 
 
-def md5Hex(data: str) -> str | None:
+def md5Hex(data: str | None) -> str | None:
     if data is None:
         return None
     return hashlib.md5(data.encode()).hexdigest()
 
 
-def sha256Hex(data: str) -> str | None:
+def sha256Hex(data: str | None) -> str | None:
     if data is None:
         return None
     return hashlib.sha256(data.encode()).hexdigest()
