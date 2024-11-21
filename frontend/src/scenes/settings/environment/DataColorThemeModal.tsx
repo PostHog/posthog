@@ -1,16 +1,18 @@
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTable, LemonTextArea } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 
 export function DataColorThemeModal(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const { theme } = useValues(dataColorThemesModalLogic)
+    const { submitTheme } = useActions(dataColorThemesModalLogic)
 
     const title = theme?.id == null ? 'Add theme' : 'Edit theme'
     const closeModal = () => {}
@@ -21,16 +23,20 @@ export function DataColorThemeModal(): JSX.Element {
             onClose={closeModal}
             isOpen={theme != null}
             width={768}
-            footer={<LemonButton type="primary">Save</LemonButton>}
+            footer={
+                <LemonButton type="primary" onClick={submitTheme}>
+                    Save
+                </LemonButton>
+            }
         >
             <Form logic={dataColorThemesModalLogic} formKey="theme" className="flex flex-col gap-2">
                 <LemonField name="name" label="Name">
                     <LemonInput />
                 </LemonField>
 
-                <LemonField name="description" label="Description">
+                {/* <LemonField name="description" label="Description">
                     <LemonTextArea />
-                </LemonField>
+                </LemonField> */}
 
                 <LemonLabel>Colors</LemonLabel>
                 <LemonTable

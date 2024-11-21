@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { DataColorThemeModel } from 'lib/colors'
@@ -21,10 +21,21 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
     forms(({ values }) => ({
         theme: {
             // defaults: {},
-            submit: async () => {},
+            submit: async ({ id, name, colors }, breakpoint) => {
+                console.debug('name', name)
+                console.debug('colors', colors)
+
+                const payload: DataColorThemeModel = {
+                    name,
+                    colors,
+                }
+
+                const updatedTheme = id
+                    ? await api.dataColorThemes.update(id, payload)
+                    : await api.dataColorThemes.create(payload)
+
+                breakpoint()
+            },
         },
     })),
-    afterMount(({ actions }) => {
-        // actions.loadThemes()
-    }),
 ])
