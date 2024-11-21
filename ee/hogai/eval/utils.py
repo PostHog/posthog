@@ -1,8 +1,8 @@
 import datetime as dt
 import os
 
-from django.test import override_settings
 import pytest
+from django.test import override_settings
 from flaky import flaky
 
 from posthog.demo.matrix.manager import MatrixManager
