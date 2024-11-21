@@ -1,5 +1,4 @@
 import structlog
-from typing import Optional
 
 from enum import StrEnum
 from .feature_flag import FeatureFlag
@@ -54,12 +53,12 @@ class FeatureFlagStatusChecker:
 
         return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be actively called"
 
-    def is_flag_fully_enabled(self, flag: FeatureFlag) -> tuple[bool, Optional[FeatureFlagStatusReason]]:
+    def is_flag_fully_enabled(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
         # If flag is not active, it is not enabled. This flag may still be stale,
         # but only if isn't being evaluated, which will be determined later.
         if not flag.active:
             logger.debug(f"Flag {flag.id} is not active")
-            return False, None
+            return False, ""
 
         # If flag is using super groups and any super group is rolled out to 100%,
         # it is fully enabled.
@@ -83,7 +82,7 @@ class FeatureFlagStatusChecker:
         elif self.is_boolean_flag_fully_enabled(flag):
             return True, "Boolean flag has a release condition rolled out to 100%"
 
-        return False, None
+        return False, ""
 
     def is_multivariate_flag_fully_enabled(self, flag: FeatureFlag) -> bool:
         # If flag is multivariant and one variant is rolled out to 100%,
