@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -7,7 +7,7 @@ import { NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
 export function SidePanelActivityMetalytics(): JSX.Element {
-    const { instanceId } = useValues(metalyticsLogic)
+    const { instanceId, viewCount } = useValues(metalyticsLogic)
 
     if (!instanceId) {
         return (
@@ -22,6 +22,11 @@ export function SidePanelActivityMetalytics(): JSX.Element {
     }
     return (
         <>
+            <div className="mb-4 rounded bg-bg-light p-4">
+                <div className="text-muted text-sm">Total Views</div>
+                <div className="text-2xl font-semibold">{viewCount ?? 0}</div>
+            </div>
+
             {/* This looks odd but is a weirdness of the Query component it needs to be bound in an insight logic */}
             <BindLogic logic={insightLogic} props={{ dashboardItemId: '', doNotLoad: true }}>
                 <Query
