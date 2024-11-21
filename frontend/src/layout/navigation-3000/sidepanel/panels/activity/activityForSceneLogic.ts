@@ -1,8 +1,6 @@
 import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'kea-test-utils'
-import api from 'lib/api'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -60,21 +58,5 @@ export const activityForSceneLogic = kea<activityForSceneLogicType>([
             (filters): ActivityFilters | null => filters,
             { equalityCheck: objectsEqual },
         ],
-    }),
-
-    subscriptions({
-        sceneActivityFilters: async (obj) => {
-            if (obj) {
-                await api.create('/api/projects/@current/metalytics/', {
-                    metric_name: 'viewed',
-                    // metric_kind: 'misc',
-                    instance_id: obj.item_id ? `${obj.scope}:${obj.item_id}` : obj.scope,
-
-                    // API sets these
-                    // app_source: 'internal_metrics',
-                    // app_source_id: user.id,
-                })
-            }
-        },
     }),
 ])
