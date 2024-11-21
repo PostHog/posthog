@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { UserBasicType } from 'lib/components/UserBasicType'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
