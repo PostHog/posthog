@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { UserBasicType } from 'lib/components/UserBasicType'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -7,7 +8,7 @@ import { NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
 export function SidePanelActivityMetalytics(): JSX.Element {
-    const { instanceId, viewCount } = useValues(metalyticsLogic)
+    const { instanceId, viewCount, recentUserMembers } = useValues(metalyticsLogic)
 
     if (!instanceId) {
         return (
