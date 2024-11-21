@@ -262,22 +262,22 @@ class AlertSerializer(serializers.ModelSerializer):
 
         if has_alerts_feature:
             # If allowed_alerts_count is None then the user is allowed unlimited alerts
-            if allowed_alerts_count is None:
-                return attrs
-
-            # Check current count against allowed limit
-            existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
-            if existing_alerts_count >= allowed_alerts_count:
-                raise ValidationError(
-                    {
-                        "alert": [
-                            f"Your team has reached the limit of {allowed_alerts_count} enabled alerts on your plan."
-                        ]
-                    }
-                )
+            if allowed_alerts_count is not None:
+                # Check current count against allowed limit
+                existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
+                if existing_alerts_count >= allowed_alerts_count:
+                    raise ValidationError(
+                        {
+                            "alert": [
+                                f"Your team has reached the limit of {allowed_alerts_count} enabled alerts on your plan."
+                            ]
+                        }
+                    )
         else:
             # If the org doesn't have alerts feature, they can't create alerts
             raise ValidationError({"alert": [f"Your plan doesn't allow creating alerts"]})
+
+        return attrs
 
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
