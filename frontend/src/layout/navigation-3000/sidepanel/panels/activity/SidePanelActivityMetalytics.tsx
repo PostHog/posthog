@@ -22,8 +22,8 @@ export function SidePanelActivityMetalytics(): JSX.Element {
         )
     }
     return (
-        <>
-            <div className="mb-4 rounded bg-bg-light p-4">
+        <div className="space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+            <div className="rounded bg-bg-light p-4">
                 <div className="text-muted text-sm">Total Views</div>
                 <div className="text-2xl font-semibold">{viewCount ?? 0}</div>
             </div>
@@ -62,6 +62,6 @@ export function SidePanelActivityMetalytics(): JSX.Element {
             </BindLogic>
 
 
-        </>
+        </div>
     )
 }
