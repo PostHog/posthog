@@ -57,7 +57,11 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                     const result = response.results as number[]
                     return result[0]
                 },
-
+            },
+        ],
+        recentUsers: [
+            [] as number[],
+            {
                 loadUsersLast30days: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
@@ -69,11 +73,9 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                     }
 
                     const response = await api.query(query)
-                    const result = response.results as number[]
-                    return result
+                    return response.results as number[]
                 },
             },
-            // write a query to load all app sources IDS that have viewed the instance in the last 30 days
         ],
     })),
 
@@ -81,6 +83,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         instanceId: async (instanceId) => {
             if (instanceId) {
                 actions.loadViewCount()
+                actions.loadUsersLast30days()
 
                 await api.create('/api/projects/@current/metalytics/', {
                     metric_name: 'viewed',
