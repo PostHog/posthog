@@ -28,6 +28,19 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                 <div className="text-2xl font-semibold">{viewCount ?? 0}</div>
             </div>
 
+            <div className="mb-4">
+                <div className="text-muted text-sm mb-2">Recent Viewers (30 days)</div>
+                <ProfileBubbles
+                    people={recentUserMembers.map((member) => ({
+                        email: member.user.email,
+                        name: member.user.first_name,
+                        title: member.user.email
+                    }))}
+                    tooltip="Recent viewers"
+                    limit={3}
+                />
+            </div>
+
             {/* This looks odd but is a weirdness of the Query component it needs to be bound in an insight logic */}
             <BindLogic logic={insightLogic} props={{ dashboardItemId: '', doNotLoad: true }}>
                 <Query
@@ -48,18 +61,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                 />
             </BindLogic>
 
-            <div className="mb-4">
-                <div className="text-muted text-sm mb-2">Recent Viewers (30 days)</div>
-                <ProfileBubbles
-                    people={recentUserMembers.map((member) => ({
-                        email: member.user.email,
-                        name: member.user.first_name,
-                        title: member.user.email
-                    }))}
-                    tooltip="Recent viewers"
-                    limit={8}
-                />
-            </div>
+
         </>
     )
 }
