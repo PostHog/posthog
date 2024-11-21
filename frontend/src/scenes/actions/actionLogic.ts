@@ -108,11 +108,13 @@ export const actionLogic = kea<actionLogicType>([
 
         activityFilters: [
             (s) => [s.action],
-            (action): ActivityFilters => {
-                return {
-                    scope: ActivityScope.ACTION,
-                    item_id: action?.id ? String(action.id) : undefined,
-                }
+            (action): ActivityFilters | null => {
+                return action?.id
+                    ? {
+                          scope: ActivityScope.ACTION,
+                          item_id: String(action.id),
+                      }
+                    : null
             },
         ],
     }),

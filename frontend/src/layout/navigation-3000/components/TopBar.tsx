@@ -102,7 +102,9 @@ export function TopBar(): JSX.Element | null {
                     )}
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} isOnboarding={isOnboarding} />
                 </div>
-                <MetalyticsSummary />
+                <div className="shrink-1">
+                    <MetalyticsSummary />
+                </div>
                 <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
             </div>
         </div>
