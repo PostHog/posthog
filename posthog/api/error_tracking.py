@@ -1,5 +1,11 @@
 import structlog
 
+from rest_framework import viewsets, response, serializers
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from .forbid_destroy_model import ForbidDestroyModel
+
+from posthog.api.utils import action
+from posthog.models.error_tracking import ErrorTrackingStackFrame
 
 FIFTY_MEGABYTES = 50 * 1024 * 1024
 
@@ -55,3 +61,23 @@ class ObjectStorageUnavailable(Exception):
 #                 code="object_storage_required",
 #                 detail="Object storage must be available to allow source map uploads.",
 #             )
+
+
+class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingStackFrame
+        fields = ["raw_id", "context"]
+
+
+class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingStackFrame.objects.all()
+    serializer_class = ErrorTrackingStackFrameSerializer
+
+    @action(methods=["GET"], detail=False)
+    def contexts(self, request, **kwargs) -> response.Response:
+        ids = request.GET.getlist("ids", [])
+        queryset = self.filter_queryset(self.queryset.filter(team=self.team, raw_id__in=ids))
+        serializer = self.get_serializer(queryset, many=True)
+        keyed_data = {frame["raw_id"]: frame["context"] for frame in serializer.data}
+        return response.Response(keyed_data)
