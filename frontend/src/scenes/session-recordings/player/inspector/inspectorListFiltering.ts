@@ -87,6 +87,100 @@ function isContextItem(item: InspectorListItem): boolean {
     return ['browser-visibility', 'offline-status', 'comment'].includes(item.type)
 }
 
+const eventsMatch = (
+    item: InspectorListItemEvent,
+    miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
+): SharedListMiniFilter | null => {
+    if (isException(item) || isErrorEvent(item)) {
+        return miniFiltersByKey['events-exceptions']
+    } else if (isAutocapture(item)) {
+        return miniFiltersByKey['events-autocapture']
+    } else if (isPageviewOrScreen(item)) {
+        return miniFiltersByKey['events-pageview']
+    } else if (isPostHogEvent(item)) {
+        return miniFiltersByKey['events-posthog']
+    } else if (!isPostHogEvent(item)) {
+        return miniFiltersByKey['events-custom']
+    }
+    return null
+}
+
+const consoleMatch = (
+    item: InspectorListItemConsole,
+    miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
+): SharedListMiniFilter | null => {
+    if (['log', 'info'].includes(item.data.level)) {
+        return miniFiltersByKey['console-info']
+    } else if (item.data.level === 'warn') {
+        return miniFiltersByKey['console-warn']
+    } else if (isConsoleError(item)) {
+        return miniFiltersByKey['console-error']
+    }
+    return null
+}
+
+function networkMatch(
+    item: InspectorListItemPerformance,
+    miniFiltersByKey: {
+        [p: MiniFilterKey]: SharedListMiniFilter
+    }
+): SharedListMiniFilter | null {
+    if (isNavigationEvent(item)) {
+        return miniFiltersByKey['performance-document']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
+    ) {
+        return miniFiltersByKey['performance-fetch']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        (item.data.initiator_type === 'script' ||
+            (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.js')))
+    ) {
+        return miniFiltersByKey['performance-assets-js']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        (item.data.initiator_type === 'css' ||
+            (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.css')))
+    ) {
+        return miniFiltersByKey['performance-assets-css']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        (item.data.initiator_type === 'img' ||
+            (['link', 'other'].includes(item.data.initiator_type || '') &&
+                !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))
+    ) {
+        return miniFiltersByKey['performance-assets-img']
+    } else if (
+        item.data.entry_type === 'resource' &&
+        ['other'].includes(item.data.initiator_type || '') &&
+        ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`))
+    ) {
+        return miniFiltersByKey['performance-other']
+    }
+    return null
+}
+
+export function itemToMiniFilter(
+    item: InspectorListItem,
+    miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
+): SharedListMiniFilter | null {
+    switch (item.type) {
+        case InspectorListItemType.EVENTS:
+            return eventsMatch(item, miniFiltersByKey)
+        case InspectorListItemType.CONSOLE:
+            return consoleMatch(item, miniFiltersByKey)
+        case InspectorListItemType.NETWORK:
+            return networkMatch(item, miniFiltersByKey)
+        case InspectorListItemType.DOCTOR:
+            if (isDoctorEvent(item)) {
+                return miniFiltersByKey['doctor']
+            }
+            break
+    }
+    return null
+}
+
 export function filterInspectorListItems({
     allItems,
     miniFiltersByKey,
@@ -124,52 +218,8 @@ export function filterInspectorListItems({
             include = true
         }
 
-        if (item.type === InspectorListItemType.EVENTS) {
-            include =
-                (!!miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) ||
-                (!!miniFiltersByKey['events-custom']?.enabled && !isPostHogEvent(item)) ||
-                (!!miniFiltersByKey['events-pageview']?.enabled && isPageviewOrScreen(item)) ||
-                (!!miniFiltersByKey['events-autocapture']?.enabled && isAutocapture(item)) ||
-                (!!miniFiltersByKey['events-exceptions']?.enabled && (isException(item) || isErrorEvent(item)))
-        }
-
-        if (item.type === InspectorListItemType.CONSOLE) {
-            include =
-                (!!miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) ||
-                (!!miniFiltersByKey['console-warn']?.enabled && item.data.level === 'warn') ||
-                (!!miniFiltersByKey['console-error']?.enabled && isConsoleError(item))
-        }
-
-        if (item.type === InspectorListItemType.NETWORK) {
-            include =
-                (!!miniFiltersByKey['performance-document']?.enabled && isNavigationEvent(item)) ||
-                (!!miniFiltersByKey['performance-fetch']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) ||
-                (!!miniFiltersByKey['performance-assets-js']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'script' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            item.data.name?.includes('.js')))) ||
-                (!!miniFiltersByKey['performance-assets-css']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'css' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            item.data.name?.includes('.css')))) ||
-                (!!miniFiltersByKey['performance-assets-img']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'img' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))) ||
-                (!!miniFiltersByKey['performance-other']?.enabled &&
-                    item.data.entry_type === 'resource' &&
-                    ['other'].includes(item.data.initiator_type || '') &&
-                    ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
-        }
-
-        if (item.type === InspectorListItemType.DOCTOR) {
-            include = !!miniFiltersByKey['doctor']?.enabled && isDoctorEvent(item)
-        }
+        const itemFilter = itemToMiniFilter(item, miniFiltersByKey)
+        include = isContextItem(item) || !!itemFilter?.enabled
 
         // what about isOfflineStatusChange(item) || isBrowserVisibilityEvent(item) || isComment(item)
 

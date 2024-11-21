@@ -24,10 +24,6 @@ import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
 
 const typeToIconAndDescription = {
-    [InspectorListItemType.ALL]: {
-        Icon: undefined,
-        tooltip: 'All events',
-    },
     [InspectorListItemType.EVENTS]: {
         Icon: undefined,
         tooltip: 'Recording event',

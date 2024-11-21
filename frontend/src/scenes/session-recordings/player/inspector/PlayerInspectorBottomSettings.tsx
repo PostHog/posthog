@@ -15,15 +15,20 @@ function HideProperties(): JSX.Element | null {
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
-    return miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled) ? (
+    return (
         <LemonButton
             status={hidePostHogPropertiesInTable ? 'danger' : 'default'}
             onClick={() => setHidePostHogPropertiesInTable(!hidePostHogPropertiesInTable)}
             size="xsmall"
+            disabledReason={
+                miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled)
+                    ? undefined
+                    : 'There are no events in the list'
+            }
         >
             Hide PostHog properties
         </LemonButton>
-    ) : null
+    )
 }
 
 function SyncScrolling(): JSX.Element {

@@ -125,11 +125,15 @@ export function PlayerInspectorList(): JSX.Element {
                         )}
                     </AutoSizer>
                 </div>
-            ) : inspectorDataState[InspectorListItemType.ALL] === 'loading' ? (
+            ) : inspectorDataState[InspectorListItemType.EVENTS] === 'loading' ||
+              inspectorDataState[InspectorListItemType.CONSOLE] === 'loading' ||
+              inspectorDataState[InspectorListItemType.NETWORK] === 'loading' ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
-            ) : inspectorDataState[InspectorListItemType.ALL] === 'ready' ? (
+            ) : inspectorDataState[InspectorListItemType.EVENTS] === 'ready' ||
+              inspectorDataState[InspectorListItemType.CONSOLE] === 'ready' ||
+              inspectorDataState[InspectorListItemType.NETWORK] === 'ready' ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
                 <div className="p-16 text-center text-muted-alt">No results matching your filters.</div>
             ) : null}

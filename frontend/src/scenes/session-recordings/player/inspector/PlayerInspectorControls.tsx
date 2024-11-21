@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { InspectorListItemType } from '~/types'
 
@@ -14,7 +15,6 @@ import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sess
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
 /**
- * TODO how do we map existing "all" filters someone has set or just ignore
  * TODO show counts alongside selectors so folk know whether to click them
  */
 
@@ -27,6 +27,7 @@ export const TabToIcon = {
 
 export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByMiniFilterKey } = useValues(playerInspectorLogic(logicProps))
     const { searchQuery, miniFiltersForType, miniFiltersByKey } = useValues(miniFiltersLogic)
     const { setSearchQuery, setMiniFilter } = useActions(miniFiltersLogic)
 
@@ -41,53 +42,39 @@ export function PlayerInspectorControls(): JSX.Element {
         setMiniFilter('doctor', false)
     }
 
-    const eventsFilters: LemonMenuItem[] = miniFiltersForType(InspectorListItemType.EVENTS)
-        ?.filter((x) => x.name !== 'All')
-        .map(
-            (filter: SharedListMiniFilter) =>
-                ({
-                    label: filter.name,
-                    icon: filter.enabled ? <IconCheck className="text-sm" /> : <BaseIcon className="text-sm" />,
-                    status: filter.enabled ? 'danger' : 'default',
-                    onClick: () => {
-                        setMiniFilter(filter.key, !filter.enabled)
-                    },
-                    tooltip: filter.tooltip,
-                    active: filter.enabled,
-                } satisfies LemonMenuItem)
-        )
+    function filterMenuForType(type: InspectorListItemType): LemonMenuItem[] {
+        return miniFiltersForType(type)
+            ?.filter((x) => x.name !== 'All')
+            .map(
+                // without setting fontVariant to none a single digit number between brackets gets rendered as a ligature 🤷
+                (filter: SharedListMiniFilter) =>
+                    ({
+                        label: (
+                            <div className="flex flex-row w-full items-center justify-between">
+                                <span>{filter.name}&nbsp;</span>
+                                <span
+                                    // without setting fontVariant to none a single digit number between brackets gets rendered as a ligature 🤷
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ fontVariant: 'none' }}
+                                >
+                                    ({allItemsByMiniFilterKey[filter.key]?.length ?? 0})
+                                </span>
+                            </div>
+                        ),
+                        icon: filter.enabled ? <IconCheck className="text-sm" /> : <BaseIcon className="text-sm" />,
+                        status: filter.enabled ? 'danger' : 'default',
+                        onClick: () => {
+                            setMiniFilter(filter.key, !filter.enabled)
+                        },
+                        tooltip: filter.tooltip,
+                        active: filter.enabled,
+                    } satisfies LemonMenuItem)
+            )
+    }
 
-    const consoleFilters: LemonMenuItem[] = miniFiltersForType(InspectorListItemType.CONSOLE)
-        ?.filter((x) => x.name !== 'All')
-        .map(
-            (filter: SharedListMiniFilter) =>
-                ({
-                    label: filter.name,
-                    icon: filter.enabled ? <IconCheck className="text-sm" /> : <BaseIcon className="text-sm" />,
-                    status: filter.enabled ? 'danger' : 'default',
-                    onClick: () => {
-                        setMiniFilter(filter.key, !filter.enabled)
-                    },
-                    tooltip: filter.tooltip,
-                    active: filter.enabled,
-                } satisfies LemonMenuItem)
-        )
-
-    const networkFilters: LemonMenuItem[] = miniFiltersForType(InspectorListItemType.NETWORK)
-        ?.filter((x) => x.name !== 'All')
-        .map(
-            (filter: SharedListMiniFilter) =>
-                ({
-                    label: filter.name,
-                    icon: filter.enabled ? <IconCheck className="text-sm" /> : <BaseIcon className="text-sm" />,
-                    status: filter.enabled ? 'danger' : 'default',
-                    onClick: () => {
-                        setMiniFilter(filter.key, !filter.enabled)
-                    },
-                    tooltip: filter.tooltip,
-                    active: filter.enabled,
-                } satisfies LemonMenuItem)
-        )
+    const eventsFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.EVENTS)
+    const consoleFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.CONSOLE)
+    const networkFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.NETWORK)
 
     return (
         <div className="bg-bg-3000 border-b">
@@ -140,6 +127,7 @@ export function PlayerInspectorControls(): JSX.Element {
                         size="xsmall"
                         onClick={() => setShowSearch(!showSearch)}
                         status={showSearch ? 'danger' : 'default'}
+                        title="Search"
                     />
                 </div>
             </div>

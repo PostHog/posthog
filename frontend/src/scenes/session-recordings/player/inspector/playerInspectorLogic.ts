@@ -12,8 +12,11 @@ import {
     InspectorListItemPerformance,
     performanceEventDataLogic,
 } from 'scenes/session-recordings/apm/performanceEventDataLogic'
-import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
-import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import {
+    filterInspectorListItems,
+    itemToMiniFilter,
+} from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
+import { MiniFilterKey, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     convertUniversalFiltersToRecordingsQuery,
     MatchingEventsMatchType,
@@ -755,11 +758,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         ? 'ready'
                         : 'empty'
                 return {
-                    [InspectorListItemType.ALL]: [dataForEventsState, dataForConsoleState, dataForNetworkState].every(
-                        (x) => x === 'loading'
-                    )
-                        ? 'loading'
-                        : 'ready',
                     [InspectorListItemType.EVENTS]: dataForEventsState,
                     [InspectorListItemType.CONSOLE]: dataForConsoleState,
                     [InspectorListItemType.NETWORK]: dataForNetworkState,
@@ -812,6 +810,41 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     return filteredItems
                 }
                 return fuse.search(searchQuery).map((x: any) => x.item)
+            },
+        ],
+
+        /**
+         * All items by mini-filter key, not filtered items, so that we can count the unfiltered sets
+         */
+        allItemsByMiniFilterKey: [
+            (s) => [s.allItems, s.miniFiltersByKey],
+            (allItems, miniFiltersByKey): Record<MiniFilterKey, InspectorListItem[]> => {
+                const itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]> = {
+                    'events-posthog': [],
+                    'events-custom': [],
+                    'events-pageview': [],
+                    'events-autocapture': [],
+                    'events-exceptions': [],
+                    'console-info': [],
+                    'console-warn': [],
+                    'console-error': [],
+                    'performance-fetch': [],
+                    'performance-document': [],
+                    'performance-assets-js': [],
+                    'performance-assets-css': [],
+                    'performance-assets-img': [],
+                    'performance-other': [],
+                    doctor: [],
+                }
+
+                for (const item of allItems) {
+                    const miniFilter = itemToMiniFilter(item, miniFiltersByKey)
+                    if (miniFilter) {
+                        itemsByMiniFilterKey[miniFilter.key].push(item)
+                    }
+                }
+
+                return itemsByMiniFilterKey
             },
         ],
     })),

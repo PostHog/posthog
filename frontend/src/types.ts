@@ -998,7 +998,6 @@ export enum SessionRecordingSidebarStacking {
 }
 
 export enum InspectorListItemType {
-    ALL = 'all',
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
