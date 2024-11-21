@@ -1,5 +1,5 @@
 export interface ErrorTrackingException {
-    stacktrace: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
+    stacktrace?: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
     module: string
     type: string
     value: string
