@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
     posthog_build:
-        name: Build and Push Docker Image to ECR
+        name: Build Docker image
         runs-on: ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -37,30 +37,10 @@ jobs:
             - name: Check out
               uses: actions/checkout@v3
 
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
-            # Configure AWS credentials
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@v4
+            - name: Build and cache Docker image in Depot
+              uses: ./.github/actions/build-n-cache-image
               with:
-                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-                  aws-region: us-east-1
-
-            - name: Login to Amazon ECR
-              id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@v2
-
-            - name: Build and push container image
-              id: build
-              uses: depot/build-push-action@v1
-              with:
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
-                  push: true
-                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}
-                  platforms: linux/arm64,linux/amd64
-                  build-args: COMMIT_HASH=${{ github.sha }}
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
     deploy_preview:
         name: Deploy preview environment
