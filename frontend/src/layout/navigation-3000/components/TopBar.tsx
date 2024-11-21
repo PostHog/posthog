@@ -3,7 +3,7 @@ import './TopBar.scss'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useFeatureFlag, useValues } from 'kea'
 import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
@@ -102,9 +102,11 @@ export function TopBar(): JSX.Element | null {
                     )}
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} isOnboarding={isOnboarding} />
                 </div>
-                <div className="shrink-1">
-                    <MetalyticsSummary />
-                </div>
+                {useFeatureFlag('metalytics') && (
+                    <div className="shrink-1">
+                        <MetalyticsSummary />
+                    </div>
+                )}
                 <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
             </div>
         </div>
