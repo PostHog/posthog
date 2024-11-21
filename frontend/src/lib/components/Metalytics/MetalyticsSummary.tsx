@@ -16,9 +16,9 @@ export function MetalyticsSummary(): JSX.Element | null {
     return (
         <>
             <ProfileBubbles tooltip="Recently Viewed By" people={recentUserMembers.map((x) => x.user)} limit={3} />
-            <IconPulse/>
-                <IconWithCount count={7}>
-            <IconDashboard />
+            <IconPulse className="mr-2"/>
+            <IconWithCount count={7}>
+                <IconDashboard />
             </IconWithCount>
             <LemonButton loading={viewCountLoading} type="secondary" icon={<IconEye />} size="small">
                 {viewCount === null ? 'Loading...' : `Viewed ${viewCount} times`}
