@@ -168,7 +168,7 @@ export function LemonMenuOverlay({
 
 interface LemonMenuSectionListProps {
     sections: LemonMenuSection[]
-    buttonSize: 'small' | 'medium'
+    buttonSize: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
 }
@@ -217,7 +217,7 @@ export function LemonMenuSectionList({
 
 interface LemonMenuItemListProps {
     items: LemonMenuItem[]
-    buttonSize: 'small' | 'medium'
+    buttonSize: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
     itemIndexOffset?: number
@@ -250,7 +250,7 @@ export function LemonMenuItemList({
 
 interface LemonMenuItemButtonProps {
     item: LemonMenuItem
-    size: 'small' | 'medium'
+    size: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
 }
 
@@ -289,8 +289,8 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     items={items}
                     tooltipPlacement={tooltipPlacement}
                     placement={placement || 'right-start'}
-                    closeOnClickInside={custom ? false : true}
-                    closeParentPopoverOnClickInside={custom ? false : true}
+                    closeOnClickInside={!custom}
+                    closeParentPopoverOnClickInside={!custom}
                 >
                     {button}
                 </LemonMenu>
