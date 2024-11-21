@@ -352,6 +352,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             # Add events for each SDK
             sdks = [
                 "web",
+                "posthog-js-lite",
                 "posthog-node",
                 "posthog-android",
                 "posthog-flutter",
