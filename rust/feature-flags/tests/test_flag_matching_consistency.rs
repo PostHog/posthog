@@ -112,17 +112,17 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
         let distinct_id = format!("distinct_id_{}", i);
 
         let feature_flag_match = FeatureFlagMatcher::new(
             distinct_id,
             1,
-            postgres_reader,
-            postgres_writer,
+            reader,
+            writer,
             cohort_cache,
             None,
             None,
@@ -1212,16 +1212,16 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let postgres_reader = setup_pg_reader_client(None).await;
-        let postgres_writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let distinct_id = format!("distinct_id_{}", i);
 
         let feature_flag_match = FeatureFlagMatcher::new(
             distinct_id,
             1,
-            postgres_reader,
-            postgres_writer,
+            reader,
+            writer,
             cohort_cache,
             None,
             None,
