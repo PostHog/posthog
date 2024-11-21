@@ -127,9 +127,9 @@ class TestSharing(APIBaseTest):
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_edit_password(self, patched_exporter_task: Mock):
-        self.organization.available_product_features.append(
+        self.organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
-        )
+        ]
         self.organization.save()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
@@ -141,7 +141,6 @@ class TestSharing(APIBaseTest):
         assert "this is my password" == data["password"]
         assert data["password_required"]
 
-        # response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
         response = self.client.get(f"/shared_dashboard/{data['access_token']}")
         assert response.status_code == 200
         assert """window.POSTHOG_EXPORTED_DATA = {"type": "login"}""" in response.content.decode(response.charset)
