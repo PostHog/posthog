@@ -56,7 +56,7 @@ const PRODUCTS = [
     {
         name: 'Feature flags',
         slug: 'feature-flags',
-        icon: <IconToggle className="text-success h-5 w-5" />,
+        icon: <IconToggle className="text-[#30ABC6] h-5 w-5" />,
     },
     {
         name: 'Experiments',
