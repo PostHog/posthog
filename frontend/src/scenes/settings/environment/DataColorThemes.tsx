@@ -2,11 +2,11 @@ import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { DataColorThemeModal } from './DataColorThemeModal'
-import { dataColorThemesConfigLogic } from './dataColorThemesConfigLogic'
+import { dataColorThemesLogic } from './dataColorThemesLogic'
 
 export function DataColorThemes(): JSX.Element {
-    const { themes, themesLoading } = useValues(dataColorThemesConfigLogic)
-    const { selectTheme } = useActions(dataColorThemesConfigLogic)
+    const { themes, themesLoading } = useValues(dataColorThemesLogic)
+    const { selectTheme } = useActions(dataColorThemesLogic)
 
     return (
         <div className="space-y-4">
