@@ -92,7 +92,7 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const { alertSeries, isNonTimeSeriesDisplay, breakdownFilter } = useValues(trendsLogic)
+    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
 
@@ -145,7 +145,7 @@ export function EditAlertModal({
                             <div className="space-y-6">
                                 <h3>Definition</h3>
                                 <div className="space-y-5">
-                                    {!!breakdownFilter && (
+                                    {isBreakdownValid && (
                                         <LemonBanner type="warning">
                                             For trends with breakdown, the alert will fire if any of the breakdown
                                             values breaches the threshold.
@@ -163,7 +163,7 @@ export function EditAlertModal({
                                                         value: index,
                                                     }))}
                                                     disabledReason={
-                                                        !!breakdownFilter &&
+                                                        isBreakdownValid &&
                                                         `For trends with breakdown, the alert will fire if any of the breakdown
                                             values breaches the threshold.`
                                                     }

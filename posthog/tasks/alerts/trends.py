@@ -293,7 +293,7 @@ def _pick_series_result(config: TrendsAlertConfig, results: InsightResult) -> Tr
     return result
 
 
-def _pick_interval_value_from_trend_result(query: TrendsQuery, result: dict, interval_to_pick: int = 0) -> float:
+def _pick_interval_value_from_trend_result(query: TrendsQuery, result: TrendResult, interval_to_pick: int = 0) -> float:
     """
     interval_to_pick to controls whether to pick value for current (0), last (-1), one before last (-2)...
     """

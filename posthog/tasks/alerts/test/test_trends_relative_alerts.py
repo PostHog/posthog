@@ -799,7 +799,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
     def test_breakdown_relative_increase_upper_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ):
+    ) -> None:
         insight = self.create_time_series_trend_insight(
             interval=IntervalType.WEEK, breakdown=BreakdownFilter(breakdowns=[Breakdown(property="$browser")])
         )
@@ -917,7 +917,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
     def test_breakdown_relative_increase_lower_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ):
+    ) -> None:
         insight = self.create_time_series_trend_insight(
             interval=IntervalType.WEEK, breakdown=BreakdownFilter(breakdowns=[Breakdown(property="$browser")])
         )
@@ -1035,7 +1035,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
     def test_breakdown_relative_decrease_lower_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ):
+    ) -> None:
         insight = self.create_time_series_trend_insight(
             interval=IntervalType.WEEK, breakdown=BreakdownFilter(breakdowns=[Breakdown(property="$browser")])
         )
@@ -1153,7 +1153,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
     def test_breakdown_relative_decrease_upper_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ):
+    ) -> None:
         insight = self.create_time_series_trend_insight(
             interval=IntervalType.WEEK, breakdown=BreakdownFilter(breakdowns=[Breakdown(property="$browser")])
         )
@@ -1270,7 +1270,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ]
         )
 
-    def test_breakdown_relative_decrease_no_breaches(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock):
+    def test_breakdown_relative_decrease_no_breaches(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
         insight = self.create_time_series_trend_insight(
             interval=IntervalType.WEEK, breakdown=BreakdownFilter(breakdowns=[Breakdown(property="$browser")])
         )
@@ -1360,7 +1362,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_not_called()
 
-    def test_breakdown_relative_increase_no_breaches(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock):
+    def test_breakdown_relative_increase_no_breaches(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
         insight = self.create_time_series_trend_insight(
             interval=IntervalType.WEEK, breakdown=BreakdownFilter(breakdowns=[Breakdown(property="$browser")])
         )
