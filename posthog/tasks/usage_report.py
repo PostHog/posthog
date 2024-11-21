@@ -2,7 +2,7 @@ import dataclasses
 import os
 from collections import Counter
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union, cast
 
 import requests
@@ -11,7 +11,7 @@ from celery import shared_task
 from dateutil import parser
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Q, QuerySet, Sum
 from posthoganalytics.client import Client
 from psycopg import sql
 from retry import retry
@@ -26,11 +26,17 @@ from posthog.constants import FlagRequestType
 from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
+from posthog.models.event_definition import EventDefinition
+from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+)
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import (
@@ -41,6 +47,7 @@ from posthog.utils import (
     get_previous_day,
 )
 from posthog.warehouse.models import ExternalDataJob
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
@@ -130,6 +137,18 @@ class UsageReportCounters:
     ruby_events_count_in_period: int
     python_events_count_in_period: int
     php_events_count_in_period: int
+
+
+@dataclasses.dataclass
+class WeeklyDigestReport:
+    new_dashboards_in_last_7_days: list[dict[str, str]]
+    new_event_definitions_in_last_7_days: list[dict[str, str]]
+    new_playlists_created_in_last_7_days: list[dict[str, str]]
+    new_experiments_launched_in_last_7_days: list[dict[str, str]]
+    new_experiments_completed_in_last_7_days: list[dict[str, str]]
+    new_external_data_sources_connected_in_last_7_days: list[dict[str, str]]
+    new_surveys_launched_in_last_7_days: list[dict[str, str]]
+    new_feature_flags_created_in_last_7_days: list[dict[str, str]]
 
 
 # Instance metadata to be included in overall report
@@ -335,20 +354,23 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         capture_exception(err)
         pha_client = Client("sTMFPsFhdP1Ssg")
         capture_event(
-            pha_client,
-            f"organization usage report to billing service failure",
-            org_id,
-            {"err": str(err)},
+            pha_client=pha_client,
+            name=f"organization usage report to billing service failure",
+            organization_id=org_id,
+            properties={"err": str(err)},
         )
         raise
 
 
 def capture_event(
+    *,
     pha_client: Client,
     name: str,
-    organization_id: str,
+    organization_id: Optional[str] = None,
+    team_id: Optional[int] = None,
     properties: dict[str, Any],
     timestamp: Optional[Union[datetime, str]] = None,
+    send_for_all_members: bool = False,
 ) -> None:
     if timestamp and isinstance(timestamp, str):
         try:
@@ -356,16 +378,38 @@ def capture_event(
         except ValueError:
             timestamp = None
 
+    if not organization_id and not team_id:
+        raise ValueError("Either organization_id or team_id must be provided")
+
     if is_cloud():
-        org_owner = get_org_owner_or_first_user(organization_id)
-        distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
-        pha_client.capture(
-            distinct_id,
-            name,
-            {**properties, "scope": "user"},
-            groups={"organization": organization_id, "instance": settings.SITE_URL},
-            timestamp=timestamp,
-        )
+        distinct_ids = []
+        if send_for_all_members:
+            if organization_id:
+                distinct_ids = list(
+                    OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
+                        "user__distinct_id", flat=True
+                    )
+                )
+            elif team_id:
+                team = Team.objects.get(id=team_id)
+                distinct_ids = [user.distinct_id for user in team.all_users_with_access()]
+        else:
+            if not organization_id:
+                team = Team.objects.get(id=team_id)
+                organization_id = team.organization_id
+            org_owner = get_org_owner_or_first_user(organization_id) if organization_id else None
+            distinct_ids.append(
+                org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
+            )
+
+        for distinct_id in distinct_ids:
+            pha_client.capture(
+                distinct_id,
+                name,
+                {**properties, "scope": "user"},
+                groups={"organization": organization_id, "instance": settings.SITE_URL},
+                timestamp=timestamp,
+            )
         pha_client.group_identify("organization", organization_id, properties)
     else:
         pha_client.capture(
@@ -703,22 +747,118 @@ def get_teams_with_hog_function_fetch_calls_in_period(
     return results
 
 
+@timed_log()
+def get_teams_with_new_dashboards_in_last_7_days(
+    end: datetime,
+) -> QuerySet:
+    begin = end - timedelta(days=7)
+    return Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
+
+
+@timed_log()
+def get_teams_with_new_event_definitions_in_last_7_days(
+    end: datetime,
+) -> QuerySet:
+    begin = end - timedelta(days=7)
+    return EventDefinition.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
+
+
+@timed_log()
+def get_teams_with_new_playlists_created_in_last_7_days(
+    end: datetime,
+) -> QuerySet:
+    begin = end - timedelta(days=7)
+    return SessionRecordingPlaylist.objects.filter(created_at__gt=begin, created_at__lte=end).values(
+        "team_id", "name", "short_id"
+    )
+
+
+@timed_log()
+def get_teams_with_new_experiments_launched_in_last_7_days(
+    end: datetime,
+) -> QuerySet:
+    begin = end - timedelta(days=7)
+    return Experiment.objects.filter(start_date__gt=begin, start_date__lte=end).values(
+        "team_id", "name", "id", "start_date"
+    )
+
+
+@timed_log()
+def get_teams_with_new_experiments_completed_in_last_7_days(
+    end: datetime,
+) -> QuerySet:
+    begin = end - timedelta(days=7)
+    return Experiment.objects.filter(end_date__gt=begin, end_date__lte=end).values(
+        "team_id", "name", "id", "start_date", "end_date"
+    )
+
+
+@timed_log()
+def get_teams_with_new_external_data_sources_connected_in_last_7_days(
+    end: datetime,
+) -> QuerySet:
+    begin = end - timedelta(days=7)
+    return ExternalDataSource.objects.filter(created_at__gt=begin, created_at__lte=end, deleted=False).values(
+        "team_id", "source_type", "id"
+    )
+
+
+@timed_log()
+def get_teams_with_new_surveys_launched_in_last_7_days(
+    end: datetime,
+) -> QuerySet:
+    begin = end - timedelta(days=7)
+    return Survey.objects.filter(start_date__gt=begin, start_date__lte=end).values(
+        "team_id", "name", "id", "description"
+    )
+
+
+@timed_log()
+def get_teams_with_new_feature_flags_created_in_last_7_days(
+    end: datetime,
+) -> QuerySet:
+    begin = end - timedelta(days=7)
+    return FeatureFlag.objects.filter(created_at__gt=begin, created_at__lte=end, deleted=False).values(
+        "team_id", "name", "id", "key"
+    )
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
+    *,
     capture_event_name: str,
-    org_id: str,
+    org_id: Optional[str] = None,
+    team_id: Optional[int] = None,
     full_report_dict: dict[str, Any],
     at_date: Optional[datetime] = None,
+    send_for_all_members: bool = False,
 ) -> None:
+    if not org_id and not team_id:
+        raise ValueError("Either org_id or team_id must be provided")
     pha_client = Client("sTMFPsFhdP1Ssg")
     try:
-        capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
+        capture_event(
+            pha_client=pha_client,
+            name=capture_event_name,
+            organization_id=org_id,
+            team_id=team_id,
+            properties=full_report_dict,
+            timestamp=at_date,
+            send_for_all_members=send_for_all_members,
+        )
         logger.info(f"UsageReport sent to PostHog for organization {org_id}")
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
         )
-        capture_event(pha_client, f"{capture_event_name} failure", org_id, {"error": str(err)})
+        capture_event(
+            pha_client=pha_client,
+            name=f"{capture_event_name} failure",
+            organization_id=org_id,
+            team_id=team_id,
+            properties={"error": str(err)},
+            send_for_all_members=send_for_all_members,
+        )
     pha_client.flush()
 
 
@@ -736,6 +876,10 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
     )
 
 
+def has_non_zero_digest(report: WeeklyDigestReport) -> bool:
+    return any(len(getattr(report, key)) > 0 for key in report.__dataclass_fields__)
+
+
 def convert_team_usage_rows_to_dict(rows: list[Union[dict, tuple[int, int]]]) -> dict[int, int]:
     team_id_map = {}
     for row in rows:
@@ -746,6 +890,10 @@ def convert_team_usage_rows_to_dict(rows: list[Union[dict, tuple[int, int]]]) ->
             # Others are just a tuple with team_id and total
             team_id_map[int(row[0])] = row[1]
     return team_id_map
+
+
+def convert_team_digest_items_to_dict(items: QuerySet) -> dict[int, QuerySet]:
+    return {team_id: items.filter(team_id=team_id) for team_id in items.values_list("team_id", flat=True).distinct()}
 
 
 def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
@@ -920,6 +1068,33 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     }
 
 
+def _get_all_digest_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
+    return {
+        "teams_with_new_dashboards_in_last_7_days": get_teams_with_new_dashboards_in_last_7_days(period_end),
+        "teams_with_new_event_definitions_in_last_7_days": get_teams_with_new_event_definitions_in_last_7_days(
+            period_end
+        ),
+        "teams_with_new_playlists_created_in_last_7_days": get_teams_with_new_playlists_created_in_last_7_days(
+            period_end
+        ),
+        "teams_with_new_experiments_launched_in_last_7_days": get_teams_with_new_experiments_launched_in_last_7_days(
+            period_end
+        ),
+        "teams_with_new_experiments_completed_in_last_7_days": get_teams_with_new_experiments_completed_in_last_7_days(
+            period_end
+        ),
+        "teams_with_new_external_data_sources_connected_in_last_7_days": get_teams_with_new_external_data_sources_connected_in_last_7_days(
+            period_end
+        ),
+        "teams_with_new_surveys_launched_in_last_7_days": get_teams_with_new_surveys_launched_in_last_7_days(
+            period_end
+        ),
+        "teams_with_new_feature_flags_created_in_last_7_days": get_teams_with_new_feature_flags_created_in_last_7_days(
+            period_end
+        ),
+    }
+
+
 def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period as a map of team_id -> value. This makes it faster
@@ -936,7 +1111,7 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only("id", "organization__id", "organization__name", "organization__created_at")
+        .only("id", "name", "organization__id", "organization__name", "organization__created_at")
     )
 
 
@@ -1002,6 +1177,64 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     )
 
 
+def _get_all_digest_data_as_team_rows(period_start: datetime, period_end: datetime) -> dict[str, Any]:
+    all_digest_data = _get_all_digest_data(period_start, period_end)
+    # convert it to a map of team_id -> value
+    for key, rows in all_digest_data.items():
+        all_digest_data[key] = convert_team_digest_items_to_dict(rows)
+    return all_digest_data
+
+
+def _get_weekly_digest_report(all_digest_data: dict[str, Any], team: Team) -> WeeklyDigestReport:
+    report = WeeklyDigestReport(
+        new_dashboards_in_last_7_days=[
+            {"name": dashboard.get("name"), "id": dashboard.get("id")}
+            for dashboard in all_digest_data["teams_with_new_dashboards_in_last_7_days"].get(team.id, [])
+        ],
+        new_event_definitions_in_last_7_days=[
+            {"name": event_definition.get("name"), "id": event_definition.get("id")}
+            for event_definition in all_digest_data["teams_with_new_event_definitions_in_last_7_days"].get(team.id, [])
+        ],
+        new_playlists_created_in_last_7_days=[
+            {"name": playlist.get("name"), "id": playlist.get("id")}
+            for playlist in all_digest_data["teams_with_new_playlists_created_in_last_7_days"].get(team.id, [])
+        ],
+        new_experiments_launched_in_last_7_days=[
+            {"name": experiment.get("name"), "id": experiment.get("id"), "start_date": experiment.get("start_date")}
+            for experiment in all_digest_data["teams_with_new_experiments_launched_in_last_7_days"].get(team.id, [])
+        ],
+        new_experiments_completed_in_last_7_days=[
+            {
+                "name": experiment.get("name"),
+                "id": experiment.get("id"),
+                "start_date": experiment.get("start_date"),
+                "end_date": experiment.get("end_date"),
+            }
+            for experiment in all_digest_data["teams_with_new_experiments_completed_in_last_7_days"].get(team.id, [])
+        ],
+        new_external_data_sources_connected_in_last_7_days=[
+            {"source_type": source.get("source_type"), "id": source.get("id")}
+            for source in all_digest_data["teams_with_new_external_data_sources_connected_in_last_7_days"].get(
+                team.id, []
+            )
+        ],
+        new_surveys_launched_in_last_7_days=[
+            {
+                "name": survey.get("name"),
+                "id": survey.get("id"),
+                "start_date": survey.get("start_date"),
+                "description": survey.get("description"),
+            }
+            for survey in all_digest_data["teams_with_new_surveys_launched_in_last_7_days"].get(team.id, [])
+        ],
+        new_feature_flags_created_in_last_7_days=[
+            {"name": feature_flag.get("name"), "id": feature_flag.get("id"), "key": feature_flag.get("key")}
+            for feature_flag in all_digest_data["teams_with_new_feature_flags_created_in_last_7_days"].get(team.id, [])
+        ],
+    )
+    return report
+
+
 def _add_team_report_to_org_reports(
     org_reports: dict[str, OrgReport],
     team: Team,
@@ -1040,6 +1273,11 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
     logger.info("Getting all usage data...")  # noqa T201
     time_now = datetime.now()
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+    all_digest_data = None
+    if datetime.now().weekday() == 0:
+        logger.debug("Getting all digest data...")  # noqa T201
+        all_digest_data = _get_all_digest_data_as_team_rows(period_start, period_end)
+
     logger.debug(f"Getting all usage data took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
     logger.info("Getting teams for usage reports...")  # noqa T201
@@ -1055,6 +1293,14 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
 
+        # on mondays, send the weekly digest report
+        if datetime.now().weekday() == 0 and all_digest_data:
+            weekly_digest_report = _get_weekly_digest_report(all_digest_data, team)
+            if has_non_zero_digest(weekly_digest_report):
+                _send_weekly_digest_report(
+                    team_id=team.id, team_name=team.name, weekly_digest_report=weekly_digest_report
+                )
+
     time_since = datetime.now() - time_now
     logger.debug(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
     return org_reports
@@ -1069,6 +1315,21 @@ def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: Instanc
 
 def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str, Any]:
     return dataclasses.asdict(full_report)
+
+
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
+def _send_weekly_digest_report(*, team_id: int, team_name: str, weekly_digest_report: WeeklyDigestReport) -> None:
+    full_report_dict = {
+        "team_id": team_id,
+        "team_name": team_name,
+        **dataclasses.asdict(weekly_digest_report),
+    }
+    capture_report.delay(
+        capture_event_name="weekly digest report",
+        team_id=team_id,
+        full_report_dict=full_report_dict,
+        send_for_all_members=True,
+    )
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
@@ -1107,7 +1368,12 @@ def send_all_org_usage_reports(
             # First capture the events to PostHog
             if not skip_capture_event:
                 at_date_str = at_date.isoformat() if at_date else None
-                capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
+                capture_report.delay(
+                    capture_event_name=capture_event_name,
+                    org_id=org_id,
+                    full_report_dict=full_report_dict,
+                    at_date=at_date_str,
+                )
 
             # Then capture the events to Billing
             if has_non_zero_usage(full_report):
