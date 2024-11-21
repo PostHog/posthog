@@ -131,6 +131,15 @@ function ChainedStackTraces({
                     }}
                 />
             </div>
+            {ingestionErrors && (
+                <LemonBanner type="error">
+                    <ul>
+                        {ingestionErrors.map((e, i) => (
+                            <li key={i}>{e}</li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
             {exceptionList.map(({ stacktrace, value }, index) => {
                 if (stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
@@ -147,15 +156,7 @@ function ChainedStackTraces({
                     )
                 }
 
-                return (
-                    <LemonBanner key={index} type="error">
-                        <ul>
-                            {ingestionErrors.map((e, i) => (
-                                <li key={i}>{e}</li>
-                            ))}
-                        </ul>
-                    </LemonBanner>
-                )
+                return null
             })}
         </>
     )

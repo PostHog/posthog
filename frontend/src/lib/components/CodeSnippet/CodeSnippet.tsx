@@ -217,7 +217,7 @@ export function CodeLine({
             style={isDarkModeOn ? darkTheme : lightTheme}
             language={language}
             wrapLines={wrapLines}
-            lineProps={{ style: { overflowWrap: 'anywhere' } }}
+            lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
             PreTag={({ children }) => <pre className="bg-transparent m-0">{children}</pre>}
         >
             {text}
