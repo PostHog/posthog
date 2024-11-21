@@ -1,4 +1,4 @@
-import { IconBug, IconCheck, IconDashboard, IconInfo, IconSearch, IconTerminal } from '@posthog/icons'
+import { BaseIcon, IconBug, IconCheck, IconDashboard, IconInfo, IconSearch, IconTerminal } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -125,7 +125,7 @@ export function PlayerInspectorControls(): JSX.Element {
             (filter: SharedListMiniFilter) =>
                 ({
                     label: filter.name,
-                    icon: filter.enabled ? <IconCheck className="text-sm" /> : undefined,
+                    icon: filter.enabled ? <IconCheck className="text-sm" /> : <BaseIcon className="text-sm" />,
                     status: filter.enabled ? 'danger' : 'default',
                     onClick: () => {
                         setMiniFilter(filter.key, !filter.enabled)
@@ -141,7 +141,7 @@ export function PlayerInspectorControls(): JSX.Element {
             (filter: SharedListMiniFilter) =>
                 ({
                     label: filter.name,
-                    icon: filter.enabled ? <IconCheck className="text-sm" /> : undefined,
+                    icon: filter.enabled ? <IconCheck className="text-sm" /> : <BaseIcon className="text-sm" />,
                     status: filter.enabled ? 'danger' : 'default',
                     onClick: () => {
                         setMiniFilter(filter.key, !filter.enabled)
@@ -157,7 +157,7 @@ export function PlayerInspectorControls(): JSX.Element {
             (filter: SharedListMiniFilter) =>
                 ({
                     label: filter.name,
-                    icon: filter.enabled ? <IconCheck className="text-sm" /> : undefined,
+                    icon: filter.enabled ? <IconCheck className="text-sm" /> : <BaseIcon className="text-sm" />,
                     status: filter.enabled ? 'danger' : 'default',
                     onClick: () => {
                         setMiniFilter(filter.key, !filter.enabled)
