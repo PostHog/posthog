@@ -8,11 +8,12 @@ import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
 import type { metalyticsLogicType } from './metalyticsLogicType'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 export const metalyticsLogic = kea<metalyticsLogicType>([
     path(['lib', 'components', 'metalytics', 'metalyticsLogic']),
     connect({
-        values: [activityForSceneLogic, ['sceneActivityFilters']],
+        values: [activityForSceneLogic, ['sceneActivityFilters'], membersLogic, ['members']],
     }),
 
     selectors({
@@ -25,7 +26,19 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         : sceneActivityFilters.scope
                     : null,
         ],
+
+        viewingMember: [
+            (s) => [s.instanceId, s.members],
+            (instanceId, members) => {
+                console.log('members', members)
+                console.log('instanceId', instanceId)
+                return {}
+            },
+        ]
+
+        // get the list of Ids and member of the list of users
     }),
+    
 
     loaders(({ values }) => ({
         viewCount: [
@@ -44,7 +57,23 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                     const result = response.results as number[]
                     return result[0]
                 },
+
+                loadUsersLast30days: async () => {
+                    const query: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: hogql`SELECT app_source_id
+                            FROM app_metrics
+                            WHERE app_source = 'metalytics'
+                            AND instance_id = ${values.instanceId}
+                            AND created_at >= NOW() - INTERVAL '30 days'`,
+                    }
+
+                    const response = await api.query(query)
+                    const result = response.results as number[]
+                    return result
+                },
             },
+            // write a query to load all app sources IDS that have viewed the instance in the last 30 days
         ],
     })),
 
