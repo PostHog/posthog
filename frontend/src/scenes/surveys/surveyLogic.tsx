@@ -58,6 +58,8 @@ export interface SurveyUserStats {
     seen: number
     dismissed: number
     sent: number
+    completed: number
+    abandoned: number
 }
 
 export interface SurveyRatingResults {
@@ -292,17 +294,25 @@ export const surveyLogic = kea<surveyLogicType>([
                                 WHERE event = 'survey sent'
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
+                                    AND timestamp <= ${endDate}),
+                            (SELECT COUNT(DISTINCT person_id)
+                                FROM events
+                                WHERE event = 'survey sent'
+                                    AND properties.$survey_id = ${props.id}
+                                    AND properties.$survey_completed = true
+                                    AND timestamp >= ${startDate}
                                     AND timestamp <= ${endDate})
                     `,
                 }
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
                 if (results && results[0]) {
-                    const [totalSeen, dismissed, sent] = results[0]
+                    const [totalSeen, dismissed, sent, completed] = results[0]
                     const onlySeen = totalSeen - dismissed - sent
-                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
+                    const abandoned = sent - completed
+                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent, completed, abandoned }
                 }
-                return { seen: 0, dismissed: 0, sent: 0 }
+                return { seen: 0, dismissed: 0, sent: 0, completed: 0, abandoned: 0 }
             },
         },
         surveyRatingResults: {
@@ -969,43 +979,49 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const surveyWithResults = survey as Survey
                 const startDate = surveyWithResults.start_date || surveyWithResults.created_at
+                const surveyResponseFields = survey.questions.splice(3).map((q, i) => {
+                    if (q.type === SurveyQuestionType.MultipleChoice) {
+                        // Join array items into a string
+                        return (
+                            "coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '" +
+                            getResponseField(i) +
+                            '\'))) as "' +
+                            q.question +
+                            '"'
+                        )
+                    }
+
+                    return (
+                        "coalesce(JSONExtractString(properties, '" +
+                        getResponseField(i) +
+                        '\')) as "' +
+                        q.question +
+                        '"'
+                    )
+                })
+                const queryFields = [
+                    "JSONExtractString(properties, '$survey_response_id') AS survey_response_id",
+                    "coalesce(JSONExtractString(properties, '$survey_completed'), 'true') as survey_completed",
+                    'arrayCompact([' + surveyResponseFields.join(',') + ']) as survey_responses',
+                    'row_number() OVER (PARTITION BY survey_response_id ORDER BY timestamp DESC) AS rn',
+                ].join(',')
+                const conditions = [
+                    "WHERE event ='survey sent'",
+                    "AND JSONExtractString(properties, '$survey_id') = '" + survey.id + "'",
+                    "AND timestamp >= '" + startDate.replace('T', ' ').replace('Z', '') + "'",
+                ].join(' ')
+
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
-                        kind: NodeKind.EventsQuery,
-                        select: [
-                            '*',
-                            ...survey.questions.map((q, i) => {
-                                if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    // Join array items into a string
-                                    return `coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '${getResponseField(
-                                        i
-                                    )}'), ', ')) -- ${q.question}`
-                                }
-
-                                return `coalesce(JSONExtractString(properties, '${getResponseField(i)}')) -- ${
-                                    q.question
-                                }`
-                            }),
-                            'timestamp',
-                            'person',
-                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
-                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
-                            `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
-                        ],
-                        orderBy: ['timestamp DESC'],
-                        where: [`event == 'survey sent'`],
-                        after: startDate,
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$survey_id',
-                                operator: PropertyOperator.Exact,
-                                value: survey.id,
-                            },
-                        ],
+                        kind: NodeKind.HogQLQuery,
+                        query:
+                            "SELECT arrayFlatten(survey_responses) FROM ( SELECT 'person', 'timestamp', " +
+                            queryFields +
+                            ' FROM events ' +
+                            conditions +
+                            ') WHERE rn = 1',
                     },
-                    propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
                     showEventFilter: false,
