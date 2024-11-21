@@ -6,7 +6,7 @@ import {
     IconThumbsUpFilled,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -16,11 +16,11 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
 import React, { useMemo, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantMessage,
-    AssistantMessageType,
     FailureMessage,
     HumanMessage,
     InsightVizNode,
@@ -39,38 +39,62 @@ import {
 } from './utils'
 
 export function Thread(): JSX.Element | null {
-    const { thread, threadLoading } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxLogic)
 
     return (
         <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
-            {thread.map((message, index) => {
-                if (isHumanMessage(message)) {
-                    return (
-                        <MessageTemplate
-                            key={index}
-                            type="human"
-                            className={message.status === 'error' ? 'border-danger' : undefined}
-                        >
-                            <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
-                        </MessageTemplate>
-                    )
-                } else if (isAssistantMessage(message) || isFailureMessage(message)) {
-                    return <TextAnswer key={index} message={message} index={index} />
-                } else if (isVisualizationMessage(message)) {
-                    return <VisualizationAnswer key={index} message={message} status={message.status} />
-                } else if (isReasoningMessage(message)) {
-                    return <div key={index}>{message.content}</div>
+            {threadGrouped.map((group, index) => (
+                <MessageGroup key={index} messages={group} />
+            ))}
+        </div>
+    )
+}
+
+function MessageGroup({ messages }: { messages: ThreadMessage[] }): JSX.Element {
+    const { user } = useValues(userLogic)
+
+    const groupType = messages[0].type === 'human' ? 'human' : 'ai'
+
+    return (
+        <div className={clsx('relative flex gap-2', groupType === 'human' ? 'flex-row-reverse ml-10' : 'mr-10')}>
+            <ProfilePicture
+                user={
+                    groupType === 'human'
+                        ? { ...user, hedgehog_config: undefined }
+                        : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
                 }
-                return null // We currently skip other types of messages
-            })}
-            {threadLoading && (
-                <MessageTemplate type="ai" className="w-fit select-none">
-                    <div className="flex items-center gap-2">
-                        Let me think…
-                        <Spinner className="text-xl" />
-                    </div>
-                </MessageTemplate>
-            )}
+                size="lg"
+                className="mt-1 border"
+            />
+            <div className="flex flex-col gap-2 min-w-0">
+                {messages.map((message, index) => {
+                    if (isHumanMessage(message)) {
+                        return (
+                            <MessageTemplate
+                                key={index}
+                                type="human"
+                                className={message.status === 'error' ? 'border-danger' : undefined}
+                            >
+                                <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
+                            </MessageTemplate>
+                        )
+                    } else if (isAssistantMessage(message) || isFailureMessage(message)) {
+                        return <TextAnswer key={index} message={message} index={index} />
+                    } else if (isVisualizationMessage(message)) {
+                        return <VisualizationAnswer key={index} message={message} status={message.status} />
+                    } else if (isReasoningMessage(message)) {
+                        return (
+                            <MessageTemplate key={index} type="ai">
+                                <div className="flex items-center gap-2">
+                                    <span>{message.content}…</span>
+                                    <Spinner className="text-xl" />
+                                </div>
+                            </MessageTemplate>
+                        )
+                    }
+                    return null // We currently skip other types of messages
+                })}
+            </div>
         </div>
     )
 }
@@ -79,17 +103,15 @@ const MessageTemplate = React.forwardRef<
     HTMLDivElement,
     { type: 'human' | 'ai'; className?: string; action?: React.ReactNode; children: React.ReactNode }
 >(function MessageTemplate({ type, children, className, action }, ref) {
-    if (type === AssistantMessageType.Human) {
-        return (
-            <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
-                {children}
-            </div>
-        )
-    }
-
     return (
-        <div className="space-y-2">
-            <div className={clsx('border p-2 rounded bg-bg-light', className)} ref={ref}>
+        <div className={clsx('flex flex-col gap-1', type === 'human' ? 'items-end' : 'items-start')} ref={ref}>
+            <div
+                className={clsx(
+                    'border py-2 px-3 rounded-[20px] bg-bg-light',
+                    type === 'human' && 'font-medium',
+                    className
+                )}
+            >
                 {children}
             </div>
             {action}
@@ -180,7 +202,7 @@ function RetriableAnswerActions(): JSX.Element {
     return (
         <LemonButton
             icon={<IconRefresh />}
-            type="secondary"
+            type="tertiary"
             size="small"
             tooltip="Try again"
             onClick={() => retryLastMessage()}

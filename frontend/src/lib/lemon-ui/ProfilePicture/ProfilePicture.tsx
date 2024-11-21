@@ -3,6 +3,7 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { AnimationName } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import { useMemo, useState } from 'react'
@@ -26,6 +27,8 @@ export interface ProfilePictureProps {
     title?: string
     index?: number
     type?: 'person' | 'bot' | 'system'
+    /** Hedgehog animation to play - only if the user's hedgehog config is enabled. */
+    hedgehogAnimation?: AnimationName
 }
 
 export function ProfilePicture({
@@ -37,6 +40,7 @@ export function ProfilePicture({
     index,
     title,
     type = 'person',
+    hedgehogAnimation,
 }: ProfilePictureProps): JSX.Element {
     const { user: currentUser } = useValues(userLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
@@ -67,7 +71,7 @@ export function ProfilePicture({
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)}>
             {hedgehogProfile ? (
-                <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
+                <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" animation={hedgehogAnimation} />
             ) : (
                 gravatarLoaded !== true && (
                     <>
