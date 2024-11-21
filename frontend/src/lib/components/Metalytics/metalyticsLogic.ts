@@ -29,6 +29,8 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                             AND instance_id = ${values.instanceId}`,
                     }
 
+                    // NOTE: I think this gets cached heavily - how to correctly invalidate?
+
                     const response = await api.query(query)
                     const result = response.results as number[]
                     return result[0]
