@@ -6,6 +6,7 @@ import json
 import ssl
 import typing
 import uuid
+import structlog
 
 import aiohttp
 import pyarrow as pa
@@ -13,6 +14,8 @@ import requests
 from django.conf import settings
 
 import posthog.temporal.common.asyncpa as asyncpa
+
+logger = structlog.get_logger()
 
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
@@ -76,6 +79,29 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             str_data = str(data)
             str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
             return f"{quote_char}{str_data}{quote_char}".encode()
+
+
+class ChunkBytesAsyncStreamIterator:
+    """Async iterator of HTTP chunk bytes.
+
+    Similar to the class provided by aiohttp, but this allows us to control
+    when to stop iteration.
+    """
+
+    def __init__(self, stream: aiohttp.StreamReader) -> None:
+        self._stream = stream
+
+    def __aiter__(self) -> "ChunkBytesAsyncStreamIterator":
+        return self
+
+    async def __anext__(self) -> bytes:
+        data, end_of_chunk = await self._stream.readchunk()
+
+        if data == b"" and end_of_chunk is False and self._stream.at_eof():
+            await logger.adebug("At EOF, stopping chunk iteration")
+            raise StopAsyncIteration
+
+        return data
 
 
 class ClickHouseClientNotConnected(Exception):
@@ -386,7 +412,7 @@ class ClickHouseClient:
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            reader = asyncpa.AsyncRecordBatchReader(response.content.iter_chunks())
+            reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
             async for batch in reader:
                 yield batch
 
@@ -405,7 +431,7 @@ class ClickHouseClient:
         downstream consumer tasks process them from the queue.
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            reader = asyncpa.AsyncRecordBatchProducer(response.content.iter_chunks())
+            reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
             await reader.produce(queue=queue)
 
     async def __aenter__(self):

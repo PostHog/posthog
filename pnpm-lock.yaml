@@ -50,8 +50,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.59
-    version: 1.0.59(luxon@3.5.0)
+    specifier: ^1.0.60
+    version: 1.0.60(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.9.1
     version: 0.9.1(react-dom@18.2.0)(react@18.2.0)
@@ -284,8 +284,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.186.2
-    version: 1.186.2
+    specifier: 1.187.2
+    version: 1.187.2
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -5418,8 +5418,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.59(luxon@3.5.0):
-    resolution: {integrity: sha512-4KJfCXUhK7x5Wm3pheKWDmrbQ0y1lWlLWdVEjocdjSy3wOS8hQQqaFAVEKZs7hfk9pZqvNFh2UPgD4ccpwUQjA==}
+  /@posthog/hogvm@1.0.60(luxon@3.5.0):
+    resolution: {integrity: sha512-W0FTorn5FqIaNQCMTXbNi1dJSphe/UEztDTXIhwsWLNsSO7haF3xx8JSp7vowo6R432ExjPPoIFT1gtRVV17kQ==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -17788,8 +17788,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.186.2:
-    resolution: {integrity: sha512-e2cYHnq+1UEN0N3okJMlKXkprC8JkZkoLPFqp/CjKOlBvAoz05WOW1ROJiRGPzPxc8CWZQIzGLoRbAP+C5Hsbw==}
+  /posthog-js@1.187.2:
+    resolution: {integrity: sha512-IGKsZ7M4AYACm5I6gGGFrv9kR/MOnVYw11XFYCLk363n0nq+ghwenoW1jJVL9gZLGKiMsConUR8rG2DD2OMKyg==}
     dependencies:
       core-js: 3.39.0
       fflate: 0.4.8
@@ -18406,7 +18406,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.157.0
+      unlayer-types: 1.167.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20953,8 +20953,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.157.0:
-    resolution: {integrity: sha512-D9xnoeQREgUxEkaFG3q90CVicmysu8REVIkQA3alHaTG3JM+LPzdq20vjrd6V4iGuvvUD8L5EDQybSsSRS/k+g==}
+  /unlayer-types@1.167.0:
+    resolution: {integrity: sha512-H3Qq6WnC4u8hy2Qt+uueUaJkKdtTwv1V8FV5LwM+ZAD1XSMfySQK/FhpXgAbU+/nxBs8kvlJaK0I6D/64J5zpQ==}
     dev: false
 
   /unpipe@1.0.0:
