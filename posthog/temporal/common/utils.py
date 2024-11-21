@@ -89,15 +89,14 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         remaining["_remaining"] = remaining["_remaining"][1:]
 
         for date_str_tuple in first_detail:
-            range_start, range_end = date_str_tuple
-
             try:
+                range_start, range_end = date_str_tuple
                 datetime_bounds = (
                     dt.datetime.fromisoformat(range_start),
                     dt.datetime.fromisoformat(range_end),
                 )
             except (TypeError, ValueError) as e:
-                raise HeartbeatParseError("ranges") from e
+                raise HeartbeatParseError("done_ranges") from e
 
             done_ranges.append(datetime_bounds)
 
