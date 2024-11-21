@@ -35,6 +35,21 @@
                     "proxy": "http://unix:/var/run/control.unit.sock"
                 }
             }
+        ],
+        "chat": [
+            {
+                "match": {
+                    "uri": "/api/environments/*/chat"
+                },
+                "action": {
+                    "pass": "applications/posthog",
+                    "options": {
+                        "buffering": {
+                            "output": false
+                        }
+                    }
+                }
+            }
         ]
     },
     "applications": {
