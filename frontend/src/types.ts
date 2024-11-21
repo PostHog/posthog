@@ -997,12 +997,17 @@ export enum SessionRecordingSidebarStacking {
     Horizontal = 'horizontal',
 }
 
-export enum SessionRecordingPlayerTab {
+export enum InspectorListItemType {
     ALL = 'all',
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
     DOCTOR = 'doctor',
+    /**
+     * actual or virtual events that give context to a recording
+     * such as browser visibility or user inactivity
+     */
+    CONTEXT = 'context',
 }
 
 export enum SessionPlayerState {

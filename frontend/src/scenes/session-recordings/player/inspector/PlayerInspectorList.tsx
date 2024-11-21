@@ -1,119 +1,27 @@
 import './PlayerInspectorList.scss'
 
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useMemo, useRef } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
+import { InspectorListItemType } from '~/types'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
-function isLocalhost(url: string | null | undefined): boolean {
-    try {
-        return !!url && ['localhost', '127.0.0.1'].includes(new URL(url).hostname)
-    } catch (e) {
-        // for e.g. mobile doesn't have a URL, so we can swallow this and move on
-        return false
-    }
-}
-
-function EmptyNetworkTab({
-    captureNetworkLogOptIn,
-    captureNetworkFeatureAvailable,
-    recordingURL,
-}: {
-    captureNetworkLogOptIn: boolean
-    captureNetworkFeatureAvailable: boolean
-    recordingURL: string | null | undefined
-}): JSX.Element {
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-    return !captureNetworkFeatureAvailable ? (
-        <div className="p-4">
-            <PayGateMini
-                feature={AvailableFeature.RECORDINGS_PERFORMANCE}
-                className="py-8"
-                docsLink="https://posthog.com/docs/user-guides/recordings"
-            />
-        </div>
-    ) : !captureNetworkLogOptIn ? (
-        <>
-            <div className="flex flex-col items-center">
-                <h4 className="text-xl font-medium">Performance events</h4>
-                <p className="text-muted text-center">
-                    Capture performance events like network requests during the browser recording to understand things
-                    like response times, page load times, and more.
-                </p>
-                <LemonButton
-                    type="primary"
-                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
-                    targetBlank
-                >
-                    Configure in settings
-                </LemonButton>
-            </div>
-        </>
-    ) : isLocalhost(recordingURL) ? (
-        <>
-            <div className="flex flex-col items-center">
-                <h4 className="text-xl font-medium">Network recording</h4>
-                <p className="text-muted text-center">
-                    Network capture is not supported when replay is running on localhost.{' '}
-                    <Link to="https://posthog.com/docs/session-replay/network-recording">Learn more in our docs </Link>.
-                </p>
-            </div>
-        </>
-    ) : (
-        <>No results found in this recording.</>
-    )
-}
-
-function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: boolean }): JSX.Element {
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-
-    return captureConsoleLogOptIn ? (
-        <>No results found in this recording.</>
-    ) : (
-        <>
-            <div className="flex flex-col items-center">
-                <h4 className="text-xl font-medium">Console logs</h4>
-                <p className="text-muted text-center">
-                    Capture all console logs during the browser recording to get technical information on what was
-                    occurring.
-                </p>
-                <LemonButton
-                    type="primary"
-                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
-                    targetBlank
-                >
-                    Configure in settings
-                </LemonButton>
-            </div>
-        </>
-    )
-}
-
 export function PlayerInspectorList(): JSX.Element {
-    const { logicProps, snapshotsLoaded, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
-    const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused, tab } =
+    const { items, inspectorDataState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused } =
         useValues(inspectorLogic)
     const { setSyncScrollPaused } = useActions(inspectorLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const performanceAvailable: boolean = hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
-    const performanceEnabled: boolean = currentTeam?.capture_performance_opt_in ?? false
 
     const cellMeasurerCache = useMemo(
         () =>
@@ -234,28 +142,14 @@ export function PlayerInspectorList(): JSX.Element {
                         </div>
                     )}
                 </div>
-            ) : tabsState[tab] === 'loading' ? (
+            ) : inspectorDataState[InspectorListItemType.ALL] === 'loading' ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
-            ) : tabsState[tab] === 'ready' ? (
+            ) : inspectorDataState[InspectorListItemType.ALL] === 'ready' ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
                 <div className="p-16 text-center text-muted-alt">No results matching your filters.</div>
-            ) : (
-                <div className="p-16 text-center text-muted-alt">
-                    {tab === SessionRecordingPlayerTab.CONSOLE ? (
-                        <EmptyConsoleTab captureConsoleLogOptIn={currentTeam?.capture_console_log_opt_in || false} />
-                    ) : tab === SessionRecordingPlayerTab.NETWORK ? (
-                        <EmptyNetworkTab
-                            captureNetworkFeatureAvailable={performanceAvailable}
-                            captureNetworkLogOptIn={performanceEnabled}
-                            recordingURL={sessionPlayerMetaData?.start_url}
-                        />
-                    ) : (
-                        'No results found in this recording.'
-                    )}
-                </div>
-            )}
+            ) : null}
         </div>
     )
 }

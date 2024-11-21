@@ -12,7 +12,7 @@ import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
-import { SessionRecordingPlayerTab } from '~/types'
+import { InspectorListItemType } from '~/types'
 
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
@@ -24,19 +24,19 @@ import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
 
 const typeToIconAndDescription = {
-    [SessionRecordingPlayerTab.ALL]: {
+    [InspectorListItemType.ALL]: {
         Icon: undefined,
         tooltip: 'All events',
     },
-    [SessionRecordingPlayerTab.EVENTS]: {
+    [InspectorListItemType.EVENTS]: {
         Icon: undefined,
         tooltip: 'Recording event',
     },
-    [SessionRecordingPlayerTab.CONSOLE]: {
+    [InspectorListItemType.CONSOLE]: {
         Icon: IconTerminal,
         tooltip: 'Console log',
     },
-    [SessionRecordingPlayerTab.NETWORK]: {
+    [InspectorListItemType.NETWORK]: {
         Icon: IconDashboard,
         tooltip: 'Network event',
     },
@@ -97,22 +97,20 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
 function RowItemTitle({
     item,
     finalTimestamp,
-    showIcon,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
-    showIcon?: boolean
 }): JSX.Element {
     const TypeIcon = typeToIconAndDescription[item.type].Icon
 
     return (
         <div className="flex gap-1 items-center">
-            {showIcon && TypeIcon ? <TypeIcon /> : null}
-            {item.type === SessionRecordingPlayerTab.NETWORK ? (
+            {TypeIcon ? <TypeIcon className="text-mid" /> : null}
+            {item.type === InspectorListItemType.NETWORK ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
+            ) : item.type === InspectorListItemType.CONSOLE ? (
                 <ItemConsoleLog item={item} />
-            ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
+            ) : item.type === InspectorListItemType.EVENTS ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
                 <div className="flex items-start p-2 text-xs font-light font-mono">
@@ -122,7 +120,7 @@ function RowItemTitle({
                 <div className="flex items-start px-2 py-1 font-light font-mono text-xs">
                     Window became {item.status}
                 </div>
-            ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
+            ) : item.type === InspectorListItemType.DOCTOR ? (
                 <ItemDoctor item={item} />
             ) : item.type === 'comment' ? (
                 <ItemComment item={item} />
@@ -142,14 +140,14 @@ function RowItemDetail({
 }): JSX.Element | null {
     return (
         <div onClick={onClick}>
-            {item.type === SessionRecordingPlayerTab.NETWORK ? (
+            {item.type === InspectorListItemType.NETWORK ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
+            ) : item.type === InspectorListItemType.CONSOLE ? (
                 <ItemConsoleLogDetail item={item} />
-            ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
+            ) : item.type === InspectorListItemType.EVENTS ? (
                 <ItemEventDetail item={item} />
             ) : item.type === 'offline-status' ? null : item.type === 'browser-visibility' ? null : item.type ===
-              SessionRecordingPlayerTab.DOCTOR ? (
+              InspectorListItemType.DOCTOR ? (
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemCommentDetail item={item} />
@@ -172,10 +170,8 @@ export function PlayerInspectorListItem({
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
-    const { tab, end, expandedItems } = useValues(playerInspectorLogic(logicProps))
+    const { end, expandedItems } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
-
-    const showIcon = tab === SessionRecordingPlayerTab.ALL
 
     const isExpanded = expandedItems.includes(index)
 
@@ -273,7 +269,7 @@ export function PlayerInspectorListItem({
                             item.highlightColor && `bg-${item.highlightColor}-highlight`
                         )}
                     >
-                        <RowItemTitle item={item} finalTimestamp={end} showIcon={showIcon} />
+                        <RowItemTitle item={item} finalTimestamp={end} />
                     </div>
                 </div>
                 <LemonButton

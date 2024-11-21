@@ -71,18 +71,18 @@ describe('playerInspectorLogic', () => {
                 windowIdFilter: null,
             })
             await expectLogic(logic, () => {
-                logic.actions.setWindowIdFilter('nightly')
+                logic.actions.setTrackedWindow('nightly')
             })
-                .toDispatchActions(['setWindowIdFilter'])
+                .toDispatchActions(['setTrackedWindow'])
                 .toMatchValues({
                     windowIdFilter: 'nightly',
                 })
         })
         it('default all', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setWindowIdFilter(null as unknown as string)
+                logic.actions.setTrackedWindow(null as unknown as string)
             })
-                .toDispatchActions(['setWindowIdFilter'])
+                .toDispatchActions(['setTrackedWindow'])
                 .toMatchValues({
                     windowIdFilter: null,
                 })

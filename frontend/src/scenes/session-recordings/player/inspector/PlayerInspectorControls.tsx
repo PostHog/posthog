@@ -1,13 +1,5 @@
 import { BaseIcon, IconBug, IconCheck, IconDashboard, IconInfo, IconSearch, IconTerminal } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonInput,
-    LemonMenu,
-    LemonMenuItem,
-    LemonSelect,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonMenu, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
@@ -15,14 +7,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
-import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
-import { SessionRecordingPlayerTab } from '~/types'
+import { InspectorListItemType } from '~/types'
 
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
-import { playerInspectorLogic } from './playerInspectorLogic'
 
 /**
  * TODO only one window filter necessary!
@@ -33,11 +23,11 @@ import { playerInspectorLogic } from './playerInspectorLogic'
  */
 
 function HideProperties(): JSX.Element | null {
-    const { miniFiltersForTab } = useValues(miniFiltersLogic)
+    const { miniFiltersForType } = useValues(miniFiltersLogic)
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
-    return miniFiltersForTab(SessionRecordingPlayerTab.EVENTS).some((x) => x.enabled) ? (
+    return miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled) ? (
         <LemonCheckbox
             checked={hidePostHogPropertiesInTable}
             label="Hide PostHog properties"
@@ -48,43 +38,11 @@ function HideProperties(): JSX.Element | null {
     ) : null
 }
 
-function WindowSelector(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const inspectorLogic = playerInspectorLogic(logicProps)
-    const { windowIdFilter, windowIds } = useValues(inspectorLogic)
-    const { setWindowIdFilter } = useActions(inspectorLogic)
-
-    return windowIds.length > 1 ? (
-        <LemonSelect
-            size="xsmall"
-            data-attr="player-window-select"
-            value={windowIdFilter}
-            onChange={(val) => setWindowIdFilter(val || null)}
-            options={[
-                {
-                    value: null,
-                    label: 'All windows',
-                    icon: <IconWindow size="small" value="A" className="text-muted" />,
-                },
-                ...windowIds.map((windowId, index) => ({
-                    value: windowId,
-                    label: `Window ${index + 1}`,
-                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
-                })),
-            ]}
-            tooltip="Each recording window translates to a distinct browser tab or window."
-        />
-    ) : (
-        // returns an empty div to keep spacing/positioning consistent
-        <div> </div>
-    )
-}
-
 export const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
-    [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
-    [SessionRecordingPlayerTab.NETWORK]: IconDashboard,
-    [SessionRecordingPlayerTab.DOCTOR]: IconBug,
+    [InspectorListItemType.EVENTS]: IconUnverifiedEvent,
+    [InspectorListItemType.CONSOLE]: IconTerminal,
+    [InspectorListItemType.NETWORK]: IconDashboard,
+    [InspectorListItemType.DOCTOR]: IconBug,
 }
 
 /**
@@ -100,7 +58,7 @@ export function PlayerInspectorControls(): JSX.Element {
     const {
         //showOnlyMatching,
         searchQuery,
-        miniFiltersForTab,
+        miniFiltersForType,
         miniFiltersByKey,
     } = useValues(miniFiltersLogic)
     const {
@@ -119,7 +77,7 @@ export function PlayerInspectorControls(): JSX.Element {
         // ensure we've not left the doctor tab in the tabs state
     }
 
-    const eventsFilters: LemonMenuItem[] = miniFiltersForTab(SessionRecordingPlayerTab.EVENTS)
+    const eventsFilters: LemonMenuItem[] = miniFiltersForType(InspectorListItemType.EVENTS)
         ?.filter((x) => x.name !== 'All')
         .map(
             (filter: SharedListMiniFilter) =>
@@ -135,7 +93,7 @@ export function PlayerInspectorControls(): JSX.Element {
                 } satisfies LemonMenuItem)
         )
 
-    const consoleFilters: LemonMenuItem[] = miniFiltersForTab(SessionRecordingPlayerTab.CONSOLE)
+    const consoleFilters: LemonMenuItem[] = miniFiltersForType(InspectorListItemType.CONSOLE)
         ?.filter((x) => x.name !== 'All')
         .map(
             (filter: SharedListMiniFilter) =>
@@ -151,7 +109,7 @@ export function PlayerInspectorControls(): JSX.Element {
                 } satisfies LemonMenuItem)
         )
 
-    const networkFilters: LemonMenuItem[] = miniFiltersForTab(SessionRecordingPlayerTab.NETWORK)
+    const networkFilters: LemonMenuItem[] = miniFiltersForType(InspectorListItemType.NETWORK)
         ?.filter((x) => x.name !== 'All')
         .map(
             (filter: SharedListMiniFilter) =>
@@ -179,7 +137,7 @@ export function PlayerInspectorControls(): JSX.Element {
                                 size="xsmall"
                                 icon={<IconUnverifiedEvent />}
                             >
-                                {capitalizeFirstLetter(SessionRecordingPlayerTab.EVENTS)}
+                                {capitalizeFirstLetter(InspectorListItemType.EVENTS)}
                             </LemonButton>
                         </LemonMenu>
                     )}
@@ -189,7 +147,7 @@ export function PlayerInspectorControls(): JSX.Element {
                             size="xsmall"
                             icon={<IconTerminal />}
                         >
-                            {capitalizeFirstLetter(SessionRecordingPlayerTab.CONSOLE)}
+                            {capitalizeFirstLetter(InspectorListItemType.CONSOLE)}
                         </LemonButton>
                     </LemonMenu>
                     <LemonMenu buttonSize="xsmall" closeOnClickInside={false} items={networkFilters}>
@@ -198,7 +156,7 @@ export function PlayerInspectorControls(): JSX.Element {
                             size="xsmall"
                             icon={<IconDashboard />}
                         >
-                            {capitalizeFirstLetter(SessionRecordingPlayerTab.NETWORK)}
+                            {capitalizeFirstLetter(InspectorListItemType.NETWORK)}
                         </LemonButton>
                     </LemonMenu>
                     {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
@@ -242,7 +200,6 @@ export function PlayerInspectorControls(): JSX.Element {
                 )}
 
                 <div className="flex flex-row justify-between w-full font-light text-small">
-                    <WindowSelector />
                     <HideProperties />
                 </div>
 

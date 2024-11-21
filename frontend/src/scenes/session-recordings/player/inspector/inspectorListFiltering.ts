@@ -8,7 +8,7 @@ import {
     InspectorListItemEvent,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { SessionRecordingPlayerTab } from '~/types'
+import { InspectorListItemType } from '~/types'
 
 const PostHogMobileEvents = [
     'Deep Link Opened',
@@ -28,7 +28,7 @@ function isPostHogEvent(item: InspectorListItem): boolean {
 }
 
 function isNetworkEvent(item: InspectorListItem): item is InspectorListItemPerformance {
-    return item.type === SessionRecordingPlayerTab.NETWORK
+    return item.type === InspectorListItemType.NETWORK
 }
 //
 // function isOfflineStatusChange(item: InspectorListItem): item is InspectorListOfflineStatusChange {
@@ -48,7 +48,7 @@ function isNavigationEvent(item: InspectorListItem): boolean {
 // }
 
 function isEvent(item: InspectorListItem): item is InspectorListItemEvent {
-    return item.type === SessionRecordingPlayerTab.EVENTS
+    return item.type === InspectorListItemType.EVENTS
 }
 
 function isPageviewOrScreen(item: InspectorListItem): boolean {
@@ -60,7 +60,7 @@ function isAutocapture(item: InspectorListItem): boolean {
 }
 
 function isConsoleEvent(item: InspectorListItem): item is InspectorListItemConsole {
-    return item.type === SessionRecordingPlayerTab.CONSOLE
+    return item.type === InspectorListItemType.CONSOLE
 }
 
 function isConsoleError(item: InspectorListItem): boolean {
@@ -83,12 +83,16 @@ function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor
 //     return item.type === 'comment'
 // }
 
+function isContextItem(item: InspectorListItem): boolean {
+    return ['browser-visibility', 'offline-status', 'comment'].includes(item.type)
+}
+
 export function filterInspectorListItems({
     allItems,
     miniFiltersByKey,
     showMatchingEventsFilter,
     showOnlyMatching,
-    windowIdFilter,
+    trackedWindow,
 }: {
     allItems: InspectorListItem[]
     miniFiltersByKey:
@@ -98,7 +102,7 @@ export function filterInspectorListItems({
         | undefined
     showMatchingEventsFilter: boolean
     showOnlyMatching: boolean
-    windowIdFilter: string | null
+    trackedWindow: string | null
 }): InspectorListItem[] {
     const items: InspectorListItem[] = []
 
@@ -116,7 +120,11 @@ export function filterInspectorListItems({
             continue
         }
 
-        if (item.type === SessionRecordingPlayerTab.EVENTS) {
+        if (isContextItem(item)) {
+            include = true
+        }
+
+        if (item.type === InspectorListItemType.EVENTS) {
             include =
                 (!!miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) ||
                 (!!miniFiltersByKey['events-custom']?.enabled && !isPostHogEvent(item)) ||
@@ -125,14 +133,14 @@ export function filterInspectorListItems({
                 (!!miniFiltersByKey['events-exceptions']?.enabled && (isException(item) || isErrorEvent(item)))
         }
 
-        if (item.type === SessionRecordingPlayerTab.CONSOLE) {
+        if (item.type === InspectorListItemType.CONSOLE) {
             include =
                 (!!miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) ||
                 (!!miniFiltersByKey['console-warn']?.enabled && item.data.level === 'warn') ||
                 (!!miniFiltersByKey['console-error']?.enabled && isConsoleError(item))
         }
 
-        if (item.type === SessionRecordingPlayerTab.NETWORK) {
+        if (item.type === InspectorListItemType.NETWORK) {
             include =
                 (!!miniFiltersByKey['performance-document']?.enabled && isNavigationEvent(item)) ||
                 (!!miniFiltersByKey['performance-fetch']?.enabled &&
@@ -159,7 +167,7 @@ export function filterInspectorListItems({
                     ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
         }
 
-        if (item.type === SessionRecordingPlayerTab.DOCTOR) {
+        if (item.type === InspectorListItemType.DOCTOR) {
             include = !!miniFiltersByKey['doctor']?.enabled && isDoctorEvent(item)
         }
 
@@ -171,7 +179,7 @@ export function filterInspectorListItems({
         }
 
         const itemWindowId = item.windowId // how do we use sometimes properties $window_id... maybe we just shouldn't need to :shrug:
-        const excludedByWindowFilter = !!windowIdFilter && !!itemWindowId && itemWindowId !== windowIdFilter
+        const excludedByWindowFilter = !!trackedWindow && !!itemWindowId && itemWindowId !== trackedWindow
 
         if (!include || excludedByWindowFilter) {
             continue
@@ -180,5 +188,5 @@ export function filterInspectorListItems({
         items.push(item)
     }
 
-    return items
+    return items.every((i) => isContextItem(i)) ? [] : items
 }
