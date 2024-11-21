@@ -75,11 +75,19 @@ impl Fetcher for SourcemapProvider {
 
         let start = start.label("found_url", "true");
 
-        let sourcemap = fetch_source_map(&self.client, sourcemap_url).await?;
+        let sourcemap = fetch_source_map(&self.client, sourcemap_url.clone()).await?;
 
         // TOTAL GUESS at a reasonable capacity here, btw
         let mut cache_bytes = Vec::with_capacity(minified_source.len() + sourcemap.len());
-        let writer = SourceMapCacheWriter::new(&minified_source, &sourcemap).unwrap();
+
+        let writer = SourceMapCacheWriter::new(&minified_source, &sourcemap).map_err(|e| {
+            JsResolveErr::InvalidSourceMapCache(format!(
+                "Failed to construct sourcemap cache: {}, for sourcemap url {}",
+                e, sourcemap_url
+            ))
+        })?;
+
+        // UNWRAP: writing into a vector always succeeds
         writer.serialize(&mut cache_bytes).unwrap();
 
         start.label("found_data", "true").fin();
