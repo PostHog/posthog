@@ -10,6 +10,7 @@ import {
     IconPieChart,
     IconRewindPlay,
     IconStack,
+    IconTestTube,
     IconToggle,
     IconTrends,
 } from '@posthog/icons'
@@ -56,6 +57,11 @@ const PRODUCTS = [
         name: 'Feature flags',
         slug: 'feature-flags',
         icon: <IconToggle className="text-success h-5 w-5" />,
+    },
+    {
+        name: 'Experiments',
+        slug: 'experiments',
+        icon: <IconTestTube className="text-[#B62AD9] h-5 w-5" />,
     },
     {
         name: 'Surveys',
