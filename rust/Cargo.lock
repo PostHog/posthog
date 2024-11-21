@@ -1061,7 +1061,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "rand",
- "rdkafka",
+ "rdkafka 0.36.2",
  "redis",
  "reqwest 0.12.3",
  "serde",
@@ -1155,7 +1155,7 @@ dependencies = [
  "envconfig",
  "futures",
  "health",
- "rdkafka",
+ "rdkafka 0.36.2",
  "serde",
  "serde_json",
  "thiserror",
@@ -1366,7 +1366,7 @@ dependencies = [
  "http 1.1.0",
  "httpmock",
  "rand",
- "rdkafka",
+ "rdkafka 0.36.2",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
@@ -1392,7 +1392,7 @@ dependencies = [
  "envconfig",
  "eyre",
  "health",
- "rdkafka",
+ "rdkafka 0.36.2",
  "serde_json",
  "sqlx",
  "time",
@@ -1426,16 +1426,16 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-dns",
- "common-kafka",
  "common-metrics",
  "common-types",
  "envconfig",
+ "futures",
  "health",
  "httpmock",
  "metrics",
  "mockall",
  "moka",
- "rdkafka",
+ "rdkafka 0.35.0",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
@@ -2347,7 +2347,7 @@ dependencies = [
  "health",
  "hook-common",
  "metrics",
- "rdkafka",
+ "rdkafka 0.36.2",
  "serde",
  "serde_json",
  "sqlx",
@@ -2375,7 +2375,7 @@ dependencies = [
  "http 1.1.0",
  "httpmock",
  "metrics",
- "rdkafka",
+ "rdkafka 0.36.2",
  "reqwest 0.12.3",
  "serde_json",
  "sqlx",
@@ -3839,6 +3839,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d86a7c4638d42c44551f4791a20e687dbb4c3de1f33c43dd71e355cd429def1"
 dependencies = [
  "bitflags 2.4.2",
+]
+
+[[package]]
+name = "rdkafka"
+version = "0.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f16c17f411935214a5870e40aff9291f8b40a73e97bf8de29e5959c473d5ef33"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "libc",
+ "log",
+ "rdkafka-sys",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slab",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

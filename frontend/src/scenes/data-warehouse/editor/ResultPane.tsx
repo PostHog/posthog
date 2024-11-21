@@ -1,13 +1,18 @@
 import 'react-data-grid/lib/styles.css'
 
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema'
+
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { multitabEditorLogic } from './multitabEditorLogic'
 
 enum ResultsTab {
     Results = 'results',
@@ -29,6 +34,13 @@ export function ResultPane({
     logicKey,
     query,
 }: ResultPaneProps): JSX.Element {
+    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+
+    const { editingView, queryInput } = useValues(
+        multitabEditorLogic({
+            key: codeEditorKey,
+        })
+    )
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading } = useValues(
         dataNodeLogic({
@@ -40,6 +52,8 @@ export function ResultPane({
             doNotLoad: !query,
         })
     )
+    const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
+    const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     const columns = useMemo(() => {
         return (
@@ -78,11 +92,32 @@ export function ResultPane({
                     ]}
                 />
                 <div className="flex gap-1">
-                    <LemonButton type="secondary" onClick={() => onSave()} disabledReason={saveDisabledReason}>
-                        Save
-                    </LemonButton>
-                    <LemonButton type="primary" onClick={() => onQueryInputChange()}>
-                        Run
+                    {editingView ? (
+                        <>
+                            <LemonButton
+                                loading={dataWarehouseSavedQueriesLoading}
+                                type="secondary"
+                                onClick={() =>
+                                    updateDataWarehouseSavedQuery({
+                                        id: editingView.id,
+                                        query: {
+                                            kind: NodeKind.HogQLQuery,
+                                            query: queryInput,
+                                        },
+                                    })
+                                }
+                            >
+                                Update
+                            </LemonButton>
+                        </>
+                    ) : (
+                        <LemonButton type="secondary" onClick={() => onSave()} disabledReason={saveDisabledReason}>
+                            Save
+                        </LemonButton>
+                    )}
+                    <LemonButton loading={responseLoading} type="primary" onClick={() => onQueryInputChange()}>
+                        <span className="mr-1">Run</span>
+                        <KeyboardShortcut command enter />
                     </LemonButton>
                 </div>
             </div>
