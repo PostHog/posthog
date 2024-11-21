@@ -1,6 +1,5 @@
 import './PlayerInspectorList.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -125,22 +124,6 @@ export function PlayerInspectorList(): JSX.Element {
                             />
                         )}
                     </AutoSizer>
-                    {syncScrollPaused && (
-                        <div className="absolute bottom-2 left-1/2 translate-x-[-50%] bg-bg-3000">
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => {
-                                    if (listRef.current) {
-                                        listRef.current.scrollToRow(playbackIndicatorIndex)
-                                    }
-                                    // Tricky: Need to dely to make sure the row scrolled has finished
-                                    setTimeout(() => setSyncScrollPaused(false), 100)
-                                }}
-                            >
-                                Sync scrolling
-                            </LemonButton>
-                        </div>
-                    )}
                 </div>
             ) : inspectorDataState[InspectorListItemType.ALL] === 'loading' ? (
                 <div className="p-2">

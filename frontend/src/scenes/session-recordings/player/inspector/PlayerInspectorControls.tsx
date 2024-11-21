@@ -1,10 +1,9 @@
 import { BaseIcon, IconBug, IconCheck, IconDashboard, IconInfo, IconSearch, IconTerminal } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonMenu, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonMenu, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
@@ -21,22 +20,6 @@ import { InspectorSearchInfo } from './components/InspectorSearchInfo'
  * TODO how do we map existing "all" filters someone has set or just ignore
  * TODO show counts alongside selectors so folk know whether to click them
  */
-
-function HideProperties(): JSX.Element | null {
-    const { miniFiltersForType } = useValues(miniFiltersLogic)
-    const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
-    const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
-
-    return miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled) ? (
-        <LemonCheckbox
-            checked={hidePostHogPropertiesInTable}
-            label="Hide PostHog properties"
-            bordered
-            onChange={setHidePostHogPropertiesInTable}
-            size="xsmall"
-        />
-    ) : null
-}
 
 export const TabToIcon = {
     [InspectorListItemType.EVENTS]: IconUnverifiedEvent,
@@ -198,10 +181,6 @@ export function PlayerInspectorControls(): JSX.Element {
                         }
                     />
                 )}
-
-                <div className="flex flex-row justify-between w-full font-light text-small">
-                    <HideProperties />
-                </div>
 
                 {/*{showMatchingEventsFilter ? (*/}
                 {/*    <div className="flex items-center gap-1">*/}
