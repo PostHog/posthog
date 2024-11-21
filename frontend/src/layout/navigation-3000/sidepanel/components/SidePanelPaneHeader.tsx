@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
@@ -31,13 +31,9 @@ export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProp
                 </h3>
             ) : null}
             {children}
-            <LemonButton
-                size="small"
-                sideIcon={<IconX />}
-                onClick={() => closeSidePanel()}
-                tooltip={modalMode ? 'Close' : 'Close this side panel'}
-                tooltipPlacement={modalMode ? 'top' : 'bottom-end'}
-            />
+            <Tooltip placement={modalMode ? 'top' : 'bottom-end'} title={modalMode ? 'Close' : 'Close this side panel'}>
+                <LemonButton size="small" sideIcon={<IconX />} onClick={() => closeSidePanel()} />
+            </Tooltip>
         </header>
     )
 }
