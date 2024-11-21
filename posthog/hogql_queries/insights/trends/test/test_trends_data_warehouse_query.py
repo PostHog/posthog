@@ -17,8 +17,8 @@ from posthog.schema import (
     TrendsQuery,
     TrendsFilter,
 )
-from posthog.test.base import BaseTest
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+from posthog.test.base import BaseTest, _create_event
+from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseJoin
 
 from boto3 import resource
 from botocore.config import Config
@@ -248,6 +248,82 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                 )
             ],
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total", "breakdown_value"})
+        assert len(response.results) == 4
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0][2] == "a"
+
+        assert response.results[1][1] == [0, 1, 0, 0, 0, 0, 0]
+        assert response.results[1][2] == "b"
+
+        assert response.results[2][1] == [0, 0, 1, 0, 0, 0, 0]
+        assert response.results[2][2] == "c"
+
+        assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
+        assert response.results[3][2] == "d"
+
+    def test_trends_breakdown_with_event_property(self):
+        table_name = self.create_parquet_file()
+
+        _create_event(
+            distinct_id="1",
+            event="a",
+            properties={"$feature/prop_1": "a"},
+            timestamp="2023-01-01 00:00:00",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="1",
+            event="b",
+            properties={"$feature/prop_1": "b"},
+            timestamp="2023-01-01 00:00:00",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="1",
+            event="c",
+            properties={"$feature/prop_1": "c"},
+            timestamp="2023-01-01 00:00:00",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="1",
+            event="d",
+            properties={"$feature/prop_1": "d"},
+            timestamp="2023-01-01 00:00:00",
+            team=self.team,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=table_name,
+            source_table_key="prop_1",
+            joining_table_name="events",
+            joining_table_key="event",
+            field_name="events",
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=InsightDateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="events.properties.$feature/prop_1"
+            ),
         )
 
         with freeze_time("2023-01-07"):

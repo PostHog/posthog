@@ -10,7 +10,7 @@ from hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
 )
 from hogvm.python.utils import UncaughtHogVMException
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
 
 
