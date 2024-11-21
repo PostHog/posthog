@@ -7,24 +7,24 @@ import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab } from '~/types'
+import { PipelineStage, PipelineTab } from '~/types'
 
 import { DestinationsTable } from './destinations/Destinations'
 import { TransformationsTable } from './Transformations'
 
 export function Overview(): JSX.Element {
+    const menuItems = [
+        { label: 'Source', to: urls.pipelineNodeNew(PipelineStage.Source) },
+        { label: 'Transformation', to: urls.pipelineNodeNew(PipelineStage.Transformation) },
+        { label: 'Destination', to: urls.pipelineNodeNew(PipelineStage.Destination) },
+    ]
+
     return (
         <>
             <PageHeader
                 buttons={
                     <div className="shrink-0 flex items-center m-2">
-                        <LemonMenu
-                            items={[
-                                { label: 'Source', to: `/pipeline/new/sources` },
-                                { label: 'Transformation', to: `/pipeline/new/transformations` },
-                                { label: 'Destination', to: `/pipeline/new/destinations` },
-                            ]}
-                        >
+                        <LemonMenu items={menuItems}>
                             <LemonButton
                                 data-attr="new-pipeline-button"
                                 icon={<IconPlusSmall />}
