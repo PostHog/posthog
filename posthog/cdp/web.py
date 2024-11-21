@@ -24,7 +24,7 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
 
     compiler = JavaScriptCompiler()
 
-    # TODO: somehow reorder inputs to make dependencies work
+    # TODO: reorder inputs to make dependencies work
     for key, input in inputs.items():
         value = input.get("value")
         key_string = json.dumps(str(key) or "<empty>")
@@ -48,7 +48,7 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
     # Add all constant inputs directly
     response += "let inputs = {\n" + (",\n".join(inputs_object)) + "};\n"
 
-    # Transpiled Hog code needs "__getGlobal" to be in scope to access globals
+    # Transpiled Hog code needs a "__getGlobal" function in scope
     response += "let __getGlobal = (key) => key === 'inputs' ? inputs : globals[key];\n"
 
     if inputs_switch:
@@ -60,18 +60,39 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
     response += "return inputs;}\n"
 
     # See plugin-transpiler/src/presets.ts
-    # transpile(..., 'site') == `(function () {let exports={};${code};return exports;})`
+    # transpile(source, 'site') == `(function () {let exports={};${code};return exports;})`
     response += f"const response = {transpile(source, 'site')}();"
     response += "if ('onLoad' in response) { response.onLoad({ inputs: buildInputs({}, true), posthog: posthog }); }"
+
+    # TODO: also capture events fired between onLoad and onEvent
     response += "if ('onEvent' in response) {"
     response += "posthog.on('eventCaptured', (event) => { "
 
-    # TODO: get a better person object from posthog-js directly
-    response += "const person = { properties: posthog.get_property('$stored_person_properties') }; "
-    # TODO: add groups
-    response += "const inputs = buildInputs({ event, person });"
+    # Generate globals for inputs
+    response += "const distinct_id = posthog.get_property('distinct_id');"
 
-    response += "let __globals = { ...event, person, inputs };"
+    # /decide sets "_elementsChainAsString", which gives us either $elements_chain or $elements
+    # TODO: We currently only support $elements_chain.
+    # TODO: Add the following:
+    # - elements_chain: elementsChain,
+    # - elements_chain_href: '',
+    # - elements_chain_texts: [] as string[],
+    # - elements_chain_ids: [] as string[],
+    # - elements_chain_elements: [] as string[],
+    response += "const elements_chain = event.elements_chain ?? event.properties['$elements_chain'] ?? '';"
+    response += "const person = { properties: posthog.get_property('$stored_person_properties') }; "
+    response += "const groups = { }; const groupIds = posthog.get_property('$groups') || []; const groupProps = posthog.get_property('$stored_group_properties') || { };"
+    response += "for (const [type, properties] of Object.entries(groupProps)) { groups[type] = { id: groupIds[type], type, properties } }"
+    response += "const globals = { event: { ...event, elements_chain, distinct_id }, person, groups }; console.log('Globals for inputs', globals);"
+    response += "if (globals.event.$set_once) { globals.event.properties.$set_once = globals.event.$set_once; delete globals.event.$set_once; };"
+    response += (
+        "if (globals.event.$set) { globals.event.properties.$set = globals.event.$set; delete globals.event.$set; };"
+    )
+    response += "const inputs = buildInputs(globals);"
+
+    # Generate globals for HogQL filters
+    # TODO: "group_0" style fields... --> get "index" into posthog-js
+    response += "const filterGlobals = { ...groups, ...event, elements_chain, distinct_id, person, inputs, pdi: { distinct_id, person } };"
     response += "let __getGlobal = (key) => __globals[key];\n"
     response += f"const filterMatches = {filters_code};"
     response += "if (filterMatches) { response.onEvent({ event, person, inputs, posthog }); } "
