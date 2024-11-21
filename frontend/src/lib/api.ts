@@ -114,7 +114,7 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
-import { ErrorTrackingStackFrameContext } from './components/Errors/types'
+import { ErrorTrackingStackFrameContext, ErrorTrackingStackFrameRecord } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -725,6 +725,10 @@ class ApiRequest {
 
     public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
+    }
+
+    public errorTrackingSymbolSetFrames(id: ErrorTrackingSymbolSet['id']): ApiRequest {
+        return this.errorTrackingSymbolSet(id).addPathComponent('stack_frames')
     }
 
     public errorTrackingStackFrames(teamId?: TeamType['id']): ApiRequest {
@@ -1881,7 +1885,11 @@ const api = {
             return await new ApiRequest().errorTrackingSymbolSets().get()
         },
 
-        async fetchStackFrames(ids: string[]): Promise<Record<string, ErrorTrackingStackFrameContext>> {
+        async symbolSetStackFrames(id: ErrorTrackingSymbolSet['id']): Promise<ErrorTrackingStackFrameRecord[]> {
+            return await new ApiRequest().errorTrackingSymbolSetFrames(id).get()
+        },
+
+        async stackFrameContexts(ids: string[]): Promise<Record<string, ErrorTrackingStackFrameContext>> {
             return await new ApiRequest().errorTrackingStackFrameContexts(ids).get()
         },
     },

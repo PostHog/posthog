@@ -6,7 +6,6 @@ from rest_framework.exceptions import ValidationError
 
 from django.conf import settings
 
-from drf_spectacular.utils import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -53,7 +52,7 @@ class ObjectStorageUnavailable(Exception):
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingStackFrame
-        fields = ["raw_id", "context"]
+        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context"]
 
 
 class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
@@ -105,11 +104,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMod
         symbol_set.save()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=False)
-    def missing(self, request, **kwargs):
-        missing_symbol_sets = self.queryset.filter(team=self.team, storage_ptr=None)
-        serializer = self.get_serializer(missing_symbol_sets, many=True)
+    @action(methods=["GET"], detail=True)
+    def stack_frames(self, request, *args, **kwargs):
+        symbol_set = self.get_object()
+        frames = ErrorTrackingStackFrame.objects.all()
+        # frames = ErrorTrackingStackFrame.objects.filter(symbol_set=symbol_set)
+        serializer = ErrorTrackingStackFrameSerializer(frames, many=True)
         return Response(serializer.data)
 
 

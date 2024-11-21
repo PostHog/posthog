@@ -1,7 +1,10 @@
 import { IconTrash, IconUpload } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
+import api from 'lib/api'
+import { ErrorTrackingStackFrameRecord, ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
+import { JSONViewer } from 'lib/components/JSONViewer'
+import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
@@ -84,6 +87,51 @@ const SymbolSetTable = ({
             columns={columns}
             loading={symbolSetsLoading}
             dataSource={dataSource}
+            expandable={{
+                noIndent: true,
+                expandedRowRender: function RenderPropertiesTable({ id }) {
+                    return <SymbolSetStackFrames id={id} />
+                },
+            }}
+        />
+    )
+}
+
+const SymbolSetStackFrames = ({ id }: { id: ErrorTrackingSymbolSet['id'] }): JSX.Element => {
+    const [activeTab, setActiveTab] = useState<'contents' | 'context'>('contents')
+    const [stackFrames, setStackFrames] = useState<ErrorTrackingStackFrameRecord[]>([])
+
+    useEffect(() => {
+        const func = async (): Promise<void> => {
+            const frames = await api.errorTracking.symbolSetStackFrames(id)
+            setStackFrames(frames)
+        }
+        void func()
+    }, [])
+
+    return (
+        <LemonCollapse
+            size="small"
+            panels={stackFrames.map(({ id, raw_id, contents, context }) => ({
+                key: id,
+                header: raw_id,
+                className: 'py-0',
+                content: (
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={setActiveTab}
+                        tabs={[
+                            { key: 'contents', label: 'Contents', content: <JSONViewer src={contents} name={null} /> },
+                            context && {
+                                key: 'context',
+                                label: 'Context',
+                                content: <JSONViewer src={context} name={null} />,
+                            },
+                        ]}
+                    />
+                ),
+            }))}
+            embedded
         />
     )
 }
