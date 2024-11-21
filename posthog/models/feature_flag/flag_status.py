@@ -64,9 +64,7 @@ class FeatureFlagStatusChecker:
         # it is fully enabled.
         if flag.filters.get("super_groups", None):
             for super_group in flag.filters.get("super_groups"):
-                rollout_percentage = super_group.get("rollout_percentage")
-                properties = super_group.get("properties", [])
-                if rollout_percentage == 100 and len(properties) == 0:
+                if self.is_group_fully_rolled_out(super_group):
                     logger.debug(f"Flag {flag.id} has super group is rolled out to 100%")
                     return True, "Super group is rolled out to 100%"
 
@@ -74,9 +72,7 @@ class FeatureFlagStatusChecker:
         # it is fully enabled.
         if flag.filters.get("holdout_groups", None):
             for holdout_group in flag.filters.get("holdout_groups"):
-                rollout_percentage = holdout_group.get("rollout_percentage")
-                properties = holdout_group.get("properties", [])
-                if rollout_percentage == 100 and len(properties) == 0:
+                if self.is_group_fully_rolled_out(holdout_group):
                     logger.debug(f"Flag {flag.id} has holdout group is rolled out to 100%")
                     return True, "Holdout group is rolled out to 100%"
 
@@ -103,17 +99,24 @@ class FeatureFlagStatusChecker:
         for variant in variants:
             if variant.get("rollout_percentage") == 100:
                 some_variant_fully_enabled = True
+                break
 
         for release_condition in flag.filters.get("groups", []):
-            rollout_percentage = release_condition.get("rollout_percentage")
-            properties = release_condition.get("properties", [])
-            if rollout_percentage == 100 and len(properties) == 0:
+            if self.is_group_fully_rolled_out(release_condition):
                 some_release_condition_fully_enabled = True
-                some_fully_enabled_release_condition_has_override = release_condition.get("variant", None) is not None
+                some_fully_enabled_release_condition_has_override = (
+                    some_fully_enabled_release_condition_has_override
+                    or release_condition.get("variant", None) is not None
+                )
 
         return some_release_condition_fully_enabled and (
             some_fully_enabled_release_condition_has_override or some_variant_fully_enabled
         )
+
+    def is_group_fully_rolled_out(self, group: dict) -> bool:
+        rollout_percentage = group.get("rollout_percentage")
+        properties = group.get("properties", [])
+        return rollout_percentage == 100 and len(properties) == 0
 
     def is_boolean_flag_fully_enabled(self, flag: FeatureFlag) -> bool:
         # An active flag with no release conditions is still considered fully enabled.
