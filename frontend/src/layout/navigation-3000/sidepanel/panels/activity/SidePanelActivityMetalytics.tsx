@@ -23,22 +23,24 @@ export function SidePanelActivityMetalytics(): JSX.Element {
     }
     return (
         <div className="space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-            <div className="rounded bg-bg-light p-4">
-                <div className="text-muted text-sm">Total Views</div>
-                <div className="text-2xl font-semibold">{viewCount ?? 0}</div>
-            </div>
+            <div className="flex gap-4">
+                <div className="flex-1 rounded bg-bg-light p-4">
+                    <div className="text-muted text-sm">Total Views</div>
+                    <div className="text-2xl font-semibold">{viewCount ?? 0}</div>
+                </div>
 
-            <div className="mb-4">
-                <div className="text-muted text-sm mb-2">Recent Viewers (30 days)</div>
-                <ProfileBubbles
-                    people={recentUserMembers.map((member) => ({
-                        email: member.user.email,
-                        name: member.user.first_name,
-                        title: member.user.email
-                    }))}
-                    tooltip="Recent viewers"
-                    limit={3}
-                />
+                <div className="flex-1 rounded bg-bg-light p-4">
+                    <div className="text-muted text-sm mb-2">Recent Viewers (30 days)</div>
+                    <ProfileBubbles
+                        people={recentUserMembers.map((member) => ({
+                            email: member.user.email,
+                            name: member.user.first_name,
+                            title: member.user.email
+                        }))}
+                        tooltip="Recent viewers"
+                        limit={3}
+                    />
+                </div>
             </div>
 
             {/* This looks odd but is a weirdness of the Query component it needs to be bound in an insight logic */}
