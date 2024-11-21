@@ -67,6 +67,7 @@ from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
+from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
@@ -143,6 +144,7 @@ __all__ = [
     "PropertyDefinition",
     "ProxyRecord",
     "RetentionFilter",
+    "RemoteConfig",
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",
