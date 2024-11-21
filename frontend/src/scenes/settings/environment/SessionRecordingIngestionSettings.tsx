@@ -252,7 +252,7 @@ function UrlConfigSection({
             </div>
             <p>{description}</p>
 
-            <p>`${title} is only available for JavaScript Web.`</p>
+            <p>{title} is only available for JavaScript Web.</p>
 
             {props.isAddFormVisible && (
                 <UrlConfigForm type={type} onCancel={props.onCancel} isSubmitting={props.isSubmitting} />
