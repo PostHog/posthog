@@ -161,8 +161,8 @@ mod test {
     fn get_sourcemapcache_bytes() -> Vec<u8> {
         let mut result = Vec::new();
         let writer = SourceMapCacheWriter::new(
-            &String::from_utf8(MINIFIED.to_vec()).unwrap(),
-            &String::from_utf8(MAP.to_vec()).unwrap(),
+            core::str::from_utf8(MINIFIED).unwrap(),
+            core::str::from_utf8(MAP).unwrap(),
         )
         .unwrap();
 
