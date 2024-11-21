@@ -43,7 +43,9 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                     return []
                 }
                 // Filter members whose IDs match the recentUsers array
-                return members.filter((member) => recentUsers.includes(member.user.id))
+                const filteredMembers = members.filter((member) => recentUsers.includes(member.user.id))
+                console.log('Recent User Members:', filteredMembers)
+                return filteredMembers
             },
         ],
 
