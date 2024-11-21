@@ -16,8 +16,6 @@ import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
-    expanded: boolean
-    setExpanded: (expanded: boolean) => void
 }
 
 function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.Element {
@@ -52,10 +50,7 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
     )
 }
 
-export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
-    const insightUrl = insightUrlForEvent(item.data)
-    const { filterProperties } = useValues(eventPropertyFilteringLogic)
-
+export function ItemEvent({ item }: ItemEventProps): JSX.Element {
     const subValue =
         item.data.event === '$pageview' ? (
             item.data.properties.$pathname || item.data.properties.$current_url
@@ -65,69 +60,69 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             <SummarizeWebVitals properties={item.data.properties} />
         ) : undefined
 
+    return (
+        <div data-attr="item-event" className="font-light w-full">
+            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
+                <div className="truncate">
+                    <PropertyKeyInfo
+                        className="font-medium"
+                        disablePopover
+                        ellipsis={true}
+                        value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
+                        type={TaxonomicFilterGroupType.Events}
+                    />
+                    {item.data.event === '$autocapture' ? <span className="text-muted-alt">(Autocapture)</span> : null}
+                </div>
+                {subValue ? (
+                    <div className="text-muted-alt truncate" title={isString(subValue) ? subValue : undefined}>
+                        {subValue}
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    const insightUrl = insightUrlForEvent(item.data)
+    const { filterProperties } = useValues(eventPropertyFilteringLogic)
+
     const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
 
     return (
-        <div data-attr="item-event">
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth className="font-normal">
-                <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer">
-                    <div className="truncate">
-                        <PropertyKeyInfo
-                            className="font-medium"
-                            disablePopover
-                            ellipsis={true}
-                            value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
-                            type={TaxonomicFilterGroupType.Events}
-                        />
-                        {item.data.event === '$autocapture' ? (
-                            <span className="text-muted-alt">(Autocapture)</span>
-                        ) : null}
-                    </div>
-                    {subValue ? (
-                        <div className="text-muted-alt truncate" title={isString(subValue) ? subValue : undefined}>
-                            {subValue}
+        <div data-attr="item-event" className="font-light w-full">
+            <div className="px-2 py-1 text-xs border-t">
+                {insightUrl ? (
+                    <>
+                        <div className="flex justify-end">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                sideIcon={<IconOpenInNew />}
+                                data-attr="recordings-event-to-insights"
+                                to={insightUrl}
+                                targetBlank
+                            >
+                                Try out in Insights
+                            </LemonButton>
                         </div>
-                    ) : null}
-                </div>
-            </LemonButton>
+                        <LemonDivider dashed />
+                    </>
+                ) : null}
 
-            {expanded && (
-                <div className="p-2 text-xs border-t">
-                    {insightUrl ? (
-                        <>
-                            <div className="flex justify-end">
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    sideIcon={<IconOpenInNew />}
-                                    data-attr="recordings-event-to-insights"
-                                    to={insightUrl}
-                                    targetBlank
-                                >
-                                    Try out in Insights
-                                </LemonButton>
-                            </div>
-                            <LemonDivider dashed />
-                        </>
-                    ) : null}
-
-                    {item.data.fullyLoaded ? (
-                        item.data.event === '$exception' ? (
-                            <ErrorDisplay eventProperties={item.data.properties} />
-                        ) : (
-                            <SimpleKeyValueList
-                                item={filterProperties(item.data.properties)}
-                                promotedKeys={promotedKeys}
-                            />
-                        )
+                {item.data.fullyLoaded ? (
+                    item.data.event === '$exception' ? (
+                        <ErrorDisplay eventProperties={item.data.properties} />
                     ) : (
-                        <div className="text-muted-alt flex gap-1 items-center">
-                            <Spinner textColored />
-                            Loading...
-                        </div>
-                    )}
-                </div>
-            )}
+                        <SimpleKeyValueList item={filterProperties(item.data.properties)} promotedKeys={promotedKeys} />
+                    )
+                ) : (
+                    <div className="text-muted-alt flex gap-1 items-center">
+                        <Spinner textColored />
+                        Loading...
+                    </div>
+                )}
+            </div>
         </div>
     )
 }

@@ -23,7 +23,7 @@ from ee.hogai.schema_generator.prompts import (
     QUESTION_PROMPT,
 )
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.utils import AssistantState, AssistantNode, filter_visualization_conversation
+from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     FailureMessage,
@@ -101,6 +101,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     plan=generated_plan,
                     reasoning_steps=message.reasoning_steps,
                     answer=message.answer,
+                    done=True,
                 )
             ],
             "intermediate_steps": None,

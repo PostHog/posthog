@@ -169,6 +169,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_EVENTS: 'surveys-events', // owner: #team-feature-success
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-feature-success
     SURVEYS_RECURRING: 'surveys-recurring', // owner: #team-feature-success
+    SURVEYS_ADAPTIVE_COLLECTION: 'surveys-recurring', // owner: #team-feature-success
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
@@ -221,13 +222,15 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
-    EXPERIMENTS_HOLDOUTS: 'experiments-holdouts', // owner: @jurajmajerik #team-experiments
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
     SESSION_REPLAY_URL_BLOCKLIST: 'session-replay-url-blocklist', // owner: @richard-better #team-replay
     BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
     DEAD_CLICKS_AUTOCAPTURE: 'dead-clicks-autocapture', // owner: @pauldambra #team-replay
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: @pauldambra
+    CUSTOM_CHANNEL_TYPE_RULES: 'custom-channel-type-rules', // owner: @robbie-c #team-web-analytics
+    SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
+    EXPERIMENTS_MIGRATION_DISABLE_UI: 'experiments-migration-disable-ui', // owner: @jurajmajerik #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

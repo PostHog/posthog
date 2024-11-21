@@ -70,32 +70,31 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         closeEnrichAnalyticsNotice: true,
     }),
     loaders(({ values }) => ({
-        featureFlags: {
-            __default: { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as FeatureFlagsResult,
-            loadFeatureFlags: async (): Promise<FeatureFlagsResult> => {
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
-                )
+        featureFlags: [
+            { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as FeatureFlagsResult,
+            {
+                loadFeatureFlags: async () => {
+                    const response = await api.get(
+                        `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
+                    )
 
-                return {
-                    ...response,
-                    offset: values.paramsFromFilters.offset,
-                }
+                    return {
+                        ...response,
+                        offset: values.paramsFromFilters.offset,
+                    }
+                },
+                updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
+                    const response = await api.update(
+                        `api/projects/${values.currentTeamId}/feature_flags/${id}`,
+                        payload
+                    )
+                    const updatedFlags = [...values.featureFlags.results].map((flag) =>
+                        flag.id === response.id ? response : flag
+                    )
+                    return { ...values.featureFlags, results: updatedFlags }
+                },
             },
-            updateFeatureFlag: async ({
-                id,
-                payload,
-            }: {
-                id: number
-                payload: Partial<FeatureFlagType>
-            }): Promise<FeatureFlagsResult> => {
-                const response = await api.update(`api/projects/${values.currentTeamId}/feature_flags/${id}`, payload)
-                const updatedFlags = [...values.featureFlags.results].map((flag) =>
-                    flag.id === response.id ? response : flag
-                )
-                return { ...values.featureFlags, results: updatedFlags }
-            },
-        },
+        ],
     })),
     reducers({
         featureFlags: {
@@ -181,6 +180,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             await breakpoint(300)
             actions.loadFeatureFlags()
         },
+        setActiveTab: () => {
+            // Don't carry over pagination from previous tab
+            actions.setFeatureFlagsFilters({ page: 1 }, true)
+        },
     })),
     actionToUrl(({ values }) => {
         const changeUrl = ():
@@ -232,13 +235,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 order,
             }
 
-            if (active !== undefined) {
-                pageFiltersFromUrl.active = String(active)
-            }
-
-            if (page !== undefined) {
-                pageFiltersFromUrl.page = parseInt(page)
-            }
+            pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
+            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
 
             actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },

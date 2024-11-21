@@ -20,7 +20,7 @@ pub enum UnhandledError {
     KafkaError(#[from] KafkaError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
-    #[error(transparent)]
+    #[error("S3 error: {0}")]
     S3Error(#[from] Box<aws_sdk_s3::Error>),
     #[error(transparent)]
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
