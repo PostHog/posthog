@@ -399,9 +399,14 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     distinct_id_field="customer_email",
                     timestamp_field="created",
-                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
                 )
             ],
+            properties=clean_entity_properties(
+                [
+                    {"key": "prop_1", "value": "a", "type": "data_warehouse"},
+                    {"key": "some_other_prop", "value": "ignored", "type": "event"},  # This should be ignored
+                ]
+            ),
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
