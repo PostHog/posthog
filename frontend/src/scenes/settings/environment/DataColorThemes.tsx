@@ -1,10 +1,11 @@
-import { LemonButton, LemonInput, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
+import { DataColorThemeModal } from './DataColorThemeModal'
 import { dataColorThemesConfigLogic } from './dataColorThemesConfigLogic'
 
 export function DataColorThemes(): JSX.Element {
-    const { themes, selectedTheme, themesLoading } = useValues(dataColorThemesConfigLogic)
+    const { themes, themesLoading } = useValues(dataColorThemesConfigLogic)
     const { selectTheme } = useActions(dataColorThemesConfigLogic)
 
     return (
@@ -14,7 +15,10 @@ export function DataColorThemes(): JSX.Element {
                 dataSource={themes || []}
                 columns={[{ title: 'Name', dataIndex: 'name', key: 'name' }]}
             />
-            <LemonButton type="secondary">Add theme</LemonButton>
+            <LemonButton type="secondary" onClick={() => selectTheme('new')}>
+                Add theme
+            </LemonButton>
+            <DataColorThemeModal />
         </div>
     )
 }

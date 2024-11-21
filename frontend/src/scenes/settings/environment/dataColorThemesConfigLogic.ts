@@ -13,7 +13,7 @@ export const dataColorThemesConfigLogic = kea<dataColorThemesConfigLogicType>([
     }),
     reducers({
         selectedThemeId: [
-            null as number | null,
+            null as 'new' | number | null,
             {
                 selectTheme: (_, { id }) => id,
             },
@@ -25,6 +25,13 @@ export const dataColorThemesConfigLogic = kea<dataColorThemesConfigLogicType>([
             (themes, selectedThemeId) => {
                 if (themes == null || selectedThemeId == null) {
                     return null
+                }
+
+                if (selectedThemeId === 'new') {
+                    // TODO: better way to detect the posthog default theme - likely is_global and trait
+                    const defaultTheme = themes.find((theme) => theme.name.includes('Default'))
+                    const { id, ...newTheme } = defaultTheme
+                    return newTheme
                 }
 
                 return themes.find((theme) => theme.id === selectedThemeId)
