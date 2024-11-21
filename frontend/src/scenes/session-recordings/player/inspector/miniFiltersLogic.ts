@@ -19,7 +19,7 @@ const MiniFilters: SharedListMiniFilter[] = [
         type: InspectorListItemType.EVENTS,
         key: 'events-posthog',
         name: 'PostHog',
-        tooltip: 'Standard PostHog events like Pageviews, Autocapture etc.',
+        tooltip: 'Standard PostHog events except Pageviews, Autocapture, and Exceptions.',
     },
     {
         type: InspectorListItemType.EVENTS,
