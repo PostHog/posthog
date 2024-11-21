@@ -14,8 +14,7 @@ export const scene: SceneExport = {
     component: CustomCssScene,
 }
 
-const TRON_THEME = `
-:root {
+const TRON_THEME = `:root {
     --radius: 0px;
 }
 
@@ -44,8 +43,33 @@ body[theme=dark] {
 
 .TopBar3000__content {
 	border-bottom: solid 1px #00FF01;
+}`
+
+const BARBIE_THEME = `:root {
+    --radius: 10px;
 }
-`
+
+body[theme=light] {
+    --border: rgba(255, 105, 180, 0.5); /* Light pink */
+    --link: #FF69B4; /* Hot pink */
+    --border-bold: #FF1493; /* Deep pink */
+    --bg-3000: #FFC0CB; /* Pastel pink */
+    --glass-bg-3000: rgba(255, 192, 203, 0.8); /* Semi-transparent pastel pink */
+    --bg-light: #FFF0F5; /* Lavender blush */
+    --bg-table: #F8BBD0; /* Light pink table background */
+    --muted-3000: #D8BFD8; /* Thistle */
+    --primary-3000: #FF69B4; /* Hot pink */
+    --primary-3000-hover: #FF1493; /* Deep pink */
+    --primary-alt-highlight: rgba(255, 105, 180, 0.1); /* Light pink tint */
+    --text-3000: #FF69B4; /* Hot pink */
+    --accent-3000: #F5F5DC; /* Beige for contrast */
+    --glass-border-3000: rgba(255, 20, 147, 0.3); /* Transparent deep pink */
+
+    --primary-3000-frame-bg-light: #FFB6C1; /* Light pink */
+    --primary-3000-button-bg: #FF69B4; /* Hot pink */
+    --primary-3000-button-border: #FF1493; /* Deep pink */
+    --text-secondary-3000: #FFB6C1; /* Light pink */
+}`
 
 export function CustomCssScene(): JSX.Element {
     const { persistedCustomCss, previewingCustomCss } = useValues(themeLogic)
@@ -81,7 +105,8 @@ export function CustomCssScene(): JSX.Element {
             />
             <p>
                 You can add custom CSS to change the style of your PostHog instance. If you need some inspiration try
-                our templates: <Link onClick={() => setPreviewingCustomCss(TRON_THEME)}>Tron</Link>
+                our templates: <Link onClick={() => setPreviewingCustomCss(TRON_THEME)}>Tron</Link>,{' '}
+                <Link onClick={() => setPreviewingCustomCss(BARBIE_THEME)}>Barbie</Link>
             </p>
             <CodeEditor
                 className="border"
