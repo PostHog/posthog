@@ -1,5 +1,4 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
-import { forms } from 'kea-forms'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -12,16 +11,35 @@ export const dataColorThemesConfigLogic = kea<dataColorThemesConfigLogicType>([
             loadThemes: async () => await api.dataColorThemes.list(),
         },
     }),
-    reducers({}),
-    actions({
-        addColor: true,
+    reducers({
+        selectedThemeId: [
+            null as number | null,
+            {
+                selectTheme: (_, { id }) => id,
+            },
+        ],
     }),
-    forms(() => ({
-        theme: {
-            defaults: {},
-            submit: async () => {},
-        },
-    })),
+    selectors({
+        selectedTheme: [
+            (s) => [s.themes, s.selectedThemeId],
+            (themes, selectedThemeId) => {
+                if (themes == null || selectedThemeId == null) {
+                    return null
+                }
+
+                return themes.find((theme) => theme.id === selectedThemeId)
+            },
+        ],
+    }),
+    actions({
+        selectTheme: (id: number | null) => ({ id }),
+    }),
+    // forms(() => ({
+    //     theme: {
+    //         defaults: {},
+    //         submit: async () => {},
+    //     },
+    // })),
     afterMount(({ actions }) => {
         actions.loadThemes()
     }),

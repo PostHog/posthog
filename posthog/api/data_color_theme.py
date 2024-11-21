@@ -9,7 +9,7 @@ from posthog.models import DataColorTheme
 class DataColorThemeSerializer(serializers.ModelSerializer):
     class Meta:
         model = DataColorTheme
-        fields = ["name", "colors"]
+        fields = ["id", "name", "colors"]
 
 
 class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
