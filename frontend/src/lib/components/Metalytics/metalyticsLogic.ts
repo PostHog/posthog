@@ -2,13 +2,13 @@ import { connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { activityForSceneLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
 import type { metalyticsLogicType } from './metalyticsLogicType'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
 export const metalyticsLogic = kea<metalyticsLogicType>([
     path(['lib', 'components', 'metalytics', 'metalyticsLogic']),
@@ -16,45 +16,6 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         values: [activityForSceneLogic, ['sceneActivityFilters'], membersLogic, ['members']],
     }),
 
-    selectors({
-        instanceId: [
-            (s) => [s.sceneActivityFilters],
-            (sceneActivityFilters) =>
-                sceneActivityFilters
-                    ? sceneActivityFilters.item_id
-                        ? `${sceneActivityFilters.scope}:${sceneActivityFilters.item_id}`
-                        : sceneActivityFilters.scope
-                    : null,
-        ],
-
-        viewingMember: [
-            (s) => [s.instanceId, s.members],
-            (instanceId, members) => {
-                console.log('members', members)
-                console.log('instanceId', instanceId)
-                return {}
-            },
-        ],
-
-        recentUserMembers: [
-            (s) => [s.recentUsers, s.members],
-            (recentUsers, members) => {
-                if (!members || !recentUsers) {
-                    return []
-                }
-                // Filter members whose IDs match the recentUsers array
-                const filteredMembers = members.filter((member) => recentUsers.includes(member.user.id))
-                console.log('Recent User Members:', filteredMembers)
-                return filteredMembers
-            },
-        ],
-
-        recentUsersCount: [
-            (s) => [s.recentUserMembers],
-            (recentUserMembers) => recentUserMembers.length,
-        ]
-    }),
-    
     loaders(({ values }) => ({
         viewCount: [
             null as number | null,
@@ -75,24 +36,48 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
             },
         ],
         recentUsers: [
-            [] as number[],
+            [] as string[],
             {
                 loadUsersLast30days: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT app_source_id
+                        query: hogql`SELECT DISTINCT app_source_id
                             FROM app_metrics
                             WHERE app_source = 'metalytics'
                             AND instance_id = ${values.instanceId}
                             AND timestamp >= NOW() - INTERVAL 30 DAY`,
                     }
-        
+
                     const response = await api.query(query)
-                    return response.results as number[]
+                    return response.results.map((result) => result[0]) as string[]
                 },
             },
         ],
     })),
+
+    selectors({
+        instanceId: [
+            (s) => [s.sceneActivityFilters],
+            (sceneActivityFilters) =>
+                sceneActivityFilters
+                    ? sceneActivityFilters.item_id
+                        ? `${sceneActivityFilters.scope}:${sceneActivityFilters.item_id}`
+                        : sceneActivityFilters.scope
+                    : null,
+        ],
+
+        recentUserMembers: [
+            (s) => [s.recentUsers, s.members],
+            (recentUsers, members) => {
+                if (!members || !recentUsers) {
+                    return []
+                }
+                // Filter members whose IDs match the recentUsers array
+                const filteredMembers = members.filter((member) => recentUsers.includes(String(member.user.id)))
+                return filteredMembers
+            },
+        ],
+    }),
 
     subscriptions(({ actions }) => ({
         instanceId: async (instanceId) => {
