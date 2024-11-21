@@ -15,8 +15,6 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.api.dashboards.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.monitoring import Feature, monitor
@@ -89,7 +87,6 @@ class DashboardBasicSerializer(
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
     UserPermissionsSerializerMixin,
-    UserAccessControlSerializerMixin,
 ):
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
@@ -112,7 +109,6 @@ class DashboardBasicSerializer(
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
-            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -161,9 +157,8 @@ class DashboardSerializer(DashboardBasicSerializer):
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
-            "user_access_level",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
 
     def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):
@@ -455,7 +450,6 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
-    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,

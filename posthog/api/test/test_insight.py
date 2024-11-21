@@ -506,11 +506,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # adding more insights doesn't change the query count
         self.assertEqual(
             [
-                FuzzyInt(12, 13),
-                FuzzyInt(12, 13),
-                FuzzyInt(12, 13),
-                FuzzyInt(12, 13),
-                FuzzyInt(12, 13),
+                FuzzyInt(10, 11),
+                FuzzyInt(10, 11),
+                FuzzyInt(10, 11),
+                FuzzyInt(10, 11),
+                FuzzyInt(10, 11),
             ],
             query_counts,
             f"received query counts\n\n{query_counts}",

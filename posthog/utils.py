@@ -368,7 +368,6 @@ def render_template(
         from posthog.api.project import ProjectSerializer
         from posthog.api.user import UserSerializer
         from posthog.user_permissions import UserPermissions
-        from posthog.rbac.user_access_control import UserAccessControl
         from posthog.views import preflight_check
 
         posthog_app_context = {
@@ -391,14 +390,9 @@ def render_template(
         elif request.user.pk:
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
-            user_access_control = UserAccessControl(user=user, team=user.team)
             user_serialized = UserSerializer(
                 request.user,
-                context={
-                    "request": request,
-                    "user_permissions": user_permissions,
-                    "user_access_control": user_access_control,
-                },
+                context={"request": request, "user_permissions": user_permissions},
                 many=False,
             )
             posthog_app_context["current_user"] = user_serialized.data
@@ -406,11 +400,7 @@ def render_template(
             if user.team:
                 team_serialized = TeamSerializer(
                     user.team,
-                    context={
-                        "request": request,
-                        "user_permissions": user_permissions,
-                        "user_access_control": user_access_control,
-                    },
+                    context={"request": request, "user_permissions": user_permissions},
                     many=False,
                 )
                 posthog_app_context["current_team"] = team_serialized.data
