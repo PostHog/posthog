@@ -35,7 +35,7 @@ impl OwnedSourceMapCache {
         SourceMapCache::parse(&data).map_err(|e| {
             JsResolveErr::InvalidSourceMapCache(format!(
                 "Got error {} for url {}",
-                e.to_string(),
+                e,
                 r.to_string()
             ))
         })?;
@@ -117,7 +117,7 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url
     let header_url = headers
         .get("SourceMap")
         .or_else(|| headers.get("X-SourceMap"))
-        .map(|h| h.clone());
+        .cloned();
 
     // We always need the body
     let body = res.text().await.map_err(JsResolveErr::from)?;

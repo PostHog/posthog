@@ -160,11 +160,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
-            source: token
-                .file()
-                .map(|f| f.name())
-                .flatten()
-                .map(|s| s.to_string()),
+            source: token.file().and_then(|f| f.name()).map(|s| s.to_string()),
             in_app: raw_frame.in_app,
             resolved_name,
             lang: "javascript".to_string(),
