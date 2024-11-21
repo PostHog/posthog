@@ -229,7 +229,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown(self):
