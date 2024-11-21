@@ -1,9 +1,9 @@
 import { kea, path, selectors } from 'kea'
-import { DataColorTheme, getColorVar } from 'lib/colors'
+import { _DataColorTheme, getColorVar } from 'lib/colors'
 
 import type { dataThemeLogicType } from './dataThemeLogicType'
 
-const POSTHOG_THEME: DataColorTheme = {
+const POSTHOG_THEME: _DataColorTheme = {
     'preset-1': getColorVar('data-color-1'),
     'preset-2': getColorVar('data-color-2'),
     'preset-3': getColorVar('data-color-3'),
@@ -21,7 +21,7 @@ const POSTHOG_THEME: DataColorTheme = {
     'preset-15': getColorVar('data-color-15'),
 }
 
-const D3_SCHEME_CATEGORY_10: DataColorTheme = {
+const D3_SCHEME_CATEGORY_10: _DataColorTheme = {
     'preset-1': '#1f77b4',
     'preset-2': '#ff7f0e',
     'preset-3': '#2ca02c',
@@ -47,7 +47,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         getTheme: [
             (s) => [s.themes],
             (themes) =>
-                (theme: string): DataColorTheme =>
+                (theme: string): _DataColorTheme =>
                     themes[theme],
         ],
     }),

@@ -1,21 +1,32 @@
 import { LemonButton, LemonInput, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+
+import { dataColorThemesConfigLogic } from './dataColorThemesConfigLogic'
 
 export function DataColorThemes(): JSX.Element {
     const color = '#ff0000'
     const isDarkModeOn = false
+
+    const { themes } = useValues(dataColorThemesConfigLogic)
     return (
         <div className="space-y-4">
-            <LemonSelect
-                options={[
-                    {
-                        label: 'Default',
-                        value: 'default',
-                    },
-                ]}
-                data-attr="data-color-theme-select"
-            />
+            <div className="flex gap-2">
+                <LemonSelect
+                    size="small"
+                    options={[
+                        {
+                            label: 'Default',
+                            value: 'default',
+                        },
+                    ]}
+                    data-attr="data-color-theme-select"
+                />
+                <LemonButton size="small" type="secondary">
+                    Add theme
+                </LemonButton>
+            </div>
             <LemonTable
                 dataSource={[{ name: 'preset-1', lightModeColor: '#ff0000', darkModeColor: '#ff0000' }]}
                 columns={[
@@ -71,7 +82,7 @@ export function DataColorThemes(): JSX.Element {
                     </div>
                 }
             />
-            <LemonButton type="primary">Add theme</LemonButton>
+            <LemonButton type="primary">Save</LemonButton>
         </div>
     )
 }

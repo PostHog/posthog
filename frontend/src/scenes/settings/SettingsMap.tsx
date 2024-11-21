@@ -43,7 +43,7 @@ import {
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { WebhookIntegration } from './environment/WebhookIntegration'
-import { DataColorThemes } from './organization/DataColorThemes'
+import { DataColorThemes } from './environment/DataColorThemes'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'

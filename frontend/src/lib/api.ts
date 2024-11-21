@@ -111,6 +111,7 @@ import {
     UserBasicType,
     UserType,
 } from '~/types'
+import { DataColorThemeModel } from './colors'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
@@ -912,6 +913,15 @@ class ApiRequest {
 
     public async delete(): Promise<any> {
         return await api.delete(this.assembleFullUrl())
+    }
+
+    // Data color themes
+    public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+    }
+
+    public dataColorTheme(id: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebooks(teamId).addPathComponent(id)
     }
 }
 
@@ -2453,6 +2463,12 @@ const api = {
         },
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
+        },
+    },
+
+    dataColorThemes: {
+        async list(): Promise<DataColorThemeModel[]> {
+            return await new ApiRequest().dataColorThemes().get()
         },
     },
 

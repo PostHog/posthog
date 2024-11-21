@@ -1,5 +1,5 @@
 import api from 'lib/api'
-import { DataColorTheme, DataColorToken } from 'lib/colors'
+import { _DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
@@ -527,7 +527,7 @@ export function getTrendResultCustomizationColorToken(
         | Record<number, ResultCustomizationByPosition>
         | null
         | undefined,
-    theme: DataColorTheme,
+    theme: _DataColorTheme,
     dataset: IndexedTrendResult
 ): DataColorToken {
     const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
@@ -545,7 +545,7 @@ export function getTrendResultCustomizationColorToken(
 
 export function getFunnelResultCustomizationColorToken(
     resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined,
-    theme: DataColorTheme,
+    theme: _DataColorTheme,
     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
     disableFunnelBreakdownBaseline?: boolean
 ): DataColorToken {
