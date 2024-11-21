@@ -52,10 +52,10 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
+    Series as InsightActorsQuerySeries,
     TrendsFilter,
     TrendsQuery,
 )
-from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
@@ -3844,7 +3844,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             Breakdown(type="group", group_type_index=0, property="industry"),
         ]
 
-        for breakdown_filter in itertools.permutations(breakdowns, 2):
+        for breakdown_filter in itertools.combinations(breakdowns, 3):
             response = self._run_trends_query(
                 "2020-01-09",
                 "2020-01-20",
