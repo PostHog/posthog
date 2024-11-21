@@ -14,7 +14,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                 loadFrameContexts: async ({ frames }: { frames: ErrorTrackingStackFrame[] }) => {
                     const loadedFrameIds = Object.keys(values.frameContexts)
                     const ids = frames
-                        .filter(({ raw_id }) => loadedFrameIds.includes(raw_id))
+                        .filter(({ raw_id }) => !loadedFrameIds.includes(raw_id))
                         .map(({ raw_id }) => raw_id)
                     const response = await api.errorTracking.fetchStackFrames(ids)
                     return { ...values.frameContexts, ...response }
