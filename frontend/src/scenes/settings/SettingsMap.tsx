@@ -43,6 +43,7 @@ import {
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { WebhookIntegration } from './environment/WebhookIntegration'
+import { DataColorThemes } from './organization/DataColorThemes'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -155,6 +156,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'data-theme',
+                title: 'Data colors',
+                component: <DataColorThemes />,
             },
             {
                 id: 'persons-on-events',
