@@ -1,8 +1,5 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.event.sql import (
-    EVENTS_RECENT_TABLE_JSON_MV_SQL,
-    EVENTS_RECENT_TABLE_SQL,
-    KAFKA_EVENTS_RECENT_TABLE_JSON_SQL,
     DISTRIBUTED_EVENTS_RECENT_TABLE_SQL,
 )
 
