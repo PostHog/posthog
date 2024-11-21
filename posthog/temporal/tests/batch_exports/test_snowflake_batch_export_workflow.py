@@ -1631,7 +1631,13 @@ async def test_insert_into_snowflake_activity_heartbeats(
     )
 
 
-@pytest.mark.parametrize("details", [(str(dt.datetime.now()), 1)])
+@pytest.mark.parametrize(
+    "details",
+    [
+        ((str(dt.datetime.now()), str(dt.datetime.now())), 1),
+        ((str(dt.datetime.now()), str(dt.datetime.now())),),
+    ],
+)
 def test_snowflake_heartbeat_details_parses_from_tuple(details):
     class FakeActivity:
         def info(self):
@@ -1643,5 +1649,12 @@ def test_snowflake_heartbeat_details_parses_from_tuple(details):
 
     snowflake_details = SnowflakeHeartbeatDetails.from_activity(FakeActivity())
 
-    assert snowflake_details.last_inserted_at == dt.datetime.fromisoformat(details[0])
-    assert snowflake_details.file_no == details[1]
+    assert snowflake_details.done_ranges == (
+        dt.datetime.fromisoformat(details[0][0]),
+        dt.datetime.fromisoformat(details[0][1]),
+    )
+
+    if len(details) >= 2:
+        assert snowflake_details.file_no == details[1]
+    else:
+        assert snowflake_details.file_no == 0
