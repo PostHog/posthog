@@ -39,7 +39,6 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         // get the list of Ids and member of the list of users
     }),
     
-
     loaders(({ values }) => ({
         viewCount: [
             null as number | null,
@@ -69,9 +68,9 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                             FROM app_metrics
                             WHERE app_source = 'metalytics'
                             AND instance_id = ${values.instanceId}
-                            AND created_at >= NOW() - INTERVAL '30 days'`,
+                            AND timestamp >= NOW() - INTERVAL 30 DAY`,
                     }
-
+        
                     const response = await api.query(query)
                     return response.results as number[]
                 },
