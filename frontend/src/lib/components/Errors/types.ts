@@ -7,7 +7,7 @@ export interface ErrorTrackingException {
 
 interface ErrorTrackingRawStackTrace {
     type: 'raw'
-    frames: ErrorTrackingStackFrame[]
+    frames: any[] // TODO: type more concretely if we end up needing this (right now we show the $cymbal_errors instead)
 }
 interface ErrorTrackingResolvedStackTrace {
     type: 'resolved'

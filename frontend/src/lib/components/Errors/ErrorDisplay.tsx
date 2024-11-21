@@ -1,7 +1,7 @@
 import './ErrorDisplay.scss'
 
 import { IconFlag } from '@posthog/icons'
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -53,7 +53,7 @@ function StackTrace({
                     ) : null}
                     {line ? (
                         <div className="flex space-x-0.5">
-                            <span className="text-muted">at line</span>
+                            <span className="text-muted">@</span>
                             <span>
                                 {line}
                                 {column && `:${column}`}
@@ -98,16 +98,24 @@ function FrameContextLine({
 }): JSX.Element {
     return (
         <div className={highlight ? 'bg-accent-3000' : 'bg-bg-light'}>
-            {lines.map(({ number, line }) => (
-                <div key={number} className="flex">
-                    <div className="w-12 text-center">{number}</div>
-                    <CodeLine text={line} wrapLines={true} language={language} />
-                </div>
-            ))}
+            {lines
+                .sort((l) => l.number)
+                .map(({ number, line }) => (
+                    <div key={number} className="flex">
+                        <div className="w-12 text-center">{number}</div>
+                        <CodeLine text={line} wrapLines={true} language={language} />
+                    </div>
+                ))}
         </div>
     )
 }
-function ChainedStackTraces({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element {
+function ChainedStackTraces({
+    exceptionList,
+    ingestionErrors,
+}: {
+    exceptionList: ErrorTrackingException[]
+    ingestionErrors: string[]
+}): JSX.Element {
     const [showAllFrames, setShowAllFrames] = useState(false)
 
     return (
@@ -124,17 +132,29 @@ function ChainedStackTraces({ exceptionList }: { exceptionList: ErrorTrackingExc
                 />
             </div>
             {exceptionList.map(({ stacktrace, value }, index) => {
-                const { frames } = stacktrace || {}
-                if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
-                    // if we're not showing all frames and there are no in_app frames, skip this exception
-                    return null
+                if (stacktrace.type === 'resolved') {
+                    const { frames } = stacktrace
+                    if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
+                        // if we're not showing all frames and there are no in_app frames, skip this exception
+                        return null
+                    }
+
+                    return (
+                        <div key={index} className="ErrorDisplay__stacktrace flex flex-col gap-1 mt-6">
+                            <h3 className="mb-0">{value}</h3>
+                            <StackTrace frames={frames || []} showAllFrames={showAllFrames} />
+                        </div>
+                    )
                 }
 
                 return (
-                    <div key={index} className="ErrorDisplay__stacktrace flex flex-col gap-1 mt-6">
-                        <h3 className="mb-0">{value}</h3>
-                        <StackTrace frames={frames || []} showAllFrames={showAllFrames} />
-                    </div>
+                    <LemonBanner key={index} type="error">
+                        <ul>
+                            {ingestionErrors.map((e, i) => (
+                                <li key={i}>{e}</li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
                 )
             })}
         </>
@@ -232,6 +252,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $sentry_url,
         $exception_list,
         $level,
+        $cymbal_errors,
     } = getExceptionPropertiesFrom(eventProperties)
 
     return (
@@ -263,7 +284,9 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
                 <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
             </div>
-            {$exception_list?.length ? <ChainedStackTraces exceptionList={$exception_list} /> : null}
+            {$exception_list?.length ? (
+                <ChainedStackTraces exceptionList={$exception_list} ingestionErrors={$cymbal_errors} />
+            ) : null}
             <LemonDivider dashed={true} />
             <div className="flex flex-col gap-1 mt-6">
                 <h2 className="mb-0">Active Feature Flags</h2>
