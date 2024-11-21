@@ -11,9 +11,7 @@ export const SymbolSetUploadModal = (): JSX.Element => {
     const { uploadSymbolSetReference, isUploadSymbolSetSubmitting, uploadSymbolSet } =
         useValues(errorTrackingSymbolSetLogic)
 
-    const onClose = (): void => {
-        setUploadSymbolSetReference(null)
-    }
+    const onClose = (): void => setUploadSymbolSetReference(null)
 
     return (
         <LemonModal title="" onClose={onClose} isOpen={!!uploadSymbolSetReference} simple>

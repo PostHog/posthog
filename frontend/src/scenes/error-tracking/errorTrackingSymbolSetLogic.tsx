@@ -3,6 +3,7 @@ import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,10 +14,6 @@ import type { errorTrackingSymbolSetLogicType } from './errorTrackingSymbolSetLo
 export enum ErrorGroupTab {
     Overview = 'overview',
     Breakdowns = 'breakdowns',
-}
-
-export interface ErrorTrackingSymbolSet {
-    ref: string
 }
 
 export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>([
@@ -35,6 +32,23 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
         ],
     }),
 
+    loaders(({ values }) => ({
+        symbolSets: [
+            [] as ErrorTrackingSymbolSet[],
+            {
+                loadSymbolSets: async () => {
+                    const response = await api.errorTracking.symbolSets()
+                    return response.results
+                },
+                deleteSymbolSet: async (ref) => {
+                    await api.errorTracking.deleteSymbolSet(ref)
+                    const newValues = [...values.symbolSets]
+                    return newValues.filter((v) => v.ref !== ref)
+                },
+            },
+        ],
+    })),
+
     selectors({
         breadcrumbs: [
             () => [],
@@ -50,19 +64,9 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
                 },
             ],
         ],
+        validSymbolSets: [(s) => [s.symbolSets], (symbolSets) => symbolSets.filter((s) => !!s.storage_ptr)],
+        missingSymbolSets: [(s) => [s.symbolSets], (symbolSets) => symbolSets.filter((s) => !s.storage_ptr)],
     }),
-
-    loaders(() => ({
-        missingSymbolSets: [
-            [] as ErrorTrackingSymbolSet[],
-            {
-                loadMissingSymbolSets: async () => {
-                    const response = await api.errorTracking.missingSymbolSets()
-                    return response
-                },
-            },
-        ],
-    })),
 
     forms(({ values, actions }) => ({
         uploadSymbolSet: {
@@ -74,7 +78,7 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
                     formData.append('source_map', file)
                     await api.errorTracking.updateSymbolSet(values.uploadSymbolSetReference, formData)
                     actions.setUploadSymbolSetReference(null)
-                    actions.loadMissingSymbolSets()
+                    actions.loadSymbolSets()
                     lemonToast.success('Source map uploaded')
                 }
             },
@@ -82,6 +86,6 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
     })),
 
     afterMount(({ actions }) => {
-        actions.loadMissingSymbolSets()
+        actions.loadSymbolSets()
     }),
 ])

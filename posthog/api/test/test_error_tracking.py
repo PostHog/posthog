@@ -100,7 +100,7 @@ class TestErrorTracking(APIBaseTest):
 
             with open(get_path_to("source.js.map"), "rb") as image:
                 response = self.client.put(
-                    f"/api/projects/{self.team.id}/error_tracking_symbol_set/{symbol_set.id}",
+                    f"/api/projects/{self.team.id}/error_tracking/symbol_set/{symbol_set.id}",
                     {"source_map": image},
                     format="multipart",
                 )
@@ -117,7 +117,7 @@ class TestErrorTracking(APIBaseTest):
             content_type="text/plain",
         )
         response = self.client.put(
-            f"/api/projects/{self.team.id}/error_tracking_symbol_set/{symbol_set.id}",
+            f"/api/projects/{self.team.id}/error_tracking/symbol_set/{symbol_set.id}",
             {"source_map": fake_big_file},
             format="multipart",
         )
@@ -131,7 +131,7 @@ class TestErrorTracking(APIBaseTest):
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
             response = self.client.put(
-                f"/api/projects/{self.team.id}/error_tracking_symbol_set/{symbol_set.id}",
+                f"/api/projects/{self.team.id}/error_tracking/symbol_set/{symbol_set.id}",
                 {"source_map": fake_big_file},
                 format="multipart",
             )
@@ -140,3 +140,23 @@ class TestErrorTracking(APIBaseTest):
                 response.json()["detail"],
                 "Object storage must be available to allow source map uploads.",
             )
+
+    def test_fetching_symbol_sets(self):
+        other_team = self.create_team_with_organization(organization=self.organization)
+        ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+        ErrorTrackingSymbolSet.objects.create(
+            ref="source_2", team=self.team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            ref="source_2", team=other_team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
+        )
+
+        self.assertEqual(ErrorTrackingSymbolSet.objects.count(), 3)
+
+        # it only fetches symbol sets for the specified team
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/symbol_set")
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        # it only fetches missing symbol sets
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/symbol_set?missing=true")
+        self.assertEqual(len(response.json()["results"]), 1)

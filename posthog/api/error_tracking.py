@@ -1,18 +1,18 @@
 import structlog
 
-from rest_framework import mixins, serializers, viewsets, status, response
+from rest_framework import serializers, viewsets, status, response
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
 from django.conf import settings
 
 from drf_spectacular.utils import extend_schema
-
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import ErrorTrackingSymbolSet
 from posthog.models.error_tracking import ErrorTrackingStackFrame
+from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 
 
@@ -73,20 +73,36 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSymbolSet
-        fields = ["ref"]
+        fields = ["id", "ref", "team_id", "created_at", "storage_ptr", "failure_reason"]
+        read_only_fields = ["team_id"]
 
 
-class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
 
+    def safely_get_queryset(self, queryset):
+        if self.action == "list":
+            missing = self.request.GET.get("missing", False)
+            if missing:
+                queryset = queryset.filter(storage_ptr=None)
+
+        return queryset.filter(team_id=self.team.id)
+
+    def destroy(self, request, *args, **kwargs):
+        symbol_set = self.get_object()
+        symbol_set.delete()
+        # TODO: delete file from s3
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def update(self, request, *args, **kwargs) -> Response:
         symbol_set = self.get_object()
+        symbol_set.delete()
+        # TODO: delete file from s3
         storage_ptr = upload_symbol_set(request.FILES["source_map"], self.team_id)
         symbol_set.storage_ptr = storage_ptr
         symbol_set.save()
-        # TODO: cascade delete the associated frame resolutions
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(exclude=True)
@@ -103,7 +119,7 @@ def upload_symbol_set(file, team_id) -> str:
             if file.size > FIFTY_MEGABYTES:
                 raise ValidationError(code="file_too_large", detail="Source maps must be less than 50MB")
 
-            upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/team-{team_id}/{file.name}"
+            upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
             object_storage.write(upload_path, file)
             return upload_path
         else:
