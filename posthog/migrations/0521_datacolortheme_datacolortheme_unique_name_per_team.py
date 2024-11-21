@@ -4,6 +4,36 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
+def add_default_themes(apps, schema_editor):
+    DataColorTheme = apps.get_model("posthog", "DataColorTheme")
+
+    DataColorTheme.objects.create(
+        name="Default Theme",
+        colors=[
+            "#1d4aff",
+            "#621da6",
+            "#42827e",
+            "#ce0e74",
+            "#f14f58",
+            "#7c440e",
+            "#529a0a",
+            "#0476fb",
+            "#fe729e",
+            "#35416b",
+            "#41cbc4",
+            "#b64b02",
+            "#e4a604",
+            "#a56eff",
+            "#30d5c8",
+        ],
+    )
+
+
+def remove_default_themes(apps, schema_editor):
+    # no-op, as table will be dropped on rollback anyway
+    pass
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0520_experiment_metrics_secondary"),
@@ -15,12 +45,18 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("name", models.CharField(max_length=100, unique=True)),
-                ("theme", models.JSONField(default=dict)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("colors", models.JSONField(default=[])),
+                (
+                    "team",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="posthog.team", null=True, blank=True
+                    ),
+                ),
             ],
         ),
         migrations.AddConstraint(
             model_name="datacolortheme",
             constraint=models.UniqueConstraint(fields=("team", "name"), name="unique_name_per_team"),
         ),
+        migrations.RunPython(add_default_themes, remove_default_themes),
     ]

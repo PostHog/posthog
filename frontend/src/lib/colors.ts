@@ -57,8 +57,7 @@ export type DataColorTheme = Record<`preset-${number}`, DataColorConfig>
 
 export type DataColorThemeModel = {
     name: string
-    trait: string
-    theme: DataColorTheme
+    colors: string[]
 }
 
 export function getColorVar(variable: string): string {
