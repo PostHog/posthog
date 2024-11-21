@@ -57,6 +57,7 @@ from posthog.models.feature_flag.flag_matching import check_flag_evaluation_quer
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
+from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
@@ -813,14 +814,25 @@ class FeatureFlagViewSet(
 
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], url_path="status", detail=True, required_scopes=["feature_flag:read"])
+    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
     @extend_schema(
         responses={
             200: FeatureFlagStatusQueryResponse,
+            404: FeatureFlagStatusQueryResponse,
         }
     )
     def status(self, request: request.Request, **kwargs):
-        return []
+        feature_flag_id = kwargs["pk"]
+
+        checker = FeatureFlagStatusChecker(
+            feature_flag_id=feature_flag_id,
+        )
+        flag_status, reason = checker.get_status()
+
+        return Response(
+            {"status": flag_status, "reason": reason},
+            status=status.HTTP_404_NOT_FOUND if flag_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+        )
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):

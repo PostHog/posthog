@@ -724,13 +724,6 @@ class Status(StrEnum):
     PENDING_RELEASE = "pending_release"
 
 
-class FeatureFlagStatus(StrEnum):
-    ACTIVE = "active"
-    STALE = "stale"
-    DELETED = "deleted"
-    UNKNOWN = "unknown"
-
-
 class ErrorTrackingGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6740,13 +6733,6 @@ class ExperimentTrendsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
-
-
-class FeatureFlagStatusQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    status: FeatureFlagStatus
 
 
 class FunnelPathsFilter(BaseModel):
