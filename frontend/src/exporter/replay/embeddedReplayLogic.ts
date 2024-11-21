@@ -55,6 +55,7 @@ export const embeddedReplayLogic = kea<embeddedReplayLogicType>([
                     return
                 }
             })
+            window.parent?.postMessage({ type: 'session-replay-data', ready: true }, '*')
         }
     }),
 ])
