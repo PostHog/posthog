@@ -34,9 +34,23 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                 console.log('instanceId', instanceId)
                 return {}
             },
-        ]
+        ],
 
-        // get the list of Ids and member of the list of users
+        recentUserMembers: [
+            (s) => [s.recentUsers, s.members],
+            (recentUsers, members) => {
+                if (!members || !recentUsers) {
+                    return []
+                }
+                // Filter members whose IDs match the recentUsers array
+                return members.filter((member) => recentUsers.includes(member.user.id))
+            },
+        ],
+
+        recentUsersCount: [
+            (s) => [s.recentUserMembers],
+            (recentUserMembers) => recentUserMembers.length,
+        ]
     }),
     
     loaders(({ values }) => ({
