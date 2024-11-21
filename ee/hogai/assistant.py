@@ -1,4 +1,4 @@
-from collections.abc import Generator, Hashable, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Generator, Hashable, Iterator
 from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
 
 from langchain_core.messages import AIMessageChunk
@@ -232,70 +232,94 @@ class AssistantGraph:
 class Assistant:
     _team: Team
     _graph: CompiledStateGraph
+    _chunks: AIMessageChunk
 
     def __init__(self, team: Team):
         self._team = team
         self._graph = AssistantGraph(team).compile_full_graph()
+        self._chunks = AIMessageChunk(content="")
 
-    def stream(self, conversation: Conversation) -> Generator[BaseModel, None, None]:
-        callbacks = [langfuse_handler] if langfuse_handler else []
+    def _process_update(self, update: Any) -> BaseModel | None:
+        if is_value_update(update):
+            _, state_update = update
+
+            if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
+                return state_update[AssistantNodeName.ROUTER]["messages"][0]
+            elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+                # Reset chunks when schema validation fails.
+                self._chunks = AIMessageChunk(content="")
+
+                node_name = intersected_nodes.pop()
+                if "messages" in state_update[node_name]:
+                    return state_update[node_name]["messages"][0]
+                elif state_update[node_name].get("intermediate_steps", []):
+                    return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+            elif AssistantNodeName.SUMMARIZER in state_update:
+                self._chunks = AIMessageChunk(content="")
+                return state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
+        elif is_message_update(update):
+            langchain_message, langgraph_state = update[1]
+            if isinstance(langchain_message, AIMessageChunk):
+                if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
+                    self._chunks += langchain_message  # type: ignore
+                    parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
+                        self._chunks.tool_calls[0]["args"]
+                    )
+                    if parsed_message:
+                        return VisualizationMessage(
+                            reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
+                        )
+                elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
+                    self._chunks += langchain_message  # type: ignore
+                    return AssistantMessage(content=self._chunks.content)
+
+    def _get_initial_state(self, conversation: Conversation) -> AssistantState:
         messages = [message.root for message in conversation.messages]
+        return {"messages": messages, "intermediate_steps": None, "plan": None}
 
-        chunks = AIMessageChunk(content="")
-        state: AssistantState = {"messages": messages, "intermediate_steps": None, "plan": None}
+    @property
+    def _config(self) -> dict[str, Any]:
+        callbacks = [langfuse_handler] if langfuse_handler else []
+        return {"recursion_limit": 24, "callbacks": callbacks}
 
-        generator: Iterator[Any] = self._graph.stream(
-            state,
-            config={"recursion_limit": 24, "callbacks": callbacks},
+    async def astream(self, conversation: Conversation) -> AsyncGenerator[BaseModel, None, None]:
+        self._chunks = AIMessageChunk(content="")
+
+        generator: AsyncIterator[Any] = self._graph.astream(
+            self._get_initial_state(conversation),
+            config=self._config,
             stream_mode=["messages", "values", "updates"],
         )
 
-        chunks = AIMessageChunk(content="")
+        # Send a chunk to establish the connection avoiding the worker's timeout.
+        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
+
+        try:
+            async for update in generator:
+                update = self._process_update(update)
+                if update is not None:
+                    yield update
+        except Exception as e:
+            capture_exception(e)
+            yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point
+
+    def stream(self, conversation: Conversation) -> Generator[BaseModel, None, None]:
+        self._chunks = AIMessageChunk(content="")
+
+        generator: Iterator[Any] = self._graph.stream(
+            self._get_initial_state(conversation),
+            config=self._config,
+            stream_mode=["messages", "values", "updates"],
+        )
 
         # Send a chunk to establish the connection avoiding the worker's timeout.
         yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
 
         try:
             for update in generator:
-                if is_state_update(update):
-                    _, new_state = update
-                    state = new_state
-
-                elif is_value_update(update):
-                    _, state_update = update
-
-                    if (
-                        AssistantNodeName.ROUTER in state_update
-                        and "messages" in state_update[AssistantNodeName.ROUTER]
-                    ):
-                        yield state_update[AssistantNodeName.ROUTER]["messages"][0]
-                    elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
-                        # Reset chunks when schema validation fails.
-                        chunks = AIMessageChunk(content="")
-
-                        node_name = intersected_nodes.pop()
-                        if "messages" in state_update[node_name]:
-                            yield state_update[node_name]["messages"][0]
-                        elif state_update[node_name].get("intermediate_steps", []):
-                            yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-                    elif AssistantNodeName.SUMMARIZER in state_update:
-                        chunks = AIMessageChunk(content="")
-                        yield state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
-                elif is_message_update(update):
-                    langchain_message, langgraph_state = update[1]
-                    if isinstance(langchain_message, AIMessageChunk):
-                        if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
-                            chunks += langchain_message  # type: ignore
-                            parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
-                                chunks.tool_calls[0]["args"]
-                            )
-                            if parsed_message:
-                                yield VisualizationMessage(
-                                    reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
-                                )
-                        elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
-                            chunks += langchain_message  # type: ignore
-                            yield AssistantMessage(content=chunks.content)
+                update = self._process_update(update)
+                if update is not None:
+                    yield update
         except Exception as e:
             capture_exception(e)
             yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point

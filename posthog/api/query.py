@@ -1,3 +1,4 @@
+import os
 import re
 import uuid
 
@@ -25,7 +26,6 @@ from posthog.clickhouse.client.execute_async import (
 )
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import report_user_action
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -188,16 +188,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         validated_body = Conversation.model_validate(request.data)
         assistant = Assistant(self.team)
 
-        def generate():
-            last_message = None
-            for message in assistant.stream(validated_body):
-                last_message = message
-                if isinstance(message, AssistantGenerationStatusEvent):
-                    yield f"event: {AssistantEventType.STATUS}\n"
-                else:
-                    yield f"event: {AssistantEventType.MESSAGE}\n"
-                yield f"data: {message.model_dump_json(exclude_none=True)}\n\n"
-
+        def report_user_action(last_message: BaseModel):
             human_message = validated_body.messages[-1].root
             if isinstance(human_message, HumanMessage):
                 report_user_action(
@@ -206,8 +197,31 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     {"prompt": human_message.content, "response": last_message},
                 )
 
+        def serialize_message(message: BaseModel):
+            if isinstance(message, AssistantGenerationStatusEvent):
+                yield f"event: {AssistantEventType.STATUS}\n"
+            else:
+                yield f"event: {AssistantEventType.MESSAGE}\n"
+            yield f"data: {message.model_dump_json(exclude_none=True)}\n\n"
+
+        async def agenerate():
+            last_message = None
+            async for message in assistant.astream(validated_body):
+                last_message = message
+                for serialized_message in serialize_message(message):
+                    yield serialized_message
+            report_user_action(last_message)
+
+        def generate():
+            last_message = None
+            for message in assistant.stream(validated_body):
+                last_message = message
+                yield from serialize_message(message)
+            report_user_action(last_message)
+
         return StreamingHttpResponse(
-            generate(), content_type=ServerSentEventRenderer.media_type, headers={"X-Accel-Buffering": "no"}
+            agenerate() if os.environ.get("SERVER_GATEWAY_INTERFACE") == "ASGI" else generate(),
+            content_type=ServerSentEventRenderer.media_type,
         )
 
     def handle_column_ch_error(self, error):
