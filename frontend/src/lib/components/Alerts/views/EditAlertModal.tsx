@@ -159,7 +159,9 @@ export function EditAlertModal({
                                                     fullWidth
                                                     data-attr="alertForm-series-index"
                                                     options={alertSeries?.map(({ event }, index) => ({
-                                                        label: `${alphabet[index]} - ${event}`,
+                                                        label: isBreakdownValid
+                                                            ? 'any breakdown value'
+                                                            : `${alphabet[index]} - ${event}`,
                                                         value: index,
                                                     }))}
                                                     disabledReason={
