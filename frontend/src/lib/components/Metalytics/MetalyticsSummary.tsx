@@ -1,13 +1,12 @@
-import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, ProfileBubbles } from '@posthog/lemon-ui'
+import { IconPulse } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-
-import { metalyticsLogic } from './metalyticsLogic'
-import { IconPulse, IconDashboard } from '@posthog/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 
+import { metalyticsLogic } from './metalyticsLogic'
+
 export function MetalyticsSummary(): JSX.Element | null {
-    const { instanceId, viewCount, viewCountLoading, recentUserMembers } = useValues(metalyticsLogic)
+    const { instanceId, viewCount } = useValues(metalyticsLogic)
 
     if (!instanceId) {
         return null
@@ -15,14 +14,16 @@ export function MetalyticsSummary(): JSX.Element | null {
 
     return (
         <>
-            <ProfileBubbles tooltip="Recently Viewed By" people={recentUserMembers.map((x) => x.user)} limit={3} />
-            <IconPulse className="mr-2"/>
-            <IconWithCount count={7}>
-                <IconDashboard />
-            </IconWithCount>
-            <LemonButton loading={viewCountLoading} type="secondary" icon={<IconEye />} size="small">
-                {viewCount === null ? 'Loading...' : `Viewed ${viewCount} times`}
-            </LemonButton>
+            <LemonButton
+                size="medium"
+                icon={
+                    <IconWithCount count={viewCount ?? 0}>
+                        <IconPulse className="mr-2" />
+                    </IconWithCount>
+                }
+                className="p-0.5"
+                tooltip="Learn more about who is using this feature"
+            />
         </>
     )
 }
