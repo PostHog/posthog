@@ -1,26 +1,16 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { waitForDataLogic } from 'scenes/session-recordings/file-playback/sessionRecordingFilePlaybackSceneLogic'
 import { deduplicateSnapshots, parseEncodedSnapshots } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { exporterViewLogic } from '../exporterViewLogic'
-import { ExportedData } from '../types'
+import { getCurrentExporterData } from '../exporterViewLogic'
 import type { embeddedReplayLogicType } from './embeddedReplayLogicType'
 
 export const embeddedReplayLogic = kea<embeddedReplayLogicType>([
     path(() => ['scenes', 'exporter', 'embeddedReplayLogic']),
-    connect({
-        values: [exporterViewLogic, ['exportedData']],
-    }),
     actions({
         loadReplayFromData: (data: any[]) => ({ data }),
     }),
-    selectors(() => ({
-        isEmbeddedRecording: [
-            (s) => [s.exportedData],
-            (exportedData: ExportedData): boolean => !!(exportedData.recording && exportedData.recording.id === ''),
-        ],
-    })),
 
     listeners(() => ({
         loadReplayFromData: async ({ data }) => {
@@ -54,8 +44,11 @@ export const embeddedReplayLogic = kea<embeddedReplayLogicType>([
         },
     })),
 
-    afterMount(({ values, actions }) => {
-        if (values.isEmbeddedRecording) {
+    afterMount(({ actions }) => {
+        const exportedData = getCurrentExporterData()
+        const isEmbeddedRecording = exportedData?.recording && exportedData.recording.id === ''
+
+        if (isEmbeddedRecording) {
             window.addEventListener('message', (event) => {
                 if (event.data.type === 'session-replay-data') {
                     actions.loadReplayFromData(event.data.snapshots)
