@@ -107,8 +107,6 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
@@ -252,7 +250,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -334,7 +332,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, 
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
-            "user_access_level",
             "timezone",
             "is_cached",
             "query_status",
@@ -351,7 +348,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, 
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
-            "user_access_level",
             "timezone",
             "refreshing",
             "is_cached",
@@ -714,7 +710,6 @@ Background calculation can be tracked using the `query_status` response field.""
 )
 class InsightViewSet(
     TeamAndOrgViewSetMixin,
-    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,

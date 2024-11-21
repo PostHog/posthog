@@ -133,9 +133,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
                 response.json(),
                 {
                     "attr": None,
-                    "detail": "You do not have admin access to this resource."
-                    if level == OrganizationMembership.Level.MEMBER
-                    else "Your organization access level is insufficient.",
+                    "detail": "Your organization access level is insufficient.",
                     "code": "permission_denied",
                     "type": "authentication_error",
                 },
@@ -198,7 +196,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
             expected_response = {
                 "attr": None,
-                "detail": "You do not have admin access to this resource.",
+                "detail": "Your organization access level is insufficient.",
                 "code": "permission_denied",
                 "type": "authentication_error",
             }

@@ -19,8 +19,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 from posthog.api.cohort import CohortSerializer
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -90,9 +88,7 @@ class CanEditFeatureFlag(BasePermission):
             return can_user_edit_feature_flag(request, feature_flag)
 
 
-class FeatureFlagSerializer(
-    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
-):
+class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -151,16 +147,12 @@ class FeatureFlagSerializer(
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
-            "user_access_level",
             "creation_context",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
-        return (
-            can_user_edit_feature_flag(self.context["request"], feature_flag)
-            and self.get_user_access_level(feature_flag) == "editor"
-        )
+        return can_user_edit_feature_flag(self.context["request"], feature_flag)
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
@@ -443,7 +435,6 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
 class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
-    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,

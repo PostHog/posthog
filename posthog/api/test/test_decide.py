@@ -4699,7 +4699,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(12, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(5, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -4940,7 +4940,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
         cache.clear()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(12, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -5210,7 +5210,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         client.logout()
         self.client.logout()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(12, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"

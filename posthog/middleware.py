@@ -5,7 +5,7 @@ from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 from collections.abc import Callable
 from loginas.utils import is_impersonated_session, restore_original_login
-from posthog.rbac.user_access_control import UserAccessControl
+
 from django.shortcuts import redirect
 import structlog
 from corsheaders.middleware import CorsMiddleware
@@ -274,14 +274,6 @@ class AutoProjectMiddleware:
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
         user_permissions = UserPermissions(user)
-        user_access_control = UserAccessControl(user=user, team=new_team)
-
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if not user_access_control.check_access_level_for_object(new_team, "member"):
-            # Do something to indicate that they don't have access to the team...
-            return False
-
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
         if user_permissions.team(new_team).effective_membership_level is None:
