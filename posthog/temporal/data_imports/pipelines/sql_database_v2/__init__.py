@@ -1,6 +1,7 @@
 """Source that loads tables form any SQLAlchemy supported database, supports batching requests and incremental loads."""
 
 from datetime import datetime, date
+from dateutil import parser
 from typing import Optional, Union, Any
 from collections.abc import Callable, Iterable
 
@@ -54,6 +55,20 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> Any:
         return date(1970, 1, 1)
 
 
+def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+    if value is None or field_type is None:
+        return None
+
+    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+        return value
+
+    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        return parser.parse(value)
+
+    if field_type == IncrementalFieldType.Date:
+        return parser.parse(value).date()
+
+
 def sql_source_for_type(
     source_type: ExternalDataSource.Type,
     host: str,
@@ -67,6 +82,7 @@ def sql_source_for_type(
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> DltSource:
     host = quote(host)
     user = quote(user)
@@ -105,11 +121,16 @@ def sql_source_for_type(
     else:
         raise Exception("Unsupported source_type")
 
+    processed_db_incremental_field_last_value = process_incremental_last_value(
+        db_incremental_field_last_value, incremental_field_type
+    )
+
     db_source = sql_database(
         credentials,
         schema=schema,
         table_names=table_names,
         incremental=incremental,
+        db_incremental_field_last_value=processed_db_incremental_field_last_value,
         team_id=team_id,
         connect_args=connect_args,
     )
@@ -203,6 +224,7 @@ def sql_database(
     include_views: bool = False,
     type_adapter_callback: Optional[TTypeAdapter] = None,
     incremental: Optional[dlt.sources.incremental] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
     team_id: Optional[int] = None,
     connect_args: Optional[list[str]] = None,
 ) -> Iterable[DltResource]:
@@ -275,6 +297,7 @@ def sql_database(
             backend_kwargs=backend_kwargs,
             type_adapter_callback=type_adapter_callback,
             incremental=incremental,
+            db_incremental_field_last_value=db_incremental_field_last_value,
             team_id=team_id,
             connect_args=connect_args,
         )
@@ -304,6 +327,7 @@ def sql_table(
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
     chunk_size: int = 50000,
     backend: TableBackend = "sqlalchemy",
     detect_precision_hints: Optional[bool] = None,
@@ -396,6 +420,7 @@ def sql_table(
         chunk_size=chunk_size,
         backend=backend,
         incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
         reflection_level=reflection_level,
         defer_table_reflect=defer_table_reflect,
         table_adapter_callback=table_adapter_callback,

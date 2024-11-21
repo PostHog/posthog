@@ -6,6 +6,7 @@ import uuid
 import dlt
 from django.conf import settings
 from django.db.models import Prefetch
+import dlt.common
 from dlt.pipeline.exceptions import PipelineStepFailed
 from deltalake import DeltaTable
 
@@ -345,6 +346,10 @@ class DataImportPipelineSync:
             job_id=self.inputs.run_id, schema_id=str(self.inputs.schema_id), team_id=self.inputs.team_id
         )
 
+        if self._incremental:
+            self.logger.debug("Saving last incremental value...")
+            save_last_incremental_value(str(self.inputs.schema_id), str(self.inputs.team_id), self.source, self.logger)
+
         # Cleanup: delete local state from the file system
         pipeline.drop()
 
@@ -371,6 +376,28 @@ def update_last_synced_at_sync(job_id: str, schema_id: str, team_id: int) -> Non
     schema.save()
 
 
+def save_last_incremental_value(schema_id: str, team_id: str, source: DltSource, logger: FilteringBoundLogger) -> None:
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+
+    incremental_field = schema.sync_type_config.get("incremental_field")
+    resource = next(iter(source.resources.values()))
+
+    incremental: dict | None = resource.state.get("incremental")
+
+    if incremental is None:
+        return
+
+    incremental_object: dict | None = incremental.get(incremental_field)
+    if incremental_object is None:
+        return
+
+    last_value = incremental_object.get("last_value")
+
+    logger.debug(f"Updating incremental_field_last_value with {last_value}")
+
+    schema.update_incremental_field_last_value(last_value)
+
+
 def validate_schema_and_update_table_sync(
     run_id: str,
     team_id: int,
@@ -378,6 +405,7 @@ def validate_schema_and_update_table_sync(
     table_schema: TSchemaTables,
     row_count: int,
     table_format: DataWarehouseTable.TableFormat,
+    table_schema_dict: Optional[dict[str, str]] = None,
 ) -> None:
     """
 
@@ -465,27 +493,46 @@ def validate_schema_and_update_table_sync(
             else:
                 raise
 
-        for schema in table_schema.values():
-            if schema.get("resource") == _schema_name:
-                schema_columns = schema.get("columns") or {}
-                raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
-                db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+        # If using new non-DLT pipeline
+        if table_schema_dict is not None:
+            raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
+            db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
-                columns = {}
-                for column_name, db_column_type in db_columns.items():
-                    dlt_column = schema_columns.get(column_name)
-                    if dlt_column is not None:
-                        dlt_data_type = dlt_column.get("data_type")
-                        hogql_type = dlt_to_hogql_type(dlt_data_type)
-                    else:
-                        hogql_type = dlt_to_hogql_type(None)
+            columns = {}
+            for column_name, db_column_type in db_columns.items():
+                hogql_type = table_schema_dict.get(column_name)
 
-                    columns[column_name] = {
-                        "clickhouse": db_column_type,
-                        "hogql": hogql_type,
-                    }
-                table_created.columns = columns
-                break
+                if hogql_type is None:
+                    raise Exception(f"HogQL type not found for column: {column_name}")
+
+                columns[column_name] = {
+                    "clickhouse": db_column_type,
+                    "hogql": hogql_type,
+                }
+            table_created.columns = columns
+        else:
+            # If using DLT pipeline
+            for schema in table_schema.values():
+                if schema.get("resource") == _schema_name:
+                    schema_columns = schema.get("columns") or {}
+                    raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
+                    db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+
+                    columns = {}
+                    for column_name, db_column_type in db_columns.items():
+                        dlt_column = schema_columns.get(column_name)
+                        if dlt_column is not None:
+                            dlt_data_type = dlt_column.get("data_type")
+                            hogql_type = dlt_to_hogql_type(dlt_data_type)
+                        else:
+                            hogql_type = dlt_to_hogql_type(None)
+
+                        columns[column_name] = {
+                            "clickhouse": db_column_type,
+                            "hogql": hogql_type,
+                        }
+                    table_created.columns = columns
+                    break
 
         table_created.save()
 

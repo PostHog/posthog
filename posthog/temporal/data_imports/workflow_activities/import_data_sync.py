@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch, F
 
@@ -12,6 +13,7 @@ from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.data_imports.pipelines.bigquery import delete_table
 
+from posthog.temporal.data_imports.pipelines.pipeline_non_dlt import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync, PipelineInputs
 from posthog.temporal.data_imports.util import is_posthog_team
 from posthog.warehouse.models import (
@@ -176,6 +178,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                         if schema.is_incremental
                         else None,
+                        db_incremental_field_last_value=schema.sync_type_config.get("incremental_field_last_value")
+                        if schema.is_incremental
+                        else None,
                         team_id=inputs.team_id,
                     )
 
@@ -200,6 +205,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 table_names=endpoints,
                 incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
                 incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.is_incremental
+                else None,
+                db_incremental_field_last_value=schema.sync_type_config.get("incremental_field_last_value")
                 if schema.is_incremental
                 else None,
                 team_id=inputs.team_id,
@@ -425,12 +433,18 @@ def _run(
     schema: ExternalDataSchema,
     reset_pipeline: bool,
 ):
-    table_row_counts = DataImportPipelineSync(job_inputs, source, logger, reset_pipeline, schema.is_incremental).run()
-    total_rows_synced = sum(table_row_counts.values())
+    if settings.DEBUG:
+        PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental).run()
+    else:
+        table_row_counts = DataImportPipelineSync(
+            job_inputs, source, logger, reset_pipeline, schema.is_incremental
+        ).run()
+        total_rows_synced = sum(table_row_counts.values())
 
-    ExternalDataJob.objects.filter(id=inputs.run_id, team_id=inputs.team_id).update(
-        rows_synced=F("rows_synced") + total_rows_synced
-    )
+        ExternalDataJob.objects.filter(id=inputs.run_id, team_id=inputs.team_id).update(
+            rows_synced=F("rows_synced") + total_rows_synced
+        )
+
     source = ExternalDataSource.objects.get(id=inputs.source_id)
     source.job_inputs.pop("reset_pipeline", None)
     source.save()

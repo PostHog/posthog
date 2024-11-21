@@ -51,6 +51,7 @@ def sql_source_for_type(
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> DltSource:
     host = quote(host)
     user = quote(user)
