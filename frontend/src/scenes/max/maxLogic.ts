@@ -1,7 +1,19 @@
 import { captureException } from '@sentry/react'
 import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { isHumanMessage } from 'scenes/max/utils'
@@ -115,7 +127,16 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    sharedListeners({
+        scrollThreadToBottom: () => {
+            requestAnimationFrame(() => {
+                // On next frame so that the message has been rendered
+                const mainEl = document.querySelector('main')!
+                mainEl.scrollTop = mainEl.scrollHeight
+            })
+        },
+    }),
+    listeners(({ actions, values, sharedListeners, props }) => ({
         [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
             // Load suggestions anew after product description is changed on the project
             // Most important when description is set for the first time, but also when updated,
@@ -227,6 +248,8 @@ export const maxLogic = kea<maxLogicType>([
                 actions.askMax(lastMessage.content)
             }
         },
+        addMessage: sharedListeners.scrollThreadToBottom,
+        replaceMessage: sharedListeners.scrollThreadToBottom,
     })),
     selectors({
         sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],

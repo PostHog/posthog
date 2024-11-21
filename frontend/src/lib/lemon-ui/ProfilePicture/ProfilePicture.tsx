@@ -3,10 +3,9 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
-import { AnimationName } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { MinimalHedgehogConfig, UserBasicType } from '~/types'
@@ -27,21 +26,12 @@ export interface ProfilePictureProps {
     title?: string
     index?: number
     type?: 'person' | 'bot' | 'system'
-    /** Hedgehog animation to play - only if the user's hedgehog config is enabled. */
-    hedgehogAnimation?: AnimationName
 }
 
-export function ProfilePicture({
-    user,
-    name,
-    size = 'lg',
-    showName,
-    className,
-    index,
-    title,
-    type = 'person',
-    hedgehogAnimation,
-}: ProfilePictureProps): JSX.Element {
+export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePictureProps>(function ProfilePicture(
+    { user, name, size = 'lg', showName, className, index, title, type = 'person' },
+    ref
+) {
     const { user: currentUser } = useValues(userLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
 
@@ -69,9 +59,9 @@ export function ProfilePicture({
     }, [email, hedgehogProfile])
 
     const pictureComponent = (
-        <span className={clsx('ProfilePicture', size, className)}>
+        <span className={clsx('ProfilePicture', size, className)} ref={ref}>
             {hedgehogProfile ? (
-                <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" animation={hedgehogAnimation} />
+                <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
             ) : (
                 gravatarLoaded !== true && (
                     <>
@@ -113,4 +103,4 @@ export function ProfilePicture({
             </span>
         </div>
     )
-}
+})

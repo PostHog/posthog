@@ -6,7 +6,7 @@ import {
     IconThumbsUpFilled,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -57,15 +57,17 @@ function MessageGroup({ messages }: { messages: ThreadMessage[] }): JSX.Element 
 
     return (
         <div className={clsx('relative flex gap-2', groupType === 'human' ? 'flex-row-reverse ml-10' : 'mr-10')}>
-            <ProfilePicture
-                user={
-                    groupType === 'human'
-                        ? { ...user, hedgehog_config: undefined }
-                        : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
-                }
-                size="lg"
-                className="mt-1 border"
-            />
+            <Tooltip placement={groupType === 'human' ? 'right' : 'left'} title={groupType === 'human' ? 'You' : 'Max'}>
+                <ProfilePicture
+                    user={
+                        groupType === 'human'
+                            ? { ...user, hedgehog_config: undefined }
+                            : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
+                    }
+                    size="lg"
+                    className="mt-1 border"
+                />
+            </Tooltip>
             <div className="flex flex-col gap-2 min-w-0">
                 {messages.map((message, index) => {
                     if (isHumanMessage(message)) {
