@@ -9,18 +9,19 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/pineapple.png",
     category=["Custom", "Analytics"],
     hog="""
+// Run only once
 export async function onLoad({ inputs, posthog }) {
     const url = inputs.host
     console.log('🍍 Loading Pineapple Analytics', { url, inputs })
     // await loadScript(url + '/js?t=' + new Date().getTime())
 }
 
-// behind the scenes: posthog.on('eventCaptured', (event) => {})
+// Run whenever an event matches filters
 export function onEvent({ event, person, inputs, posthog }) {
     const { userId, additionalProperties } = inputs
     const payload = { event, person, userId, additionalProperties }
 
-    console.log('🍍 Sending event', { payload })
+    console.log('🍍 Sending event', event, payload)
     // window.pineappleAnalytics.capture(payload)
 }
 """.strip(),
