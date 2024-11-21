@@ -52,10 +52,13 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                         kind: NodeKind.DataVisualizationNode,
                         source: {
                             kind: NodeKind.HogQLQuery,
-                            query: hogql`SELECT sum(count) as count
+                            query: hogql`SELECT timestamp, SUM(count) AS number_of_sessions
                 FROM app_metrics
                 WHERE app_source = 'metalytics'
-                AND instance_id = ${instanceId}`,
+                AND instance_id = ${instanceId}
+                AND timestamp >= NOW() - INTERVAL 30 DAY
+                GROUP BY timestamp
+                ORDER BY timestamp DESC`,
                         },
                     }}
                 />
