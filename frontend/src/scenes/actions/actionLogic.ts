@@ -5,7 +5,8 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionType, Breadcrumb, HogFunctionType } from '~/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { ActionType, ActivityScope, Breadcrumb, HogFunctionType } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
@@ -103,6 +104,16 @@ export const actionLogic = kea<actionLogicType>([
         hasCohortFilters: [
             (s) => [s.action],
             (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+        ],
+
+        activityFilters: [
+            (s) => [s.action],
+            (action): ActivityFilters => {
+                return {
+                    scope: ActivityScope.ACTION,
+                    item_id: action?.id ?? undefined,
+                }
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

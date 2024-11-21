@@ -3,7 +3,6 @@ import './NotebookScene.scss'
 import { IconInfo, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { useEffect } from 'react'
@@ -79,7 +78,6 @@ export function NotebookScene(): JSX.Element {
 
     return (
         <div className="NotebookScene">
-            <MetalyticsSummary instance_id={notebook?.short_id ? `Notebook:${notebook.short_id}` : null} />
             <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-3000 z-10">
                 <div className="flex gap-2 items-center">
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
