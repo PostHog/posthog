@@ -15,6 +15,10 @@ export const scene: SceneExport = {
 }
 
 const TRON_THEME = `
+:root {
+    --radius: 0px;
+}
+
 body[theme=dark] {
     --border: rgba(0, 255, 1, 0.5);
     --link: #00FF01;
@@ -24,7 +28,6 @@ body[theme=dark] {
     --bg-light: #222;
     --bg-table: #222;
     --muted-3000: #0EA70E;
-    --radius: 0px;
     --primary-3000: #00FF01;
     --primary-3000-hover: #00FF01;
     --primary-alt-highlight: rgba(0, 255, 1, 0.1);
@@ -64,7 +67,13 @@ export function CustomCssScene(): JSX.Element {
                         <LemonButton type="secondary" onClick={onPreview}>
                             Preview
                         </LemonButton>
-                        <LemonButton type="primary" onClick={saveCustomCss}>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                saveCustomCss()
+                                router.actions.push(urls.projectHomepage())
+                            }}
+                        >
                             Save and set
                         </LemonButton>
                     </>
