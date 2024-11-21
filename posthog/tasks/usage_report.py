@@ -809,7 +809,7 @@ def get_teams_with_new_surveys_launched_in_last_7_days(
 ) -> QuerySet:
     begin = end - timedelta(days=7)
     return Survey.objects.filter(start_date__gt=begin, start_date__lte=end).values(
-        "team_id", "name", "id", "description"
+        "team_id", "name", "id", "description", "start_date"
     )
 
 
@@ -818,8 +818,15 @@ def get_teams_with_new_feature_flags_created_in_last_7_days(
     end: datetime,
 ) -> QuerySet:
     begin = end - timedelta(days=7)
-    return FeatureFlag.objects.filter(created_at__gt=begin, created_at__lte=end, deleted=False).values(
-        "team_id", "name", "id", "key"
+    return (
+        FeatureFlag.objects.filter(
+            created_at__gt=begin,
+            created_at__lte=end,
+            deleted=False,
+        )
+        .exclude(name__contains="Feature Flag for Experiment")
+        .exclude(name__contains="Targeting flag for survey")
+        .values("team_id", "name", "id", "key")
     )
 
 
@@ -1196,19 +1203,23 @@ def _get_weekly_digest_report(all_digest_data: dict[str, Any], team: Team) -> We
             for event_definition in all_digest_data["teams_with_new_event_definitions_in_last_7_days"].get(team.id, [])
         ],
         new_playlists_created_in_last_7_days=[
-            {"name": playlist.get("name"), "id": playlist.get("id")}
+            {"name": playlist.get("name"), "id": playlist.get("short_id")}
             for playlist in all_digest_data["teams_with_new_playlists_created_in_last_7_days"].get(team.id, [])
         ],
         new_experiments_launched_in_last_7_days=[
-            {"name": experiment.get("name"), "id": experiment.get("id"), "start_date": experiment.get("start_date")}
+            {
+                "name": experiment.get("name"),
+                "id": experiment.get("id"),
+                "start_date": experiment.get("start_date").isoformat(),
+            }
             for experiment in all_digest_data["teams_with_new_experiments_launched_in_last_7_days"].get(team.id, [])
         ],
         new_experiments_completed_in_last_7_days=[
             {
                 "name": experiment.get("name"),
                 "id": experiment.get("id"),
-                "start_date": experiment.get("start_date"),
-                "end_date": experiment.get("end_date"),
+                "start_date": experiment.get("start_date").isoformat(),
+                "end_date": experiment.get("end_date").isoformat(),
             }
             for experiment in all_digest_data["teams_with_new_experiments_completed_in_last_7_days"].get(team.id, [])
         ],
@@ -1222,7 +1233,7 @@ def _get_weekly_digest_report(all_digest_data: dict[str, Any], team: Team) -> We
             {
                 "name": survey.get("name"),
                 "id": survey.get("id"),
-                "start_date": survey.get("start_date"),
+                "start_date": survey.get("start_date").isoformat(),
                 "description": survey.get("description"),
             }
             for survey in all_digest_data["teams_with_new_surveys_launched_in_last_7_days"].get(team.id, [])

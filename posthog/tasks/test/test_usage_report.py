@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
@@ -23,12 +23,18 @@ from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
+from posthog.models.event_definition import EventDefinition
+from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feedback.survey import Survey
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.schema import EventsQuery
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+)
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
@@ -839,7 +845,180 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         assert mock_posthog.capture.call_count == 2
         mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
-    # add tests for new digest fields
+
+@freeze_time("2024-01-01T00:01:00Z")  # A Monday
+class TestWeeklyDigestReport(ClickhouseDestroyTablesMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.distinct_id = str(uuid4())
+        self.one_week_ago = now() - timedelta(days=7)
+
+    @patch("posthog.tasks.usage_report.Client")
+    def test_weekly_digest_report(self, mock_client: MagicMock) -> None:
+        # Create test data from "last week"
+        with freeze_time(self.one_week_ago):
+            # Create a dashboard
+            dashboard = Dashboard.objects.create(
+                team=self.team,
+                name="Test Dashboard",
+                created_at=now(),
+            )
+
+            # Create an event definition
+            event_definition = EventDefinition.objects.create(
+                team=self.team,
+                name="Test Event",
+                created_at=now(),
+            )
+
+            # Create a playlist
+            playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="Test Playlist",
+                created_at=now(),
+            )
+
+            # Create experiments
+            # this flag should not be included in the digest
+            flag_for_launched_experiment = FeatureFlag.objects.create(
+                team=self.team,
+                name="Feature Flag for Experiment My experiment 1",
+                key="flag-for-launched-experiment",
+                created_at=now(),
+            )
+            launched_experiment = Experiment.objects.create(
+                team=self.team,
+                name="Launched Experiment",
+                created_at=now(),
+                start_date=now(),
+                feature_flag=flag_for_launched_experiment,
+            )
+
+            # this flag should not e included in the digest
+            flag_for_completed_experiment = FeatureFlag.objects.create(
+                team=self.team,
+                name="Feature Flag for Experiment My experiment 2",
+                key="feature-flag-for-completed-experiment",
+                created_at=now(),
+            )
+            completed_experiment = Experiment.objects.create(
+                team=self.team,
+                name="Completed Experiment",
+                created_at=now(),
+                start_date=now() - timedelta(days=2),
+                end_date=now(),
+                feature_flag=flag_for_completed_experiment,
+            )
+
+            # Create external data source
+            external_data_source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="test_source",
+                connection_id="test_connection",
+                status="completed",
+                source_type="Stripe",
+                created_at=now(),
+            )
+
+            # Create a survey
+            # this flag should not be included in the digest since it's generated for the survey
+            flag_for_survey = FeatureFlag.objects.create(
+                team=self.team,
+                name="Targeting flag for survey My survey",
+                key="feature-flag-for-survey",
+                created_at=now(),
+            )
+            survey = Survey.objects.create(
+                team=self.team,
+                name="Test Survey",
+                description="Test Description",
+                created_at=now(),
+                start_date=now(),
+                targeting_flag=flag_for_survey,
+            )
+
+            # Create a feature flag
+            feature_flag = FeatureFlag.objects.create(
+                team=self.team,
+                name="Test Flag",
+                key="test-flag",
+                created_at=now(),
+            )
+
+        # Run the usage report task
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        period = get_previous_day()
+        period_start, period_end = period
+        _get_all_org_reports(period_start, period_end)
+
+        # Check that the capture event was called with the correct data
+        calls = mock_posthog.capture.call_args_list
+        weekly_digest_call = next(call for call in calls if call[0][1] == "weekly digest report")
+        properties = weekly_digest_call[0][2]
+
+        expected_properties = {
+            "team_id": self.team.id,
+            "team_name": self.team.name,
+            "scope": "machine",
+            "new_dashboards_in_last_7_days": [
+                {
+                    "name": "Test Dashboard",
+                    "id": dashboard.id,
+                }
+            ],
+            "new_event_definitions_in_last_7_days": [
+                {
+                    "name": "Test Event",
+                    "id": event_definition.id,
+                }
+            ],
+            "new_playlists_created_in_last_7_days": [
+                {
+                    "name": "Test Playlist",
+                    "id": playlist.short_id,
+                }
+            ],
+            "new_experiments_launched_in_last_7_days": [
+                {
+                    "name": "Launched Experiment",
+                    "id": launched_experiment.id,
+                    "start_date": launched_experiment.start_date.isoformat(),
+                }
+            ],
+            "new_experiments_completed_in_last_7_days": [
+                {
+                    "name": "Completed Experiment",
+                    "id": completed_experiment.id,
+                    "start_date": completed_experiment.start_date.isoformat(),
+                    "end_date": completed_experiment.end_date.isoformat(),
+                }
+            ],
+            "new_external_data_sources_connected_in_last_7_days": [
+                {
+                    "source_type": "Stripe",
+                    "id": external_data_source.id,
+                }
+            ],
+            "new_surveys_launched_in_last_7_days": [
+                {
+                    "name": "Test Survey",
+                    "id": survey.id,
+                    "start_date": survey.start_date.isoformat(),
+                    "description": "Test Description",
+                }
+            ],
+            "new_feature_flags_created_in_last_7_days": [
+                {
+                    "name": "Test Flag",
+                    "id": feature_flag.id,
+                    "key": "test-flag",
+                }
+            ],
+        }
+
+        assert properties == expected_properties
 
 
 @freeze_time("2022-01-09T00:01:00Z")
