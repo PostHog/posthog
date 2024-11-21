@@ -47,6 +47,19 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     }}
                 />
             </BindLogic>
+
+            <div className="mb-4">
+                <div className="text-muted text-sm mb-2">Recent Viewers (30 days)</div>
+                <ProfileBubbles
+                    people={recentUserMembers.map((member) => ({
+                        email: member.user.email,
+                        name: member.user.first_name,
+                        title: member.user.email
+                    }))}
+                    tooltip="Recent viewers"
+                    limit={8}
+                />
+            </div>
         </>
     )
 }
