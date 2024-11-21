@@ -1,93 +1,140 @@
 import './ErrorDisplay.scss'
 
 import { IconFlag, IconUpload } from '@posthog/icons'
-import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { LemonBanner, LemonButton, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { errorTrackingSymbolSetLogic } from 'scenes/error-tracking/errorTrackingSymbolSetLogic'
 
 import { EventType } from '~/types'
 
-import { StackFrame } from './stackFrameLogic'
-
-interface RawStackTrace {
-    type: 'raw'
-    frames: StackFrame[]
-}
-interface ResolvedStackTrace {
-    type: 'resolved'
-    frames: StackFrame[]
-}
-
-interface Exception {
-    stacktrace: ResolvedStackTrace | RawStackTrace
-    module: string
-    type: string
-    value: string
-}
+import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
+import { stackFrameLogic } from './stackFrameLogic'
+import {
+    ErrorTrackingException,
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameContext,
+    ErrorTrackingStackFrameContextLine,
+} from './types'
 
 function StackTrace({
     frames,
     showAllFrames,
-    resolved,
 }: {
-    frames: StackFrame[]
+    frames: ErrorTrackingStackFrame[]
     showAllFrames: boolean
-    resolved: boolean
 }): JSX.Element | null {
+    const { frameContexts } = useValues(stackFrameLogic)
+    const { loadFrameContexts } = useActions(stackFrameLogic)
     const { setUploadSymbolSetReference } = useActions(errorTrackingSymbolSetLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
-    const panels = displayFrames.map(({ filename, lineno, colno, function: functionName }, index) => {
-        return {
-            key: index,
-            header: (
-                <div className="flex flex-1 justify-between items-center">
-                    <div className="flex flex-wrap space-x-0.5">
-                        <span>{filename}</span>
-                        {functionName ? (
-                            <div className="flex space-x-0.5">
-                                <span className="text-muted">in</span>
-                                <span>{functionName}</span>
-                            </div>
-                        ) : null}
-                        {lineno && colno ? (
-                            <div className="flex space-x-0.5">
-                                <span className="text-muted">at line</span>
-                                <span>
-                                    {lineno}:{colno}
-                                </span>
-                            </div>
-                        ) : null}
-                    </div>
-                    {!resolved && (
-                        <div className="flex items-center space-x-1">
-                            <span>
-                                <LemonTag>Unresolved</LemonTag>
-                            </span>
-                            <LemonButton
-                                icon={<IconUpload />}
-                                size="xsmall"
-                                onClick={() => setUploadSymbolSetReference(filename)}
-                                tooltip="Upload source map"
-                            />
-                        </div>
-                    )}
-                </div>
-            ),
-            content: null,
-        }
-    })
+    useEffect(() => {
+        loadFrameContexts({ frames })
+    }, [frames, loadFrameContexts])
 
-    return <LemonCollapse defaultActiveKeys={[]} multiple panels={panels} size="xsmall" />
+    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0
+
+    const panels = displayFrames.map(
+        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure }, index) => {
+            const frameContext = frameContexts[raw_id]
+            return {
+                key: index,
+                header: (
+                    <div className="flex flex-1 justify-between items-center">
+                        <div className="flex flex-wrap space-x-0.5">
+                            <span>{source}</span>
+                            {resolved_name ? (
+                                <div className="flex space-x-0.5">
+                                    <span className="text-muted">in</span>
+                                    <span>{resolved_name}</span>
+                                </div>
+                            ) : null}
+                            {line ? (
+                                <div className="flex space-x-0.5">
+                                    <span className="text-muted">@</span>
+                                    <span>
+                                        {line}
+                                        {column && `:${column}`}
+                                    </span>
+                                </div>
+                            ) : null}
+                        </div>
+                        {!resolved && (
+                            <div className="flex items-center space-x-1">
+                                <Tooltip title={resolve_failure}>
+                                    <LemonTag>Unresolved</LemonTag>
+                                </Tooltip>
+                                <LemonButton
+                                    icon={<IconUpload />}
+                                    size="xsmall"
+                                    onClick={() => setUploadSymbolSetReference(source)}
+                                    tooltip="Upload source map"
+                                />
+                            </div>
+                        )}
+                    </div>
+                ),
+                content: frameContext ? <FrameContext context={frameContext} language={getLanguage(lang)} /> : null,
+                className: 'p-0',
+            }
+        }
+    )
+
+    return <LemonCollapse defaultActiveKeys={[initiallyActiveIndex]} multiple panels={panels} size="xsmall" />
 }
 
-function ChainedStackTraces({ exceptionList }: { exceptionList: Exception[] }): JSX.Element {
+function FrameContext({
+    context,
+    language,
+}: {
+    context: ErrorTrackingStackFrameContext
+    language: Language
+}): JSX.Element {
+    const { before, line, after } = context
+    return (
+        <>
+            <FrameContextLine lines={before} language={language} />
+            <FrameContextLine lines={[line]} language={language} highlight />
+            <FrameContextLine lines={after} language={language} />
+        </>
+    )
+}
+
+function FrameContextLine({
+    lines,
+    language,
+    highlight,
+}: {
+    lines: ErrorTrackingStackFrameContextLine[]
+    language: Language
+    highlight?: boolean
+}): JSX.Element {
+    return (
+        <div className={highlight ? 'bg-accent-3000' : 'bg-bg-light'}>
+            {lines
+                .sort((l) => l.number)
+                .map(({ number, line }) => (
+                    <div key={number} className="flex">
+                        <div className="w-12 text-center">{number}</div>
+                        <CodeLine text={line} wrapLines={true} language={language} />
+                    </div>
+                ))}
+        </div>
+    )
+}
+function ChainedStackTraces({
+    exceptionList,
+    ingestionErrors,
+}: {
+    exceptionList: ErrorTrackingException[]
+    ingestionErrors: string[]
+}): JSX.Element {
     const [showAllFrames, setShowAllFrames] = useState(false)
 
     return (
@@ -103,23 +150,32 @@ function ChainedStackTraces({ exceptionList }: { exceptionList: Exception[] }): 
                     }}
                 />
             </div>
+            {ingestionErrors && (
+                <LemonBanner type="error">
+                    <ul>
+                        {ingestionErrors.map((e, i) => (
+                            <li key={i}>{e}</li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
             {exceptionList.map(({ stacktrace, value }, index) => {
-                const { frames, type } = stacktrace || {}
-                if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
-                    // if we're not showing all frames and there are no in_app frames, skip this exception
-                    return null
+                if (stacktrace.type === 'resolved') {
+                    const { frames } = stacktrace
+                    if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
+                        // if we're not showing all frames and there are no in_app frames, skip this exception
+                        return null
+                    }
+
+                    return (
+                        <div key={index} className="ErrorDisplay__stacktrace flex flex-col gap-1 mt-6">
+                            <h3 className="mb-0">{value}</h3>
+                            <StackTrace frames={frames || []} showAllFrames={showAllFrames} />
+                        </div>
+                    )
                 }
 
-                return (
-                    <div key={index} className="ErrorDisplay__stacktrace flex flex-col gap-1 mt-6">
-                        <h3 className="mb-0">{value}</h3>
-                        <StackTrace
-                            frames={frames || []}
-                            resolved={type === 'resolved'}
-                            showAllFrames={showAllFrames}
-                        />
-                    </div>
-                )
+                return null
             })}
         </>
     )
@@ -216,6 +272,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $sentry_url,
         $exception_list,
         $level,
+        $cymbal_errors,
     } = getExceptionPropertiesFrom(eventProperties)
 
     return (
@@ -247,7 +304,9 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
                 <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
             </div>
-            {$exception_list?.length ? <ChainedStackTraces exceptionList={$exception_list} /> : null}
+            {$exception_list?.length ? (
+                <ChainedStackTraces exceptionList={$exception_list} ingestionErrors={$cymbal_errors} />
+            ) : null}
             <LemonDivider dashed={true} />
             <div className="flex flex-col gap-1 mt-6">
                 <h2 className="mb-0">Active Feature Flags</h2>

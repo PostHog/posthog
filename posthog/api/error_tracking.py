@@ -1,6 +1,6 @@
 import structlog
 
-from rest_framework import mixins, serializers, viewsets, status
+from rest_framework import mixins, serializers, viewsets, status, response
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
@@ -8,10 +8,13 @@ from django.conf import settings
 
 from drf_spectacular.utils import extend_schema
 
-from posthog.models import ErrorTrackingSymbolSet
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.models import ErrorTrackingSymbolSet
+from posthog.models.error_tracking import ErrorTrackingStackFrame
 from posthog.storage import object_storage
+
 
 FIFTY_MEGABYTES = 50 * 1024 * 1024
 
@@ -45,6 +48,26 @@ class ObjectStorageUnavailable(Exception):
 #         merging_fingerprints: list[list[str]] = request.data.get("merging_fingerprints", [])
 #         group.merge(merging_fingerprints)
 #         return Response({"success": True})
+
+
+class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingStackFrame
+        fields = ["raw_id", "context"]
+
+
+class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingStackFrame.objects.all()
+    serializer_class = ErrorTrackingStackFrameSerializer
+
+    @action(methods=["GET"], detail=False)
+    def contexts(self, request, **kwargs) -> response.Response:
+        ids = request.GET.getlist("ids", [])
+        queryset = self.filter_queryset(self.queryset.filter(team=self.team, raw_id__in=ids))
+        serializer = self.get_serializer(queryset, many=True)
+        keyed_data = {frame["raw_id"]: frame["context"] for frame in serializer.data}
+        return response.Response(keyed_data)
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):

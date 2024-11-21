@@ -114,6 +114,7 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { ErrorTrackingStackFrameContext } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -724,6 +725,14 @@ class ApiRequest {
 
     public errorTrackingMissingSymbolSets(): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent('missing')
+    }
+
+    public errorTrackingStackFrames(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('error_tracking/stack_frames')
+    }
+
+    public errorTrackingStackFrameContexts(ids: string[]): ApiRequest {
+        return this.errorTrackingStackFrames().addPathComponent('contexts').withQueryString(toParams({ ids }, true))
     }
 
     // # Warehouse
@@ -1868,6 +1877,10 @@ const api = {
         async missingSymbolSets(): Promise<ErrorTrackingSymbolSet[]> {
             return await new ApiRequest().errorTrackingMissingSymbolSets().get()
         },
+
+        async fetchStackFrames(ids: string[]): Promise<Record<string, ErrorTrackingStackFrameContext>> {
+            return await new ApiRequest().errorTrackingStackFrameContexts(ids).get()
+        },
     },
 
     recordings: {
@@ -2209,7 +2222,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+            data: Partial<DataWarehouseSavedQuery>
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },

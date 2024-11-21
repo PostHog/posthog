@@ -14,6 +14,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { experimentLogic } from './experimentLogic'
+import { ExperimentsDisabledBanner } from './Experiments'
 
 const ExperimentFormFields = (): JSX.Element => {
     const { experiment, featureFlags, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
@@ -21,7 +22,9 @@ const ExperimentFormFields = (): JSX.Element => {
         useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
 
-    return (
+    return featureFlags[FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI] ? (
+        <ExperimentsDisabledBanner />
+    ) : (
         <div>
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
@@ -221,14 +224,12 @@ const ExperimentFormFields = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
-                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && (
-                    <div>
-                        <h3>Holdout group</h3>
-                        <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
-                        <LemonDivider />
-                        <HoldoutSelector />
-                    </div>
-                )}
+                <div>
+                    <h3>Holdout group</h3>
+                    <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
+                    <LemonDivider />
+                    <HoldoutSelector />
+                </div>
             </div>
             <LemonButton
                 className="mt-2"

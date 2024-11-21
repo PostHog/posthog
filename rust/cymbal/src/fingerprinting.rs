@@ -44,6 +44,7 @@ mod test {
                 resolved: true,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                junk_drawer: None,
                 context: None,
             },
             Frame {
@@ -57,6 +58,7 @@ mod test {
                 resolved: true,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                junk_drawer: None,
                 context: None,
             },
         ];
@@ -72,6 +74,7 @@ mod test {
             resolved: false,
             resolve_failure: None,
             lang: "javascript".to_string(),
+            junk_drawer: None,
             context: None,
         };
 
@@ -116,6 +119,7 @@ mod test {
                 resolved: false,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                junk_drawer: None,
                 context: None,
             },
             Frame {
@@ -129,6 +133,7 @@ mod test {
                 resolved: false,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                junk_drawer: None,
                 context: None,
             },
             Frame {
@@ -142,6 +147,7 @@ mod test {
                 resolved: false,
                 resolve_failure: None,
                 lang: "javascript".to_string(),
+                junk_drawer: None,
                 context: None,
             },
         ];
@@ -180,6 +186,7 @@ mod test {
             resolved: false,
             resolve_failure: None,
             lang: "javascript".to_string(),
+            junk_drawer: None,
             context: None,
         }];
 
@@ -194,6 +201,7 @@ mod test {
             resolved: false,
             resolve_failure: None,
             lang: "javascript".to_string(),
+            junk_drawer: None,
             context: None,
         };
 
