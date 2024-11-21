@@ -1634,8 +1634,8 @@ async def test_insert_into_snowflake_activity_heartbeats(
 @pytest.mark.parametrize(
     "details",
     [
-        ((str(dt.datetime.now()), str(dt.datetime.now())), 1),
-        ((str(dt.datetime.now()), str(dt.datetime.now())),),
+        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())], 1),
+        ([(dt.datetime.now().isoformat(), dt.datetime.now().isoformat())],),
     ],
 )
 def test_snowflake_heartbeat_details_parses_from_tuple(details):
@@ -1648,11 +1648,14 @@ def test_snowflake_heartbeat_details_parses_from_tuple(details):
             self.heartbeat_details = details
 
     snowflake_details = SnowflakeHeartbeatDetails.from_activity(FakeActivity())
+    expected_done_ranges = details[0]
 
-    assert snowflake_details.done_ranges == (
-        dt.datetime.fromisoformat(details[0][0]),
-        dt.datetime.fromisoformat(details[0][1]),
-    )
+    assert snowflake_details.done_ranges == [
+        (
+            dt.datetime.fromisoformat(expected_done_ranges[0][0]),
+            dt.datetime.fromisoformat(expected_done_ranges[0][1]),
+        )
+    ]
 
     if len(details) >= 2:
         assert snowflake_details.file_no == details[1]

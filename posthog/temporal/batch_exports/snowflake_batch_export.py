@@ -120,7 +120,8 @@ class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
 
     def serialize_details(self) -> tuple[typing.Any, ...]:
         """Attempt to initialize HeartbeatDetails from an activity's details."""
-        return (self.file_no, *super().serialize_details())
+        serialized_parent_details = super().serialize_details()
+        return (*serialized_parent_details[:-1], self.file_no, self._remaining)
 
 
 @dataclasses.dataclass
@@ -699,9 +700,10 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     )
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
-                    last_inserted_at = last_date_range[1]
 
-                    heartbeater.details = (str(last_inserted_at), flush_counter)
+                    details.insert_done_range(last_date_range, data_interval_start)
+                    details.file_no = flush_counter
+                    heartbeater.details = tuple(details.serialize_details())
 
                 writer = JSONLBatchExportWriter(
                     max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
