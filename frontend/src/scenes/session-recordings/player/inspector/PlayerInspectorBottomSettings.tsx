@@ -46,10 +46,28 @@ function SyncScrolling(): JSX.Element {
     )
 }
 
+function ShowOnlyMatching(): JSX.Element {
+    const { showOnlyMatching } = useValues(miniFiltersLogic)
+    const { setShowOnlyMatching } = useActions(miniFiltersLogic)
+
+    return (
+        <LemonButton
+            status={showOnlyMatching ? 'danger' : 'default'}
+            size="xsmall"
+            onClick={() => {
+                setShowOnlyMatching(!showOnlyMatching)
+            }}
+        >
+            Show only matching events
+        </LemonButton>
+    )
+}
+
 export function PlayerInspectorBottomSettings(): JSX.Element {
     return (
         <div className="flex flex-row bg-bg-3000 w-full overflow-hidden border-t px-2 py-1 font-light text-small">
             <SyncScrolling />
+            <ShowOnlyMatching />
             <HideProperties />
         </div>
     )
