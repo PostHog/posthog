@@ -408,6 +408,9 @@ class S3HeartbeatDetails(BatchExportRangeHeartbeatDetails):
         first_detail = remaining["_remaining"][0]
         remaining["_remaining"] = remaining["_remaining"][1:]
 
+        if first_detail is None:
+            return {"upload_state": None, **remaining}
+
         try:
             upload_state = S3MultiPartUploadState(*first_detail)
         except (TypeError, ValueError) as e:
@@ -419,6 +422,15 @@ class S3HeartbeatDetails(BatchExportRangeHeartbeatDetails):
         """Attempt to initialize HeartbeatDetails from an activity's details."""
         serialized_parent_details = super().serialize_details()
         return (*serialized_parent_details[:-1], self.upload_state, self._remaining)
+
+    def append_upload_state(self, upload_state: S3MultiPartUploadState):
+        if self.upload_state is None:
+            self.upload_state = upload_state
+
+        current_parts = {part["PartNumber"] for part in self.upload_state.parts}
+        for part in upload_state.parts:
+            if part["PartNumber"] not in current_parts:
+                self.upload_state.parts.append(part)
 
 
 @dataclasses.dataclass
@@ -583,7 +595,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             ):
                 if error is not None:
                     await logger.adebug("Error while writing part %d", s3_upload.part_number + 1, exc_info=error)
-                    await logger.awarn(
+                    await logger.awarning(
                         "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
                         s3_upload.part_number + 1,
                     )
@@ -602,13 +614,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 rows_exported.add(records_since_last_flush)
                 bytes_exported.add(bytes_since_last_flush)
 
-                if len(details.done_ranges) == 0:
-                    if data_interval_start is None:
-                        last_date_range = (dt.datetime.fromtimestamp(0, tz=dt.UTC), last_date_range[1])
-                    else:
-                        last_date_range = (dt.datetime.fromisoformat(data_interval_start), last_date_range[1])
-
-                details.insert_done_range(last_date_range)
+                details.insert_done_range(last_date_range, data_interval_start)
+                details.append_upload_state(s3_upload.to_state())
                 heartbeater.details = tuple(details.serialize_details())
 
             first_record_batch = cast_record_batch_json_columns(first_record_batch)

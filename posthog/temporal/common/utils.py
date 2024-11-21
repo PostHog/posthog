@@ -69,6 +69,7 @@ class HeartbeatDetails(metaclass=abc.ABCMeta):
 
 
 DateRange = tuple[dt.datetime, dt.datetime]
+FirstDateRange = tuple[dt.datetime | None, dt.datetime]
 
 
 @dataclasses.dataclass
@@ -110,7 +111,38 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         serialized_parent_details = super().serialize_details()
         return (*serialized_parent_details[:-1], serialized_done_ranges, self._remaining)
 
-    def insert_done_range(self, done_range: DateRange, merge: bool = True):
+    @property
+    def empty(self) -> bool:
+        return len(self.done_ranges) == 0
+
+    def insert_done_range(
+        self, done_range: DateRange, data_interval_start_input: str | dt.datetime | None, merge: bool = True
+    ):
+        if self.empty is True:
+            if data_interval_start_input is None:
+                data_interval_start = dt.datetime.fromtimestamp(0, tz=dt.UTC)
+            elif isinstance(data_interval_start_input, str):
+                data_interval_start = dt.datetime.fromisoformat(data_interval_start_input)
+            else:
+                data_interval_start = data_interval_start_input
+
+            done_range = (data_interval_start, done_range[1])
+
+        self.insert_done_range_within_ranges(done_range, merge=merge)
+
+    def complete_done_range(self, data_interval_end_input: str | dt.datetime, merge: bool = True):
+        if isinstance(data_interval_end_input, str):
+            data_interval_end = dt.datetime.fromisoformat(data_interval_end_input)
+        else:
+            data_interval_end = data_interval_end_input
+
+        done_range = (self.done_ranges[-1][1], data_interval_end)
+        self.done_ranges.append(done_range)
+
+        if merge:
+            self.merge_done_ranges()
+
+    def insert_done_range_within_ranges(self, done_range: DateRange, merge: bool = True):
         for index, range in enumerate(self.done_ranges, start=0):
             if done_range[0] > range[1]:
                 continue

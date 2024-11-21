@@ -1421,11 +1421,20 @@ async def test_insert_into_s3_activity_heartbeats(
 
     assert len(heartbeat_details) > 0
 
-    for detail in heartbeat_details:
-        last_uploaded_part_dt = dt.datetime.fromisoformat(detail.last_uploaded_part_timestamp)
-        assert last_uploaded_part_dt == data_interval_end - s3_batch_export.interval_time_delta / len(
-            detail.upload_state.parts
-        )
+    detail = heartbeat_details[-1]
+
+    assert len(detail.upload_state.parts) == 3
+    assert len(detail.done_ranges) == 3
+
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end - s3_batch_export.interval_time_delta / 1)
+    assert detail.done_ranges[1] == (
+        data_interval_end - s3_batch_export.interval_time_delta / 2,
+        data_interval_end - s3_batch_export.interval_time_delta / 2,
+    )
+    assert detail.done_ranges[2] == (
+        data_interval_end - s3_batch_export.interval_time_delta / 3,
+        data_interval_end - s3_batch_export.interval_time_delta / 3,
+    )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,

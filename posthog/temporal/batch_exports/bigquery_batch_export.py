@@ -513,13 +513,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    if len(details.done_ranges) == 0:
-                        if data_interval_start is None:
-                            last_date_range = (dt.datetime.fromtimestamp(0, tz=dt.UTC), last_date_range[1])
-                        else:
-                            last_date_range = (data_interval_start, last_date_range[1])
-
-                    details.insert_done_range(last_date_range)
+                    details.insert_done_range(last_date_range, data_interval_start)
                     heartbeater.details = tuple(details.serialize_details())
 
                 flush_tasks = []

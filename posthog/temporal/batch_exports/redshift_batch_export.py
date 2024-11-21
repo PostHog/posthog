@@ -358,10 +358,10 @@ async def insert_records_to_redshift(
                 # the byte size of each batch the way things are currently written. We can revisit this
                 # in the future if we decide it's useful enough.
 
-            first_inserted_at = None
+            batch_start_inserted_at = None
             async for record, _inserted_at in records_iterator:
-                if first_inserted_at is None:
-                    first_inserted_at = _inserted_at
+                if batch_start_inserted_at is None:
+                    batch_start_inserted_at = _inserted_at
 
                 for column in columns:
                     if known_super_columns is not None and column in known_super_columns:
@@ -373,32 +373,19 @@ async def insert_records_to_redshift(
 
                 await flush_to_redshift(batch)
 
-                if len(heartbeat_details.done_ranges) == 0:
-                    if data_interval_start is None:
-                        last_date_range: tuple[dt.datetime, dt.datetime] = (
-                            dt.datetime.fromtimestamp(0, tz=dt.UTC),
-                            _inserted_at,
-                        )
-                    else:
-                        last_date_range = (data_interval_start, _inserted_at)
-                else:
-                    last_date_range = (first_inserted_at, _inserted_at)
-                heartbeat_details.insert_done_range(last_date_range)
+                last_date_range = (batch_start_inserted_at, _inserted_at)
+                heartbeat_details.insert_done_range(last_date_range, data_interval_start)
                 heartbeater.details = tuple(heartbeat_details.serialize_details())
+
+                batch_start_inserted_at = None
                 batch = []
 
-            if len(batch) > 0 and first_inserted_at:
+            if len(batch) > 0 and batch_start_inserted_at:
                 await flush_to_redshift(batch)
 
-                if len(heartbeat_details.done_ranges) == 0:
-                    if data_interval_start is None:
-                        last_date_range = (dt.datetime.fromtimestamp(0, tz=dt.UTC), _inserted_at)
-                    else:
-                        last_date_range = (data_interval_start, _inserted_at)
-                else:
-                    last_date_range = (first_inserted_at, _inserted_at)
+                last_date_range = (batch_start_inserted_at, _inserted_at)
 
-                heartbeat_details.insert_done_range(last_date_range)
+                heartbeat_details.insert_done_range(last_date_range, data_interval_start)
                 heartbeater.details = tuple(heartbeat_details.serialize_details())
 
     return total_rows_exported
