@@ -53,7 +53,7 @@ class FeatureFlagStatusChecker:
 
         return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be actively called"
 
-    def is_flag_fully_enabled(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
+    def is_flag_fully_enabled(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason | None]:
         # If flag is not active, it is not enabled. This flag may still be stale,
         # but only if isn't being evaluated, which will be determined later.
         if not flag.active:
@@ -141,7 +141,7 @@ class FeatureFlagStatusChecker:
         recent_evaluations = self.get_recent_evaluations(flag)
         return len(recent_evaluations) == 0
 
-    def get_recent_evaluations(self, flag: FeatureFlag) -> bool:
+    def get_recent_evaluations(self, flag: FeatureFlag) -> list[list[str]]:
         from posthog.schema import EventsQuery, EventsQueryResponse
         from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
