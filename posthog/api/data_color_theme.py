@@ -11,6 +11,10 @@ class DataColorThemeSerializer(serializers.ModelSerializer):
         model = DataColorTheme
         fields = ["id", "name", "colors"]
 
+    def create(self, validated_data: dict, *args, **kwargs) -> DataColorTheme:
+        validated_data["team_id"] = self.context["team_id"]
+        return super().create(validated_data, *args, **kwargs)
+
 
 class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
