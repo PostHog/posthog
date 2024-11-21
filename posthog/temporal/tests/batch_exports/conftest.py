@@ -9,7 +9,7 @@ import pytest_asyncio
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
-from posthog.temporal.common.utils import BatchExportRangeHeartbeatDetails, HeartbeatType
+from posthog.temporal.common.utils import BatchExportRangeHeartbeatDetails
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -291,7 +291,9 @@ async def generate_test_data(ateam, clickhouse_client, exclude_events, data_inte
 
 
 class HeartbeatActivityEnvironment(ActivityEnvironment):
-    def __init__(self, *args, heartbeat_cls: type[HeartbeatType] = BatchExportRangeHeartbeatDetails, **kwargs):
+    def __init__(
+        self, *args, heartbeat_cls: type[BatchExportRangeHeartbeatDetails] = BatchExportRangeHeartbeatDetails, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.track_heartbeat_details: list[typing.Any] = []
         self.heartbeat_cls = heartbeat_cls
