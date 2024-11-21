@@ -56,7 +56,7 @@ pub async fn handle_event(
     let mut output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
 
     // TODO - I'm not sure we actually want to do this? Maybe junk drawer stuff should end up in clickhouse, and
-    // be directly queryable by users? Stripping it for now
+    // be directly queryable by users? Stripping it for now, so it only ends up in postgres
     output.strip_frame_junk();
 
     event.properties = Some(serde_json::to_string(&output).unwrap());
