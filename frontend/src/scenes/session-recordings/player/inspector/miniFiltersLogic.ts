@@ -10,41 +10,11 @@ export type SharedListMiniFilter = {
     tab: SessionRecordingPlayerTab
     key: string
     name: string
-    // If alone, then enabling it will disable all the others
-    alone?: boolean
     tooltip?: string
     enabled?: boolean
 }
 
 const MiniFilters: SharedListMiniFilter[] = [
-    {
-        tab: SessionRecordingPlayerTab.ALL,
-        key: 'all-automatic',
-        name: 'Auto',
-        alone: true,
-        tooltip: 'Curated list of key PostHog events, custom events, error logs etc.',
-    },
-    {
-        tab: SessionRecordingPlayerTab.ALL,
-        key: 'all-errors',
-        name: 'Errors',
-        alone: true,
-        tooltip: 'Events containing "error" or "exception" in their name and console errors',
-    },
-    {
-        tab: SessionRecordingPlayerTab.ALL,
-        key: 'all-everything',
-        name: 'Everything',
-        alone: true,
-        tooltip: 'Everything that happened in this session',
-    },
-    {
-        tab: SessionRecordingPlayerTab.EVENTS,
-        key: 'events-all',
-        name: 'All',
-        alone: true,
-        tooltip: 'All events tracked during this session',
-    },
     {
         tab: SessionRecordingPlayerTab.EVENTS,
         key: 'events-posthog',
@@ -77,12 +47,6 @@ const MiniFilters: SharedListMiniFilter[] = [
     },
     {
         tab: SessionRecordingPlayerTab.CONSOLE,
-        key: 'console-all',
-        name: 'All',
-        alone: true,
-    },
-    {
-        tab: SessionRecordingPlayerTab.CONSOLE,
         key: 'console-info',
         name: 'Info',
     },
@@ -95,13 +59,6 @@ const MiniFilters: SharedListMiniFilter[] = [
         tab: SessionRecordingPlayerTab.CONSOLE,
         key: 'console-error',
         name: 'Error',
-    },
-    {
-        tab: SessionRecordingPlayerTab.NETWORK,
-        key: 'performance-all',
-        name: 'All',
-        alone: true,
-        tooltip: 'All network performance information collected during the session',
     },
     {
         tab: SessionRecordingPlayerTab.NETWORK,
@@ -139,7 +96,13 @@ const MiniFilters: SharedListMiniFilter[] = [
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
     },
-
+    {
+        tab: SessionRecordingPlayerTab.DOCTOR,
+        key: 'doctor',
+        name: 'Doctor',
+        tooltip:
+            'Doctor events are special events that are automatically detected by PostHog to help diagnose issues in replay.',
+    },
     // NOTE: The below filters use the `response_status` property which is currently experiemental
     // and as such doesn't show for many browsers: https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming/responseStatus
     // We should only add these in if the recording in question has those values (otherwiseit is a confusing experience for the user)
@@ -166,6 +129,7 @@ const MiniFilters: SharedListMiniFilter[] = [
     //         'Requests that returned a HTTP status code of 5xx. The server failed to fulfil an apparently valid request.',
     // },
 ]
+export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
 export const miniFiltersLogic = kea<miniFiltersLogicType>([
     path(['scenes', 'session-recordings', 'player', 'miniFiltersLogic']),
@@ -196,46 +160,27 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         ],
 
         selectedMiniFilters: [
-            ['all-automatic', 'console-all', 'events-all', 'performance-all'] as string[],
+            [
+                'events-posthog',
+                'events-custom',
+                'events-pageview',
+                'events-autocapture',
+                'events-exceptions',
+                'console-info',
+                'console-warn',
+                'console-error',
+            ] as MiniFilterKey[],
             { persist: true },
             {
                 setMiniFilter: (state, { key, enabled }) => {
-                    const selectedFilter = MiniFilters.find((x) => x.key === key)
-
-                    if (!selectedFilter) {
-                        return state
-                    }
-                    const filtersInTab = MiniFilters.filter((x) => x.tab === selectedFilter.tab)
-
-                    const newFilters = state.filter((existingSelected) => {
-                        const filterInTab = filtersInTab.find((x) => x.key === existingSelected)
-                        if (!filterInTab) {
-                            return true
-                        }
-
-                        if (enabled) {
-                            if (selectedFilter.alone) {
-                                return false
-                            }
-                            return filterInTab.alone ? false : true
-                        }
-
-                        if (existingSelected !== key) {
-                            return true
-                        }
-                        return false
-                    })
-
+                    const stateWithoutKey = state.filter((x) => x !== key)
                     if (enabled) {
-                        newFilters.push(key)
-                    } else {
-                        // Ensure the first one is checked if no others
-                        if (filtersInTab.every((x) => !newFilters.includes(x.key))) {
-                            newFilters.push(filtersInTab[0].key)
-                        }
+                        // ensure it's in the array
+                        // remove it if it's there and then add it back
+                        return stateWithoutKey.concat(key)
                     }
-
-                    return newFilters
+                    // ensure it's not in the array
+                    return stateWithoutKey
                 },
             },
         ],
@@ -262,9 +207,12 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         ],
 
         miniFilters: [
-            (s) => [s.tab, s.miniFiltersForTab],
-            (tab, miniFiltersForTab): SharedListMiniFilter[] => {
-                return miniFiltersForTab(tab)
+            (s) => [s.selectedMiniFilters],
+            (selectedMiniFilters): SharedListMiniFilter[] => {
+                return MiniFilters.map((x) => ({
+                    ...x,
+                    enabled: selectedMiniFilters.includes(x.key),
+                }))
             },
         ],
 

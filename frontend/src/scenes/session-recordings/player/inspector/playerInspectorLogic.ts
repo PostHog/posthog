@@ -649,17 +649,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         filteredItems: [
-            (s) => [
-                s.allItems,
-                s.tab,
-                s.miniFiltersByKey,
-                s.showOnlyMatching,
-                s.showMatchingEventsFilter,
-                s.windowIdFilter,
-            ],
+            (s) => [s.allItems, s.miniFiltersByKey, s.showOnlyMatching, s.showMatchingEventsFilter, s.windowIdFilter],
             (
                 allItems,
-                tab,
                 miniFiltersByKey,
                 showOnlyMatching,
                 showMatchingEventsFilter,
@@ -667,7 +659,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ): InspectorListItem[] => {
                 return filterInspectorListItems({
                     allItems,
-                    tab,
                     miniFiltersByKey,
                     showMatchingEventsFilter,
                     showOnlyMatching,
@@ -694,7 +685,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const eventsTabFilters = miniFiltersForTabByKey(SessionRecordingPlayerTab.EVENTS)
                 const eventTabFilteredItems = filterInspectorListItems({
                     allItems,
-                    tab: SessionRecordingPlayerTab.EVENTS,
                     miniFiltersByKey: eventsTabFilters,
                     showMatchingEventsFilter,
                     showOnlyMatching,

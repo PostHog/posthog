@@ -109,12 +109,21 @@ export function LemonMenu({
                 setTimeout(() => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }), 0)
             }
         },
+        // no need to update this when itemsRef changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [onVisibilityChange, activeItemIndex]
     )
 
     return (
         <LemonDropdown
-            overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
+            overlay={
+                <LemonMenuOverlay
+                    buttonSize={dropdownProps.buttonSize || 'small'}
+                    items={items}
+                    tooltipPlacement={tooltipPlacement}
+                    itemsRef={itemsRef}
+                />
+            }
             closeOnClickInside
             referenceRef={referenceRef}
             onVisibilityChange={_onVisibilityChange}
@@ -128,7 +137,7 @@ export interface LemonMenuOverlayProps {
     tooltipPlacement?: TooltipProps['placement']
     itemsRef?: React.RefObject<React.RefObject<HTMLButtonElement>[]>
     /** @default 'small' */
-    buttonSize?: 'small' | 'medium'
+    buttonSize?: 'xsmall' | 'small' | 'medium'
 }
 
 export function LemonMenuOverlay({
