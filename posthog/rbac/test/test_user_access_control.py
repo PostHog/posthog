@@ -69,6 +69,15 @@ class BaseUserAccessControlTest(BaseTest):
 
 @pytest.mark.ee
 class TestUserAccessControl(BaseUserAccessControlTest):
+    def test_no_organization_id_passed(self):
+        # Create a user without an organization
+        user_without_org = User.objects.create(email="no-org@posthog.com", password="testtest")
+        user_access_control = UserAccessControl(user_without_org)
+
+        assert user_access_control._organization_membership is None
+        assert user_access_control._organization is None
+        assert user_access_control._user_role_ids == []
+
     def test_without_available_product_features(self):
         self.organization.available_product_features = []
         self.organization.save()

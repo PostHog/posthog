@@ -95,15 +95,12 @@ class UserAccessControl:
     def __init__(self, user: User, team: Optional[Team] = None, organization_id: Optional[str] = None):
         self._user = user
         self._team = team
+        self._cache: dict[str, list[AccessControl]] = {}
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
 
-        if not organization_id:
-            raise ValueError("Organization ID must be provided either directly or via the team")
-
         self._organization_id = organization_id
-        self._cache: dict[str, list[AccessControl]] = {}
 
     def _clear_cache(self):
         # Primarily intended for tests
@@ -113,6 +110,8 @@ class UserAccessControl:
     def _organization_membership(self) -> Optional[OrganizationMembership]:
         # NOTE: This is optimized to reduce queries - we get the users membership _with_ the organization
         try:
+            if not self._organization_id:
+                return None
             return OrganizationMembership.objects.select_related("organization").get(
                 organization_id=self._organization_id, user=self._user
             )
