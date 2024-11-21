@@ -1393,14 +1393,14 @@ async def test_insert_into_s3_activity_heartbeats(
             inserted_at=part_inserted_at,
         )
 
-    heartbeat_details = []
+    heartbeat_details: list[S3HeartbeatDetails] = []
 
     def track_hearbeat_details(*details):
         """Record heartbeat details received."""
         nonlocal heartbeat_details
 
-        details = S3HeartbeatDetails.from_activity_details(details)
-        heartbeat_details.append(details)
+        s3_details = S3HeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(s3_details)
 
     activity_environment.on_heartbeat = track_hearbeat_details
 
@@ -1423,6 +1423,7 @@ async def test_insert_into_s3_activity_heartbeats(
 
     detail = heartbeat_details[-1]
 
+    assert detail.upload_state is not None
     assert len(detail.upload_state.parts) == 3
     assert len(detail.done_ranges) == 3
 
