@@ -18,6 +18,7 @@ from posthog.api.insight import InsightBasicSerializer
 
 from posthog.utils import relative_date_parse
 from zoneinfo import ZoneInfo
+from posthog.constants import AvailableFeature
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -246,15 +247,37 @@ class AlertSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        if attrs.get("enabled") is not False and (
-            AlertConfiguration.objects.filter(team_id=self.context["team_id"], enabled=True).count()
-            >= AlertConfiguration.ALERTS_PER_TEAM
-        ):
-            raise ValidationError(
-                {"alert": [f"Your team has reached the limit of {AlertConfiguration.ALERTS_PER_TEAM} enabled alerts."]}
-            )
+        user_org = self.context["request"].user.organization
 
-        return attrs
+        has_alerts_feature = user_org.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+
+        allowed_alerts_count = next(
+            (
+                feature.get("limit")
+                for feature in user_org.available_product_features or []
+                if feature.get("key") == AvailableFeature.ALERTS
+            ),
+            None,
+        )
+
+        if has_alerts_feature:
+            # If allowed_alerts_count is None then the user is allowed unlimited alerts
+            if allowed_alerts_count is None:
+                return attrs
+
+            # Check current count against allowed limit
+            existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
+            if existing_alerts_count >= allowed_alerts_count:
+                raise ValidationError(
+                    {
+                        "alert": [
+                            f"Your team has reached the limit of {allowed_alerts_count} enabled alerts on your plan."
+                        ]
+                    }
+                )
+        else:
+            # If the org doesn't have alerts feature, they can't create alerts
+            raise ValidationError({"alert": [f"Your plan doesn't allow creating alerts"]})
 
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
