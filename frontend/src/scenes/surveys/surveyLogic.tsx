@@ -59,7 +59,7 @@ export interface SurveyUserStats {
     dismissed: number
     sent: number
     completed: number
-    abandoned: number
+    partial: number
 }
 
 export interface SurveyRatingResults {
@@ -299,7 +299,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                 FROM events
                                 WHERE event = 'survey sent'
                                     AND properties.$survey_id = ${props.id}
-                                    AND properties.$survey_completed = true
+                                    AND ( properties.$survey_completed = true OR properties.$survey_response_id == null) 
                                     AND timestamp >= ${startDate}
                                     AND timestamp <= ${endDate})
                     `,
@@ -309,10 +309,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (results && results[0]) {
                     const [totalSeen, dismissed, sent, completed] = results[0]
                     const onlySeen = totalSeen - dismissed - sent
-                    const abandoned = sent - completed
-                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent, completed, abandoned }
+                    const partial = sent - completed
+                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent, completed: completed, partial }
                 }
-                return { seen: 0, dismissed: 0, sent: 0, completed: 0, abandoned: 0 }
+                return { seen: 0, dismissed: 0, sent: 0, completed: 0, partial: 0 }
             },
         },
         surveyRatingResults: {
@@ -1001,7 +1001,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
                 const queryFields = [
                     'person_id as Person',
-                    "if(coalesce(JSONExtractBool(properties, '$survey_completed'), 'true'), 'yes', 'no') as Completed",
+                    "if(coalesce(JSONExtractBool(properties, '$survey_completed'), 'true'), 'yes', if(trim(JSONExtractString(properties, '$survey_response_id')) == '', 'yes', 'no')) as Completed",
                     "coalesce(JSONExtractString(properties, '$lib'), 'web') as Library",
                     "coalesce(JSONExtractString(properties, '$lib_version'), 'web') as Version",
                     surveyResponseFields.join(','),

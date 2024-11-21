@@ -52,12 +52,12 @@ const formatCount = (count: number, total: number): string => {
 }
 
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent, completed, abandoned } = surveyUserStats
+    const { seen, dismissed, sent, completed, partial } = surveyUserStats
     const total = seen + dismissed + sent
     const labelTotal = total === 1 ? 'Unique user shown' : 'Unique users shown'
     const labelSent = sent === 1 ? 'Response sent' : 'Responses sent'
     const labelCompleted = completed === 1 ? 'Complete response' : 'Complete responses'
-    const labelPartial = abandoned === 1 ? 'Partial response' : 'Partial responses'
+    const labelPartial = partial === 1 ? 'Partial response' : 'Partial responses'
 
     return (
         <div className="inline-flex mb-4">
@@ -77,9 +77,9 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
                     <div className="font-semibold text-muted-alt">{labelCompleted}</div>
                 </div>
             )}
-            {abandoned > 0 && (
+            {partial > 0 && (
                 <div className="ml-10">
-                    <div className="text-4xl font-bold">{humanFriendlyNumber(abandoned)}</div>
+                    <div className="text-4xl font-bold">{humanFriendlyNumber(partial)}</div>
                     <div className="font-semibold text-muted-alt">{labelPartial}</div>
                 </div>
             )}
@@ -88,14 +88,14 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
 }
 
 export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent, completed, abandoned } = surveyUserStats
+    const { seen, dismissed, sent, completed, partial } = surveyUserStats
 
-    const total = seen + dismissed + completed + abandoned
+    const total = seen + dismissed + completed + partial
     const seenPercentage = (seen / total) * 100
     const dismissedPercentage = (dismissed / total) * 100
     // const sentPercentage = (sent / total) * 100
     const completedPercentage = (completed / total) * 100
-    const abandonedPercentage = (abandoned / total) * 100
+    const partialPercentage = (partial / total) * 100
 
     return (
         <>
@@ -120,11 +120,11 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                 },
                             },
                             {
-                                count: abandoned,
+                                count: partial,
                                 label: 'Partial response',
                                 style: {
                                     backgroundColor: '#99ccff',
-                                    width: `${abandonedPercentage}%`,
+                                    width: `${partialPercentage}%`,
                                     left: `${dismissedPercentage + seenPercentage}%`,
                                 },
                             },
@@ -132,12 +132,12 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                 count: completed,
                                 label: 'Completed',
                                 classes: `rounded-r ${
-                                    completed === 0 && dismissed === 0 && abandoned === 0 ? 'rounded-l' : ''
+                                    completed === 0 && dismissed === 0 && partial === 0 ? 'rounded-l' : ''
                                 }`,
                                 style: {
                                     backgroundColor: '#529B08',
                                     width: `${completedPercentage}%`,
-                                    left: `${dismissedPercentage + seenPercentage + abandonedPercentage}%`,
+                                    left: `${dismissedPercentage + seenPercentage + partialPercentage}%`,
                                 },
                             },
                         ].map(({ count, label, classes, style }) => (
@@ -164,7 +164,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                             {[
                                 { count: seen, label: 'Viewed', style: { backgroundColor: '#1D4AFF' } },
                                 { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
-                                { count: abandoned, label: 'Partial response', style: { backgroundColor: '#99ccff' } },
+                                { count: partial, label: 'Partial response', style: { backgroundColor: '#99ccff' } },
                                 { count: completed, label: 'Completed', style: { backgroundColor: '#529B08' } },
                             ].map(
                                 ({ count, label, style }) =>
