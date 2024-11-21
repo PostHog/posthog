@@ -68,6 +68,8 @@ class Threshold(CreatedMetaFields, UUIDModel):
 
 
 class AlertConfiguration(CreatedMetaFields, UUIDModel):
+    ALERTS_ALLOWED_ON_FREE_TIER = 2
+
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
