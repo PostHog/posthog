@@ -31,6 +31,7 @@ import {
 import { ActivityScope, AvailableFeature } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -143,6 +144,10 @@ export const SidePanelActivity = (): JSX.Element => {
                                     key: SidePanelActivityTab.All,
                                     label: 'All activity',
                                 },
+                                {
+                                    key: SidePanelActivityTab.Metalytics,
+                                    label: 'Analytics',
+                                },
                             ]}
                         />
                     </div>
@@ -204,6 +209,8 @@ export const SidePanelActivity = (): JSX.Element => {
                                     />
                                 </div>
                             </div>
+                        ) : activeTab === SidePanelActivityTab.Metalytics ? (
+                            <SidePanelActivityMetalytics />
                         ) : null}
                     </div>
 
