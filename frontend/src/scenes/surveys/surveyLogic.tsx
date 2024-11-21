@@ -979,7 +979,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const surveyWithResults = survey as Survey
                 const startDate = surveyWithResults.start_date || surveyWithResults.created_at
-                const surveyResponseFields = survey.questions.splice(3).map((q, i) => {
+                const surveyResponseFields = survey.questions.map((q, i) => {
                     if (q.type === SurveyQuestionType.MultipleChoice) {
                         // Join array items into a string
                         return (
@@ -1000,10 +1000,12 @@ export const surveyLogic = kea<surveyLogicType>([
                     )
                 })
                 const queryFields = [
-                    "JSONExtractString(properties, '$survey_response_id') AS survey_response_id",
-                    "coalesce(JSONExtractString(properties, '$survey_completed'), 'true') as survey_completed",
-                    'arrayCompact([' + surveyResponseFields.join(',') + ']) as survey_responses',
-                    'row_number() OVER (PARTITION BY survey_response_id ORDER BY timestamp DESC) AS rn',
+                    'person_id as Person',
+                    "if(coalesce(JSONExtractBool(properties, '$survey_completed'), 'true'), 'yes', 'no') as Completed",
+                    "coalesce(JSONExtractString(properties, '$lib'), 'web') as Library",
+                    "coalesce(JSONExtractString(properties, '$lib_version'), 'web') as Version",
+                    surveyResponseFields.join(','),
+                    "row_number() OVER (PARTITION BY JSONExtractString(properties, '$survey_response_id') ORDER BY timestamp DESC) AS rn",
                 ].join(',')
                 const conditions = [
                     "WHERE event ='survey sent'",
@@ -1016,7 +1018,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     source: {
                         kind: NodeKind.HogQLQuery,
                         query:
-                            "SELECT arrayFlatten(survey_responses) FROM ( SELECT 'person', 'timestamp', " +
+                            "SELECT * FROM ( SELECT 'timestamp', " +
                             queryFields +
                             ' FROM events ' +
                             conditions +
