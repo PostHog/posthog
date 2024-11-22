@@ -2,8 +2,8 @@ import './PlayerInspectorList.scss'
 
 import { useActions, useValues } from 'kea'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
+import { SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
-import { SettingsToggle } from 'scenes/session-recordings/player/inspector/PlayerInspectorControls'
 
 import { InspectorListItemType } from '~/types'
 

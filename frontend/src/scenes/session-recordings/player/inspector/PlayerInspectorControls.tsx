@@ -1,12 +1,12 @@
 import { BaseIcon, IconBug, IconCheck, IconDashboard, IconInfo, IconSearch, IconTerminal } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonInput, LemonMenu, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
-import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
@@ -20,46 +20,6 @@ export const TabToIcon = {
     [InspectorListItemType.CONSOLE]: IconTerminal,
     [InspectorListItemType.NETWORK]: IconDashboard,
     [InspectorListItemType.DOCTOR]: IconBug,
-}
-
-function SettingsMenu({
-    label,
-    items,
-    icon,
-    ...props
-}: Omit<LemonMenuProps, 'items' | 'children'> & {
-    items: LemonMenuItem[]
-    label: JSX.Element | string
-    icon: JSX.Element
-}): JSX.Element {
-    return (
-        <LemonMenu buttonSize="xsmall" closeOnClickInside={false} items={items} {...props}>
-            <LemonButton status={items.some((cf) => !!cf.active) ? 'danger' : 'default'} size="xsmall" icon={icon}>
-                {label}
-            </LemonButton>
-        </LemonMenu>
-    )
-}
-
-export function SettingsToggle({
-    title,
-    icon,
-    label,
-    active,
-    ...props
-}: Omit<LemonButtonProps, 'status' | 'sideAction'> & {
-    active: boolean
-    title: string
-    icon?: JSX.Element | null
-    label: JSX.Element | string
-}): JSX.Element {
-    return (
-        <Tooltip title={title}>
-            <LemonButton icon={icon} size="xsmall" status={active ? 'danger' : 'default'} {...props}>
-                {label}
-            </LemonButton>
-        </Tooltip>
-    )
 }
 
 export function PlayerInspectorControls(): JSX.Element {
