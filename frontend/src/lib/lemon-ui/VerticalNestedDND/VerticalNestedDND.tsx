@@ -28,25 +28,28 @@ import {
 } from '@dnd-kit/sortable'
 import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
-import { IconBuilding, IconTrash } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
+import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import debounce from 'lodash.debounce'
 import isEqual from 'lodash.isequal'
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, unstable_batchedUpdates } from 'react-dom'
+
+const NOOP = (): void => {}
 export interface VDNDChildItem {
     id: UniqueIdentifier
 }
 
 export interface VNDNDContainerItem<T extends VDNDChildItem> {
-    items: T[]
+    items?: T[]
     id: UniqueIdentifier
 }
 
 export interface VerticalNestedDNDProps<ChildItem extends VDNDChildItem, Item extends VNDNDContainerItem<ChildItem>> {
     initialItems: Item[]
-    renderContainerItem: (item: Item) => JSX.Element | null
-    renderChildItem: (item: ChildItem) => JSX.Element | null
+    renderContainerItem: (item: Item, callbacks: { updateContainerItem: (item: Item) => void }) => JSX.Element | null
+    renderChildItem: (item: ChildItem, callbacks: { updateChildItem: (item: ChildItem) => void }) => JSX.Element | null
     createNewContainerItem(): Item
     createNewChildItem(): ChildItem
     onChange?(items: Item[]): void
@@ -114,7 +117,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                     const containerItems = items[overId].items
 
                     // If a container is matched and it contains items (columns 'A', 'B', 'C')
-                    if (containerItems.length > 0) {
+                    if (containerItems && containerItems.length > 0) {
                         // Return the closest droppable within that container
                         overId = closestCenter({
                             ...args,
@@ -150,12 +153,12 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
             return id
         }
 
-        return Object.keys(items).find((key) => items[key].items.some((item) => item.id === id))
+        return Object.keys(items).find((key) => items[key].items?.some((item) => item.id === id))
     }
 
     const findChildItem = (id: UniqueIdentifier): ChildItem | undefined => {
         for (const containerId in items) {
-            const item = items[containerId].items.find((item) => item.id === id)
+            const item = items[containerId].items?.find((item) => item.id === id)
             if (item) {
                 return item
             }
@@ -168,8 +171,12 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
         if (!container) {
             return -1
         }
+        const childItems = items[container].items
+        if (!childItems) {
+            return -1
+        }
 
-        return items[container].items.findIndex((ChildItem) => ChildItem.id === id)
+        return childItems.findIndex((ChildItem) => ChildItem.id === id)
     }
 
     const onDragCancel = (): void => {
@@ -235,8 +242,8 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
 
                     if (activeContainerId !== overContainerId) {
                         setItems((items) => {
-                            const activeItems = items[activeContainerId].items
-                            const overItems = items[overContainerId].items
+                            const activeItems = items[activeContainerId].items || []
+                            const overItems = items[overContainerId].items || []
                             const overIndex = overItems.findIndex((ChildItem) => ChildItem.id === overId)
                             const activeIndex = activeItems.findIndex((ChildItem) => ChildItem.id === active.id)
 
@@ -264,7 +271,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                                 ...overContainer,
                                 items: [
                                     ...overItems.slice(0, newIndex),
-                                    activeContainer.items[activeIndex],
+                                    activeItems[activeIndex],
                                     ...overItems.slice(newIndex, overItems.length),
                                 ],
                             }
@@ -277,7 +284,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                         })
                     } else if (overId !== active.id) {
                         setItems((items) => {
-                            const overItems = items[overContainerId].items
+                            const overItems = items[overContainerId].items || []
                             const overIndex = overItems.findIndex((ChildItem) => ChildItem.id === overId)
                             const activeIndex = overItems.findIndex((ChildItem) => ChildItem.id === active.id)
 
@@ -328,16 +335,17 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                 const overContainerId = findContainer(overId)
 
                 if (overContainerId) {
-                    const activeIndex = items[activeContainerId].items.findIndex(
-                        (ChildItem) => ChildItem.id === active.id
-                    )
-                    const overIndex = items[overContainerId].items.findIndex((ChildItem) => ChildItem.id === overId)
+                    const overItems = items[overContainerId].items || []
+                    const activeItems = items[activeContainerId].items || []
+                    const activeIndex = activeItems.findIndex((ChildItem) => ChildItem.id === active.id)
+                    const overIndex = overItems.findIndex((ChildItem) => ChildItem.id === overId)
 
                     if (activeIndex !== overIndex) {
                         setItems((items) => {
+                            const overItems = items[overContainerId].items || []
                             const newOverContainer = {
                                 ...items[overContainerId],
-                                items: arrayMove(items[overContainerId].items, activeIndex, overIndex),
+                                items: arrayMove(overItems, activeIndex, overIndex),
                             }
                             return {
                                 ...items,
@@ -356,15 +364,19 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                     {containers.map((containerId) => (
                         <DroppableContainer
                             key={containerId}
-                            items={items[containerId].items}
+                            items={items[containerId].items || []}
                             onRemove={() => handleRemove(containerId)}
                             renderContainerItem={renderContainerItem}
                             containerItemId={containerId}
                             item={items[containerId]}
                             onAddChild={handleAddChild}
+                            updateContainerItem={updateContainerItem}
                         >
-                            <SortableContext items={items[containerId].items} strategy={verticalListSortingStrategy}>
-                                {items[containerId].items.map((value, index) => {
+                            <SortableContext
+                                items={items[containerId].items || []}
+                                strategy={verticalListSortingStrategy}
+                            >
+                                {(items[containerId].items || []).map((value, index) => {
                                     return (
                                         <SortableItem
                                             disabled={isSortingContainer}
@@ -375,6 +387,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                                             containerId={containerId}
                                             getIndex={getIndex}
                                             renderChildItem={renderChildItem}
+                                            updateChildItem={updateChildItem}
                                             item={value}
                                         />
                                     )
@@ -407,7 +420,15 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
         if (!item) {
             return null
         }
-        return <ChildItem childItemId={id} dragOverlay renderChildItem={renderChildItem} item={item} />
+        return (
+            <ChildItem
+                childItemId={id}
+                dragOverlay
+                renderChildItem={renderChildItem}
+                item={item}
+                updateChildItem={NOOP}
+            />
+        )
     }
 
     function renderContainerDragOverlay(containerId: UniqueIdentifier): JSX.Element | null {
@@ -421,10 +442,17 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                 shadow
                 renderContainerItem={renderContainerItem}
                 item={item}
-                onAddChild={() => {}}
+                onAddChild={NOOP}
+                updateContainerItem={NOOP}
             >
-                {items[containerId].items.map((item) => (
-                    <ChildItem key={item.id} childItemId={item.id} renderChildItem={renderChildItem} item={item} />
+                {(items[containerId].items || []).map((item) => (
+                    <ChildItem
+                        key={item.id}
+                        childItemId={item.id}
+                        renderChildItem={renderChildItem}
+                        item={item}
+                        updateChildItem={NOOP}
+                    />
                 ))}
             </Container>
         )
@@ -455,7 +483,37 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                 ...items,
                 [containerId]: {
                     ...container,
-                    items: [...container.items, newChild],
+                    items: [...(container.items || []), newChild],
+                },
+            }
+        })
+    }
+
+    function updateContainerItem(item: Item): void {
+        setItems((items) => ({
+            ...items,
+            [item.id]: item,
+        }))
+    }
+
+    function updateChildItem(item: ChildItem): void {
+        const containerId = findContainer(item.id)
+
+        if (!containerId) {
+            return
+        }
+        setItems((items) => {
+            const container = items[containerId]
+            return {
+                ...items,
+                [containerId]: {
+                    ...container,
+                    items: (container.items || []).map((childItem) => {
+                        if (childItem.id === item.id) {
+                            return item
+                        }
+                        return childItem
+                    }),
                 },
             }
         })
@@ -480,7 +538,8 @@ interface SortableItemProps<Item extends VDNDChildItem> {
     handle: boolean
     disabled?: boolean
     getIndex(id: UniqueIdentifier): number
-    renderChildItem(item: Item): JSX.Element | null
+    renderChildItem(item: Item, callbacks: { updateChildItem: (item: Item) => void }): JSX.Element | null
+    updateChildItem(item: Item): void
     item: Item
 }
 
@@ -490,6 +549,7 @@ function SortableItem<Item extends VDNDChildItem>({
     index,
     handle,
     renderChildItem,
+    updateChildItem,
     item,
 }: SortableItemProps<Item>): JSX.Element {
     const { setNodeRef, setActivatorNodeRef, listeners, isDragging, isSorting, transform, transition } = useSortable({
@@ -511,6 +571,7 @@ function SortableItem<Item extends VDNDChildItem>({
             fadeIn={mountedWhileDragging}
             listeners={listeners}
             renderChildItem={renderChildItem}
+            updateChildItem={updateChildItem}
             item={item}
         />
     )
@@ -592,7 +653,8 @@ export interface ContainerProps<Item extends VNDNDContainerItem<any>> {
     isDragging?: boolean
     transition?: string
     transform?: string
-    renderContainerItem(item: Item): JSX.Element | null
+    renderContainerItem(item: Item, callbacks: { updateContainerItem: (item: Item) => void }): JSX.Element | null
+    updateContainerItem(item: Item): void
     item: Item
 }
 
@@ -615,6 +677,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
         transform,
         transition,
         renderContainerItem,
+        updateContainerItem,
         item,
         ...props
     }: ContainerProps<Item>,
@@ -639,8 +702,13 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
         >
             <div className="flex flex-row justify-between px-2 space-x-2">
                 <Handle {...handleProps} />
-                <div>{renderContainerItem ? renderContainerItem(item) : <span>Container {containerItemId}</span>}</div>
-                <div className="flex-1" />
+                <div className="flex-1">
+                    {renderContainerItem ? (
+                        renderContainerItem(item, { updateContainerItem })
+                    ) : (
+                        <span>Container {containerItemId}</span>
+                    )}
+                </div>
                 <Remove onClick={onRemove} />
             </div>
             {placeholder ? children : <ul className="space-y-2">{children}</ul>}
@@ -675,7 +743,8 @@ export interface ChildItemProps<Item extends VDNDChildItem> {
     childItemId: UniqueIdentifier
     item: Item
     onRemove?(): void
-    renderChildItem(item: Item): JSX.Element | null
+    renderChildItem(item: Item, callbacks: { updateChildItem: (item: Item) => void }): JSX.Element | null
+    updateChildItem(item: Item): void
 }
 
 export const ChildItem = React.memo(
@@ -698,6 +767,8 @@ export const ChildItem = React.memo(
             childItemId,
             wrapperStyle,
             renderChildItem,
+            updateChildItem,
+            item,
             ...props
         },
         ref
@@ -730,8 +801,9 @@ export const ChildItem = React.memo(
                     className="flex flex-row justify-between w-full space-x-2"
                 >
                     <Handle {...handleProps} {...listeners} />
-                    <div>{renderChildItem ? renderChildItem(childItemId) : <span>Item {childItemId}</span>}</div>
-                    <div className="flex-1" />
+                    <div className="flex-1">
+                        {renderChildItem ? renderChildItem(item, { updateChildItem }) : <span>Item {childItemId}</span>}
+                    </div>
                     <Remove onClick={onRemove} />
                 </div>
             </li>
@@ -749,8 +821,10 @@ export function Remove(props: LemonButtonProps): JSX.Element {
 
 export const Handle = forwardRef<HTMLButtonElement, LemonButtonProps>(function Handle_(props, ref) {
     return (
-        <LemonButton type="secondary" fullWidth={false} ref={ref} {...props}>
-            <IconBuilding />
+        <LemonButton type="tertiary" fullWidth={false} ref={ref} {...props} className="self-start">
+            <div>
+                <IconDragHandle />
+            </div>
         </LemonButton>
     )
 })

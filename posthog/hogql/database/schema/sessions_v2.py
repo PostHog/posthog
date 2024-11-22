@@ -19,7 +19,6 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.channel_type import (
     create_channel_type_expr,
-    POSSIBLE_CHANNEL_TYPES,
     ChannelTypeExprs,
 )
 from posthog.hogql.database.schema.sessions_v1 import null_if_empty
@@ -32,7 +31,7 @@ from posthog.models.raw_sessions.sql import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode, CustomChannelRule
+from posthog.schema import BounceRatePageViewMode, CustomChannelRule, DefaultChannelTypes
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -503,7 +502,9 @@ def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team:
         else:
             custom_channel_types = []
         default_channel_types = [
-            name for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()
+            entry.value
+            for entry in DefaultChannelTypes
+            if not search_term or search_term.lower() in entry.value.lower()
         ]
         # merge the list, keep the order, and remove duplicates
         return [[name] for name in list(dict.fromkeys(custom_channel_types + default_channel_types))]

@@ -19,7 +19,6 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.channel_type import (
     create_channel_type_expr,
-    POSSIBLE_CHANNEL_TYPES,
     ChannelTypeExprs,
 )
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
@@ -30,7 +29,7 @@ from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode
+from posthog.schema import BounceRatePageViewMode, DefaultChannelTypes
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -410,7 +409,11 @@ def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team:
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
-        return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
+        return [
+            [entry.value]
+            for entry in DefaultChannelTypes
+            if not search_term or search_term.lower() in entry.value.lower()
+        ]
 
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:

@@ -20,7 +20,7 @@ interface ExampleSubItem {
 }
 interface ExampleItem {
     id: UniqueIdentifier
-    items: ExampleSubItem[]
+    items?: ExampleSubItem[]
 }
 let counter = 0
 
