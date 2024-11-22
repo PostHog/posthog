@@ -202,6 +202,7 @@ export const userLogic = kea<userLogicType>([
         hasAvailableFeature: [
             (s) => [s.user],
             (user) => {
+                return (feature: AvailableFeature, currentUsage?: number) => true
                 return (feature: AvailableFeature, currentUsage?: number) => {
                     const availableProductFeatures = user?.organization?.available_product_features
                     if (availableProductFeatures && availableProductFeatures.length > 0) {

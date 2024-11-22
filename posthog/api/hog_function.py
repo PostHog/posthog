@@ -122,7 +122,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         team = self.context["get_team"]()
         attrs["team"] = team
 
-        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        has_addon = True
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if not has_addon:

@@ -262,6 +262,7 @@
         "css-loader": "^3.4.2",
         "cypress": "^13.11.0",
         "cypress-axe": "^1.5.0",
+        "cypress-otp": "^1.0.3",
         "cypress-terminal-report": "^6.1.0",
         "esbuild-visualizer": "^0.6.0",
         "eslint": "^8.57.0",
