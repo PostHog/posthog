@@ -1,6 +1,6 @@
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTable, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Field, Form, Group } from 'kea-forms'
+import { Form } from 'kea-forms'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
@@ -33,10 +33,6 @@ export function DataColorThemeModal(): JSX.Element {
                 <LemonField name="name" label="Name">
                     <LemonInput />
                 </LemonField>
-
-                {/* <LemonField name="description" label="Description">
-                    <LemonTextArea />
-                </LemonField> */}
 
                 <LemonLabel>Colors</LemonLabel>
                 <LemonTable
