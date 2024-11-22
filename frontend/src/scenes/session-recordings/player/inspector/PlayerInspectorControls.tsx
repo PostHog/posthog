@@ -6,7 +6,7 @@ import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
@@ -74,10 +74,12 @@ export function PlayerInspectorControls(): JSX.Element {
 
     const [showSearch, setShowSearch] = useState(false)
 
-    if (!window.IMPERSONATED_SESSION && !featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
-        // ensure we've not left the doctor active
-        setMiniFilter('doctor', false)
-    }
+    useEffect(() => {
+        if (!window.IMPERSONATED_SESSION && !featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
+            // ensure we've not left the doctor active
+            setMiniFilter('doctor', false)
+        }
+    }, [])
 
     function filterMenuForType(type: InspectorListItemType): LemonMenuItem[] {
         return miniFiltersForType(type)
