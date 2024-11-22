@@ -170,20 +170,12 @@ class RemoteConfig(UUIDModel):
         self.synced_at = timezone.now()
         self.save()
 
-    # def save(self, *args, **kwargs):
-    #     from posthog.cdp.filters import compile_filters_bytecode
-
-    #     self.move_secret_inputs()
-    #     if self.type in TYPES_WITH_COMPILED_FILTERS:
-    #         self.filters = compile_filters_bytecode(self.filters, self.team)
-
-    #     return super().save(*args, **kwargs)
-
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
 
 
 def rebuild_remote_config(team: "Team"):
+    # TODO: Add metrics so that we can graph and alert on this. Capture exceptions for errors as these will be critical
     logger.info("RemoteConfig rebuild triggered", team_id=team.id)
     try:
         remote_config = RemoteConfig.objects.get(team=team)
@@ -191,23 +183,6 @@ def rebuild_remote_config(team: "Team"):
         remote_config = RemoteConfig(team=team)
 
     remote_config.sync()
-
-
-@receiver(post_save, sender=RemoteConfig)
-def remote_config_saved(sender, instance: RemoteConfig, created, **kwargs):
-    print("what")
-    # Cache the new value somewhere and write to S3
-    # reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
-
-
-# @receiver(post_save, sender=Action)
-# def action_saved(sender, instance: Action, created, **kwargs):
-#     # Whenever an action is saved we want to load all hog functions using it
-#     # and trigger a refresh of the filters bytecode
-
-#     from posthog.tasks.hog_functions import refresh_affected_hog_functions
-
-#     refresh_affected_hog_functions.delay(action_id=instance.id)
 
 
 @receiver(post_save, sender=Team)
