@@ -573,7 +573,12 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                             # TODO: We should be able to save a json.loads here.
                             record[column] = remove_escaped_whitespace_recursive(json.loads(record[column]))
 
-                    return record, row["_inserted_at"]
+                    if isinstance(row["_inserted_at"], int):
+                        inserted_at = dt.datetime.fromtimestamp(row["_inserted_at"])
+                    else:
+                        inserted_at = row["_inserted_at"]
+
+                    return record, inserted_at
 
                 async def record_generator() -> (
                     collections.abc.AsyncGenerator[tuple[dict[str, typing.Any], dt.datetime], None]
