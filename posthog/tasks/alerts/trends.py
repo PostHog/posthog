@@ -58,19 +58,21 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
         (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type) or query.breakdownFilter.breakdowns
     )
 
+    is_non_time_series = _is_non_time_series_trend(query)
+
     match condition.type:
         case AlertConditionType.ABSOLUTE_VALUE:
             if threshold.type != InsightThresholdType.ABSOLUTE:
                 raise ValueError(f"Absolute threshold not configured for alert condition ABSOLUTE_VALUE")
 
-            # want value for current interval (last hour, last day, last week, last month)
-            # depending on the alert calculation interval
-            if _is_non_time_series_trend(query):
-                filters_override = _date_range_override_for_intervals(query, last_x_intervals=2)
-            else:
+            if is_non_time_series:
                 # for non time series, it's an aggregated value for full interval
                 # so we need to compute full insight
                 filters_override = None
+            else:
+                # want values back till previous interval (last hour, last day, last week, last month)
+                # depending on the alert calculation interval
+                filters_override = _date_range_override_for_intervals(query, last_x_intervals=2)
 
             calculation_result = calculate_for_query_based_insight(
                 insight,
@@ -83,18 +85,21 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             if not calculation_result.result:
                 raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
+            interval = query.interval if not is_non_time_series else None
+
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
                 breakdown_results = calculation_result.result
 
                 for breakdown_result in breakdown_results:
+                    # pick previous interval value
                     prev_interval_value = _pick_interval_value_from_trend_result(query, breakdown_result, -1)
                     breaches = _validate_bounds(
                         threshold.bounds,
                         prev_interval_value,
                         threshold.type,
                         condition.type,
-                        query.interval,
+                        interval,
                         breakdown_result["label"],
                     )
 
@@ -114,13 +119,13 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                     prev_interval_value,
                     threshold.type,
                     condition.type,
-                    query.interval,
+                    interval,
                     selected_series_result["label"],
                 )
 
                 return AlertEvaluationResult(value=prev_interval_value, breaches=breaches)
         case AlertConditionType.RELATIVE_INCREASE:
-            if _is_non_time_series_trend(query):
+            if is_non_time_series(query):
                 raise ValueError(f"Relative alerts not supported for non time series trends")
 
             # to measure relative increase, we can't alert until current interval has completed
@@ -188,7 +193,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             return AlertEvaluationResult(value=(increase if not has_breakdown else None), breaches=breaches)
 
         case AlertConditionType.RELATIVE_DECREASE:
-            if _is_non_time_series_trend(query):
+            if is_non_time_series(query):
                 raise ValueError(f"Relative alerts not supported for non time series trends")
 
             # to measure relative decrease, we can't alert until current interval has completed
