@@ -63,9 +63,9 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-    def test_agent_reconstructs_conversation(self):
+    async def test_agent_reconstructs_conversation(self):
         node = DummyGeneratorNode(self.team)
-        history = node._construct_messages({"messages": [HumanMessage(content="Text")]})
+        history = await node._construct_messages({"messages": [HumanMessage(content="Text")]})
         self.assertEqual(len(history), 2)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
@@ -73,7 +73,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Answer to this question:", history[1].content)
         self.assertNotIn("{{question}}", history[1].content)
 
-        history = node._construct_messages({"messages": [HumanMessage(content="Text")], "plan": "randomplan"})
+        history = await node._construct_messages({"messages": [HumanMessage(content="Text")], "plan": "randomplan"})
         self.assertEqual(len(history), 3)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
@@ -87,7 +87,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Text", history[2].content)
 
         node = DummyGeneratorNode(self.team)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -120,9 +120,9 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[5].content)
         self.assertIn("Follow Up", history[5].content)
 
-    def test_agent_reconstructs_conversation_and_merges_messages(self):
+    async def test_agent_reconstructs_conversation_and_merges_messages(self):
         node = DummyGeneratorNode(self.team)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             {
                 "messages": [HumanMessage(content="Te"), HumanMessage(content="xt")],
                 "plan": "randomplan",
@@ -141,7 +141,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Te\nxt", history[2].content)
 
         node = DummyGeneratorNode(self.team)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
@@ -247,10 +247,10 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(new_state["messages"]), 1)
             self.assertIsInstance(new_state["messages"][0], FailureMessage)
 
-    def test_agent_reconstructs_conversation_with_failover(self):
+    async def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
         node = DummyGeneratorNode(self.team)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             {
                 "messages": [HumanMessage(content="Text")],
                 "plan": "randomplan",
@@ -273,9 +273,9 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Pydantic", history[3].content)
         self.assertIn("uniqexception", history[3].content)
 
-    def test_agent_reconstructs_conversation_with_failed_messages(self):
+    async def test_agent_reconstructs_conversation_with_failed_messages(self):
         node = DummyGeneratorNode(self.team)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             {
                 "messages": [
                     HumanMessage(content="Text"),
