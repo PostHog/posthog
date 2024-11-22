@@ -514,8 +514,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    details.insert_done_range(last_date_range, data_interval_start)
-                    heartbeater.details = tuple(details.serialize_details())
+                    details.track_done_range(last_date_range, data_interval_start)
+                    heartbeater.set_from_heartbeat_details(details)
 
                 flush_tasks = []
                 while not queue.empty() or not produce_task.done():

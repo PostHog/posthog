@@ -449,6 +449,10 @@ async def produce_batch_export_record_batches_from_range(
     queue: RecordBatchQueue,
     query_parameters: dict[str, typing.Any],
 ):
+    """Produce all record batches into `queue` required to complete `full_range`.
+
+    This function will skip over any already completed `done_ranges`.
+    """
     for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
         if interval_start is not None:
             query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")

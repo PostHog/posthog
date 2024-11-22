@@ -701,9 +701,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    details.insert_done_range(last_date_range, data_interval_start)
+                    details.track_done_range(last_date_range, data_interval_start)
                     details.file_no = flush_counter
-                    heartbeater.details = tuple(details.serialize_details())
+                    heartbeater.set_from_heartbeat_details(details)
 
                 writer = JSONLBatchExportWriter(
                     max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,

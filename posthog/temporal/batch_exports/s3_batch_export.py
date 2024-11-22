@@ -614,7 +614,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 rows_exported.add(records_since_last_flush)
                 bytes_exported.add(bytes_since_last_flush)
 
-                details.insert_done_range(last_date_range, data_interval_start)
+                details.track_done_range(last_date_range, data_interval_start)
                 details.append_upload_state(s3_upload.to_state())
                 heartbeater.set_from_heartbeat_details(details)
 

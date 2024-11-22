@@ -374,8 +374,8 @@ async def insert_records_to_redshift(
                 await flush_to_redshift(batch)
 
                 last_date_range = (batch_start_inserted_at, _inserted_at)
-                heartbeat_details.insert_done_range(last_date_range, data_interval_start)
-                heartbeater.details = tuple(heartbeat_details.serialize_details())
+                heartbeat_details.track_done_range(last_date_range, data_interval_start)
+                heartbeater.set_from_heartbeat_details(heartbeat_details)
 
                 batch_start_inserted_at = None
                 batch = []
@@ -385,8 +385,8 @@ async def insert_records_to_redshift(
 
                 last_date_range = (batch_start_inserted_at, _inserted_at)
 
-                heartbeat_details.insert_done_range(last_date_range, data_interval_start)
-                heartbeater.details = tuple(heartbeat_details.serialize_details())
+                heartbeat_details.track_done_range(last_date_range, data_interval_start)
+                heartbeater.set_from_heartbeat_details(heartbeat_details)
 
     return total_rows_exported
 

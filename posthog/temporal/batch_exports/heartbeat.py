@@ -19,14 +19,23 @@ logger = structlog.get_logger()
 
 @dataclasses.dataclass
 class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
-    """Details included in every batch export heartbeat."""
+    """Details included in every batch export heartbeat.
 
-    _remaining: collections.abc.Sequence[typing.Any] = dataclasses.field(default_factory=tuple)
+    Attributes:
+        done_ranges: Date ranges that have been successfully exported.
+        _remaining: Anything else in the activity details.
+    """
+
     done_ranges: list[DateRange] = dataclasses.field(default_factory=list)
+    _remaining: collections.abc.Sequence[typing.Any] = dataclasses.field(default_factory=tuple)
 
     @classmethod
     def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
-        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        """Deserialize this from Temporal activity details.
+
+        We expect done ranges to be available in the first index of remaining
+        values. Moreover, we expect datetime values to be ISO-formatted strings.
+        """
         done_ranges: list[DateRange] = []
         remaining = super().deserialize_details(details)
 
@@ -51,7 +60,11 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         return {"done_ranges": done_ranges, **remaining}
 
     def serialize_details(self) -> tuple[typing.Any, ...]:
-        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        """Serialize this into a tuple.
+
+        Each datetime from `self.done_ranges` must be cast to string as values must
+        be JSON-serializable.
+        """
         serialized_done_ranges = [
             (start.isoformat() if start is not None else start, end.isoformat()) for (start, end) in self.done_ranges
         ]
@@ -62,9 +75,20 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
     def empty(self) -> bool:
         return len(self.done_ranges) == 0
 
-    def insert_done_range(
+    def track_done_range(
         self, done_range: DateRange, data_interval_start_input: str | dt.datetime | None, merge: bool = True
     ):
+        """Track a range of datetime values that has been exported successfully.
+
+        If this is the first `done_range` then we override the beginning of the
+        range to ensure it covers the range from `data_interval_start_input`.
+
+        Arguments:
+            done_range: A date range of values that have been exported.
+            data_interval_start_input: The `data_interval_start` input passed to
+                the batch export
+            merge: Whether to merge the new range with existing ones.
+        """
         if self.empty is True:
             if data_interval_start_input is None:
                 data_interval_start = dt.datetime.fromtimestamp(0, tz=dt.UTC)
@@ -75,9 +99,16 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
 
             done_range = (data_interval_start, done_range[1])
 
-        self.insert_done_range_within_ranges(done_range, merge=merge)
+        self.insert_done_range(done_range, merge=merge)
 
-    def complete_done_range(self, data_interval_end_input: str | dt.datetime, merge: bool = True):
+    def complete_done_ranges(self, data_interval_end_input: str | dt.datetime, merge: bool = True):
+        """Complete the ranges required to reach `data_interval_end_input`.
+
+
+        This is meant to be called at the end of a batch export to ensure
+        `self.done_ranges` covers the entire batch period until
+        `data_interval_end_input`.
+        """
         if isinstance(data_interval_end_input, str):
             data_interval_end = dt.datetime.fromisoformat(data_interval_end_input)
         else:
@@ -89,7 +120,8 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         if merge:
             self.merge_done_ranges()
 
-    def insert_done_range_within_ranges(self, done_range: DateRange, merge: bool = True):
+    def insert_done_range(self, done_range: DateRange, merge: bool = True):
+        """Insert a date range into `self.done_ranges` in order."""
         for index, range in enumerate(self.done_ranges, start=0):
             if done_range[0] > range[1]:
                 continue
@@ -104,6 +136,11 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
             self.merge_done_ranges()
 
     def merge_done_ranges(self):
+        """Merge as many date ranges together as possible in `self.done_ranges`.
+
+        This method looks for ranges whose opposite ends are touching and merges
+        them together. We rely on ranges not overlapping to achieve this.
+        """
         marked_for_deletion = set()
         for index, range in enumerate(self.done_ranges, start=0):
             if index in marked_for_deletion:
