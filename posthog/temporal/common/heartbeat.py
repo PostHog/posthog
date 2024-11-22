@@ -2,7 +2,6 @@ import asyncio
 import typing
 import dataclasses
 import collections.abc
-import datetime as dt
 import abc
 
 from temporalio import activity
@@ -177,26 +176,6 @@ class HeartbeatDetails(metaclass=abc.ABCMeta):
     def from_activity_details(cls, details):
         parsed = cls.deserialize_details(details)
         return cls(**parsed)
-
-
-@dataclasses.dataclass
-class BatchExportHeartbeatDetails(HeartbeatDetails):
-    last_inserted_at: dt.datetime
-
-    @classmethod
-    def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
-        """Attempt to initialize HeartbeatDetails from an activity's info."""
-        if len(details) == 0:
-            raise EmptyHeartbeatError()
-
-        parsed = super().deserialize_details(details)
-
-        try:
-            last_inserted_at = dt.datetime.fromisoformat(details[0])
-        except (TypeError, ValueError) as e:
-            raise HeartbeatParseError("last_inserted_at") from e
-
-        return {**parsed, "last_inserted_at": last_inserted_at}
 
 
 @dataclasses.dataclass
