@@ -920,8 +920,8 @@ class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
     }
 
-    public dataColorTheme(id: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
-        return this.notebooks(teamId).addPathComponent(id)
+    public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
     }
 }
 
@@ -2474,7 +2474,7 @@ const api = {
             return await new ApiRequest().dataColorThemes().create({ data })
         },
         async update(id: DataColorThemeModel['id'], data: DataColorThemeModel): Promise<DataColorThemeModel> {
-            return await new ApiRequest().dataColorThemes(id).update({ data })
+            return await new ApiRequest().dataColorTheme(id).update({ data })
         },
     },
 
