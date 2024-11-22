@@ -31,7 +31,11 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             insightVizDataLogic,
             ['isTrends', 'isFunnels', 'insightFilter'],
             trendsDataLogic(props),
-            ['resultCustomizationBy as resultCustomizationByRaw', 'resultCustomizations as trendsResultCustomizations'],
+            [
+                'resultCustomizationBy as resultCustomizationByRaw',
+                'resultCustomizations as trendsResultCustomizations',
+                'getTrendsColor',
+            ],
             funnelDataLogic(props),
             ['resultCustomizations as funnelsResultCustomizations'],
             dataThemeLogic,
@@ -79,23 +83,14 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
-            (s) => [
-                s.isTrends,
-                s.isFunnels,
-                s.resultCustomizationBy,
-                s.trendsResultCustomizations,
-                s.funnelsResultCustomizations,
-                s.getTheme,
-                s.dataset,
-            ],
+            (s) => [s.isTrends, s.isFunnels, s.funnelsResultCustomizations, s.getTheme, s.dataset, s.getTrendsColor],
             (
                 isTrends,
                 isFunnels,
-                resultCustomizationBy,
-                trendsResultCustomizations,
                 funnelsResultCustomizations,
                 getTheme,
-                dataset
+                dataset,
+                getTrendsColor
             ): DataColorToken | null => {
                 if (!dataset) {
                     return null
@@ -104,12 +99,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                 const theme = getTheme('posthog')
 
                 if (isTrends) {
-                    return getTrendResultCustomizationColorToken(
-                        resultCustomizationBy,
-                        trendsResultCustomizations,
-                        theme,
-                        dataset as IndexedTrendResult
-                    )
+                    return getTrendsColor(dataset as IndexedTrendResult)
                 } else if (isFunnels) {
                     return getFunnelResultCustomizationColorToken(
                         funnelsResultCustomizations,

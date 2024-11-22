@@ -3,10 +3,9 @@ import { getSeriesBackgroundColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { useEffect, useRef } from 'react'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel, getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -27,18 +26,10 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps, highlightedSeries } = useValues(insightLogic)
-    const {
-        display,
-        trendsFilter,
-        breakdownFilter,
-        isSingleSeries,
-        hiddenLegendIndexes,
-        resultCustomizationBy,
-        resultCustomizations,
-    } = useValues(trendsDataLogic(insightProps))
+    const { display, trendsFilter, breakdownFilter, isSingleSeries, hiddenLegendIndexes, getTrendsColor } = useValues(
+        trendsDataLogic(insightProps)
+    )
     const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
-
-    const { getTheme } = useValues(dataThemeLogic)
 
     const highlighted = shouldHighlightThisRow(rowIndex, highlightedSeries, hiddenLegendIndexes)
     const highlightStyle: Record<string, any> = highlighted
@@ -63,10 +54,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
 
     const isPrevious = !!item.compare && item.compare_label === 'previous'
 
-    const theme = getTheme('posthog')
-    const colorToken = getTrendResultCustomizationColorToken(resultCustomizationBy, resultCustomizations, theme, item)
-
-    const themeColor = theme[colorToken]
+    const themeColor = getTrendsColor(item)
     const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
     return (

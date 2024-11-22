@@ -6,7 +6,7 @@ import { compare as compareFn } from 'natural-orderby'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { formatBreakdownLabel, getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -76,8 +76,7 @@ export function InsightsTable({
         trendsFilter,
         isSingleSeries,
         hiddenLegendIndexes,
-        resultCustomizations,
-        resultCustomizationBy,
+        getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
@@ -261,8 +260,6 @@ export function InsightsTable({
         columns.push(...valueColumns)
     }
 
-    const theme = getTheme('posthog')
-
     return (
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
@@ -284,14 +281,7 @@ export function InsightsTable({
                     ? (item) => {
                           const isPrevious = !!item.compare && item.compare_label === 'previous'
 
-                          const colorToken = getTrendResultCustomizationColorToken(
-                              resultCustomizationBy,
-                              resultCustomizations,
-                              theme,
-                              item
-                          )
-
-                          const themeColor = theme[colorToken]
+                          const themeColor = getTrendsColor(item)
                           const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
                           return mainColor

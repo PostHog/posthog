@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel, getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
@@ -38,8 +38,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
-        resultCustomizations,
-        resultCustomizationBy,
+        getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
     const { getTheme } = useValues(dataThemeLogic)
 
@@ -51,15 +50,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
     function updateData(): void {
         const days = indexedResults.length > 0 ? indexedResults[0].days : []
 
-        const colorList = indexedResults.map((dataset) => {
-            const colorToken = getTrendResultCustomizationColorToken(
-                resultCustomizationBy,
-                resultCustomizations,
-                theme,
-                dataset
-            )
-            return theme[colorToken]
-        })
+        const colorList = indexedResults.map(getTrendsColor)
 
         setData([
             {
