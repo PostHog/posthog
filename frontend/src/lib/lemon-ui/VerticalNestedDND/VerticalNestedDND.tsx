@@ -101,6 +101,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
     }, [containers, items, debouncedOnChanged])
 
     const collisionDetectionStrategy: CollisionDetection = useCallback(
+        // this is mostly copied from the DND kit docs
         (args) => {
             if (activeId && activeId in items) {
                 return closestCenter({
@@ -108,8 +109,6 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                     droppableContainers: args.droppableContainers.filter((container) => container.id in items),
                 })
             }
-
-            // Start by finding any intersecting droppable
             const pointerIntersections = pointerWithin(args)
             const intersections =
                 pointerIntersections.length > 0
@@ -122,9 +121,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                 if (overId in items) {
                     const containerItems = items[overId].items
 
-                    // If a container is matched and it contains items (columns 'A', 'B', 'C')
                     if (containerItems && containerItems.length > 0) {
-                        // Return the closest droppable within that container
                         overId = closestCenter({
                             ...args,
                             droppableContainers: args.droppableContainers.filter(
@@ -141,15 +138,10 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                 return [{ id: overId }]
             }
 
-            // When a draggable item moves to a new container, the layout may shift
-            // and the `overId` may become `null`. We manually set the cached `lastOverId`
-            // to the id of the draggable item that was moved to the new container, otherwise
-            // the previous `overId` will be returned which can cause items to incorrectly shift positions
             if (recentlyMovedToNewContainer.current) {
                 lastOverId.current = activeId
             }
 
-            // If no droppable is matched, return the last match
             return lastOverId.current ? [{ id: lastOverId.current }] : []
         },
         [activeId, items]
@@ -375,7 +367,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                             renderContainerItem={renderContainerItem}
                             containerItemId={containerId}
                             item={items[containerId]}
-                            onAddChild={handleAddChild}
+                            onAddChild={handleAddChildItem}
                             updateContainerItem={updateContainerItem}
                             renderAddChildItem={renderAddChildItem}
                         >
@@ -406,9 +398,9 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                 </SortableContext>
                 <div className="px-[calc(1.5rem+1px)] flex flex-row justify-end space-x-2">
                     {renderAddContainerItem ? (
-                        renderAddContainerItem({ onAddContainer: handleAddColumn })
+                        renderAddContainerItem({ onAddContainer: handleAddContainerItem })
                     ) : (
-                        <LemonButton onClick={handleAddColumn} fullWidth={false} type="primary">
+                        <LemonButton onClick={handleAddContainerItem} fullWidth={false} type="primary">
                             Add container
                         </LemonButton>
                     )}
@@ -453,7 +445,6 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
         return (
             <Container
                 containerItemId={containerId}
-                shadow
                 renderContainerItem={renderContainerItem}
                 item={item}
                 onAddChild={NOOP}
@@ -494,7 +485,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
         })
     }
 
-    function handleAddColumn(): void {
+    function handleAddContainerItem(): void {
         const newItem: Item = createNewContainerItem()
 
         unstable_batchedUpdates(() => {
@@ -506,7 +497,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
         })
     }
 
-    function handleAddChild(containerId: UniqueIdentifier): void {
+    function handleAddChildItem(containerId: UniqueIdentifier): void {
         const newChild = createNewChildItem()
 
         setItems((items) => {
@@ -626,7 +617,6 @@ function useMountStatus(): boolean {
 
 function DroppableContainer<ChildItem extends VDNDChildItem, ContainerItem extends VNDNDContainerItem<ChildItem>>({
     children,
-    columns = 1,
     disabled,
     items,
     style,
@@ -637,7 +627,7 @@ function DroppableContainer<ChildItem extends VDNDChildItem, ContainerItem exten
     items: ChildItem[]
     style?: React.CSSProperties
 }): JSX.Element {
-    const { active, attributes, isDragging, listeners, over, setNodeRef, transition, transform } = useSortable({
+    const { attributes, isDragging, listeners, setNodeRef, transition, transform } = useSortable({
         id: containerItemId,
         data: {
             type: 'container',
@@ -645,23 +635,17 @@ function DroppableContainer<ChildItem extends VDNDChildItem, ContainerItem exten
         },
         animateLayoutChanges,
     })
-    const isOverContainer = over
-        ? (containerItemId === over.id && active?.data.current?.type !== 'container') ||
-          items.some((item) => item.id === over.id)
-        : false
 
     return (
         <Container
             ref={disabled ? undefined : setNodeRef}
             isDragging={isDragging}
-            hover={isOverContainer}
             transform={CSS.Translate.toString(transform)}
             transition={transition}
             handleProps={{
                 ...attributes,
                 ...listeners,
             }}
-            columns={columns}
             containerItemId={containerItemId}
             {...props}
         >
@@ -672,16 +656,10 @@ function DroppableContainer<ChildItem extends VDNDChildItem, ContainerItem exten
 
 export interface ContainerProps<Item extends VNDNDContainerItem<any>> {
     children: React.ReactNode
-    columns?: number
     containerItemId: UniqueIdentifier
     style?: React.CSSProperties
-    horizontal?: boolean
-    hover?: boolean
     handleProps?: React.HTMLAttributes<any>
-    scrollable?: boolean
-    shadow?: boolean
     placeholder?: boolean
-    unstyled?: boolean
     onClick?(): void
     onRemove?(): void
     onAddChild(containerId: UniqueIdentifier): void
@@ -701,17 +679,12 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
     {
         children,
         handleProps,
-        horizontal,
-        hover,
         onClick,
         onRemove,
         onAddChild,
         containerItemId,
         placeholder,
         style,
-        scrollable,
-        shadow,
-        unstyled,
         isDragging,
         transform,
         transition,
