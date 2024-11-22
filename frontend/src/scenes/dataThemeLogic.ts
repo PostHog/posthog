@@ -1,5 +1,7 @@
-import { kea, path, selectors } from 'kea'
-import { _DataColorTheme, getColorVar } from 'lib/colors'
+import { afterMount, connect, kea, path, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { getColorVar, _DataColorTheme } from 'lib/colors'
 
 import type { dataThemeLogicType } from './dataThemeLogicType'
 
@@ -20,35 +22,45 @@ const POSTHOG_THEME: _DataColorTheme = {
     'preset-14': getColorVar('data-color-14'),
     'preset-15': getColorVar('data-color-15'),
 }
-
-const D3_SCHEME_CATEGORY_10: _DataColorTheme = {
-    'preset-1': '#1f77b4',
-    'preset-2': '#ff7f0e',
-    'preset-3': '#2ca02c',
-    'preset-4': '#d62728',
-    'preset-5': '#9467bd',
-    'preset-6': '#8c564b',
-    'preset-7': '#e377c2',
-    'preset-8': '#7f7f7f',
-    'preset-9': '#bcbd22',
-    'preset-10': '#17becf',
-}
+import { teamLogic } from './teamLogic'
 
 export const dataThemeLogic = kea<dataThemeLogicType>([
     path(['scenes', 'dataThemeLogic']),
+    connect({ values: [teamLogic, ['currentTeam']] }),
+    loaders({
+        themes: {
+            loadThemes: async () => await api.dataColorThemes.list(),
+        },
+    }),
     selectors({
-        themes: [
-            () => [],
-            () => ({
-                posthog: POSTHOG_THEME,
-                d3_category_10: D3_SCHEME_CATEGORY_10,
-            }),
+        defaultTheme: [
+            (s) => [s.currentTeam, s.themes],
+            (currentTeam, themes) => {
+                if (!currentTeam || !themes) {
+                    return null
+                }
+
+                const environmentTheme = themes.find((theme) => theme.id === currentTeam.default_data_theme)
+                // TODO: better way to detect the posthog default theme
+                return environmentTheme || themes.find((theme) => theme.id === 1)
+            },
         ],
         getTheme: [
-            (s) => [s.themes],
-            (themes) =>
-                (theme: string): _DataColorTheme =>
-                    themes[theme],
+            (s) => [s.themes, s.defaultTheme],
+            (themes, defaultTheme) =>
+                (theme_slug: string): _DataColorTheme => {
+                    if (defaultTheme) {
+                        return defaultTheme.colors.reduce((theme, color, index) => {
+                            theme[`preset-${index + 1}`] = color
+                            return theme
+                        }, {})
+                    }
+
+                    return POSTHOG_THEME
+                },
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadThemes()
     }),
 ])

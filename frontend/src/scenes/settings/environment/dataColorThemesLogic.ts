@@ -1,6 +1,5 @@
-import { actions, afterMount, connect, kea, listeners, path } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { actions, connect, kea, listeners, path } from 'kea'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 import type { dataColorThemesLogicType } from './dataColorThemesLogicType'
@@ -8,12 +7,8 @@ import type { dataColorThemesLogicType } from './dataColorThemesLogicType'
 export const dataColorThemesLogic = kea<dataColorThemesLogicType>([
     path(['scenes', 'settings', 'environment', 'dataColorThemesLogic']),
     connect({
+        values: [dataThemeLogic, ['themes', 'themesLoading']],
         actions: [dataColorThemesModalLogic, ['openModal']],
-    }),
-    loaders({
-        themes: {
-            loadThemes: async () => await api.dataColorThemes.list(),
-        },
     }),
     actions({
         selectTheme: (id: 'new' | number | null) => ({ id }),
@@ -36,7 +31,4 @@ export const dataColorThemesLogic = kea<dataColorThemesLogicType>([
             actions.openModal(existingTheme)
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadThemes()
-    }),
 ])
