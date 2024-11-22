@@ -1749,17 +1749,15 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(params?: {
-            filters?: any
-            type?: HogFunctionTypeType
-            types?: HogFunctionTypeType[]
-        }): Promise<PaginatedResponse<HogFunctionType>> {
+        async list(
+            filters?: any,
+            type?: HogFunctionTypeType | HogFunctionTypeType[]
+        ): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
-                    filters: params?.filters,
-                    ...(params?.type ? { type: params.type } : {}),
-                    ...(params?.types ? { types: params.types.join(',') } : {}),
+                    filters: filters,
+                    ...(type ? (Array.isArray(type) ? { types: type.join(',') } : { type }) : {}),
                 })
                 .get()
         },
