@@ -10,7 +10,8 @@ export function DataColorThemeModal(): JSX.Element {
     const { theme } = useValues(dataColorThemesModalLogic)
     const { submitTheme } = useActions(dataColorThemesModalLogic)
 
-    const title = theme?.id == null ? 'Add theme' : 'Edit theme'
+    const isNew = theme?.id == null
+    const title = isNew ? 'Add theme' : 'Edit theme'
     const closeModal = () => {}
 
     return (
@@ -27,7 +28,7 @@ export function DataColorThemeModal(): JSX.Element {
         >
             <Form logic={dataColorThemesModalLogic} formKey="theme" className="flex flex-col gap-2">
                 <LemonField name="name" label="Name">
-                    <LemonInput />
+                    <LemonInput placeholder="My custom theme" autoFocus={isNew} />
                 </LemonField>
 
                 <LemonLabel>Colors</LemonLabel>
