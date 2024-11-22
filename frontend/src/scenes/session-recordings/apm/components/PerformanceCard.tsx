@@ -193,18 +193,21 @@ function itemToPerformanceValues(item: PerformanceEvent): {
 
 export function PerformanceCardRow({ item }: { item: PerformanceEvent }): JSX.Element {
     const performanceValues = itemToPerformanceValues(item)
-
     return (
         <OverviewGrid>
-            {Object.entries(summaryMapping).map(([key, summary]) => (
-                <OverviewGridItem key={key} description={summary.description} label={summary.label}>
-                    <PerformanceDuration
-                        benchmarks={summary.scoreBenchmarks}
-                        value={performanceValues[key]}
-                        loading={summary.allowLoadingIndicator && !performanceValues.loaded}
-                    />
-                </OverviewGridItem>
-            ))}
+            {Object.entries(summaryMapping)
+                .filter(([key]) => performanceValues[key] !== undefined)
+                .map(([key, summary]) => {
+                    return (
+                        <OverviewGridItem key={key} description={summary.description} label={summary.label}>
+                            <PerformanceDuration
+                                benchmarks={summary.scoreBenchmarks}
+                                value={performanceValues[key]}
+                                loading={summary.allowLoadingIndicator && !performanceValues.loaded}
+                            />
+                        </OverviewGridItem>
+                    )
+                })}
         </OverviewGrid>
     )
 }
