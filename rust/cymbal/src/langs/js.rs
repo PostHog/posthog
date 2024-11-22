@@ -155,13 +155,19 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             ScopeLookupResult::Unknown => None,
         };
 
+        let source = token.file().and_then(|f| f.name()).map(|s| s.to_string());
+
+        let in_app = source
+            .map(|s| !s.contains("node_modules"))
+            .unwrap_or(raw_frame.in_app);
+
         let mut res = Self {
             raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
             source: token.file().and_then(|f| f.name()).map(|s| s.to_string()),
-            in_app: raw_frame.in_app,
+            in_app,
             resolved_name,
             lang: "javascript".to_string(),
             resolved: true,
