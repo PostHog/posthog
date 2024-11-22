@@ -8,6 +8,7 @@ from posthog.schema import (
     CustomChannelRule,
     CustomChannelOperator,
     CustomChannelField,
+    DefaultChannelTypes,
 )
 
 
@@ -288,23 +289,4 @@ multiIf(
         return builtin_rules
 
 
-POSSIBLE_CHANNEL_TYPES = [
-    "Cross Network",
-    "Paid Search",
-    "Paid Social",
-    "Paid Video",
-    "Paid Shopping",
-    "Paid Unknown",
-    "Direct",
-    "Organic Search",
-    "Organic Social",
-    "Organic Video",
-    "Organic Shopping",
-    "Push",
-    "SMS",
-    "Audio",
-    "Email",
-    "Referral",
-    "Affiliate",
-    "Unknown",
-]
+DEFAULT_CHANNEL_TYPES = [entry.value for entry in DefaultChannelTypes]

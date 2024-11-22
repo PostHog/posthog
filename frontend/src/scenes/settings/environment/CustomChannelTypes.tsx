@@ -138,7 +138,9 @@ export function CustomChannelTypes(): JSX.Element {
         Object.values(DefaultChannelTypes).forEach((channelType) => {
             optionsSet.add(channelType)
         })
-        return Array.from(optionsSet).map((channelType) => ({ label: channelType, key: channelType }))
+        return Array.from(optionsSet)
+            .filter(Boolean)
+            .map((channelType) => ({ label: channelType, key: channelType }))
     }, [customChannelTypeRules])
 
     return (

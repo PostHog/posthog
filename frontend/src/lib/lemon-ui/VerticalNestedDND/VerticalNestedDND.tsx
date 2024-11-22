@@ -1,5 +1,3 @@
-import './styles.scss'
-
 import {
     closestCenter,
     CollisionDetection,
