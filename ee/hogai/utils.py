@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from enum import StrEnum
 from typing import Annotated, Optional, TypedDict, Union
 
+from asgiref.sync import sync_to_async
 from jsonref import replace_refs
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -14,7 +15,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from posthog.models.team.team import Team
+from posthog.models import Project, Team
 from posthog.schema import (
     AssistantMessage,
     FailureMessage,
@@ -60,8 +61,12 @@ class AssistantNode(ABC):
         self._team = team
 
     @abstractmethod
-    def run(cls, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    async def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         raise NotImplementedError
+
+    @sync_to_async
+    def _get_project(self) -> Project:
+        return self._team.project
 
 
 def remove_line_breaks(line: str) -> str:

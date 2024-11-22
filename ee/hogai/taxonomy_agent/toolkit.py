@@ -1,7 +1,6 @@
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from functools import cached_property
 from textwrap import dedent
 from typing import Literal, Optional, TypedDict, Union, cast
 
@@ -71,11 +70,16 @@ class TaxonomyAgentTool(
 
 class TaxonomyAgentToolkit(ABC):
     _team: Team
+    _groups: list[GroupTypeMapping]
 
     def __init__(self, team: Team):
         self._team = team
 
-    @cached_property
+    async def prepare(self):
+        self._groups = await self._retrieve_groups()
+        return self
+
+    @property
     def tools(self) -> list[ToolkitTool]:
         return [
             {
@@ -89,6 +93,34 @@ class TaxonomyAgentToolkit(ABC):
     @abstractmethod
     def _get_tools(self) -> list[ToolkitTool]:
         raise NotImplementedError
+
+    @property
+    def groups(self) -> list[GroupTypeMapping]:
+        if not self._groups:
+            raise ValueError("Groups are not set. Call prepare() first.")
+        return self._groups
+
+    @property
+    def group_names(self) -> list[str]:
+        return [group.group_type for group in self.groups]
+
+    async def _retrieve_groups(self):
+        return [group async for group in GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")]
+
+    @property
+    def _entity_names(self) -> list[str]:
+        """
+        The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
+        so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
+        to create various tools for different group types. Since we don't use function calling here, we want to limit the
+        number of tools because non-function calling models can't handle many tools.
+        """
+        entities = (
+            "person",
+            "session",
+            *self.group_names,
+        )
+        return entities
 
     @property
     def _default_tools(self) -> list[ToolkitTool]:
@@ -167,25 +199,6 @@ class TaxonomyAgentToolkit(ABC):
             descriptions.append(description)
         return "\n".join(descriptions)
 
-    @property
-    def _groups(self):
-        return GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")
-
-    @cached_property
-    def _entity_names(self) -> list[str]:
-        """
-        The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
-        so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
-        to create various tools for different group types. Since we don't use function calling here, we want to limit the
-        number of tools because non-function calling models can't handle many tools.
-        """
-        entities = [
-            "person",
-            "session",
-            *[group.group_type for group in self._groups],
-        ]
-        return entities
-
     def _generate_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
         root = ET.Element("properties")
         property_type_to_tag = {}
@@ -221,11 +234,11 @@ class TaxonomyAgentToolkit(ABC):
             enriched_props.append((prop_name, prop_type, description))
         return enriched_props
 
-    def retrieve_entity_properties(self, entity: str) -> str:
+    async def retrieve_entity_properties(self, entity: str) -> str:
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
+        if entity not in self._entity_names:
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
@@ -245,7 +258,7 @@ class TaxonomyAgentToolkit(ABC):
             )
         else:
             group_type_index = next(
-                (group.group_type_index for group in self._groups if group.group_type == entity), None
+                (group.group_type_index for group in self.groups if group.group_type == entity), None
             )
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
@@ -259,7 +272,7 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._generate_properties_xml(props)
 
-    def retrieve_event_properties(self, event_name: str) -> str:
+    async def retrieve_event_properties(self, event_name: str) -> str:
         """
         Retrieve properties for an event.
         """
@@ -276,7 +289,9 @@ class TaxonomyAgentToolkit(ABC):
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
-        property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
+        property_to_type = {
+            property_definition.name: property_definition.property_type async for property_definition in qs
+        }
         props = [
             (item.property, property_to_type.get(item.property))
             for item in response.results
@@ -317,9 +332,9 @@ class TaxonomyAgentToolkit(ABC):
 
         return prop_values
 
-    def retrieve_event_property_values(self, event_name: str, property_name: str) -> str:
+    async def retrieve_event_property_values(self, event_name: str, property_name: str) -> str:
         try:
-            property_definition = PropertyDefinition.objects.get(
+            property_definition = await PropertyDefinition.objects.aget(
                 team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
             )
         except PropertyDefinition.DoesNotExist:
@@ -370,7 +385,7 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
-    def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
+    async def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
         if entity not in self._entity_names:
             return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
 
@@ -380,7 +395,7 @@ class TaxonomyAgentToolkit(ABC):
         if entity == "person":
             query = ActorsPropertyTaxonomyQuery(property=property_name)
         else:
-            group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
+            group_index = next((group.group_type_index for group in self.groups if group.group_type == entity), None)
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."
             query = ActorsPropertyTaxonomyQuery(group_type_index=group_index, property=property_name)
@@ -393,7 +408,7 @@ class TaxonomyAgentToolkit(ABC):
                 prop_type = PropertyDefinition.Type.PERSON
                 group_type_index = None
 
-            property_definition = PropertyDefinition.objects.get(
+            property_definition = await PropertyDefinition.objects.aget(
                 team=self._team,
                 name=property_name,
                 type=prop_type,

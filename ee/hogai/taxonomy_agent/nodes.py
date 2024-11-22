@@ -35,7 +35,6 @@ from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentTool
 from ee.hogai.utils import AssistantNode, AssistantState, filter_visualization_conversation, remove_line_breaks
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     CachedTeamTaxonomyQueryResponse,
     TeamTaxonomyQuery,
@@ -43,7 +42,7 @@ from posthog.schema import (
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
-    def _run_with_prompt_and_toolkit(
+    async def _run_with_prompt_and_toolkit(
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
@@ -67,18 +66,19 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 template_format="mustache",
             )
         )
+        project = await self._get_project()
 
         agent = conversation | merge_message_runs() | self._model | parse_react_agent_output
 
         try:
             result = cast(
                 AgentAction,
-                agent.invoke(
+                await agent.ainvoke(
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
-                        "product_description": self._team.project.product_description,
-                        "groups": self._team_group_types,
+                        "product_description": project.product_description,
+                        "groups": toolkit.group_names,
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                     },
@@ -166,14 +166,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     desc_tag.text = remove_line_breaks(desc_tag.text)
         return ET.tostring(root, encoding="unicode")
 
-    @cached_property
-    def _team_group_types(self) -> list[str]:
-        return list(
-            GroupTypeMapping.objects.filter(team=self._team)
-            .order_by("group_type_index")
-            .values_list("group_type", flat=True)
-        )
-
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
@@ -218,7 +210,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
 
 class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
-    def _run_with_toolkit(
+    async def _run_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps") or []
@@ -243,13 +235,17 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
 
         output = ""
         if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_properties(input.arguments)
+            output = await toolkit.retrieve_event_properties(input.arguments)
         elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
+            output = await toolkit.retrieve_event_property_values(
+                input.arguments.event_name, input.arguments.property_name
+            )
         elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments)
+            output = await toolkit.retrieve_entity_properties(input.arguments)
         elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
+            output = await toolkit.retrieve_entity_property_values(
+                input.arguments.entity, input.arguments.property_name
+            )
         else:
             output = toolkit.handle_incorrect_response(input.arguments)
 

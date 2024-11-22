@@ -11,21 +11,21 @@ from posthog.schema import AssistantFunnelsQuery
 
 
 class FunnelPlannerNode(TaxonomyAgentPlannerNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        toolkit = FunnelsTaxonomyAgentToolkit(self._team)
+    async def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+        toolkit = await FunnelsTaxonomyAgentToolkit(self._team).prepare()
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", REACT_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
+        return await super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
 
 class FunnelPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        toolkit = FunnelsTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config=config)
+    async def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+        toolkit = await FunnelsTaxonomyAgentToolkit(self._team).prepare()
+        return await super()._run_with_toolkit(state, toolkit, config=config)
 
 
 FunnelsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantFunnelsQuery]
@@ -36,14 +36,14 @@ class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
     OUTPUT_MODEL = FunnelsSchemaGeneratorOutput
     OUTPUT_SCHEMA = FUNNEL_SCHEMA
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    async def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", FUNNEL_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt(state, prompt, config=config)
+        return await super()._run_with_prompt(state, prompt, config=config)
 
 
 class FunnelGeneratorToolsNode(SchemaGeneratorToolsNode):

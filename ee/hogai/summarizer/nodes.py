@@ -1,14 +1,15 @@
 import json
 from time import sleep
+
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from django.core.serializers.json import DjangoJSONEncoder
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
-from ee.hogai.summarizer.prompts import SUMMARIZER_SYSTEM_PROMPT, SUMMARIZER_INSTRUCTION_PROMPT
+from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
 from ee.hogai.utils import AssistantNode, AssistantNodeName, AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
@@ -21,7 +22,7 @@ from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, Visua
 class SummarizerNode(AssistantNode):
     name = AssistantNodeName.SUMMARIZER
 
-    def run(self, state: AssistantState, config: RunnableConfig):
+    async def run(self, state: AssistantState, config: RunnableConfig):
         viz_message = state["messages"][-1]
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError("Can only run summarization with a visualization message as the last one in the state")
@@ -67,7 +68,7 @@ class SummarizerNode(AssistantNode):
 
         chain = summarization_prompt | self._model
 
-        message = chain.invoke(
+        message = await chain.ainvoke(
             {
                 "query_kind": viz_message.answer.kind,
                 "product_description": self._team.project.product_description,

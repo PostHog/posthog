@@ -11,21 +11,21 @@ from posthog.schema import AssistantTrendsQuery
 
 
 class TrendsPlannerNode(TaxonomyAgentPlannerNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        toolkit = TrendsTaxonomyAgentToolkit(self._team)
+    async def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+        toolkit = await TrendsTaxonomyAgentToolkit(self._team).prepare()
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", REACT_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
+        return await super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
 
 class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
-        toolkit = TrendsTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config=config)
+    async def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+        toolkit = await TrendsTaxonomyAgentToolkit(self._team).prepare()
+        return await super()._run_with_toolkit(state, toolkit, config=config)
 
 
 TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]
@@ -36,14 +36,14 @@ class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     OUTPUT_MODEL = TrendsSchemaGeneratorOutput
     OUTPUT_SCHEMA = TRENDS_SCHEMA
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    async def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", TRENDS_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt(state, prompt, config=config)
+        return await super()._run_with_prompt(state, prompt, config=config)
 
 
 class TrendsGeneratorToolsNode(SchemaGeneratorToolsNode):

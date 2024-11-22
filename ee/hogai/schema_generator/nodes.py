@@ -58,7 +58,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         except ValidationError:
             return None
 
-    def _run_with_prompt(
+    async def _run_with_prompt(
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
@@ -75,7 +75,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         chain = generation_prompt | merger | self._model | parser
 
         try:
-            message: SchemaGeneratorOutput[Q] = chain.invoke({}, config)
+            message: SchemaGeneratorOutput[Q] = await chain.ainvoke({}, config)
         except PydanticOutputParserException as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
             if len(intermediate_steps) >= 2:
@@ -189,7 +189,7 @@ class SchemaGeneratorToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
+    async def run(self, state: AssistantState, config: RunnableConfig) -> AssistantState:
         intermediate_steps = state.get("intermediate_steps", [])
         if not intermediate_steps:
             return state
