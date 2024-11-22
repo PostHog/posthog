@@ -1,6 +1,8 @@
-from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
+import asyncio
+from collections.abc import AsyncGenerator, Generator
 from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union
 
+from asgiref.sync import sync_to_async
 from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph
@@ -89,7 +91,7 @@ class Assistant:
         return self._stream()
 
     async def _astream(self) -> AsyncGenerator[BaseModel, None]:
-        generator: AsyncIterator[Any] = self._graph.astream(
+        generator = self._graph.astream(
             self._initial_state,
             config=self._config,
             stream_mode=["messages", "values", "updates"],
@@ -106,32 +108,20 @@ class Assistant:
                     last_message = message
                     for serialized_message in self._serialize_message(message):
                         yield serialized_message
-            self._report_user_action(last_message)
+            await self._report_user_action(last_message)
         except Exception as e:
             capture_exception(e)
             yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point
 
-    def _stream(self) -> Generator[BaseModel, None, None]:
-        generator: Iterator[Any] = self._graph.stream(
-            self._initial_state,
-            config=self._config,
-            stream_mode=["messages", "values", "updates"],
-        )
-
-        # Send a chunk to establish the connection avoiding the worker's timeout.
-        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
-
-        try:
-            last_message = None
-            for update in generator:
-                message = self._process_update(update)
-                if message is not None:
-                    last_message = message
-                    yield from self._serialize_message(message)
-            self._report_user_action(last_message)
-        except Exception as e:
-            capture_exception(e)
-            yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point
+    def _stream(self):
+        iterator = self._astream()
+        with asyncio.Runner() as runner:
+            try:
+                while True:
+                    result = runner.run(anext(iterator))
+                    yield result
+            except StopAsyncIteration:
+                pass
 
     @property
     def _initial_state(self) -> AssistantState:
@@ -184,6 +174,7 @@ class Assistant:
             yield f"event: {AssistantEventType.MESSAGE}\n"
         yield f"data: {message.model_dump_json(exclude_none=True)}\n\n"
 
+    @sync_to_async
     def _report_user_action(self, last_message: BaseModel):
         human_message = self._conversation.messages[-1].root
         if isinstance(human_message, HumanMessage) and self._user:
