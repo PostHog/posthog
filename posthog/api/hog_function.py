@@ -186,7 +186,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     del attrs["filters"]["bytecode"]
 
         if "hog" in attrs:
-            if attrs["type"] == "web":
+            if attrs["type"] in ("site_app", "site_destination"):
                 # Upon creation, this code will be run before the model has an "id".
                 # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
                 id = str(instance.id) if instance else "__"

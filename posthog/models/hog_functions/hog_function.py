@@ -35,7 +35,8 @@ class HogFunctionState(enum.Enum):
 
 class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
-    WEB = "web"
+    SITE_DESTINATION = "site_destination"
+    SITE_APP = "site_app"
     EMAIL = "email"
     SMS = "sms"
     PUSH = "push"
@@ -46,7 +47,7 @@ class HogFunctionType(models.TextChoices):
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
 TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION,)
-TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.WEB,)
+TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
 
 class HogFunction(UUIDModel):
@@ -62,12 +63,12 @@ class HogFunction(UUIDModel):
 
     icon_url = models.TextField(null=True, blank=True)
 
-    # hog: contains Hog source, except for the "web" type, when it contains TypeScript
+    # hog: contains Hog source, except for the "site_*" types, when it contains TypeScript
     # TODO: rename to "source" ?
     hog = models.TextField()
-    # Used when the source language is Hog (everything except the "web" type)
+    # Used when the source language is Hog (everything except the "site_*" types)
     bytecode = models.JSONField(null=True, blank=True)
-    # Transpiled JavasScript. Used with the "web" type
+    # Transpiled JavasScript. Used with the "site_*" types
     transpiled = models.TextField(null=True, blank=True)
 
     inputs_schema = models.JSONField(null=True)

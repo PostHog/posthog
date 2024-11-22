@@ -124,7 +124,7 @@ class InputsItemSerializer(serializers.Serializer):
                         # We want to exclude the "design" property
                         value = {key: value[key] for key in value if key != "design"}
 
-                    if function_type == "web":
+                    if function_type in ("site_app", "site_destination"):
                         compiler = JavaScriptCompiler()
                         code = transpile_template_code(value, compiler)
                         # TODO: we're not really using it. keep?

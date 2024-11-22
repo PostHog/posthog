@@ -2,7 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
-    type="web",
+    type="site_destination",
     id="template-pineapple-analytics",
     name="Pineapple Analytics",
     description="Client side destination for Pineapple Analytics (Test service!)",

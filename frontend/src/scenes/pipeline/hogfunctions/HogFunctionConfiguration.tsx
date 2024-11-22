@@ -151,11 +151,12 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = type === 'destination' || type === 'web' || type === 'broadcast'
-    const showExpectedVolume = type === 'destination' || type === 'web'
+    const showFilters = type === 'destination' || type === 'site_destination' || type === 'broadcast'
+    const showExpectedVolume = type === 'destination' || type === 'site_destination'
     const showStatus = type === 'destination' || type === 'email'
-    const showEnabled = type === 'destination' || type === 'email' || type === 'web'
-    const canEditSource = type === 'destination' || type === 'email' || type === 'web'
+    const showEnabled = type === 'destination' || type === 'email' || type === 'site_destination' || type === 'site_app'
+    const canEditSource =
+        type === 'destination' || type === 'email' || type === 'site_destination' || type === 'site_app'
     const showPersonsCount = type === 'broadcast'
     const showTesting = type === 'destination' || type === 'broadcast' || type === 'email'
 
@@ -460,7 +461,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         <LemonField name="hog">
                                             {({ value, onChange }) => (
                                                 <>
-                                                    {type !== 'web' ? (
+                                                    {!type.startsWith('site_') ? (
                                                         <span className="text-xs text-muted-alt">
                                                             This is the underlying Hog code that will run whenever the
                                                             filters match.{' '}
@@ -469,7 +470,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                                         </span>
                                                     ) : null}
                                                     <CodeEditorResizeable
-                                                        language={type === 'web' ? 'typescript' : 'hog'}
+                                                        language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
                                                         onChange={(v) => onChange(v ?? '')}
                                                         globals={globalsWithInputs}
