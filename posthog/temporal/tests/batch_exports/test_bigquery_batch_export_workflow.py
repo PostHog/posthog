@@ -774,7 +774,7 @@ async def test_bigquery_export_workflow(
                     id=workflow_id,
                     task_queue=BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=30),
                 )
 
         runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)

@@ -101,32 +101,17 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
 
         self.insert_done_range(done_range, merge=merge)
 
-    def complete_done_ranges(self, data_interval_end_input: str | dt.datetime, merge: bool = True):
-        """Complete the ranges required to reach `data_interval_end_input`.
-
-
-        This is meant to be called at the end of a batch export to ensure
-        `self.done_ranges` covers the entire batch period until
-        `data_interval_end_input`.
-        """
-        if isinstance(data_interval_end_input, str):
-            data_interval_end = dt.datetime.fromisoformat(data_interval_end_input)
-        else:
-            data_interval_end = data_interval_end_input
-
-        done_range = (self.done_ranges[-1][1], data_interval_end)
-        self.done_ranges.append(done_range)
-
-        if merge:
-            self.merge_done_ranges()
-
     def insert_done_range(self, done_range: DateRange, merge: bool = True):
         """Insert a date range into `self.done_ranges` in order."""
         for index, range in enumerate(self.done_ranges, start=0):
             if done_range[0] > range[1]:
                 continue
+
             # We have found the index where this date range should go in.
-            self.done_ranges.insert(index, range)
+            if done_range[0] == range[1]:
+                self.done_ranges.insert(index + 1, done_range)
+            else:
+                self.done_ranges.insert(index, done_range)
             break
         else:
             # Date range should go at the end
@@ -139,7 +124,8 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
         """Merge as many date ranges together as possible in `self.done_ranges`.
 
         This method looks for ranges whose opposite ends are touching and merges
-        them together. We rely on ranges not overlapping to achieve this.
+        them together. Notice that this method does not have enough information
+        to merge ranges that are not touching.
         """
         marked_for_deletion = set()
         for index, range in enumerate(self.done_ranges, start=0):
@@ -159,6 +145,24 @@ class BatchExportRangeHeartbeatDetails(HeartbeatDetails):
 
         for index in marked_for_deletion:
             self.done_ranges.pop(index)
+
+    def complete_done_ranges(self, data_interval_end_input: str | dt.datetime):
+        """Complete the entire range covered by the batch export.
+
+        This is meant to be called at the end of a batch export to ensure
+        `self.done_ranges` covers the entire batch period from whichever was the
+        first range tracked until `data_interval_end_input`.
+
+        All ranges will be essentially merged into one (well, replaced by one)
+        covering everything, so it is very important to only call this once
+        everything is done.
+        """
+        if isinstance(data_interval_end_input, str):
+            data_interval_end = dt.datetime.fromisoformat(data_interval_end_input)
+        else:
+            data_interval_end = data_interval_end_input
+
+        self.done_ranges = [(self.done_ranges[0][0], data_interval_end)]
 
 
 HeartbeatType = typing.TypeVar("HeartbeatType", bound=HeartbeatDetails)

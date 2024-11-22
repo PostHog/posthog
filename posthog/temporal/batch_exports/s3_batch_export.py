@@ -647,6 +647,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                     await writer.write_record_batch(record_batch)
 
+            details.complete_done_ranges(inputs.data_interval_end)
+            heartbeater.set_from_heartbeat_details(details)
+
             records_completed = writer.records_total
             await s3_upload.complete()
 

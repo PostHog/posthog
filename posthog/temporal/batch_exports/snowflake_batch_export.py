@@ -716,6 +716,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
                         await writer.write_record_batch(record_batch)
 
+                details.complete_done_ranges(inputs.data_interval_end)
+                heartbeater.set_from_heartbeat_details(details)
+
                 await snow_client.copy_loaded_files_to_snowflake_table(
                     snow_stage_table if requires_merge else snow_table, data_interval_end_str
                 )

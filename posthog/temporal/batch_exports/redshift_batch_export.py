@@ -291,6 +291,7 @@ async def insert_records_to_redshift(
     heartbeater: Heartbeater,
     heartbeat_details: RedshiftHeartbeatDetails,
     data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime,
     batch_size: int = 100,
     use_super: bool = False,
     known_super_columns: list[str] | None = None,
@@ -387,6 +388,9 @@ async def insert_records_to_redshift(
 
                 heartbeat_details.track_done_range(last_date_range, data_interval_start)
                 heartbeater.set_from_heartbeat_details(heartbeat_details)
+
+    heartbeat_details.complete_done_ranges(data_interval_end)
+    heartbeater.set_from_heartbeat_details(heartbeat_details)
 
     return total_rows_exported
 
@@ -600,6 +604,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                     known_super_columns=known_super_columns,
                     heartbeat_details=details,
                     data_interval_start=data_interval_start,
+                    data_interval_end=data_interval_end,
                 )
 
                 if requires_merge:
