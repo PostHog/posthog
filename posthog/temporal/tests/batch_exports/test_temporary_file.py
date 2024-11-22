@@ -418,7 +418,7 @@ async def test_flushing_parquet_writer_resets_underlying_file(record_batch):
         assert writer.bytes_since_last_flush == writer.batch_export_file.bytes_since_last_reset
         assert writer.records_since_last_flush == record_batch.num_rows
 
-        await writer.flush((dt.datetime.now(), dt.datetime.now()))
+        await writer.flush()
 
         assert flush_counter == 1
         assert writer.batch_export_file.tell() == 0
