@@ -125,7 +125,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
                 return AlertEvaluationResult(value=prev_interval_value, breaches=breaches)
         case AlertConditionType.RELATIVE_INCREASE:
-            if is_non_time_series(query):
+            if is_non_time_series:
                 raise ValueError(f"Relative alerts not supported for non time series trends")
 
             # to measure relative increase, we can't alert until current interval has completed
@@ -193,7 +193,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             return AlertEvaluationResult(value=(increase if not has_breakdown else None), breaches=breaches)
 
         case AlertConditionType.RELATIVE_DECREASE:
-            if is_non_time_series(query):
+            if is_non_time_series:
                 raise ValueError(f"Relative alerts not supported for non time series trends")
 
             # to measure relative decrease, we can't alert until current interval has completed
