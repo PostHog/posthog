@@ -10,6 +10,8 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
     actions({
         openModal: (theme) => ({ theme }),
         closeModal: true,
+        addColor: true,
+        removeColor: (index: number) => ({ index }),
     }),
     reducers({
         theme: [
@@ -17,6 +19,14 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
             {
                 openModal: (_, { theme }) => theme,
                 closeModal: () => null,
+                addColor: (theme) => ({
+                    ...theme,
+                    colors: [...theme.colors, theme.colors[theme.colors.length - 1] || '#1d4aff'],
+                }),
+                removeColor: (theme, { index }) => ({
+                    ...theme,
+                    colors: theme.colors.filter((_, idx) => idx !== index),
+                }),
             },
         ],
     }),

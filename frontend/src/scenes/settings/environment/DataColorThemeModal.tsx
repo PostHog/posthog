@@ -1,3 +1,4 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -8,7 +9,7 @@ import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 
 export function DataColorThemeModal(): JSX.Element {
     const { theme, themeChanged } = useValues(dataColorThemesModalLogic)
-    const { submitTheme, closeModal } = useActions(dataColorThemesModalLogic)
+    const { submitTheme, closeModal, addColor, removeColor } = useActions(dataColorThemesModalLogic)
 
     const isNew = theme?.id == null
     const title = isNew ? 'Add theme' : 'Edit theme'
@@ -64,10 +65,15 @@ export function DataColorThemeModal(): JSX.Element {
                             title: '',
                             key: 'actions',
                             width: 24,
+                            render: (_, { index }) => (
+                                <LemonButton onClick={() => removeColor(index)}>
+                                    <IconTrash className="text-danger text-lg" />
+                                </LemonButton>
+                            ),
                         },
                     ]}
                 />
-                <LemonButton type="secondary" className="self-start">
+                <LemonButton type="secondary" className="self-start" onClick={addColor}>
                     Add color
                 </LemonButton>
             </Form>
