@@ -13,7 +13,7 @@ from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.data_imports.pipelines.bigquery import delete_table
 
-from posthog.temporal.data_imports.pipelines.pipeline_non_dlt import PipelineNonDLT
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline_sync import DataImportPipelineSync, PipelineInputs
 from posthog.temporal.data_imports.util import is_posthog_team
 from posthog.warehouse.models import (
