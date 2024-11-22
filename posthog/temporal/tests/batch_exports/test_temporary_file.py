@@ -209,7 +209,9 @@ TEST_RECORD_BATCHES = [
         {
             "event": pa.array(["test-event-0", "test-event-1", "test-event-2"]),
             "properties": pa.array(['{"prop_0": 1, "prop_1": 2}', "{}", "null"]),
-            "_inserted_at": pa.array([0, 1, 2]),
+            "_inserted_at": pa.array(
+                [dt.datetime.fromtimestamp(0), dt.datetime.fromtimestamp(1), dt.datetime.fromtimestamp(2)]
+            ),
         }
     )
 ]
@@ -446,7 +448,7 @@ async def test_jsonl_writer_deals_with_web_vitals():
                     }
                 ]
             ),
-            "_inserted_at": pa.array([0]),
+            "_inserted_at": pa.array([dt.datetime.fromtimestamp(0)]),
         }
     )
 
@@ -498,7 +500,7 @@ async def test_jsonl_writer_deals_with_nested_user_events():
         {
             "event": pa.array(["my_event"]),
             "properties": pa.array([{"we_have_to_go_deeper": json.loads("[" * 256 + "]" * 256)}]),
-            "_inserted_at": pa.array([0]),
+            "_inserted_at": pa.array([dt.datetime.fromtimestamp(0)]),
         }
     )
 
