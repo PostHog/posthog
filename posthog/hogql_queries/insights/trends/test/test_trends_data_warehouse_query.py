@@ -229,7 +229,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown(self):
@@ -448,3 +448,49 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         self.assert_column_names_with_display_type(ChartDisplayType.BOLD_NUMBER)
         self.assert_column_names_with_display_type(ChartDisplayType.WORLD_MAP)
         self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
+
+    @snapshot_clickhouse_queries
+    def test_trends_with_multiple_property_types(self):
+        table_name = self.create_parquet_file()
+
+        _create_event(
+            distinct_id="1",
+            event="a",
+            properties={"prop_1": "a"},
+            timestamp="2023-01-02 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=InsightDateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            properties=clean_entity_properties(
+                [
+                    {"key": "prop_1", "value": "a", "operator": "exact", "type": "data_warehouse"},
+                    {"key": "prop_2", "value": "e", "operator": "exact", "type": "data_warehouse"},
+                    {
+                        "key": "prop_1",
+                        "value": "a",
+                        "operator": "exact",
+                        "type": "event",
+                    },  # This should be ignored for DW queries
+                ]
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        # Should only match the row where both prop_1='a' AND prop_2='e'
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]

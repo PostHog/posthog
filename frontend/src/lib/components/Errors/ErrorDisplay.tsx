@@ -160,7 +160,7 @@ function ChainedStackTraces({
                 </LemonBanner>
             )}
             {exceptionList.map(({ stacktrace, value }, index) => {
-                if (stacktrace.type === 'resolved') {
+                if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
                     if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
                         // if we're not showing all frames and there are no in_app frames, skip this exception
@@ -174,8 +174,6 @@ function ChainedStackTraces({
                         </div>
                     )
                 }
-
-                return null
             })}
         </>
     )
