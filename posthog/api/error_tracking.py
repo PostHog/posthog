@@ -107,8 +107,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMod
     @action(methods=["GET"], detail=True)
     def stack_frames(self, request, *args, **kwargs):
         symbol_set = self.get_object()
-        frames = ErrorTrackingStackFrame.objects.all()
-        # frames = ErrorTrackingStackFrame.objects.filter(symbol_set=symbol_set)
+        frames = ErrorTrackingStackFrame.objects.filter(symbol_set=symbol_set)
         serializer = ErrorTrackingStackFrameSerializer(frames, many=True)
         return Response(serializer.data)
 
