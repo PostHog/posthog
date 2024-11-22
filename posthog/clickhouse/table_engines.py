@@ -81,4 +81,6 @@ class Distributed:
         self.cluster = cluster
 
     def __str__(self):
-        return f"Distributed('{self.cluster}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
+        return (
+            f"Distributed('{self.cluster}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
+        )
