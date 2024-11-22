@@ -1,9 +1,9 @@
 import './PlayerInspectorList.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { SettingsToggle } from 'scenes/session-recordings/player/inspector/PlayerInspectorControls'
 
 import { InspectorListItemType } from '~/types'
 
@@ -16,18 +16,21 @@ function HideProperties(): JSX.Element | null {
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
     return (
-        <LemonButton
-            status={hidePostHogPropertiesInTable ? 'danger' : 'default'}
+        <SettingsToggle
+            title={
+                hidePostHogPropertiesInTable
+                    ? 'Do not show PostHog properties in expanded events'
+                    : 'Show PostHog properties in expanded events'
+            }
+            label="Hide PostHog properties"
             onClick={() => setHidePostHogPropertiesInTable(!hidePostHogPropertiesInTable)}
-            size="xsmall"
             disabledReason={
                 miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled)
                     ? undefined
                     : 'There are no events in the list'
             }
-        >
-            Hide PostHog properties
-        </LemonButton>
+            active={hidePostHogPropertiesInTable}
+        />
     )
 }
 
@@ -39,15 +42,18 @@ function SyncScrolling(): JSX.Element {
     const { setSyncScrollPaused } = useActions(inspectorLogic)
 
     return (
-        <LemonButton
-            status={syncScrollPaused ? 'default' : 'danger'}
-            size="xsmall"
+        <SettingsToggle
+            title={
+                syncScrollPaused
+                    ? 'Scroll the activity list in sync with playback'
+                    : 'Do not auto-scroll the activity list in sync with playback'
+            }
+            label="Sync scrolling"
             onClick={() => {
                 setSyncScrollPaused(!syncScrollPaused)
             }}
-        >
-            Sync scrolling
-        </LemonButton>
+            active={!syncScrollPaused}
+        />
     )
 }
 
@@ -56,15 +62,18 @@ function ShowOnlyMatching(): JSX.Element {
     const { setShowOnlyMatching } = useActions(miniFiltersLogic)
 
     return (
-        <LemonButton
-            status={showOnlyMatching ? 'danger' : 'default'}
-            size="xsmall"
+        <SettingsToggle
+            title={
+                showOnlyMatching
+                    ? 'Show all events for this recording'
+                    : 'Show only events that match the current filters'
+            }
+            label="Show only matching events"
+            active={showOnlyMatching}
             onClick={() => {
                 setShowOnlyMatching(!showOnlyMatching)
             }}
-        >
-            Show only matching events
-        </LemonButton>
+        />
     )
 }
 

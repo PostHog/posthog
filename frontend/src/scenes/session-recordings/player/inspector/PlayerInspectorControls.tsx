@@ -1,8 +1,9 @@
 import { BaseIcon, IconBug, IconCheck, IconDashboard, IconInfo, IconSearch, IconTerminal } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonInput, LemonMenu, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
@@ -14,15 +15,51 @@ import { InspectorListItemType } from '~/types'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
-/**
- * TODO show counts alongside selectors so folk know whether to click them
- */
-
 export const TabToIcon = {
     [InspectorListItemType.EVENTS]: IconUnverifiedEvent,
     [InspectorListItemType.CONSOLE]: IconTerminal,
     [InspectorListItemType.NETWORK]: IconDashboard,
     [InspectorListItemType.DOCTOR]: IconBug,
+}
+
+function SettingsMenu({
+    label,
+    items,
+    icon,
+    ...props
+}: Omit<LemonMenuProps, 'items' | 'children'> & {
+    items: LemonMenuItem[]
+    label: JSX.Element | string
+    icon: JSX.Element
+}): JSX.Element {
+    return (
+        <LemonMenu buttonSize="xsmall" closeOnClickInside={false} items={items} {...props}>
+            <LemonButton status={items.some((cf) => !!cf.active) ? 'danger' : 'default'} size="xsmall" icon={icon}>
+                {label}
+            </LemonButton>
+        </LemonMenu>
+    )
+}
+
+export function SettingsToggle({
+    title,
+    icon,
+    label,
+    active,
+    ...props
+}: Omit<LemonButtonProps, 'status' | 'sideAction'> & {
+    active: boolean
+    title: string
+    icon?: JSX.Element | null
+    label: JSX.Element | string
+}): JSX.Element {
+    return (
+        <Tooltip title={title}>
+            <LemonButton icon={icon} size="xsmall" status={active ? 'danger' : 'default'} {...props}>
+                {label}
+            </LemonButton>
+        </Tooltip>
+    )
 }
 
 export function PlayerInspectorControls(): JSX.Element {
@@ -81,51 +118,43 @@ export function PlayerInspectorControls(): JSX.Element {
             <div className="flex flex-nowrap">
                 <div className="flex flex-1 border-b shrink-0 mr-2 items-center justify-end font-light">
                     {mode !== SessionRecordingPlayerMode.Sharing && (
-                        <LemonMenu buttonSize="xsmall" closeOnClickInside={false} items={eventsFilters}>
-                            <LemonButton
-                                status={eventsFilters.some((cf) => !!cf.active) ? 'danger' : 'default'}
-                                size="xsmall"
-                                icon={<IconUnverifiedEvent />}
-                            >
-                                {capitalizeFirstLetter(InspectorListItemType.EVENTS)}
-                            </LemonButton>
-                        </LemonMenu>
+                        <SettingsMenu
+                            items={eventsFilters}
+                            label={capitalizeFirstLetter(InspectorListItemType.EVENTS)}
+                            icon={<IconUnverifiedEvent />}
+                        />
                     )}
-                    <LemonMenu buttonSize="xsmall" closeOnClickInside={false} items={consoleFilters}>
-                        <LemonButton
-                            status={consoleFilters.some((cf) => !!cf.active) ? 'danger' : 'default'}
-                            size="xsmall"
-                            icon={<IconTerminal />}
-                        >
-                            {capitalizeFirstLetter(InspectorListItemType.CONSOLE)}
-                        </LemonButton>
-                    </LemonMenu>
-                    <LemonMenu buttonSize="xsmall" closeOnClickInside={false} items={networkFilters}>
-                        <LemonButton
-                            status={networkFilters.some((cf) => !!cf.active) ? 'danger' : 'default'}
-                            size="xsmall"
-                            icon={<IconDashboard />}
-                        >
-                            {capitalizeFirstLetter(InspectorListItemType.NETWORK)}
-                        </LemonButton>
-                    </LemonMenu>
+                    <SettingsMenu
+                        items={consoleFilters}
+                        label={capitalizeFirstLetter(InspectorListItemType.CONSOLE)}
+                        icon={<IconTerminal />}
+                    />
+                    <SettingsMenu
+                        items={networkFilters}
+                        label={capitalizeFirstLetter(InspectorListItemType.NETWORK)}
+                        icon={<IconDashboard />}
+                    />
                     {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                         mode !== SessionRecordingPlayerMode.Sharing && (
-                            <Tooltip title="Doctor events help diagnose the health of a recording, and are used by PostHog support">
-                                <LemonButton
-                                    icon={<IconBug />}
-                                    size="xsmall"
-                                    onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
-                                    status={miniFiltersByKey['doctor']?.enabled ? 'danger' : 'default'}
-                                >
-                                    Doctor
-                                </LemonButton>
-                            </Tooltip>
+                            <SettingsToggle
+                                title="Doctor events help diagnose the health of a recording, and are used by PostHog support"
+                                icon={<IconBug />}
+                                label="Doctor"
+                                active={!!miniFiltersByKey['doctor']?.enabled}
+                                onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
+                            />
                         )}
                     <LemonButton
                         icon={<IconSearch />}
                         size="xsmall"
-                        onClick={() => setShowSearch(!showSearch)}
+                        onClick={() => {
+                            const newState = !showSearch
+                            setShowSearch(newState)
+                            if (!newState) {
+                                // clear the search when we're hiding the search bar
+                                setSearchQuery('')
+                            }
+                        }}
                         status={showSearch ? 'danger' : 'default'}
                         title="Search"
                     />

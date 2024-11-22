@@ -51,7 +51,7 @@ describe('filtering inspector list items', () => {
                         type: 'events',
                     } as InspectorListItemEvent,
                 ],
-                miniFiltersByKey: { 'events-posthog': { enabled: true } as unknown as SharedListMiniFilter },
+                miniFiltersByKey: { 'events-pageview': { enabled: true } as unknown as SharedListMiniFilter },
                 showOnlyMatching: false,
                 showMatchingEventsFilter: false,
                 trackedWindow: null,

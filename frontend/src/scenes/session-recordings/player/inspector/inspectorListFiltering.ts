@@ -214,10 +214,6 @@ export function filterInspectorListItems({
             continue
         }
 
-        if (isContextItem(item)) {
-            include = true
-        }
-
         const itemFilter = itemToMiniFilter(item, miniFiltersByKey)
         include = isContextItem(item) || !!itemFilter?.enabled
 
