@@ -89,7 +89,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                         {[
                             {
                                 count: seen,
-                                label: 'Shown',
+                                label: 'Unanswered',
                                 classes: `rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
                                 style: { backgroundColor: '#1D4AFF', width: `${seenPercentage}%` },
                             },
@@ -135,7 +135,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                     <div className="w-full flex justify-center">
                         <div className="flex items-center">
                             {[
-                                { count: seen, label: 'Viewed', style: { backgroundColor: '#1D4AFF' } },
+                                { count: seen, label: 'Unanswered', style: { backgroundColor: '#1D4AFF' } },
                                 { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
                                 { count: sent, label: 'Submitted', style: { backgroundColor: '#529B08' } },
                             ].map(

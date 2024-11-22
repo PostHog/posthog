@@ -9,7 +9,16 @@ import {
     BREAKDOWN_OTHER_STRING_LABEL,
 } from 'scenes/insights/utils'
 
-import { EventsNode, InsightQueryNode, LifecycleQuery, MathType, TrendsFilter, TrendsQuery } from '~/queries/schema'
+import {
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    LifecycleQuery,
+    MathType,
+    TrendsFilter,
+    TrendsQuery,
+} from '~/queries/schema'
+import { isValidBreakdown } from '~/queries/utils'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -122,6 +131,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
                 return !!insightData.hasMore
             },
+        ],
+
+        isBreakdownValid: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter: BreakdownFilter | null) => isValidBreakdown(breakdownFilter),
         ],
 
         indexedResults: [

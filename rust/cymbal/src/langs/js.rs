@@ -1,13 +1,16 @@
+use std::sync::atomic::Ordering;
+
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
-use sourcemap::{SourceMap, Token};
+use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
 
 use crate::{
+    config::FRAME_CONTEXT_LINES,
     error::{Error, FrameError, JsResolveErr, UnhandledError},
     frames::{Context, ContextLine, Frame},
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
-    symbol_store::SymbolCatalog,
+    symbol_store::{sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
@@ -35,7 +38,7 @@ pub struct FrameLocation {
 impl RawJSFrame {
     pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
     where
-        C: SymbolCatalog<Url, SourceMap>,
+        C: SymbolCatalog<Url, OwnedSourceMapCache>,
     {
         match self.resolve_impl(team_id, catalog).await {
             Ok(frame) => Ok(frame),
@@ -48,7 +51,7 @@ impl RawJSFrame {
 
     async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
     where
-        C: SymbolCatalog<Url, SourceMap>,
+        C: SymbolCatalog<Url, OwnedSourceMapCache>,
     {
         let url = self.source_url()?;
 
@@ -57,7 +60,12 @@ impl RawJSFrame {
         };
 
         let sourcemap = catalog.lookup(team_id, url).await?;
-        let Some(token) = sourcemap.lookup_token(location.line, location.column) else {
+
+        let smc = sourcemap.get_smc();
+
+        // Note: javascript stack frame lines are 1-indexed, so we have to subtract 1
+        let Some(location) = smc.lookup(SourcePosition::new(location.line - 1, location.column))
+        else {
             return Err(JsResolveErr::TokenNotFound(
                 self.fn_name.clone(),
                 location.line,
@@ -66,7 +74,7 @@ impl RawJSFrame {
             .into());
         };
 
-        Ok(Frame::from((self, token)))
+        Ok(Frame::from((self, location)))
     }
 
     // JS frames can only handle JS resolution errors - errors at the network level
@@ -136,19 +144,31 @@ impl RawJSFrame {
     }
 }
 
-impl From<(&RawJSFrame, Token<'_>)> for Frame {
-    fn from(src: (&RawJSFrame, Token)) -> Self {
+impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
+    fn from(src: (&RawJSFrame, SourceLocation)) -> Self {
         let (raw_frame, token) = src;
         metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
+
+        let resolved_name = match token.scope() {
+            ScopeLookupResult::NamedScope(name) => Some(name.to_string()),
+            ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
+            ScopeLookupResult::Unknown => None,
+        };
+
+        let source = token.file().and_then(|f| f.name()).map(|s| s.to_string());
+
+        let in_app = source
+            .map(|s| !s.contains("node_modules"))
+            .unwrap_or(raw_frame.in_app);
 
         let mut res = Self {
             raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
-            line: Some(token.get_src_line()),
-            column: Some(token.get_src_col()),
-            source: token.get_source().map(String::from),
-            in_app: raw_frame.in_app,
-            resolved_name: token.get_name().map(String::from),
+            line: Some(token.line()),
+            column: Some(token.column()),
+            source: token.file().and_then(|f| f.name()).map(|s| s.to_string()),
+            in_app,
+            resolved_name,
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
@@ -236,35 +256,36 @@ fn add_raw_to_junk(frame: &mut Frame, raw: &RawJSFrame) {
     frame.add_junk("raw_frame", raw.clone()).unwrap();
 }
 
-fn get_context(token: &Token) -> Option<Context> {
-    let sv = token.get_source_view()?;
+fn get_context(token: &SourceLocation) -> Option<Context> {
+    let file = token.file()?;
+    let token_line_num = token.line();
+    let src = file.source()?;
 
-    let token_line_num = token.get_src_line();
+    let line_limit = FRAME_CONTEXT_LINES.load(Ordering::Relaxed);
+    get_context_lines(src, token_line_num as usize, line_limit)
+}
 
-    let token_line = sv.get_line(token_line_num)?;
+fn get_context_lines(src: &str, line: usize, context_len: usize) -> Option<Context> {
+    let start = line.saturating_sub(context_len).saturating_sub(1);
 
-    let mut before = Vec::new();
-    let mut i = token_line_num;
-    while before.len() < 5 && i > 0 {
-        i -= 1;
-        if let Some(line) = sv.get_line(i) {
-            before.push(ContextLine::new(i, line));
-        }
-    }
-    before.reverse();
+    let mut lines = src.lines().enumerate().skip(start);
+    let before = (&mut lines)
+        .take(line - start)
+        .map(|(number, line)| ContextLine::new(number as u32, line))
+        .collect();
 
-    let mut after = Vec::new();
-    let mut i = token_line_num;
-    while after.len() < 5 && i < sv.line_count() as u32 {
-        i += 1;
-        if let Some(line) = sv.get_line(i) {
-            after.push(ContextLine::new(i, line));
-        }
-    }
+    let line = lines
+        .next()
+        .map(|(number, line)| ContextLine::new(number as u32, line))?;
+
+    let after = lines
+        .take(context_len)
+        .map(|(number, line)| ContextLine::new(number as u32, line))
+        .collect();
 
     Some(Context {
         before,
-        line: ContextLine::new(token_line_num, token_line),
+        line,
         after,
     })
 }

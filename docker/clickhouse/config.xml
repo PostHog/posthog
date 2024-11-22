@@ -171,6 +171,14 @@
                 </replica>
             </shard>
         </posthog>
+        <posthog_single_shard>
+            <shard>
+                <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_single_shard>
     </remote_servers>
 
     <remote_url_allow_hosts>
