@@ -1,4 +1,4 @@
-import { IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -9,7 +9,7 @@ import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 
 export function DataColorThemeModal(): JSX.Element {
     const { theme, themeChanged } = useValues(dataColorThemesModalLogic)
-    const { submitTheme, closeModal, addColor, removeColor } = useActions(dataColorThemesModalLogic)
+    const { submitTheme, closeModal, addColor, duplicateColor, removeColor } = useActions(dataColorThemesModalLogic)
 
     const isNew = theme?.id == null
     const title = isNew ? 'Add theme' : 'Edit theme'
@@ -66,14 +66,24 @@ export function DataColorThemeModal(): JSX.Element {
                             key: 'actions',
                             width: 24,
                             render: (_, { index }) => (
-                                <LemonButton onClick={() => removeColor(index)}>
-                                    <IconTrash className="text-danger text-lg" />
-                                </LemonButton>
+                                <div className="flex">
+                                    <LemonButton onClick={() => duplicateColor(index)}>
+                                        <IconCopy className="text-lg" />
+                                    </LemonButton>
+                                    <LemonButton onClick={() => removeColor(index)}>
+                                        <IconTrash className="text-danger text-lg" />
+                                    </LemonButton>
+                                </div>
                             ),
                         },
                     ]}
                 />
-                <LemonButton type="secondary" className="self-start" onClick={addColor}>
+                <LemonButton
+                    type="secondary"
+                    className="self-start"
+                    onClick={addColor}
+                    icon={<IconPlus className="text-lg" />}
+                >
                     Add color
                 </LemonButton>
             </Form>

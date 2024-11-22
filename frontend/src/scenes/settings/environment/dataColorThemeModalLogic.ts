@@ -11,6 +11,7 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
         openModal: (theme) => ({ theme }),
         closeModal: true,
         addColor: true,
+        duplicateColor: (index: number) => ({ index }),
         removeColor: (index: number) => ({ index }),
     }),
     reducers({
@@ -22,6 +23,10 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
                 addColor: (theme) => ({
                     ...theme,
                     colors: [...theme.colors, theme.colors[theme.colors.length - 1] || '#1d4aff'],
+                }),
+                duplicateColor: (theme, { index }) => ({
+                    ...theme,
+                    colors: theme.colors.flatMap((color, idx) => (idx === index ? [color, color] : [color])),
                 }),
                 removeColor: (theme, { index }) => ({
                     ...theme,
