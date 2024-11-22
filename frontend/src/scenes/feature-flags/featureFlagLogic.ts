@@ -34,7 +34,6 @@ import {
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
     FeatureFlagType,
-    FilterLogicalOperator,
     FilterType,
     InsightModel,
     InsightType,
@@ -43,10 +42,7 @@ import {
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
-    PropertyFilterType,
-    PropertyOperator,
     QueryBasedInsightModel,
-    RecordingUniversalFilters,
     RolloutConditionType,
     ScheduledChangeOperationType,
     ScheduledChangeType,
@@ -179,65 +175,6 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
         }
     }
     return flag
-}
-
-export const getRecordingFilterForFlagVariant = (
-    flagKey: string,
-    variantKey: string | null,
-    hasEnrichedAnalytics?: boolean
-): Partial<RecordingUniversalFilters> => {
-    return {
-        filter_group: {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        hasEnrichedAnalytics
-                            ? {
-                                  id: '$feature_interaction',
-                                  type: 'events',
-                                  order: 0,
-                                  name: '$feature_interaction',
-                                  properties: [
-                                      {
-                                          key: 'feature_flag',
-                                          value: [flagKey],
-                                          operator: PropertyOperator.Exact,
-                                          type: PropertyFilterType.Event,
-                                      },
-                                  ],
-                              }
-                            : {
-                                  id: '$feature_flag_called',
-                                  name: '$feature_flag_called',
-                                  type: 'events',
-                                  properties: [
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: [variantKey ? variantKey : 'false'],
-                                          operator: variantKey ? PropertyOperator.Exact : PropertyOperator.IsNot,
-                                      },
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: 'is_set',
-                                          operator: PropertyOperator.IsSet,
-                                      },
-                                      {
-                                          key: '$feature_flag',
-                                          type: PropertyFilterType.Event,
-                                          value: flagKey,
-                                          operator: PropertyOperator.Exact,
-                                      },
-                                  ],
-                              },
-                    ],
-                },
-            ],
-        },
-    }
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([
@@ -962,17 +899,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return dashboards.filter((dashboard: DashboardBasicType) => {
                     return featureFlag.analytics_dashboards?.includes(dashboard.id)
                 })
-            },
-        ],
-        recordingFilterForFlag: [
-            (s) => [s.featureFlag],
-            (featureFlag): Partial<RecordingUniversalFilters> => {
-                const flagKey = featureFlag?.key
-                if (!flagKey) {
-                    return {}
-                }
-
-                return getRecordingFilterForFlagVariant(flagKey, null, featureFlag.has_enriched_analytics)
             },
         ],
         hasEarlyAccessFeatures: [

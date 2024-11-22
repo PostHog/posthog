@@ -1,6 +1,6 @@
 import './FeatureFlag.scss'
 
-import { IconBalance, IconCollapse, IconExpand, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
+import { IconBalance, IconCollapse, IconExpand, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -26,7 +26,6 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import posthog from 'posthog-js'
 import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -57,14 +56,13 @@ import {
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
-    ReplayTabs,
     Resource,
 } from '~/types'
 
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
@@ -733,7 +731,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         nonEmptyVariants,
         aggregationTargetName,
         featureFlag,
-        recordingFilterForFlag,
     } = useValues(featureFlagLogic)
     const {
         distributeVariantsEqually,
@@ -762,16 +759,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 size: 'small',
             },
         })
-    }
-
-    const reportViewRecordingsClicked = (variantKey?: string): void => {
-        const properties: Record<string, string> = {
-            multivariate: multivariateEnabled.toString(),
-        }
-        if (variantKey) {
-            properties.variant_key = variantKey
-        }
-        posthog.capture('viewed recordings from feature flag', properties)
     }
 
     return (
@@ -884,28 +871,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 )}
                                             </div>
                                             <div>{variant.rollout_percentage}%</div>
-                                            <div className="col-span-2">
-                                                <LemonButton
-                                                    size="xsmall"
-                                                    icon={<IconRewindPlay />}
-                                                    type="secondary"
-                                                    onClick={() => {
-                                                        reportViewRecordingsClicked(variant.key)
-                                                        router.actions.push(
-                                                            urls.replay(
-                                                                ReplayTabs.Home,
-                                                                getRecordingFilterForFlagVariant(
-                                                                    featureFlag.key,
-                                                                    variant.key,
-                                                                    featureFlag.has_enriched_analytics
-                                                                )
-                                                            )
-                                                        )
-                                                    }}
-                                                >
-                                                    View recordings
-                                                </LemonButton>
-                                            </div>
                                         </div>
                                         {index !== variants.length - 1 && <LemonDivider className="my-3" />}
                                     </div>
@@ -988,23 +953,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 </Group>
                             </div>
                         )}
-                    </div>
-                    <div>
-                        <h3 className="l3">Recordings</h3>
-                        <p>Watch recordings of people who have been exposed to the feature flag.</p>
-                        <div className="inline-block">
-                            <LemonButton
-                                onClick={() => {
-                                    reportViewRecordingsClicked()
-                                    router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
-                                }}
-                                icon={<IconRewindPlay />}
-                                type="secondary"
-                                size="small"
-                            >
-                                View recordings
-                            </LemonButton>
-                        </div>
                     </div>
                 </div>
             )}
