@@ -4,9 +4,8 @@ from posthog.models.team import Team
 
 
 class DataColorTheme(models.Model):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, null=True, blank=True)
 
-    id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=100)
     colors = models.JSONField(default=list)
 

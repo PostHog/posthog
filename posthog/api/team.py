@@ -207,6 +207,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "capture_dead_clicks",
+            "default_data_theme",
         )
         read_only_fields = (
             "id",
