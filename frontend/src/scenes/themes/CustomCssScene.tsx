@@ -65,7 +65,7 @@ body[theme=light] {
     --text-3000: #ed3993;
     --text-3000-light: #58003f;
     --accent-3000: #FEBDE2;
-    --glass-border-3000: rgba(255, 20, 147, 0.3);
+    --glass-border-3000: rgba(245, 145, 199, 0.3);
 
     --primary-3000-frame-bg-light: #F18DBC;
     --primary-3000-button-bg: #FF69B4;
