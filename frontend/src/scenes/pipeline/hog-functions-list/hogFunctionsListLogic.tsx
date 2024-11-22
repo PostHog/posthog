@@ -68,7 +68,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -173,7 +173,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
-                    return (await api.hogFunctions.list(undefined, ['destination', 'site_destination'])).results
+                    return (await api.hogFunctions.list(undefined, props.types)).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {

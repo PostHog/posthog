@@ -189,9 +189,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
     }),
-    reducers({
+    reducers(({ props }) => ({
         showSource: [
-            false,
+            (props.templateId?.startsWith('template-blank-') ? true : false) && !props.id,
             {
                 setShowSource: (_, { showSource }) => showSource,
             },
@@ -226,7 +226,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 setSampleGlobalsError: (_, { error }) => error,
             },
         ],
-    }),
+    })),
     loaders(({ actions, props, values }) => ({
         template: [
             null as HogFunctionTemplateType | null,

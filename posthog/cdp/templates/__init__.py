@@ -40,11 +40,14 @@ from .google_cloud_storage.template_google_cloud_storage import (
 from .airtable.template_airtable import template as airtable
 from .brevo.template_brevo import template as brevo
 from .pineapple.template_pineapple_analytics import template as pineapple_analytics
-from .pineapple.template_pineapple_mode import template as pineapple_mode
+from .pineapple.template_pineapple_rain import template as pineapple_rain
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
+from ._internal.template_blank import blank_site_destination, blank_site_app
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
+    blank_site_app,
+    blank_site_destination,
     slack,
     webhook,
     activecampaign,
@@ -78,7 +81,7 @@ HOG_FUNCTION_TEMPLATES = [
     meta_ads,
     microsoft_teams,
     pineapple_analytics,
-    pineapple_mode,
+    pineapple_rain,
     posthog,
     rudderstack,
     salesforce_create,

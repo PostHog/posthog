@@ -33,24 +33,44 @@ export function HogFunctionsList({ types }: HogFunctionsListProps): JSX.Element 
 
     return (
         <>
-            <PageHeader
-                caption="Send your data in real time or in batches to destinations outside of PostHog."
-                buttons={<NewButton stage={PipelineStage.Destination} />}
-            />
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
-                <ProductIntroduction
-                    productName="Pipeline destinations"
-                    thingName="destination"
-                    productKey={ProductKey.PIPELINE_DESTINATIONS}
-                    description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
-                    docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                    isEmpty={destinations.length === 0 && !loading}
+            {types.includes('destination') ? (
+                <>
+                    <PageHeader
+                        caption="Send your data in real time or in batches to destinations outside of PostHog."
+                        buttons={<NewButton stage={PipelineStage.Destination} />}
+                    />
+                    <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
+                        <ProductIntroduction
+                            productName="Pipeline destinations"
+                            thingName="destination"
+                            productKey={ProductKey.PIPELINE_DESTINATIONS}
+                            description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
+                            docsURL="https://posthog.com/docs/cdp"
+                            actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
+                            isEmpty={destinations.length === 0 && !loading}
+                        />
+                    </PayGateMini>
+                </>
+            ) : types.includes('site_app') ? (
+                <PageHeader
+                    caption="Run custom scripts on your website."
+                    buttons={<NewButton stage={PipelineStage.SiteApp} />}
                 />
-            </PayGateMini>
+            ) : (
+                <PageHeader
+                    caption="Run custom scripts on your website or send your data in real time or in batches to destinations outside of PostHog."
+                    buttons={<NewButton stage={PipelineStage.SiteApp} />}
+                />
+            )}
             <HogFunctionsListTable types={types} />
             <div className="mt-4" />
-            <h2>New destinations</h2>
+            <h2>
+                {types.includes('destination')
+                    ? 'New destinations'
+                    : types.includes('site_app')
+                    ? 'New site app'
+                    : 'New Hog function'}
+            </h2>
             <NewFunctionsListTable types={types} />
         </>
     )
@@ -64,9 +84,11 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
     const { toggleNode, deleteNode } = useActions(hogFunctionsListLogic({ types }))
     const { resetFilters } = useActions(hogFunctionsListFiltersLogic({ types }))
 
+    const isDestination = types.includes('destination')
+
     return (
         <div className="space-y-2">
-            <HogFunctionsListFilters types={types} />
+            <HogFunctionsListFilters types={types} hideKind={types.includes('site_app')} />
 
             <LemonTable
                 dataSource={filteredDestinations}
@@ -115,33 +137,41 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                             )
                         },
                     },
-                    {
-                        title: 'Frequency',
-                        key: 'interval',
-                        render: function RenderFrequency(_, destination) {
-                            return destination.interval
-                        },
-                    },
-                    {
-                        title: 'Last 7 days',
-                        render: function RenderSuccessRate(_, destination) {
-                            return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Destination,
-                                        destination.id,
-                                        PipelineNodeTab.Metrics
-                                    )}
-                                >
-                                    {destination.backend === PipelineBackend.HogFunction ? (
-                                        <AppMetricSparkLineV2 id={destination.hog_function.id} />
-                                    ) : (
-                                        <AppMetricSparkLine pipelineNode={destination} />
-                                    )}
-                                </Link>
-                            )
-                        },
-                    },
+                    ...(isDestination
+                        ? [
+                              {
+                                  title: 'Frequency',
+                                  key: 'interval',
+                                  render: function RenderFrequency(_, destination) {
+                                      return destination.interval
+                                  },
+                              } as LemonTableColumn<Destination, any>,
+                          ]
+                        : []),
+                    ...(isDestination
+                        ? [
+                              {
+                                  title: 'Last 7 days',
+                                  render: function RenderSuccessRate(_, destination) {
+                                      return (
+                                          <Link
+                                              to={urls.pipelineNode(
+                                                  PipelineStage.Destination,
+                                                  destination.id,
+                                                  PipelineNodeTab.Metrics
+                                              )}
+                                          >
+                                              {destination.backend === PipelineBackend.HogFunction ? (
+                                                  <AppMetricSparkLineV2 id={destination.hog_function.id} />
+                                              ) : (
+                                                  <AppMetricSparkLine pipelineNode={destination} />
+                                              )}
+                                          </Link>
+                                      )
+                                  },
+                              } as LemonTableColumn<Destination, any>,
+                          ]
+                        : []),
                     updatedAtColumn() as LemonTableColumn<Destination, any>,
                     {
                         title: 'Status',

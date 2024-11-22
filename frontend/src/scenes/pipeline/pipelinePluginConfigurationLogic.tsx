@@ -17,7 +17,7 @@ import {
     getPluginConfigFormData,
 } from './configUtils'
 import { frontendAppsLogic } from './frontendAppsLogic'
-import { DESTINATION_TYPES } from './hog-functions-list/constants'
+import { DESTINATION_TYPES, SITE_APP_TYPES } from './hog-functions-list/constants'
 import { hogFunctionsListLogic } from './hog-functions-list/hogFunctionsListLogic'
 import { importAppsLogic } from './importAppsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
@@ -174,6 +174,8 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     .findMounted({ types: DESTINATION_TYPES })
                     ?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.SiteApp) {
+                hogFunctionsListLogic.findMounted({ types: SITE_APP_TYPES })?.actions.updatePluginConfig(pluginConfig)
+            } else if (props.stage === PipelineStage.SiteAppOld) {
                 frontendAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.ImportApp) {
                 importAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)

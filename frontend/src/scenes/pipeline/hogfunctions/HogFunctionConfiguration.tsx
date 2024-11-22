@@ -239,7 +239,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                     <LemonTextArea disabled={loading} />
                                 </LemonField>
 
-                                {hogFunction?.template ? (
+                                {hogFunction?.template && !hogFunction.template.id.startsWith('template-blank-') ? (
                                     <LemonDropdown
                                         showArrow
                                         overlay={

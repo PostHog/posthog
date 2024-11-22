@@ -707,6 +707,7 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
+    SiteAppsOld = 'site-apps-old',
     Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
@@ -718,6 +719,7 @@ export enum PipelineStage {
     Destination = 'destination',
     Source = 'source',
     SiteApp = 'site-app',
+    SiteAppOld = 'site-app-old',
     ImportApp = 'legacy-source',
 }
 

@@ -20,7 +20,7 @@ export type NewFunctionsListProps = {
 export function NewFunctionsList({ types }: NewFunctionsListProps): JSX.Element {
     return (
         <div className="space-y-2">
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+            {types.includes('destination') ? <PayGateMini feature={AvailableFeature.DATA_PIPELINES} /> : null}
             <HogFunctionsListFilters types={types} hideShowPaused />
             <NewFunctionsListTable types={types} />
         </div>
