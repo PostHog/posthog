@@ -1,9 +1,10 @@
+import asyncio
 import itertools
 import xml.etree.ElementTree as ET
 from abc import ABC
-from functools import cached_property
 from typing import cast
 
+from asgiref.sync import sync_to_async
 from git import Optional
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain_core.agents import AgentAction
@@ -66,7 +67,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 template_format="mustache",
             )
         )
-        project = await self._get_project()
+        project, events_prompt = await asyncio.gather(
+            self._get_project(),
+            self._get_events_prompt(),
+        )
 
         agent = conversation | merge_message_runs() | self._model | parse_react_agent_output
 
@@ -79,7 +83,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "product_description": project.product_description,
                         "groups": toolkit.group_names,
-                        "events": self._events_prompt,
+                        "events": events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                     },
                     config,
@@ -130,8 +134,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .content,
         )
 
-    @cached_property
-    def _events_prompt(self) -> str:
+    @sync_to_async
+    def _get_events_prompt(self) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )

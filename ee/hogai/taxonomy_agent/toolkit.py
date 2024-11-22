@@ -1,9 +1,9 @@
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
 from textwrap import dedent
 from typing import Literal, Optional, TypedDict, Union, cast
 
+from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field, RootModel
 
 from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -218,7 +218,7 @@ class TaxonomyAgentToolkit(ABC):
 
         return ET.tostring(root, encoding="unicode")
 
-    def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
+    def _enrich_props_with_descriptions(self, entity: str, props: list[tuple[str, str | None]]):
         enriched_props = []
         mapping = {
             "session": CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"],
@@ -245,7 +245,7 @@ class TaxonomyAgentToolkit(ABC):
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
             )
-            props = self._enrich_props_with_descriptions("person", qs)
+            props = self._enrich_props_with_descriptions("person", [prop async for prop in qs])
         elif entity == "session":
             # Session properties are not in the DB.
             props = self._enrich_props_with_descriptions(
@@ -265,7 +265,7 @@ class TaxonomyAgentToolkit(ABC):
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
             ).values_list("name", "property_type")
-            props = self._enrich_props_with_descriptions(entity, qs)
+            props = self._enrich_props_with_descriptions(entity, [prop async for prop in qs])
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
@@ -277,7 +277,9 @@ class TaxonomyAgentToolkit(ABC):
         Retrieve properties for an event.
         """
         runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+        response = await sync_to_async(runner.run)(
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        )
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return "Properties have not been found."
@@ -341,7 +343,9 @@ class TaxonomyAgentToolkit(ABC):
             return f"The property {property_name} does not exist in the taxonomy."
 
         runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+        response = await sync_to_async(runner.run)(
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        )
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The event {event_name} does not exist in the taxonomy."
@@ -417,7 +421,8 @@ class TaxonomyAgentToolkit(ABC):
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
-        response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+        query_runner = ActorsPropertyTaxonomyQueryRunner(query, self._team)
+        response = await sync_to_async(query_runner.run)(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
