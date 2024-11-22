@@ -37,7 +37,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
 )
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 import threading
 
 
@@ -415,31 +415,41 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def _is_data_warehouse_query(self, query: TrendsQuery) -> bool:
         return any(isinstance(series, DataWarehouseNode) for series in query.series)
 
-    def _get_data_warehouse_events_column_name(self, query: TrendsQuery) -> Optional[str]:
-        if hasattr(self, "data_warehouse_events_column_name"):
-            return self.data_warehouse_events_column_name
+    def _get_data_warehouse_events_column_name(self, query: TrendsQuery) -> str | Literal[False] | None:
+        data_warehouse_events_column_name: str | Literal[False] | None = getattr(
+            self, "data_warehouse_events_column_name", None
+        )
+        if data_warehouse_events_column_name is not None:
+            return data_warehouse_events_column_name
 
-        self.data_warehouse_events_column_name = None
+        self.data_warehouse_events_column_name = False
 
         try:
-            if not query.series:
-                raise ValueError("Query series is empty")
+            if not query.series or not isinstance(query.series[0], DataWarehouseNode):
+                raise ValueError("Query series is empty or does not contain a DataWarehouseNode")
 
             database = create_hogql_database(self.team.pk)
             if not database:
                 raise ValueError("Failed to create HogQL database")
 
             table_name = query.series[0].table_name
+            if not database.model_extra:
+                raise ValueError("Database model_extra is None")
+
             if table_name not in database.model_extra:
                 raise ValueError(f"Table '{table_name}' not found in database model")
 
-            table_fields = database.model_extra[table_name].fields
+            table_model = database.model_extra.get(table_name)
+            if not table_model:
+                raise ValueError(f"Table model for '{table_name}' is None")
+
+            table_fields = table_model.fields
             for field_name, field in table_fields.items():
                 if isinstance(field, LazyJoin) and isinstance(field.join_table, EventsTable):
                     self.data_warehouse_events_column_name = field_name
                     break
 
-            return self.data_warehouse_events_column_name
+            return str(self.data_warehouse_events_column_name) if self.data_warehouse_events_column_name else False
 
         except Exception as e:
             # You might want to log the error here
