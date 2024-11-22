@@ -49,14 +49,15 @@ from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     set_status_to_running_task,
 )
-from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import configure_temporal_worker_logger
-from posthog.temporal.common.utils import (
+from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
     should_resume_from_activity_heartbeat,
 )
+
+from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import configure_temporal_worker_logger
 
 logger = structlog.get_logger()
 
@@ -367,7 +368,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
+        _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
         if details is None:
             details = BigQueryHeartbeatDetails()
 

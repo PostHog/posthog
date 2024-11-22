@@ -53,7 +53,7 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from posthog.temporal.common.utils import (
+from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
     HeartbeatParseError,
@@ -482,7 +482,7 @@ async def initialize_and_resume_multipart_upload(
         endpoint_url=inputs.endpoint_url,
     )
 
-    _, details = await should_resume_from_activity_heartbeat(activity, S3HeartbeatDetails, logger)
+    _, details = await should_resume_from_activity_heartbeat(activity, S3HeartbeatDetails)
     if details is None:
         details = S3HeartbeatDetails()
 
@@ -616,7 +616,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                 details.insert_done_range(last_date_range, data_interval_start)
                 details.append_upload_state(s3_upload.to_state())
-                heartbeater.details = tuple(details.serialize_details())
+                heartbeater.set_from_heartbeat_details(details)
 
             first_record_batch = cast_record_batch_json_columns(first_record_batch)
             column_names = first_record_batch.column_names

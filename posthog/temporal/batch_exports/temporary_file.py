@@ -17,7 +17,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
 
-from posthog.temporal.common.utils import DateRange
+from posthog.temporal.batch_exports.heartbeat import DateRange
 
 logger = structlog.get_logger()
 

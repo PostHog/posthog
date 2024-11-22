@@ -47,7 +47,7 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
-from posthog.temporal.common.utils import (
+from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
     should_resume_from_activity_heartbeat,
@@ -439,7 +439,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        _, details = await should_resume_from_activity_heartbeat(activity, RedshiftHeartbeatDetails, logger)
+        _, details = await should_resume_from_activity_heartbeat(activity, RedshiftHeartbeatDetails)
         if details is None:
             details = RedshiftHeartbeatDetails()
 
