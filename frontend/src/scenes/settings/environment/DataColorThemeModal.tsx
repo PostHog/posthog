@@ -1,16 +1,12 @@
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
+import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 
 export function DataColorThemeModal(): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
     const { theme } = useValues(dataColorThemesModalLogic)
     const { submitTheme } = useActions(dataColorThemesModalLogic)
 
@@ -46,19 +42,7 @@ export function DataColorThemeModal(): JSX.Element {
                             title: '',
                             dataIndex: 'color',
                             key: 'glyph',
-                            render: (_, { color }) => {
-                                return (
-                                    <SeriesGlyph
-                                        style={{
-                                            borderColor: color,
-                                            color: color,
-                                            backgroundColor: isDarkModeOn
-                                                ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3)
-                                                : hexToRGBA(color, 0.2),
-                                        }}
-                                    />
-                                )
-                            },
+                            render: (_, { color }) => <ColorGlyph color={color} />,
                             width: 24,
                         },
                         {

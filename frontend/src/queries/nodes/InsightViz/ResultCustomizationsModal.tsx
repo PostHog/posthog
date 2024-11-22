@@ -4,14 +4,12 @@ import { LemonButton, LemonButtonProps, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DataColorToken } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ResultCustomizationBy } from '~/queries/schema'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
@@ -137,7 +135,6 @@ type ColorGlyphButtonProps = {
 }
 
 function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonProps): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
     const { getTheme } = useValues(dataThemeLogic)
 
     const { querySource } = useValues(insightVizDataLogic)
@@ -151,17 +148,7 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
             className="ResultCustomizationsModal__ColorGlyphButton"
             onClick={onClick}
         >
-            <SeriesGlyph
-                style={{
-                    borderColor: color,
-                    color: color,
-                    backgroundColor: isDarkModeOn
-                        ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3)
-                        : hexToRGBA(color, 0.5),
-                }}
-            >
-                <></>
-            </SeriesGlyph>
+            <ColorGlyph color={color} />
         </LemonButton>
     )
 }
