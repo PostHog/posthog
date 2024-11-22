@@ -247,6 +247,10 @@ class AlertSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
+        # only validate alert count when creating a new alert
+        if self.context["request"].method != "POST":
+            return attrs
+
         user_org = self.context["request"].user.organization
 
         has_alerts_feature = user_org.is_feature_available(AvailableFeature.ALERTS)
