@@ -48,10 +48,10 @@ def sql_source_for_type(
     sslmode: str,
     schema: str,
     table_names: list[str],
+    db_incremental_field_last_value: Optional[Any],
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
-    db_incremental_field_last_value: Optional[Any] = None,
 ) -> DltSource:
     host = quote(host)
     user = quote(user)
@@ -91,12 +91,13 @@ def sql_source_for_type(
         raise Exception("Unsupported source_type")
 
     db_source = sql_database(
-        credentials,
+        credentials=credentials,
         schema=schema,
         table_names=table_names,
         incremental=incremental,
         team_id=team_id,
         connect_args=connect_args,
+        db_incremental_field_last_value=db_incremental_field_last_value,
     )
 
     return db_source
@@ -110,6 +111,7 @@ def snowflake_source(
     warehouse: str,
     schema: str,
     table_names: list[str],
+    db_incremental_field_last_value: Optional[Any],
     role: Optional[str] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
@@ -131,7 +133,13 @@ def snowflake_source(
     credentials = ConnectionStringCredentials(
         f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
     )
-    db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
+    db_source = sql_database(
+        credentials=credentials,
+        schema=schema,
+        table_names=table_names,
+        incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
 
     return db_source
 
@@ -145,6 +153,7 @@ def bigquery_source(
     token_uri: str,
     table_name: str,
     bq_destination_table_id: str,
+    db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
@@ -169,7 +178,13 @@ def bigquery_source(
         credentials_info=credentials_info,
     )
 
-    return sql_database(engine, schema=None, table_names=[table_name], incremental=incremental)
+    return sql_database(
+        credentials=engine,
+        schema=None,
+        table_names=[table_name],
+        incremental=incremental,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
 
 
 # Temp while DLT doesn't support `interval` columns
@@ -190,6 +205,7 @@ def remove_columns(columns_to_drop: list[str], team_id: Optional[int]):
 
 @dlt.source(max_table_nesting=0)
 def sql_database(
+    db_incremental_field_last_value: Optional[Any],
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
@@ -249,6 +265,7 @@ def sql_database(
                 table=table,
                 incremental=incremental,
                 connect_args=connect_args,
+                db_incremental_field_last_value=db_incremental_field_last_value,
             )
         )
 

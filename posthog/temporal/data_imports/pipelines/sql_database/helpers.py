@@ -27,6 +27,7 @@ class TableLoader:
         chunk_size: int = 1000,
         incremental: Optional[dlt.sources.incremental[Any]] = None,
         connect_args: Optional[list[str]] = None,
+        db_incremental_field_last_value: Optional[Any] = None,
     ) -> None:
         self.engine = engine
         self.table = table
@@ -43,7 +44,11 @@ class TableLoader:
                     raise KeyError(
                         f"Cursor column '{incremental.cursor_path}' does not exist in table '{table.name}'"
                     ) from e
-            self.last_value = incremental.last_value
+            self.last_value = (
+                db_incremental_field_last_value
+                if db_incremental_field_last_value is not None
+                else incremental.last_value
+            )
         else:
             self.cursor_column = None
             self.last_value = None
@@ -90,6 +95,7 @@ def table_rows(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
     connect_args: Optional[list[str]] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> Iterator[TDataItem]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -106,7 +112,14 @@ def table_rows(
     """
     yield dlt.mark.materialize_table_schema()  # type: ignore
 
-    loader = TableLoader(engine, table, incremental=incremental, chunk_size=chunk_size, connect_args=connect_args)
+    loader = TableLoader(
+        engine,
+        table,
+        incremental=incremental,
+        chunk_size=chunk_size,
+        connect_args=connect_args,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
     yield from loader.load_rows()
 
     engine.dispose()

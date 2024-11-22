@@ -1,6 +1,7 @@
 import dataclasses
 import uuid
 from datetime import datetime
+from dateutil import parser
 from typing import Any
 
 from django.conf import settings
@@ -24,6 +25,7 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+from posthog.warehouse.types import IncrementalFieldType
 
 
 @dataclasses.dataclass
@@ -32,6 +34,20 @@ class ImportDataActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
+
+
+def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+    if value is None or field_type is None:
+        return None
+
+    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+        return value
+
+    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        return parser.parse(value)
+
+    if field_type == IncrementalFieldType.Date:
+        return parser.parse(value).date()
 
 
 @activity.defn
@@ -66,6 +82,11 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         endpoints = [schema.name]
 
+        processed_incremental_last_value = process_incremental_last_value(
+            schema.sync_type_config.get("incremental_field_last_value"),
+            schema.sync_type_config.get("incremental_field_type"),
+        )
+
         source = None
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
             from posthog.temporal.data_imports.pipelines.stripe import stripe_source
@@ -82,6 +103,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -178,7 +200,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                         if schema.is_incremental
                         else None,
-                        db_incremental_field_last_value=schema.sync_type_config.get("incremental_field_last_value")
+                        db_incremental_field_last_value=processed_incremental_last_value
                         if schema.is_incremental
                         else None,
                         team_id=inputs.team_id,
@@ -207,9 +229,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                 if schema.is_incremental
                 else None,
-                db_incremental_field_last_value=schema.sync_type_config.get("incremental_field_last_value")
-                if schema.is_incremental
-                else None,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 team_id=inputs.team_id,
             )
 
@@ -252,6 +272,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                 if schema.is_incremental
                 else None,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -296,6 +317,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -318,6 +340,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -339,6 +362,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
@@ -376,6 +400,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                     if schema.is_incremental
                     else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 )
 
                 _run(
@@ -411,6 +436,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
                 is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(

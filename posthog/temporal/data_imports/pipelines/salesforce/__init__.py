@@ -6,7 +6,6 @@ from dlt.sources.helpers.requests import Response, Request
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.pipelines.salesforce.auth import SalseforceAuth
-import pendulum
 import re
 
 
@@ -326,6 +325,7 @@ def salesforce_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    db_incremental_field_last_value: Optional[Any],
     is_incremental: bool = False,
 ):
     config: RESTAPIConfig = {
@@ -340,4 +340,4 @@ def salesforce_source(
         "resources": [get_resource(endpoint, is_incremental)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id)
+    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
