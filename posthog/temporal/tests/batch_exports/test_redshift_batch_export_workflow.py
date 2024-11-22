@@ -59,8 +59,7 @@ async def assert_clickhouse_records_in_redshfit(
     table_name: str,
     team_id: int,
     batch_export_model: BatchExportModel | BatchExportSchema | None,
-    data_interval_start: dt.datetime,
-    data_interval_end: dt.datetime,
+    date_ranges: list[tuple[dt.datetime, dt.datetime]],
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     properties_data_type: str = "varchar",
@@ -90,6 +89,7 @@ async def assert_clickhouse_records_in_redshfit(
         table_name: Redshift table name.
         team_id: The ID of the team that we are testing events for.
         batch_export_schema: Custom schema used in the batch export.
+        date_ranges: Ranges of records we should expect to have been exported.
         expected_duplicates_threshold: Threshold of duplicates we should expect relative to
             number of unique events, fail if we exceed it.
     """
@@ -135,33 +135,34 @@ async def assert_clickhouse_records_in_redshfit(
             ]
 
     expected_records = []
-    async for record_batch in iter_model_records(
-        client=clickhouse_client,
-        model=batch_export_model,
-        team_id=team_id,
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
-        exclude_events=exclude_events,
-        include_events=include_events,
-        destination_default_fields=redshift_default_fields(),
-        is_backfill=is_backfill,
-    ):
-        for record in record_batch.select(schema_column_names).to_pylist():
-            expected_record = {}
+    for data_interval_start, data_interval_end in date_ranges:
+        async for record_batch in iter_model_records(
+            client=clickhouse_client,
+            model=batch_export_model,
+            team_id=team_id,
+            interval_start=data_interval_start.isoformat(),
+            interval_end=data_interval_end.isoformat(),
+            exclude_events=exclude_events,
+            include_events=include_events,
+            destination_default_fields=redshift_default_fields(),
+            is_backfill=is_backfill,
+        ):
+            for record in record_batch.select(schema_column_names).to_pylist():
+                expected_record = {}
 
-            for k, v in record.items():
-                if k not in schema_column_names or k == "_inserted_at":
-                    # _inserted_at is not exported, only used for tracking progress.
-                    continue
+                for k, v in record.items():
+                    if k not in schema_column_names or k == "_inserted_at":
+                        # _inserted_at is not exported, only used for tracking progress.
+                        continue
 
-                elif k in super_columns and v is not None:
-                    expected_record[k] = remove_escaped_whitespace_recursive(json.loads(v))
-                elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.UTC)
-                else:
-                    expected_record[k] = v
+                    elif k in super_columns and v is not None:
+                        expected_record[k] = remove_escaped_whitespace_recursive(json.loads(v))
+                    elif isinstance(v, dt.datetime):
+                        expected_record[k] = v.replace(tzinfo=dt.UTC)
+                    else:
+                        expected_record[k] = v
 
-            expected_records.append(expected_record)
+                expected_records.append(expected_record)
 
     if expected_duplicates_threshold > 0.0:
         seen = set()
@@ -367,12 +368,127 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         schema_name=redshift_config["schema"],
         table_name=table_name,
         team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
+        date_ranges=[(data_interval_start, data_interval_end)],
         batch_export_model=model,
         exclude_events=exclude_events,
         properties_data_type=properties_data_type,
         sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+    )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize(
+    "done_relative_ranges,expected_relative_ranges",
+    [
+        (
+            [(dt.timedelta(minutes=0), dt.timedelta(minutes=15))],
+            [(dt.timedelta(minutes=15), dt.timedelta(minutes=60))],
+        ),
+        (
+            [
+                (dt.timedelta(minutes=10), dt.timedelta(minutes=15)),
+                (dt.timedelta(minutes=35), dt.timedelta(minutes=45)),
+            ],
+            [
+                (dt.timedelta(minutes=0), dt.timedelta(minutes=10)),
+                (dt.timedelta(minutes=15), dt.timedelta(minutes=35)),
+                (dt.timedelta(minutes=45), dt.timedelta(minutes=60)),
+            ],
+        ),
+        (
+            [
+                (dt.timedelta(minutes=45), dt.timedelta(minutes=60)),
+            ],
+            [
+                (dt.timedelta(minutes=0), dt.timedelta(minutes=45)),
+            ],
+        ),
+    ],
+)
+async def test_insert_into_bigquery_activity_resumes_from_heartbeat(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    exclude_events,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    done_relative_ranges,
+    expected_relative_ranges,
+):
+    """Test we insert partial data into a BigQuery table when resuming.
+
+    After an activity runs, heartbeats, and crashes, a follow-up activity should
+    pick-up from where the first one left. This capability is critical to ensure
+    long-running activities that export a lot of data will eventually finish.
+    """
+    batch_export_model = BatchExportModel(name="events", schema=None)
+    properties_data_type = "varchar"
+
+    insert_inputs = RedshiftInsertInputs(
+        team_id=ateam.pk,
+        table_name=f"test_insert_activity_table_{ateam.pk}",
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        properties_data_type=properties_data_type,
+        **redshift_config,
+    )
+
+    done_ranges = [
+        (
+            (data_interval_start + done_relative_range[0]).isoformat(),
+            (data_interval_start + done_relative_range[1]).isoformat(),
+        )
+        for done_relative_range in done_relative_ranges
+    ]
+    expected_ranges = [
+        (
+            (data_interval_start + expected_relative_range[0]),
+            (data_interval_start + expected_relative_range[1]),
+        )
+        for expected_relative_range in expected_relative_ranges
+    ]
+    workflow_id = uuid.uuid4()
+
+    fake_info = activity.Info(
+        activity_id="insert-into-redshift-activity",
+        activity_type="unknown",
+        current_attempt_scheduled_time=dt.datetime.now(dt.UTC),
+        workflow_id=str(workflow_id),
+        workflow_type="redshift-export",
+        workflow_run_id=str(uuid.uuid4()),
+        attempt=1,
+        heartbeat_timeout=dt.timedelta(seconds=1),
+        heartbeat_details=[done_ranges],
+        is_local=False,
+        schedule_to_close_timeout=dt.timedelta(seconds=10),
+        scheduled_time=dt.datetime.now(dt.UTC),
+        start_to_close_timeout=dt.timedelta(seconds=20),
+        started_time=dt.datetime.now(dt.UTC),
+        task_queue="test",
+        task_token=b"test",
+        workflow_namespace="default",
+    )
+
+    activity_environment.info = fake_info
+    await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_redshfit(
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=redshift_config["schema"],
+        table_name=f"test_insert_activity_table_{ateam.pk}",
+        team_id=ateam.pk,
+        date_ranges=expected_ranges,
+        batch_export_model=batch_export_model,
+        exclude_events=exclude_events,
+        properties_data_type=properties_data_type,
+        sort_key="event",
+        expected_duplicates_threshold=0.1,
     )
 
 
@@ -472,8 +588,7 @@ async def test_insert_into_redshift_activity_completes_range(
         schema_name=redshift_config["schema"],
         table_name=f"test_insert_activity_table_{ateam.pk}",
         team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
+        date_ranges=[(data_interval_start, data_interval_end)],
         batch_export_model=batch_export_model,
         exclude_events=exclude_events,
         properties_data_type=properties_data_type,
@@ -595,8 +710,7 @@ async def test_redshift_export_workflow(
         schema_name=redshift_config["schema"],
         table_name=table_name,
         team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
+        date_ranges=[(data_interval_start, data_interval_end)],
         batch_export_model=model,
         exclude_events=exclude_events,
         sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
@@ -620,7 +734,9 @@ def test_remove_escaped_whitespace_recursive(value, expected):
     assert remove_escaped_whitespace_recursive(value) == expected
 
 
-async def test_redshift_export_workflow_handles_insert_activity_errors(ateam, redshift_batch_export, interval):
+async def test_redshift_export_workflow_handles_insert_activity_errors(
+    event_loop, ateam, redshift_batch_export, interval
+):
     """Test that Redshift Export Workflow can gracefully handle errors when inserting Redshift data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
@@ -656,6 +772,7 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(ateam, re
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=20),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)

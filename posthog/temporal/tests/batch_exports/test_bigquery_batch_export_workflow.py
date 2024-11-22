@@ -85,8 +85,7 @@ async def assert_clickhouse_records_in_bigquery(
         team_id: The ID of the team that we are testing for.
         table_id: BigQuery table id where records are exported to.
         dataset_id: BigQuery dataset containing the table where records are exported to.
-        data_interval_start: Start of the batch period for exported records.
-        data_interval_end: End of the batch period for exported records.
+        date_ranges: Ranges of records we should expect to have been exported.
         min_ingested_timestamp: A datetime used to assert a minimum bound for 'bq_ingested_timestamp'.
         exclude_events: Event names to be excluded from the export.
         include_events: Event names to be included in the export.
@@ -999,6 +998,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
                     id=workflow_id,
                     task_queue=BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=20),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
