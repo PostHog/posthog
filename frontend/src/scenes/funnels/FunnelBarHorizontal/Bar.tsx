@@ -4,7 +4,6 @@ import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema'
@@ -48,8 +47,7 @@ export function Bar({
     wrapperWidth,
 }: BarProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { resultCustomizations } = useValues(funnelDataLogic(insightProps))
-    const { getTheme } = useValues(dataThemeLogic)
+    const { getFunnelsColor } = useValues(funnelDataLogic(insightProps))
 
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
@@ -96,14 +94,6 @@ export function Bar({
         return null
     }
 
-    const theme = getTheme('posthog')
-    const colorToken = getFunnelResultCustomizationColorToken(
-        resultCustomizations,
-        theme,
-        step,
-        insightProps.cachedInsight?.disable_baseline
-    )
-
     return (
         <LemonDropdown
             trigger="hover"
@@ -127,7 +117,7 @@ export function Bar({
                 style={{
                     flex: `${conversionPercentage} 1 0`,
                     cursor: cursorType,
-                    backgroundColor: theme[colorToken],
+                    backgroundColor: getFunnelsColor(step),
                 }}
                 onClick={() => {
                     if (!disabled && onBarClick) {

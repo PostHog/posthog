@@ -2,7 +2,6 @@ import './ActionsPie.scss'
 
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -40,12 +39,10 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         hiddenLegendIndexes,
         getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
-    const { getTheme } = useValues(dataThemeLogic)
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
 
     const showAggregation = !pieChartVizOptions?.hideAggregation
-    const theme = getTheme('posthog')
 
     function updateData(): void {
         const days = indexedResults.length > 0 ? indexedResults[0].days : []
@@ -86,7 +83,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults, hiddenLegendIndexes, resultCustomizations, resultCustomizationBy, theme])
+    }, [indexedResults, hiddenLegendIndexes])
 
     const onClick =
         renderingMetadata?.onSegmentClick ||

@@ -14,7 +14,7 @@ import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { formatBreakdownLabel, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -26,7 +26,7 @@ import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, resultCustomizations } = useValues(
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor } = useValues(
         funnelDataLogic(insightProps)
     )
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
@@ -34,7 +34,6 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
-    const { getTheme } = useValues(dataThemeLogic)
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
@@ -307,8 +306,6 @@ export function FunnelStepsTable(): JSX.Element | null {
         })),
     ] as LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[]
 
-    const theme = getTheme('posthog')
-
     return (
         <LemonTable
             dataSource={flattenedBreakdowns}
@@ -316,10 +313,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             loading={insightLoading}
             rowKey="breakdownIndex"
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
-            rowRibbonColor={(series) => {
-                const colorToken = getFunnelResultCustomizationColorToken(resultCustomizations, theme, series)
-                return theme[colorToken]
-            }}
+            rowRibbonColor={getFunnelsColor}
             firstColumnSticky
         />
     )

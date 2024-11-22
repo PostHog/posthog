@@ -3,7 +3,6 @@ import './InsightsTable.scss'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -81,8 +80,6 @@ export function InsightsTable({
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
-
-    const { getTheme } = useValues(dataThemeLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({

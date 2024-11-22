@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
@@ -36,7 +35,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         hiddenLegendIndexes,
         getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
-    const { getTheme } = useValues(dataThemeLogic)
 
     function updateData(): void {
         const _data = [...indexedResults]

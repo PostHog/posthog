@@ -26,7 +26,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
     )
     const { closeModal, setColorToken, save } = useActions(resultCustomizationsModalLogic(insightProps))
 
-    const { isTrends, isFunnels } = useValues(insightVizDataLogic)
+    const { isTrends, isFunnels, querySource } = useValues(insightVizDataLogic)
 
     const { getTheme } = useValues(dataThemeLogic)
 
@@ -34,7 +34,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
         return null
     }
 
-    const theme = getTheme('posthog')
+    const theme = getTheme(querySource?.dataColorTheme)
 
     return (
         <LemonModal
@@ -140,7 +140,9 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
     const { isDarkModeOn } = useValues(themeLogic)
     const { getTheme } = useValues(dataThemeLogic)
 
-    const theme = getTheme('posthog')
+    const { querySource } = useValues(insightVizDataLogic)
+
+    const theme = getTheme(querySource?.dataColorTheme)
     const color = theme[colorToken] as string
 
     return (

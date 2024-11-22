@@ -2,9 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { percentage } from 'lib/utils'
 import { useRef } from 'react'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
@@ -24,20 +22,11 @@ interface StepBarCSSProperties extends React.CSSProperties {
 }
 export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { disableFunnelBreakdownBaseline, resultCustomizations } = useValues(funnelDataLogic(insightProps))
+    const { getFunnelsColor } = useValues(funnelDataLogic(insightProps))
     const { showTooltip, hideTooltip } = useActions(funnelTooltipLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
-    const { getTheme } = useValues(dataThemeLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
-
-    const theme = getTheme('posthog')
-    const colorToken = getFunnelResultCustomizationColorToken(
-        resultCustomizations,
-        theme,
-        series,
-        disableFunnelBreakdownBaseline
-    )
 
     return (
         <div
@@ -45,7 +34,7 @@ export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarPr
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {
-                    '--series-color': theme[colorToken],
+                    '--series-color': getFunnelsColor(series),
                     '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
                 } as StepBarCSSProperties
             }
