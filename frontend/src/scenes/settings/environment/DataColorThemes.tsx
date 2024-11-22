@@ -1,5 +1,7 @@
+import { IconBadge } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataColorThemeModal } from './DataColorThemeModal'
@@ -22,7 +24,20 @@ export function DataColorThemes(): JSX.Element {
             <LemonTable
                 loading={themesLoading}
                 dataSource={themes}
-                columns={[{ title: 'Name', dataIndex: 'name', key: 'name' }]}
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                        key: 'name',
+                        render: (name, theme) => <LemonTableLink onClick={() => selectTheme(theme.id)} title={name} />,
+                    },
+                    {
+                        title: 'Official',
+                        dataIndex: 'is_global',
+                        key: 'is_global',
+                        render: (is_global) => (is_global ? <IconBadge className="text-success text-xl" /> : null),
+                    },
+                ]}
             />
             <LemonButton type="secondary" onClick={() => selectTheme('new')}>
                 Add theme

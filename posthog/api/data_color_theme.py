@@ -7,13 +7,18 @@ from posthog.models import DataColorTheme
 
 
 class DataColorThemeSerializer(serializers.ModelSerializer):
+    is_global = serializers.SerializerMethodField()
+
     class Meta:
         model = DataColorTheme
-        fields = ["id", "name", "colors"]
+        fields = ["id", "name", "colors", "is_global"]
 
     def create(self, validated_data: dict, *args, **kwargs) -> DataColorTheme:
         validated_data["team_id"] = self.context["team_id"]
         return super().create(validated_data, *args, **kwargs)
+
+    def get_is_global(self, obj):
+        return obj.team_id is None
 
 
 class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
