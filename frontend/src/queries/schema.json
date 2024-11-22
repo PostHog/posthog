@@ -6978,6 +6978,10 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -8064,6 +8068,10 @@
                     "description": "Groups aggregation",
                     "type": "integer"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -8113,6 +8121,10 @@
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
                     "type": "integer"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8164,6 +8176,10 @@
                     "description": "Groups aggregation",
                     "type": "integer"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -8214,6 +8230,10 @@
                     "description": "Groups aggregation",
                     "type": "integer"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -8263,6 +8283,10 @@
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
                     "type": "integer"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8366,6 +8390,10 @@
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
                     "type": "integer"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8769,6 +8797,10 @@
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
                     "type": "integer"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -11643,6 +11675,10 @@
                     "description": "Groups aggregation",
                     "type": "integer"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -12295,6 +12331,10 @@
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
                     "description": "Date range for the query"
@@ -12852,6 +12892,10 @@
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",

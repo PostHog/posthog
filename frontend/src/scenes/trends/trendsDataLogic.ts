@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -7,6 +8,7 @@ import {
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
+    getTrendResultCustomizationColorToken,
 } from 'scenes/insights/utils'
 
 import { EventsNode, InsightQueryNode, LifecycleQuery, MathType, TrendsFilter, TrendsQuery } from '~/queries/schema'
@@ -70,6 +72,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'yAxisScaleType',
                 'resultCustomizationBy',
             ],
+            dataThemeLogic,
+            ['getTheme'],
         ],
         actions: [
             insightVizDataLogic(props),
@@ -248,6 +252,22 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
         resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
+
+        getTrendsColor: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.querySource, s.getTheme],
+            (resultCustomizationBy, resultCustomizations, querySource, getTheme) => {
+                return (dataset) => {
+                    const theme = getTheme(querySource.dataColorTheme)
+                    const colorToken = getTrendResultCustomizationColorToken(
+                        resultCustomizationBy,
+                        resultCustomizations,
+                        theme,
+                        dataset
+                    )
+                    return theme[colorToken]
+                }
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({

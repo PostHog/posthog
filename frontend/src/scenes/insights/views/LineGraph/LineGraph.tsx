@@ -29,13 +29,11 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -288,11 +286,10 @@ export function LineGraph_({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { getTheme } = useValues(dataThemeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { resultCustomizations, resultCustomizationBy } = useValues(trendsDataLogic(insightProps))
+    const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -324,19 +321,11 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
 
-        const theme = getTheme('posthog')
-        const colorToken = getTrendResultCustomizationColorToken(
-            resultCustomizationBy,
-            resultCustomizations,
-            theme,
-            dataset
-        )
-
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
             ? dataset.backgroundColor
-            : theme[colorToken]
+            : getTrendsColor(dataset)
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor

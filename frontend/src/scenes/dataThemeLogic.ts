@@ -48,7 +48,20 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         getTheme: [
             (s) => [s.themes, s.defaultTheme],
             (themes, defaultTheme) =>
-                (theme_slug: string): _DataColorTheme => {
+                (themeId: string | number): _DataColorTheme => {
+                    let customTheme
+
+                    if (Number.isInteger(themeId) && themes != null) {
+                        customTheme = themes.find((theme) => theme.id === themeId)
+                    }
+
+                    if (customTheme) {
+                        return customTheme.colors.reduce((theme, color, index) => {
+                            theme[`preset-${index + 1}`] = color
+                            return theme
+                        }, {})
+                    }
+
                     if (defaultTheme) {
                         return defaultTheme.colors.reduce((theme, color, index) => {
                             theme[`preset-${index + 1}`] = color
