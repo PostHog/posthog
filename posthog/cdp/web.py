@@ -92,6 +92,7 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
         };
         if (typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => done(false)).then(() => done(true)) } else { done(true) }
     } else if ('onEvent' in response) {
+        missedInvocations().forEach(processEvent);
         posthog.on('eventCaptured', (event) => { processEvent(posthog.siteApps.globalsForEvent(event)) })
     }
     """
