@@ -314,7 +314,7 @@ class Assistant:
                             yield AssistantMessage(content=chunks.content)
                 elif is_task_started_update(update):
                     _, task_update = update
-                    node_name = task_update["payload"]["name"]
+                    node_name = task_update["payload"]["name"]  # type: ignore
                     if reasoning_message := NODE_TO_REASONING_MESSAGE.get(node_name):
                         yield ReasoningMessage(content=reasoning_message)
         except:
