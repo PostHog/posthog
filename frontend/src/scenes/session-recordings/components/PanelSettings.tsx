@@ -41,11 +41,12 @@ export function SettingsToggle({
     icon?: JSX.Element | null
     label: JSX.Element | string
 }): JSX.Element {
-    return (
-        <Tooltip title={title}>
-            <LemonButton icon={icon} size="xsmall" status={active ? 'danger' : 'default'} {...props}>
-                {label}
-            </LemonButton>
-        </Tooltip>
+    const button = (
+        <LemonButton icon={icon} size="xsmall" status={active ? 'danger' : 'default'} {...props}>
+            {label}
+        </LemonButton>
     )
+
+    // otherwise the tooltip shows instead of the disabled reason
+    return props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>
 }

@@ -11,9 +11,17 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
 function HideProperties(): JSX.Element | null {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
+
+    const { allItemsByItemType } = useValues(inspectorLogic)
+
     const { miniFiltersForType } = useValues(miniFiltersLogic)
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
+
+    const hasEventsFiltersSelected = miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled)
+    const hasEventsToDisplay = allItemsByItemType[InspectorListItemType.EVENTS]?.length > 0
 
     return (
         <SettingsToggle
@@ -25,9 +33,7 @@ function HideProperties(): JSX.Element | null {
             label="Hide PostHog properties"
             onClick={() => setHidePostHogPropertiesInTable(!hidePostHogPropertiesInTable)}
             disabledReason={
-                miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled)
-                    ? undefined
-                    : 'There are no events in the list'
+                hasEventsToDisplay && hasEventsFiltersSelected ? undefined : 'There are no events in the list'
             }
             active={hidePostHogPropertiesInTable}
         />
@@ -58,8 +64,16 @@ function SyncScrolling(): JSX.Element {
 }
 
 function ShowOnlyMatching(): JSX.Element {
-    const { showOnlyMatching } = useValues(miniFiltersLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
+
+    const { allItemsByItemType, allowMatchingEventsFilter } = useValues(inspectorLogic)
+
+    const { showOnlyMatching, miniFiltersForType } = useValues(miniFiltersLogic)
     const { setShowOnlyMatching } = useActions(miniFiltersLogic)
+
+    const hasEventsFiltersSelected = miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled)
+    const hasEventsToDisplay = allItemsByItemType[InspectorListItemType.EVENTS]?.length > 0
 
     return (
         <SettingsToggle
@@ -73,6 +87,13 @@ function ShowOnlyMatching(): JSX.Element {
             onClick={() => {
                 setShowOnlyMatching(!showOnlyMatching)
             }}
+            disabledReason={
+                hasEventsToDisplay && hasEventsFiltersSelected
+                    ? allowMatchingEventsFilter
+                        ? undefined
+                        : 'There are no filters to match against'
+                    : 'There are no events in the list'
+            }
         />
     )
 }

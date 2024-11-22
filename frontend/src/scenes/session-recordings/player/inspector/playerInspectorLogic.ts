@@ -285,7 +285,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
     })),
     selectors(({ props }) => ({
-        showMatchingEventsFilter: [
+        allowMatchingEventsFilter: [
             (s) => [s.miniFilters],
             (miniFilters): boolean => {
                 return (
@@ -647,18 +647,18 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         filteredItems: [
-            (s) => [s.allItems, s.miniFiltersByKey, s.showOnlyMatching, s.showMatchingEventsFilter, s.trackedWindow],
+            (s) => [s.allItems, s.miniFiltersByKey, s.showOnlyMatching, s.allowMatchingEventsFilter, s.trackedWindow],
             (
                 allItems,
                 miniFiltersByKey,
                 showOnlyMatching,
-                showMatchingEventsFilter,
+                allowMatchingEventsFilter,
                 trackedWindow
             ): InspectorListItem[] => {
                 return filterInspectorListItems({
                     allItems,
                     miniFiltersByKey,
-                    showMatchingEventsFilter,
+                    allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
                 })
@@ -670,20 +670,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allItems,
                 s.miniFiltersForTypeByKey,
                 s.showOnlyMatching,
-                s.showMatchingEventsFilter,
+                s.allowMatchingEventsFilter,
                 s.trackedWindow,
             ],
             (
                 allItems,
                 miniFiltersForTypeByKey,
                 showOnlyMatching,
-                showMatchingEventsFilter,
+                allowMatchingEventsFilter,
                 trackedWindow
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
                     miniFiltersByKey: miniFiltersForTypeByKey(InspectorListItemType.EVENTS),
-                    showMatchingEventsFilter,
+                    allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
                 })
@@ -691,11 +691,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 let items: (InspectorListItemEvent | InspectorListItemComment)[] = eventFilteredItems.filter(
                     (item): item is InspectorListItemEvent | InspectorListItemComment => {
                         if (item.type === InspectorListItemType.EVENTS) {
-                            return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
+                            return !(allowMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
                         }
 
                         if (item.type === 'comment') {
-                            return !showMatchingEventsFilter
+                            return !allowMatchingEventsFilter
                         }
 
                         return false
@@ -845,6 +845,37 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 return itemsByMiniFilterKey
+            },
+        ],
+
+        /**
+         * All items by item type, not filtered items, so that we can count the unfiltered sets
+         */
+        allItemsByItemType: [
+            (s) => [s.allItems],
+            (allItems): Record<MiniFilterKey, InspectorListItem[]> => {
+                const itemsByType: Record<InspectorListItemType, InspectorListItem[]> = {
+                    [InspectorListItemType.EVENTS]: [],
+                    [InspectorListItemType.CONSOLE]: [],
+                    [InspectorListItemType.NETWORK]: [],
+                    [InspectorListItemType.DOCTOR]: [],
+                    [InspectorListItemType.CONTEXT]: [],
+                }
+
+                for (const item of allItems) {
+                    itemsByType[
+                        [
+                            InspectorListItemType.EVENTS,
+                            InspectorListItemType.CONSOLE,
+                            InspectorListItemType.NETWORK,
+                            InspectorListItemType.DOCTOR,
+                        ].includes(item.type as InspectorListItemType)
+                            ? item.type
+                            : InspectorListItemType.CONTEXT
+                    ].push(item)
+                }
+
+                return itemsByType
             },
         ],
     })),
