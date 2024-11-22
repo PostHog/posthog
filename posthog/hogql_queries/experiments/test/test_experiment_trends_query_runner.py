@@ -126,7 +126,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
 
         id = pa.array(["1", "2", "3", "4"])
-        timestamp = pa.array([datetime(2023, 1, 1), datetime(2023, 1, 2), datetime(2023, 1, 3), datetime(2023, 1, 4)])
+        timestamp = pa.array([datetime(2023, 1, 1), datetime(2023, 1, 2), datetime(2023, 1, 3), datetime(2023, 1, 6)])
         distinct_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3"])
         amount = pa.array([100, 50, 75, 80])
         names = ["id", "timestamp", "distinct_id", "amount"]
@@ -527,6 +527,18 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     timestamp=datetime(2023, 1, i + 1),
                 )
 
+        # "user_test_3" exposure is on 2023-01-04
+        # "user_test_3" purchase is on 2023-01-06
+        # "user_test_3" second exposure is on 2023-01-09
+        # "user_test_3" should fall into the "test" variant, not the "control" variant
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test_3",
+            properties={feature_flag_property: "control"},
+            timestamp=datetime(2023, 1, 9),
+        )
+
         flush_persons_and_events()
 
         query_runner = ExperimentTrendsQueryRunner(
@@ -544,7 +556,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 1)
         self.assertEqual(test_result.count, 3)
-        self.assertEqual(control_result.absolute_exposure, 7)
+        self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 9)
 
     @freeze_time("2020-01-01T12:00:00Z")
