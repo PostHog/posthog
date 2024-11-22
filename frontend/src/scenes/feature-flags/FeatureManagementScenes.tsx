@@ -1,4 +1,4 @@
-import { Spinner } from '@posthog/lemon-ui'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { lazy, Suspense } from 'react'
 
 const EarlyAccessFeatures = lazy(() =>
