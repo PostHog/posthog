@@ -1,4 +1,13 @@
-import { BaseIcon, IconBug, IconCheck, IconDashboard, IconInfo, IconSearch, IconTerminal } from '@posthog/icons'
+import {
+    BaseIcon,
+    IconBug,
+    IconCheck,
+    IconDashboard,
+    IconGear,
+    IconInfo,
+    IconSearch,
+    IconTerminal,
+} from '@posthog/icons'
 import { LemonButton, LemonInput, LemonMenuItem, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,7 +18,9 @@ import { useEffect, useState } from 'react'
 import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { InspectorListItemType } from '~/types'
 
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
@@ -24,9 +35,11 @@ export const TabToIcon = {
 
 export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allItemsByMiniFilterKey } = useValues(playerInspectorLogic(logicProps))
+    const { allItemsByMiniFilterKey, allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
     const { searchQuery, miniFiltersForType, miniFiltersByKey } = useValues(miniFiltersLogic)
     const { setSearchQuery, setMiniFilter } = useActions(miniFiltersLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -73,7 +86,9 @@ export function PlayerInspectorControls(): JSX.Element {
 
     const eventsFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.EVENTS)
     const consoleFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.CONSOLE)
+    const hasConsoleItems = allItemsByItemType[InspectorListItemType.CONSOLE]?.length > 0
     const networkFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.NETWORK)
+    const hasNetworkItems = allItemsByItemType[InspectorListItemType.NETWORK]?.length > 0
 
     return (
         <div className="bg-bg-3000 border-b">
@@ -90,11 +105,24 @@ export function PlayerInspectorControls(): JSX.Element {
                         items={consoleFilters}
                         label={capitalizeFirstLetter(InspectorListItemType.CONSOLE)}
                         icon={<IconTerminal />}
+                        isAvailable={hasConsoleItems || !!currentTeam?.capture_console_log_opt_in}
+                        whenUnavailable={{
+                            label: <p className="text-muted text-center">Configure console log capture in settings.</p>,
+                            onClick: () => openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay' }),
+                            icon: <IconGear />,
+                        }}
                     />
                     <SettingsMenu
                         items={networkFilters}
                         label={capitalizeFirstLetter(InspectorListItemType.NETWORK)}
                         icon={<IconDashboard />}
+                        isAvailable={hasNetworkItems || !!currentTeam?.capture_performance_opt_in}
+                        whenUnavailable={{
+                            label: <p className="text-muted text-center">Configure network capture in settings.</p>,
+                            onClick: () =>
+                                openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-network' }),
+                            icon: <IconGear />,
+                        }}
                     />
                     {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                         mode !== SessionRecordingPlayerMode.Sharing && (

@@ -9,19 +9,30 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
  * when inactive / active respectively.
  */
 
+interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
+    label: string
+    items: LemonMenuItem[]
+    icon: JSX.Element
+    isAvailable?: boolean
+    whenUnavailable?: LemonMenuItem
+}
+
 export function SettingsMenu({
     label,
     items,
     icon,
+    isAvailable = true,
+    whenUnavailable,
     ...props
-}: Omit<LemonMenuProps, 'items' | 'children'> & {
-    items: LemonMenuItem[]
-    label: JSX.Element | string
-    icon: JSX.Element
-}): JSX.Element {
+}: SettingsMenuProps): JSX.Element {
     const active = items.some((cf) => !!cf.active)
     return (
-        <LemonMenu buttonSize="xsmall" closeOnClickInside={false} items={items} {...props}>
+        <LemonMenu
+            buttonSize="xsmall"
+            closeOnClickInside={false}
+            items={isAvailable ? items : whenUnavailable ? [whenUnavailable] : []}
+            {...props}
+        >
             <LemonButton status={active ? 'danger' : 'default'} size="xsmall" icon={icon}>
                 {label}
             </LemonButton>

@@ -184,7 +184,7 @@ export function itemToMiniFilter(
 export function filterInspectorListItems({
     allItems,
     miniFiltersByKey,
-    showMatchingEventsFilter,
+    allowMatchingEventsFilter,
     showOnlyMatching,
     trackedWindow,
 }: {
@@ -194,7 +194,7 @@ export function filterInspectorListItems({
               [key: MiniFilterKey]: SharedListMiniFilter
           }
         | undefined
-    showMatchingEventsFilter: boolean
+    allowMatchingEventsFilter: boolean
     showOnlyMatching: boolean
     trackedWindow: string | null
 }): InspectorListItem[] {
@@ -219,7 +219,7 @@ export function filterInspectorListItems({
 
         // what about isOfflineStatusChange(item) || isBrowserVisibilityEvent(item) || isComment(item)
 
-        if (showMatchingEventsFilter && showOnlyMatching) {
+        if (allowMatchingEventsFilter && showOnlyMatching) {
             // Special case - overrides the others
             include = include && item.highlightColor === 'primary'
         }
