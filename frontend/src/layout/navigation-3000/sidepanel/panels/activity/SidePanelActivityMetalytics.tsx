@@ -1,6 +1,6 @@
-import { BindLogic, useActions, useValues } from 'kea'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
+import { BindLogic, useValues } from 'kea'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -21,11 +21,12 @@ export function SidePanelActivityMetalytics(): JSX.Element {
             </>
         )
     }
+
     return (
-        <div className="space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+        <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-200px)]">
             <div className="flex gap-4">
                 <div className="flex-1 rounded bg-bg-light p-4">
-                    <div className="text-muted text-sm">Total Views</div>
+                    <div className="text-muted text-sm">Number Of Sessions</div>
                     <div className="text-2xl font-semibold">{viewCount ?? 0}</div>
                 </div>
 
@@ -35,7 +36,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                         people={recentUserMembers.map((member) => ({
                             email: member.user.email,
                             name: member.user.first_name,
-                            title: member.user.email
+                            title: member.user.email,
                         }))}
                         tooltip="Recent viewers"
                         limit={3}
@@ -65,8 +66,6 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     }}
                 />
             </BindLogic>
-
-
         </div>
     )
 }

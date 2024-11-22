@@ -47,7 +47,8 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                             FROM app_metrics
                             WHERE app_source = 'metalytics'
                             AND instance_id = ${values.instanceId}
-                            AND timestamp >= NOW() - INTERVAL 30 DAY`,
+                            AND timestamp >= NOW() - INTERVAL 30 DAY
+                            ORDER BY timestamp DESC`,
                     }
 
                     const response = await api.query(query)
