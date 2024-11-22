@@ -222,15 +222,17 @@ export function PerformanceCardDescriptions({
     const performanceValues = itemToPerformanceValues(item)
     return (
         <div className={clsx('p-2 text-xs border-t', !expanded && 'hidden')}>
-            {Object.entries(summaryMapping).map(([key, summary]) => (
-                <PerformanceCardDescription
-                    key={key}
-                    benchmarks={summary.scoreBenchmarks}
-                    description={summary.description}
-                    label={summary.label}
-                    value={performanceValues[key]}
-                />
-            ))}
+            {Object.entries(summaryMapping)
+                .filter(([key]) => performanceValues[key] !== undefined)
+                .map(([key, summary]) => (
+                    <PerformanceCardDescription
+                        key={key}
+                        benchmarks={summary.scoreBenchmarks}
+                        description={summary.description}
+                        label={summary.label}
+                        value={performanceValues[key]}
+                    />
+                ))}
         </div>
     )
 }
