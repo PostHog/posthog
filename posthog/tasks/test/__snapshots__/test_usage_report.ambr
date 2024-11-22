@@ -37,8 +37,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (NULL IS NULL
-         OR query_type IN (NULL))
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
@@ -55,8 +53,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (NULL IS NULL
-         OR query_type IN (NULL))
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -73,8 +69,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (NULL IS NULL
-         OR query_type IN (NULL))
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -91,8 +85,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (NULL IS NULL
-         OR query_type IN (NULL))
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -109,8 +101,7 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (['EventsQuery'] IS NULL
-         OR query_type IN (['EventsQuery']))
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
@@ -127,8 +118,7 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (['EventsQuery'] IS NULL
-         OR query_type IN (['EventsQuery']))
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
@@ -145,8 +135,7 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (['EventsQuery'] IS NULL
-         OR query_type IN (['EventsQuery']))
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
@@ -163,8 +152,7 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (['EventsQuery'] IS NULL
-         OR query_type IN (['EventsQuery']))
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -181,8 +169,7 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (['EventsQuery'] IS NULL
-         OR query_type IN (['EventsQuery']))
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -199,8 +186,7 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (['EventsQuery'] IS NULL
-         OR query_type IN (['EventsQuery']))
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -352,8 +338,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (NULL IS NULL
-         OR query_type IN (NULL))
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
@@ -370,8 +354,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND (NULL IS NULL
-         OR query_type IN (NULL))
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id

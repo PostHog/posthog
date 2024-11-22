@@ -571,20 +571,24 @@ def get_teams_with_query_metric(
     if metric not in ["read_bytes", "read_rows", "query_duration_ms"]:
         # :TRICKY: Inlined into the query below.
         raise ValueError(f"Invalid metric {metric}")
-    result = sync_execute(
-        f"""
+
+    query_types_clause = "AND query_type IN (%(query_types)s)" if query_types and len(query_types) > 0 else ""
+
+    query = f"""
         WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-             JSONExtractString(log_comment, 'query_type') as query_type,
-             JSONExtractString(log_comment, 'access_method') as access_method
+            JSONExtractString(log_comment, 'query_type') as query_type,
+            JSONExtractString(log_comment, 'access_method') as access_method
         SELECT team_id, sum({metric}) as count
         FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
         WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
-          AND is_initial_query = 1
-          AND (%(query_types)s IS NULL OR query_type IN (%(query_types)s))
-          AND query_start_time between %(begin)s AND %(end)s
-          AND access_method = %(access_method)s
+        AND is_initial_query = 1
+        {query_types_clause}
+        AND query_start_time between %(begin)s AND %(end)s
+        AND access_method = %(access_method)s
         GROUP BY team_id
-    """,
+    """
+    result = sync_execute(
+        query,
         {
             "begin": begin,
             "end": end,
