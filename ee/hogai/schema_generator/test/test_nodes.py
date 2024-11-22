@@ -1,6 +1,7 @@
 import json
 from unittest.mock import patch
 
+import pytest
 from django.test import override_settings
 from langchain_core.agents import AgentAction
 from langchain_core.prompts import ChatPromptTemplate
@@ -34,17 +35,18 @@ class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
 
 
 @override_settings(IN_UNIT_TESTING=True)
+@pytest.mark.asyncio
 class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         self.schema = AssistantTrendsQuery(series=[])
 
-    def test_node_runs(self):
+    async def test_node_runs(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: TestSchema(reasoning_steps=["step"], answer=self.schema).model_dump()
             )
-            new_state = node.run(
+            new_state = await node.run(
                 {
                     "messages": [HumanMessage(content="Text")],
                     "plan": "Plan",
@@ -173,7 +175,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[5].content)
         self.assertIn("Follow\nUp", history[5].content)
 
-    def test_failover_with_incorrect_schema(self):
+    async def test_failover_with_incorrect_schema(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             schema = TestSchema(reasoning_steps=[], answer=None).model_dump()
@@ -181,11 +183,11 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             schema["answer"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
-            new_state = node.run({"messages": [HumanMessage(content="Text")]}, {})
+            new_state = await node.run({"messages": [HumanMessage(content="Text")]}, {})
             self.assertIn("intermediate_steps", new_state)
             self.assertEqual(len(new_state["intermediate_steps"]), 1)
 
-            new_state = node.run(
+            new_state = await node.run(
                 {
                     "messages": [HumanMessage(content="Text")],
                     "intermediate_steps": [(AgentAction(tool="", tool_input="", log="exception"), "exception")],
@@ -195,14 +197,14 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("intermediate_steps", new_state)
             self.assertEqual(len(new_state["intermediate_steps"]), 2)
 
-    def test_node_leaves_failover(self):
+    async def test_node_leaves_failover(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(
             DummyGeneratorNode,
             "_model",
             return_value=RunnableLambda(lambda _: TestSchema(reasoning_steps=[], answer=self.schema).model_dump()),
         ):
-            new_state = node.run(
+            new_state = await node.run(
                 {
                     "messages": [HumanMessage(content="Text")],
                     "intermediate_steps": [(AgentAction(tool="", tool_input="", log="exception"), "exception")],
@@ -211,7 +213,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertIsNone(new_state["intermediate_steps"])
 
-            new_state = node.run(
+            new_state = await node.run(
                 {
                     "messages": [HumanMessage(content="Text")],
                     "intermediate_steps": [
@@ -223,7 +225,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertIsNone(new_state["intermediate_steps"])
 
-    def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
+    async def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             schema = TestSchema(reasoning_steps=[], answer=None).model_dump()
@@ -231,7 +233,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             schema["answer"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
-            new_state = node.run(
+            new_state = await node.run(
                 {
                     "messages": [HumanMessage(content="Text")],
                     "intermediate_steps": [
@@ -306,10 +308,10 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestSchemaGeneratorToolsNode(ClickhouseTestMixin, APIBaseTest):
-    def test_tools_node(self):
+    async def test_tools_node(self):
         node = SchemaGeneratorToolsNode(self.team)
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
-        state = node.run({"messages": [], "intermediate_steps": [(action, None)]}, {})
+        state = await node.run({"messages": [], "intermediate_steps": [(action, None)]}, {})
         self.assertIsNotNone("validationerror", state["intermediate_steps"][0][1])
         self.assertIn("validationerror", state["intermediate_steps"][0][1])
         self.assertIn("pydanticexception", state["intermediate_steps"][0][1])
