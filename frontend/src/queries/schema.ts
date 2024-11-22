@@ -2565,14 +2565,14 @@ export interface CustomChannelCondition {
     key: CustomChannelField
     value?: string | string[]
     op: CustomChannelOperator
-    id: string
+    id: string // the ID is only needed for the drag and drop, so only needs to be unique with one set of rules
 }
 
 export interface CustomChannelRule {
     items: CustomChannelCondition[]
     combiner: FilterLogicalOperator
     channel_type: string
-    id: string
+    id: string // the ID is only needed for the drag and drop, so only needs to be unique with one set of rules
 }
 
 export enum DefaultChannelTypes {

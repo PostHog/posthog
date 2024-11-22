@@ -503,7 +503,7 @@ def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team:
         else:
             custom_channel_types = []
         default_channel_types = [
-            entry for entry in DEFAULT_CHANNEL_TYPES if not search_term or search_term.lower() in entry.value.lower()
+            entry for entry in DEFAULT_CHANNEL_TYPES if not search_term or search_term.lower() in entry.lower()
         ]
         # merge the list, keep the order, and remove duplicates
         return [[name] for name in list(dict.fromkeys(custom_channel_types + default_channel_types))]

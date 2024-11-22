@@ -410,9 +410,7 @@ def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team:
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
-        return [
-            [entry] for entry in DEFAULT_CHANNEL_TYPES if not search_term or search_term.lower() in entry.value.lower()
-        ]
+        return [[entry] for entry in DEFAULT_CHANNEL_TYPES if not search_term or search_term.lower() in entry.lower()]
 
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:
