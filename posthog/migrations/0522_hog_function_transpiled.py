@@ -19,7 +19,8 @@ class Migration(migrations.Migration):
                 blank=True,
                 choices=[
                     ("destination", "Destination"),
-                    ("web", "Web"),
+                    ("site_destination", "Site Destination"),
+                    ("site_app", "Site App"),
                     ("email", "Email"),
                     ("sms", "Sms"),
                     ("push", "Push"),
