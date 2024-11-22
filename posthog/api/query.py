@@ -1,4 +1,3 @@
-import os
 import re
 import uuid
 
@@ -42,9 +41,6 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    HumanMessage,
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
@@ -186,43 +182,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def chat(self, request: Request, *args, **kwargs):
         assert request.user is not None
         validated_body = Conversation.model_validate(request.data)
-        assistant = Assistant(self.team)
-
-        def report_user_action(last_message: BaseModel):
-            human_message = validated_body.messages[-1].root
-            if isinstance(human_message, HumanMessage):
-                report_user_action(
-                    request.user,  # type: ignore
-                    "chat with ai",
-                    {"prompt": human_message.content, "response": last_message},
-                )
-
-        def serialize_message(message: BaseModel):
-            if isinstance(message, AssistantGenerationStatusEvent):
-                yield f"event: {AssistantEventType.STATUS}\n"
-            else:
-                yield f"event: {AssistantEventType.MESSAGE}\n"
-            yield f"data: {message.model_dump_json(exclude_none=True)}\n\n"
-
-        async def agenerate():
-            last_message = None
-            async for message in assistant.astream(validated_body):
-                last_message = message
-                for serialized_message in serialize_message(message):
-                    yield serialized_message
-            report_user_action(last_message)
-
-        def generate():
-            last_message = None
-            for message in assistant.stream(validated_body):
-                last_message = message
-                yield from serialize_message(message)
-            report_user_action(last_message)
-
-        return StreamingHttpResponse(
-            agenerate() if os.environ.get("SERVER_GATEWAY_INTERFACE") == "ASGI" else generate(),
-            content_type=ServerSentEventRenderer.media_type,
-        )
+        assistant = Assistant(self.team, validated_body, request.user)
+        return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
