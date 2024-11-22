@@ -2,7 +2,6 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { DataColorToken } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { RESULT_CUSTOMIZATION_DEFAULT } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -33,8 +32,6 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             ],
             funnelDataLogic(props),
             ['resultCustomizations as funnelsResultCustomizations', 'getFunnelsColor'],
-            dataThemeLogic,
-            ['getTheme'],
             featureFlagLogic,
             ['featureFlags'],
         ],
