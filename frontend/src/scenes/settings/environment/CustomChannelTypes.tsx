@@ -4,12 +4,14 @@ import { PropertyValue } from 'lib/components/PropertyFilters/components/Propert
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { Link } from 'lib/lemon-ui/Link'
 import { VerticalNestedDND } from 'lib/lemon-ui/VerticalNestedDND/VerticalNestedDND'
 import { genericOperatorMap, UnexpectedNeverError, uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import isEqual from 'lodash.isequal'
 import { useMemo, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     CustomChannelCondition,
@@ -141,6 +143,20 @@ export function CustomChannelTypes(): JSX.Element {
 
     return (
         <div>
+            <p>
+                You can create custom channel types by defining rules that match incoming events. The first matching
+                rule is used, and if no rule matches (or if none are defined) then the{' '}
+                <Link to="https://posthog.com/docs/data/channel-type#channel-type-calculation">
+                    default channel type
+                </Link>{' '}
+                is used.
+            </p>
+            <p>
+                To debug, try the{' '}
+                <Link to={urls.sessionAttributionExplorer()} target="_blank">
+                    session attribution explorer tool
+                </Link>
+            </p>
             <ChannelTypeEditor
                 handleChange={setCustomChannelTypeRules}
                 initialCustomChannelTypeRules={customChannelTypeRules}
