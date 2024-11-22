@@ -42,13 +42,23 @@ def get_site_app(request: HttpRequest, id: int, token: str, hash: str) -> HttpRe
 @csrf_exempt
 @timed("posthog_cloud_site_app_endpoint")
 def get_site_function(request: HttpRequest, id: str, hash: str) -> HttpResponse:
-    # TODO: do we need more security than this?
-    function = (
-        HogFunction.objects.filter(id=id, enabled=True, type="web", transpiled__isnull=False)
-        .values_list("transpiled")
-        .first()
-    )
-    if not function:
+    try:
+        # TODO: Should we add a token as well? Is the UUID enough?
+        function = (
+            HogFunction.objects.filter(id=id, enabled=True, type="web", transpiled__isnull=False)
+            .values_list("transpiled")
+            .first()
+        )
+        if not function:
+            raise Exception("No function found")
+
+        response = HttpResponse(content=function[0], content_type="application/javascript")
+        response["Cache-Control"] = "public, max-age=31536000"  # Cache for 1 year
+        statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "site_function"})
+        return response
+    except Exception as e:
+        capture_exception(e, {"data": {"id": id}})
+        statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "site_function"})
         return generate_exception_response(
             "site_function",
             "Unable to serve site function source code.",
@@ -56,5 +66,3 @@ def get_site_function(request: HttpRequest, id: str, hash: str) -> HttpResponse:
             type="server_error",
             status_code=status.HTTP_404_NOT_FOUND,
         )
-
-    return HttpResponse(content=function, content_type="application/javascript")

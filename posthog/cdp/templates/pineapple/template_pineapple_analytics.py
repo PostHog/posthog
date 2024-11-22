@@ -3,25 +3,22 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
     type="web",
-    id="template-pineapple",
+    id="template-pineapple-analytics",
     name="Pineapple Analytics",
-    description="Client side destination for Pineapple Analytics",
+    description="Client side destination for Pineapple Analytics (Test service!)",
     icon_url="/static/services/pineapple.png",
     category=["Custom", "Analytics"],
     hog="""
-// Run only once
 export async function onLoad({ inputs, posthog }) {
     const url = inputs.host
-    console.log('🍍 Loading Pineapple Analytics', { url, inputs })
-    // await loadScript(url + '/js?t=' + new Date().getTime())
+    console.log('🍍 Loading Pineapple Analytics (takes 5 sec)', { url, inputs })
+
+    await new Promise((resolve) => window.setTimeout(resolve, 5000))
+    console.log("🍍 Script loaded")
 }
 
-// Run whenever an event matches filters
-export function onEvent({ event, person, inputs, posthog }) {
-    const { userId, additionalProperties } = inputs
-    const payload = { event, person, userId, additionalProperties }
-
-    console.log('🍍 Sending event', event, payload)
+export function onEvent({ posthog, ...globals }) {
+    console.log('🍍 Sending event', globals.event.event, globals)
     // window.pineappleAnalytics.capture(payload)
 }
 """.strip(),
@@ -30,8 +27,8 @@ export function onEvent({ event, person, inputs, posthog }) {
             "key": "host",
             "type": "string",
             "label": "Pineapple API host",
-            "description": "Normally https://nom.pineapple.now",
-            "default": "https://nom.pineapple.now",
+            "description": "Normally https://get.pineapple.now",
+            "default": "https://get.pineapple.now",
             "secret": False,
             "required": True,
         },
