@@ -98,7 +98,7 @@ class Assistant:
         )
 
         # Send a chunk to establish the connection avoiding the worker's timeout.
-        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
+        yield self._serialize_message(AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK))
 
         try:
             last_message = None
