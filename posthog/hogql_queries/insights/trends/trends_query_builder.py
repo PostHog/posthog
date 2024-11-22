@@ -26,6 +26,7 @@ from posthog.schema import (
     ActionsNode,
     ChartDisplayType,
     DataWarehouseNode,
+    DataWarehousePropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
@@ -699,8 +700,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 filters.append(property_to_expr(property, self.team))
 
         # Properties
-        if self.query.properties is not None and self.query.properties != [] and not is_data_warehouse_series:
-            filters.append(property_to_expr(self.query.properties, self.team))
+        if self.query.properties is not None and self.query.properties != []:
+            if is_data_warehouse_series:
+                data_warehouse_properties = [
+                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
+                ]
+                if data_warehouse_properties:
+                    filters.append(property_to_expr(data_warehouse_properties, self.team))
+            else:
+                filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:

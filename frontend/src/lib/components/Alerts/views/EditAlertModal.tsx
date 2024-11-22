@@ -1,4 +1,11 @@
-import { LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonCheckbox,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
@@ -85,7 +92,7 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const { alertSeries, isNonTimeSeriesDisplay } = useValues(trendsLogic)
+    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
 
@@ -138,6 +145,12 @@ export function EditAlertModal({
                             <div className="space-y-6">
                                 <h3>Definition</h3>
                                 <div className="space-y-5">
+                                    {isBreakdownValid && (
+                                        <LemonBanner type="warning">
+                                            For trends with breakdown, the alert will fire if any of the breakdown
+                                            values breaches the threshold.
+                                        </LemonBanner>
+                                    )}
                                     <div className="flex gap-4 items-center">
                                         <div>When</div>
                                         <Group name={['config']}>
@@ -146,9 +159,16 @@ export function EditAlertModal({
                                                     fullWidth
                                                     data-attr="alertForm-series-index"
                                                     options={alertSeries?.map(({ event }, index) => ({
-                                                        label: `${alphabet[index]} - ${event}`,
+                                                        label: isBreakdownValid
+                                                            ? 'any breakdown value'
+                                                            : `${alphabet[index]} - ${event}`,
                                                         value: index,
                                                     }))}
+                                                    disabledReason={
+                                                        isBreakdownValid &&
+                                                        `For trends with breakdown, the alert will fire if any of the breakdown
+                                            values breaches the threshold.`
+                                                    }
                                                 />
                                             </LemonField>
                                         </Group>
