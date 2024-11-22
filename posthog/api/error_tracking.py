@@ -71,7 +71,7 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
             if symbol_set:
                 queryset = self.queryset.filter(symbol_set=symbol_set)
 
-        return queryset.filter(team_id=self.team.id)
+        return queryset.select_related("symbol_set").filter(team_id=self.team.id)
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
