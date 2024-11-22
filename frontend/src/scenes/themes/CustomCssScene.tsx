@@ -46,29 +46,36 @@ body[theme=dark] {
 }`
 
 const BARBIE_THEME = `:root {
-    --radius: 10px;
+    --radius: 16px;
 }
 
 body[theme=light] {
-    --border: rgba(255, 105, 180, 0.5); /* Light pink */
-    --link: #FF69B4; /* Hot pink */
-    --border-bold: #FF1493; /* Deep pink */
-    --bg-3000: #FFC0CB; /* Pastel pink */
-    --glass-bg-3000: rgba(255, 192, 203, 0.8); /* Semi-transparent pastel pink */
-    --bg-light: #FFF0F5; /* Lavender blush */
-    --bg-table: #F8BBD0; /* Light pink table background */
-    --muted-3000: #D8BFD8; /* Thistle */
-    --primary-3000: #FF69B4; /* Hot pink */
-    --primary-3000-hover: #FF1493; /* Deep pink */
-    --primary-alt-highlight: rgba(255, 105, 180, 0.1); /* Light pink tint */
-    --text-3000: #FF69B4; /* Hot pink */
-    --accent-3000: #F5F5DC; /* Beige for contrast */
-    --glass-border-3000: rgba(255, 20, 147, 0.3); /* Transparent deep pink */
+    --border: rgba(255, 105, 180, 0.5);
+    --border-3000: #ff409f;
+    --link: #E306AD;
+    --border-bold: rgba(255, 105, 180, 0.8);
+    --bg-3000: #FED9E9;
+    --glass-bg-3000: rgba(255, 192, 203, 0.8);
+    --bg-light: #FFF0F5;
+    --bg-table: #F8BBD0;
+    --muted-3000: #E306AD;
+    --primary-3000: #FF69B4;
+    --primary-3000-hover: #FF1493;
+    --primary-alt-highlight: rgba(255, 105, 180, 0.1);
+    --text-3000: #ed3993;
+    --text-3000-light: #58003f;
+    --accent-3000: #FEBDE2;
+    --glass-border-3000: rgba(255, 20, 147, 0.3);
 
-    --primary-3000-frame-bg-light: #FFB6C1; /* Light pink */
-    --primary-3000-button-bg: #FF69B4; /* Hot pink */
-    --primary-3000-button-border: #FF1493; /* Deep pink */
-    --text-secondary-3000: #FFB6C1; /* Light pink */
+    --primary-3000-frame-bg-light: #F18DBC;
+    --primary-3000-button-bg: #FF69B4;
+    --primary-3000-button-border: #FF1493;
+    --primary-3000-button-border-hover: #db097b;
+    --text-secondary-3000: #FFB6C1;
+
+    --secondary-3000-button-border: #FF1493;
+    --secondary-3000-frame-bg-light: #F7B9D7;
+    --secondary-3000-button-border-hover: #d40b76;
 }`
 
 export function CustomCssScene(): JSX.Element {
