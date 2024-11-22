@@ -2,19 +2,25 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import useResizeObserver from 'use-resize-observer'
 
 import { billingLogic } from './billingLogic'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 
+export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
+
 export const CreditCTAHero = (): JSX.Element | null => {
     const { width, ref: heroRef } = useResizeObserver()
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { creditOverview, isPurchaseCreditsModalOpen, isCreditCTAHeroDismissed, computedDiscount } =
         useValues(billingLogic)
     const { showPurchaseCreditsModal, toggleCreditCTAHeroDismissed } = useActions(billingLogic)
 
-    if (!creditOverview.eligible || creditOverview.status === 'paid') {
+    const isEligible = creditOverview.eligible || featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+    if (creditOverview.status === 'paid' || !isEligible) {
         return null
     }
 
@@ -37,6 +43,8 @@ export const CreditCTAHero = (): JSX.Element | null => {
         )
     }
 
+    const estimatedMonthlyCreditAmountUsd =
+        creditOverview?.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
     return (
         <div
             className="flex relative justify-between items-start rounded-lg bg-bg-light border mb-2 gap-2"
@@ -56,7 +64,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                 </div>
             )}
             <div className="p-4 flex-1">
-                {creditOverview.eligible && creditOverview.status === 'pending' && (
+                {isEligible && creditOverview.status === 'pending' && (
                     <>
                         <h1 className="mb-0">We're applying your credits</h1>
                         <p className="mt-2 mb-0 max-w-xl">
@@ -78,7 +86,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                         )}
                     </>
                 )}
-                {creditOverview.eligible && creditOverview.status === 'none' && (
+                {isEligible && (!creditOverview || creditOverview.status === 'none') && (
                     <>
                         <h2 className="mb-0">
                             Stop burning money.{' '}
@@ -87,20 +95,20 @@ export const CreditCTAHero = (): JSX.Element | null => {
                         </h2>
                         <p className="mt-2 mb-0 max-w-xl">
                             Based on your usage, your monthly bill is forecasted to be an average of{' '}
-                            <strong>${creditOverview.estimated_monthly_credit_amount_usd.toFixed(0)}/month</strong> over
-                            the next year.
+                            <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong> over the next year.
                         </p>
                         <p className="mt-2 mb-0 max-w-xl">
                             This qualifies you for a <strong>{computedDiscount * 100}% discount</strong> by
                             pre-purchasing usage credits. Which gives you a net savings of{' '}
                             <strong>
                                 $
-                                {Math.round(
-                                    creditOverview.estimated_monthly_credit_amount_usd * computedDiscount * 12
-                                ).toLocaleString('en-US', {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 0,
-                                })}
+                                {Math.round(estimatedMonthlyCreditAmountUsd * computedDiscount * 12).toLocaleString(
+                                    'en-US',
+                                    {
+                                        minimumFractionDigits: 0,
+                                        maximumFractionDigits: 0,
+                                    }
+                                )}
                             </strong>{' '}
                             over the next year.
                         </p>

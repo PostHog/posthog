@@ -1,6 +1,11 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use envconfig::Envconfig;
 
 use crate::hack::kafka::{ConsumerConfig, KafkaConfig};
+
+// TODO - I'm just too lazy to pipe this all the way through the resolve call stack
+pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -69,11 +74,21 @@ pub struct Config {
 
     #[envconfig(default = "600")]
     pub frame_cache_ttl_seconds: u64,
+
+    // Maximum number of lines of pre and post context to get per frame
+    #[envconfig(default = "15")]
+    pub context_line_count: usize,
 }
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         ConsumerConfig::set_defaults("error-tracking-rs", "exception_symbolification_events");
-        Self::init_from_env()
+        let res = Self::init_from_env()?;
+        init_global_state(&res);
+        Ok(res)
     }
+}
+
+pub fn init_global_state(config: &Config) {
+    FRAME_CONTEXT_LINES.store(config.context_line_count, Ordering::Relaxed);
 }

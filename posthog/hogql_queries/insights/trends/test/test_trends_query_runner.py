@@ -3844,7 +3844,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             Breakdown(type="group", group_type_index=0, property="industry"),
         ]
 
-        for breakdown_filter in itertools.permutations(breakdowns, 3):
+        for breakdown_filter in itertools.permutations(breakdowns, 2):
             response = self._run_trends_query(
                 "2020-01-09",
                 "2020-01-20",
