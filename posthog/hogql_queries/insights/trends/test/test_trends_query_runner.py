@@ -3580,7 +3580,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             Breakdown(property="$browser"),
             Breakdown(property="bool_field"),
         ]
-        for breakdown_filter in itertools.combinations(breakdowns, 3):
+        for breakdown_filter in itertools.combinations(breakdowns, 2):
             response = self._run_trends_query(
                 "2020-01-09",
                 "2020-01-20",
