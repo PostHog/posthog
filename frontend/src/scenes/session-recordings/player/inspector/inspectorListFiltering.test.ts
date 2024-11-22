@@ -27,7 +27,7 @@ describe('filtering inspector list items', () => {
                 ],
                 miniFiltersByKey: { 'events-posthog': { enabled: false } as unknown as SharedListMiniFilter },
                 showOnlyMatching: false,
-                showMatchingEventsFilter: false,
+                allowMatchingEventsFilter: false,
                 trackedWindow: null,
             })
         ).toHaveLength(0)
@@ -53,7 +53,7 @@ describe('filtering inspector list items', () => {
                 ],
                 miniFiltersByKey: { 'events-pageview': { enabled: true } as unknown as SharedListMiniFilter },
                 showOnlyMatching: false,
-                showMatchingEventsFilter: false,
+                allowMatchingEventsFilter: false,
                 trackedWindow: null,
             }).map((item) => item.type)
         ).toEqual(['browser-visibility', 'offline-status', 'comment', 'events'])
@@ -71,7 +71,7 @@ describe('filtering inspector list items', () => {
             ],
             miniFiltersByKey: { doctor: { enabled } as unknown as SharedListMiniFilter },
             showOnlyMatching: false,
-            showMatchingEventsFilter: false,
+            allowMatchingEventsFilter: false,
             trackedWindow: null,
         })
         expect(filteredItems).toHaveLength(expectedLength)
@@ -94,7 +94,7 @@ describe('filtering inspector list items', () => {
                 ],
                 miniFiltersByKey: { 'events-exceptions': { enabled: true } as unknown as SharedListMiniFilter },
                 showOnlyMatching: false,
-                showMatchingEventsFilter: false,
+                allowMatchingEventsFilter: false,
                 trackedWindow: 'a different window',
             })
         ).toHaveLength(1)
@@ -111,7 +111,7 @@ describe('filtering inspector list items', () => {
                 ],
                 miniFiltersByKey: {},
                 showOnlyMatching: false,
-                showMatchingEventsFilter: false,
+                allowMatchingEventsFilter: false,
                 trackedWindow: null,
             })
         ).toHaveLength(0)
@@ -131,7 +131,7 @@ describe('filtering inspector list items', () => {
                 ],
                 miniFiltersByKey: { 'events-exceptions': { enabled } as unknown as SharedListMiniFilter },
                 showOnlyMatching: false,
-                showMatchingEventsFilter: false,
+                allowMatchingEventsFilter: false,
                 trackedWindow: null,
             })
         ).toHaveLength(expectedLength)
