@@ -9,7 +9,7 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
+import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
@@ -19,13 +19,17 @@ import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, PipelineBackend } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
-import { DestinationsFilters } from './DestinationsFilters'
-import { destinationsFiltersLogic } from './destinationsFiltersLogic'
-import { pipelineDestinationsLogic } from './destinationsLogic'
-import { DestinationOptionsTable } from './NewDestinations'
+import { HogFunctionsListFilters } from './HogFunctionsListFilters'
+import { hogFunctionsListFiltersLogic } from './hogFunctionsListFiltersLogic'
+import { hogFunctionsListLogic } from './hogFunctionsListLogic'
+import { NewFunctionsListTable } from './NewHogFunction'
 
-export function Destinations(): JSX.Element {
-    const { destinations, loading } = useValues(pipelineDestinationsLogic({ syncFiltersWithUrl: true }))
+export interface HogFunctionsListProps {
+    types: HogFunctionTypeType[]
+}
+
+export function HogFunctionsList({ types }: HogFunctionsListProps): JSX.Element {
+    const { destinations, loading } = useValues(hogFunctionsListLogic({ types }))
 
     return (
         <>
@@ -44,23 +48,25 @@ export function Destinations(): JSX.Element {
                     isEmpty={destinations.length === 0 && !loading}
                 />
             </PayGateMini>
-            <DestinationsTable />
+            <HogFunctionsListTable types={types} />
             <div className="mt-4" />
             <h2>New destinations</h2>
-            <DestinationOptionsTable />
+            <NewFunctionsListTable types={types} />
         </>
     )
 }
 
-export function DestinationsTable(): JSX.Element {
+export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(pipelineDestinationsLogic)
-    const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
-    const { resetFilters } = useActions(destinationsFiltersLogic)
+    const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
+        hogFunctionsListLogic({ types })
+    )
+    const { toggleNode, deleteNode } = useActions(hogFunctionsListLogic({ types }))
+    const { resetFilters } = useActions(hogFunctionsListFiltersLogic({ types }))
 
     return (
         <div className="space-y-2">
-            <DestinationsFilters />
+            <HogFunctionsListFilters types={types} />
 
             <LemonTable
                 dataSource={filteredDestinations}

@@ -3,7 +3,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { HogFunctionTemplateStatus } from '~/types'
 
-export function DestinationTag({ status }: { status: HogFunctionTemplateStatus }): JSX.Element | null {
+export function HogFunctionTag({ status }: { status: HogFunctionTemplateStatus }): JSX.Element | null {
     switch (status) {
         case 'alpha':
             return <LemonTag type="danger">Experimental</LemonTag>

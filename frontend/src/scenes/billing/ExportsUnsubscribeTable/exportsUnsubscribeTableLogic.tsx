@@ -3,7 +3,8 @@ import { actions, afterMount, connect, kea, listeners, path, selectors } from 'k
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
+import { DESTINATION_TYPES } from 'scenes/pipeline/hog-functions-list/constants'
+import { hogFunctionsListLogic } from 'scenes/pipeline/hog-functions-list/hogFunctionsListLogic'
 import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { FunctionDestination, PipelineBackend } from 'scenes/pipeline/types'
@@ -35,10 +36,10 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
             ['canConfigurePlugins'],
             userLogic,
             ['user'],
-            pipelineDestinationsLogic,
+            hogFunctionsListLogic({ types: DESTINATION_TYPES }),
             ['paidHogFunctions'],
         ],
-        actions: [pipelineDestinationsLogic, ['toggleNodeHogFunction']],
+        actions: [hogFunctionsListLogic({ types: DESTINATION_TYPES }), ['toggleNodeHogFunction']],
     }),
 
     actions({

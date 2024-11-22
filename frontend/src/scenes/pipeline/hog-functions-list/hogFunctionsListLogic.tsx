@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BatchExportConfiguration,
     HogFunctionType,
+    HogFunctionTypeType,
     PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -28,15 +29,21 @@ import {
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
-import { destinationsFiltersLogic } from './destinationsFiltersLogic'
-import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { hogFunctionsListFiltersLogic } from './hogFunctionsListFiltersLogic'
+import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<Destination> {}
 
-export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
-    path(['scenes', 'pipeline', 'destinationsLogic']),
-    connect({
+export interface HogFunctionsListLogicProps {
+    types: HogFunctionTypeType[]
+}
+
+export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
+    path(['scenes', 'pipeline', 'hog-functions-list', 'hogFunctionsListLogic']),
+    props({} as HogFunctionsListLogicProps),
+    key((props) => props.types.join(',')),
+    connect(({ types }: HogFunctionsListLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -46,10 +53,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             ['canEnableDestination'],
             featureFlagLogic,
             ['featureFlags'],
-            destinationsFiltersLogic,
+            hogFunctionsListFiltersLogic({ types }),
             ['filters'],
         ],
-    }),
+    })),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
         toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
@@ -309,7 +316,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             }
         },
     })),
-
     afterMount(({ actions }) => {
         actions.loadPlugins()
         actions.loadPluginConfigs()

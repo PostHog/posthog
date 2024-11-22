@@ -13,8 +13,9 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
-import { NewDestinations } from './destinations/NewDestinations'
 import { frontendAppsLogic } from './frontendAppsLogic'
+import { DESTINATION_TYPES } from './hog-functions-list/constants'
+import { NewFunctionsList } from './hog-functions-list/NewHogFunction'
 import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
@@ -103,7 +104,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     if (stage === PipelineStage.Transformation) {
         return <TransformationOptionsTable />
     } else if (stage === PipelineStage.Destination) {
-        return <NewDestinations />
+        return <NewFunctionsList types={DESTINATION_TYPES} />
     } else if (stage === PipelineStage.SiteApp) {
         return <SiteAppOptionsTable />
     } else if (stage === PipelineStage.Source) {

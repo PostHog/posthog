@@ -1,22 +1,26 @@
 import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { PipelineBackend } from '../types'
-import { destinationsFiltersLogic } from './destinationsFiltersLogic'
+import { HogFunctionTypeType } from '~/types'
 
-export type DestinationsFiltersProps = {
+import { PipelineBackend } from '../types'
+import { hogFunctionsListFiltersLogic } from './hogFunctionsListFiltersLogic'
+
+export type HogFunctionsListFiltersProps = {
+    types: HogFunctionTypeType[]
     hideSearch?: boolean
     hideShowPaused?: boolean
     hideKind?: boolean
 }
 
-export function DestinationsFilters({
+export function HogFunctionsListFilters({
+    types,
     hideSearch,
     hideShowPaused,
     hideKind,
-}: DestinationsFiltersProps): JSX.Element | null {
-    const { filters } = useValues(destinationsFiltersLogic)
-    const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
+}: HogFunctionsListFiltersProps): JSX.Element | null {
+    const { filters } = useValues(hogFunctionsListFiltersLogic({ types }))
+    const { setFilters, openFeedbackDialog } = useActions(hogFunctionsListFiltersLogic({ types }))
 
     return (
         <div className="space-y-2">

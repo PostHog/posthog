@@ -45,7 +45,9 @@ def get_site_function(request: HttpRequest, id: str, hash: str) -> HttpResponse:
     try:
         # TODO: Should we add a token as well? Is the UUID enough?
         function = (
-            HogFunction.objects.filter(id=id, enabled=True, type="web", transpiled__isnull=False)
+            HogFunction.objects.filter(
+                id=id, enabled=True, type__in=("site_destination", "site_app"), transpiled__isnull=False
+            )
             .values_list("transpiled")
             .first()
         )

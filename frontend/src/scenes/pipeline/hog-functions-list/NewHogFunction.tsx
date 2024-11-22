@@ -5,28 +5,32 @@ import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
-import { AvailableFeature, PipelineStage } from '~/types'
+import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { DestinationsFilters } from './DestinationsFilters'
-import { destinationsFiltersLogic } from './destinationsFiltersLogic'
-import { DestinationTag } from './DestinationTag'
-import { newDestinationsLogic } from './newDestinationsLogic'
+import { HogFunctionsListFilters } from './HogFunctionsListFilters'
+import { hogFunctionsListFiltersLogic } from './hogFunctionsListFiltersLogic'
+import { HogFunctionTag } from './HogFunctionTag'
+import { newHogFunctionLogic } from './newHogFunctionLogic'
 
-export function NewDestinations(): JSX.Element {
+export type NewFunctionsListProps = {
+    types: HogFunctionTypeType[]
+}
+
+export function NewFunctionsList({ types }: NewFunctionsListProps): JSX.Element {
     return (
         <div className="space-y-2">
             <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
-            <DestinationsFilters hideShowPaused />
-            <DestinationOptionsTable />
+            <HogFunctionsListFilters types={types} hideShowPaused />
+            <NewFunctionsListTable types={types} />
         </div>
     )
 }
 
-export function DestinationOptionsTable(): JSX.Element {
-    const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic)
+export function NewFunctionsListTable({ types }: NewFunctionsListProps): JSX.Element {
+    const { loading, filteredDestinations, hiddenDestinations } = useValues(newHogFunctionLogic({ types }))
     const { canEnableDestination } = useValues(pipelineAccessLogic)
-    const { resetFilters } = useActions(destinationsFiltersLogic)
+    const { resetFilters } = useActions(hogFunctionsListFiltersLogic({ types }))
 
     return (
         <>
@@ -54,7 +58,7 @@ export function DestinationOptionsTable(): JSX.Element {
                                     title={
                                         <>
                                             {target.name}
-                                            {target.status && <DestinationTag status={target.status} />}
+                                            {target.status && <HogFunctionTag status={target.status} />}
                                         </>
                                     }
                                     description={target.description}

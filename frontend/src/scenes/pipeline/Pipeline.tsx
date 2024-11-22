@@ -8,8 +8,9 @@ import { urls } from 'scenes/urls'
 import { ActivityScope, PipelineTab } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
-import { Destinations } from './destinations/Destinations'
 import { FrontendApps } from './FrontendApps'
+import { DESTINATION_TYPES } from './hog-functions-list/constants'
+import { HogFunctionsList } from './hog-functions-list/HogFunctionsList'
 import { ImportApps } from './ImportApps'
 import { importAppsLogic } from './importAppsLogic'
 import { Overview } from './Overview'
@@ -27,7 +28,7 @@ export function Pipeline(): JSX.Element {
         { key: PipelineTab.Overview, content: <Overview /> },
         { key: PipelineTab.Sources, content: <Sources /> },
         { key: PipelineTab.Transformations, content: <Transformations /> },
-        { key: PipelineTab.Destinations, content: <Destinations /> },
+        { key: PipelineTab.Destinations, content: <HogFunctionsList types={DESTINATION_TYPES} /> },
         { key: PipelineTab.SiteApps, content: <FrontendApps /> },
     ]
 

@@ -85,7 +85,7 @@ def get_decide_site_functions(team: "Team", using_database: str = "default") -> 
         .filter(
             team=team,
             enabled=True,
-            type="web",
+            type__in=("site_destination", "site_app"),
             transpiled__isnull=False,
         )
         .values_list(

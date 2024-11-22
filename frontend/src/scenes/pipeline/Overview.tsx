@@ -5,7 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { PipelineTab } from '~/types'
 
-import { DestinationsTable } from './destinations/Destinations'
+import { DESTINATION_TYPES } from './hog-functions-list/constants'
+import { HogFunctionsListTable } from './hog-functions-list/HogFunctionsList'
 import { TransformationsTable } from './Transformations'
 
 export function Overview(): JSX.Element {
@@ -45,7 +46,7 @@ export function Overview(): JSX.Element {
                     Send your data to destinations in real time or with batch exports. Only active Destinations are
                     shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
                 </p>
-                <DestinationsTable />
+                <HogFunctionsListTable types={DESTINATION_TYPES} />
             </div>
         </div>
     )

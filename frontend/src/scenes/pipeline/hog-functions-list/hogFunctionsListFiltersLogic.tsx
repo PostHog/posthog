@@ -1,5 +1,5 @@
 import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -8,28 +8,31 @@ import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import { PipelineBackend } from '../types'
-import type { destinationsFiltersLogicType } from './destinationsFiltersLogicType'
+import type { hogFunctionsListFiltersLogicType } from './hogFunctionsListFiltersLogicType'
+import { HogFunctionsListLogicProps } from './hogFunctionsListLogic'
 
-export type DestinationsFilters = {
+export type HogFunctionsListFilters = {
     search?: string
     kind?: PipelineBackend | null
     sub_template?: string
     showPaused?: boolean
 }
 
-export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
-    path(() => ['scenes', 'pipeline', 'destinations', 'destinationsFiltersLogic']),
+export const hogFunctionsListFiltersLogic = kea<hogFunctionsListFiltersLogicType>([
+    path(['scenes', 'pipeline', 'hog-functions-list', 'hogFunctionsListFiltersLogic']),
+    props({} as HogFunctionsListLogicProps),
+    key((props) => props.types.join(',')),
     connect({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
-        setFilters: (filters: Partial<DestinationsFilters>) => ({ filters }),
+        setFilters: (filters: Partial<HogFunctionsListFilters>) => ({ filters }),
         resetFilters: true,
         openFeedbackDialog: true,
     }),
     reducers(() => ({
         filters: [
-            {} as DestinationsFilters,
+            {} as HogFunctionsListFilters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
@@ -41,7 +44,6 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
             },
         ],
     })),
-
     listeners(({ values }) => ({
         setFilters: async ({ filters }, breakpoint) => {
             if (filters.search && filters.search.length > 2) {
@@ -76,7 +78,6 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
             })
         },
     })),
-
     actionToUrl(({ values }) => {
         const urlFromFilters = (): [
             string,
@@ -101,7 +102,6 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
             resetFilters: () => urlFromFilters(),
         }
     }),
-
     urlToAction(({ actions, values }) => ({
         ['*']: (_, searchParams) => {
             if (!objectsEqual(values.filters, searchParams)) {

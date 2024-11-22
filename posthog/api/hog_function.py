@@ -22,7 +22,7 @@ from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
-from posthog.cdp.web import get_transpiled_function
+from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail

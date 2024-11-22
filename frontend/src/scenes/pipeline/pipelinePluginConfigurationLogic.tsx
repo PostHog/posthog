@@ -16,8 +16,9 @@ import {
     determineRequiredFields,
     getPluginConfigFormData,
 } from './configUtils'
-import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
+import { DESTINATION_TYPES } from './hog-functions-list/constants'
+import { hogFunctionsListLogic } from './hog-functions-list/hogFunctionsListLogic'
 import { importAppsLogic } from './importAppsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
@@ -169,7 +170,9 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             if (props.stage === PipelineStage.Transformation) {
                 pipelineTransformationsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.Destination) {
-                pipelineDestinationsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
+                hogFunctionsListLogic
+                    .findMounted({ types: DESTINATION_TYPES })
+                    ?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.SiteApp) {
                 frontendAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.ImportApp) {

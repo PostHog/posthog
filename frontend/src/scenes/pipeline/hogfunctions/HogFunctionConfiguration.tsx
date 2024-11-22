@@ -28,7 +28,7 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
-import { DestinationTag } from '../destinations/DestinationTag'
+import { HogFunctionTag } from '../hog-functions-list/HogFunctionTag'
 import { HogFunctionFilters } from './filters/HogFunctionFilters'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
@@ -210,7 +210,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
 
                                     <div className="flex flex-col items-start py-1 flex-1 justify-start">
                                         <span className="font-semibold">{configuration.name}</span>
-                                        {template && <DestinationTag status={template.status} />}
+                                        {template && <HogFunctionTag status={template.status} />}
                                     </div>
 
                                     {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
@@ -275,7 +275,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                             <Link subtle className="flex items-center gap-1 flex-wrap p-2">
                                                 Built from template:
                                                 <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                <DestinationTag status={hogFunction.template.status} />
+                                                <HogFunctionTag status={hogFunction.template.status} />
                                                 {templateHasChanged ? (
                                                     <LemonTag type="success">Update available!</LemonTag>
                                                 ) : null}
