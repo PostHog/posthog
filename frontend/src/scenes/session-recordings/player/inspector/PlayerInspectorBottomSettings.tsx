@@ -91,7 +91,7 @@ function ShowOnlyMatching(): JSX.Element {
                 hasEventsToDisplay && hasEventsFiltersSelected
                     ? allowMatchingEventsFilter
                         ? undefined
-                        : 'There are no filters to match against'
+                        : 'There are no event filters to match against'
                     : 'There are no events in the list'
             }
         />
