@@ -50,6 +50,9 @@ export interface VerticalNestedDNDProps<ChildItem extends VDNDChildItem, Item ex
     initialItems: Item[]
     renderContainerItem: (item: Item, callbacks: { updateContainerItem: (item: Item) => void }) => JSX.Element | null
     renderChildItem: (item: ChildItem, callbacks: { updateChildItem: (item: ChildItem) => void }) => JSX.Element | null
+    renderAddChildItem?: (item: Item, callbacks: { onAddChild: (id: UniqueIdentifier) => void }) => JSX.Element | null
+    renderAddContainerItem?: (callbacks: { onAddContainer: () => void }) => JSX.Element | null
+    renderAdditionalControls?: () => JSX.Element | null
     createNewContainerItem(): Item
     createNewChildItem(): ChildItem
     onChange?(items: Item[]): void
@@ -61,6 +64,9 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
     renderChildItem,
     createNewChildItem,
     createNewContainerItem,
+    renderAddChildItem,
+    renderAddContainerItem,
+    renderAdditionalControls,
     onChange,
 }: VerticalNestedDNDProps<ChildItem, Item>): JSX.Element {
     const [items, setItems] = useState(() => {
@@ -365,12 +371,13 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                         <DroppableContainer
                             key={containerId}
                             items={items[containerId].items || []}
-                            onRemove={() => handleRemove(containerId)}
+                            onRemove={() => handleRemoveContainer(containerId)}
                             renderContainerItem={renderContainerItem}
                             containerItemId={containerId}
                             item={items[containerId]}
                             onAddChild={handleAddChild}
                             updateContainerItem={updateContainerItem}
+                            renderAddChildItem={renderAddChildItem}
                         >
                             <SortableContext
                                 items={items[containerId].items || []}
@@ -388,6 +395,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                                             getIndex={getIndex}
                                             renderChildItem={renderChildItem}
                                             updateChildItem={updateChildItem}
+                                            onRemove={handleRemoveChild}
                                             item={value}
                                         />
                                     )
@@ -396,10 +404,15 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                         </DroppableContainer>
                     ))}
                 </SortableContext>
-                <div className="px-[calc(1.5rem+1px)]">
-                    <LemonButton onClick={handleAddColumn} fullWidth={false} type="secondary">
-                        Add container
-                    </LemonButton>
+                <div className="px-[calc(1.5rem+1px)] flex flex-row justify-end space-x-2">
+                    {renderAddContainerItem ? (
+                        renderAddContainerItem({ onAddContainer: handleAddColumn })
+                    ) : (
+                        <LemonButton onClick={handleAddColumn} fullWidth={false} type="primary">
+                            Add container
+                        </LemonButton>
+                    )}
+                    {renderAdditionalControls ? renderAdditionalControls() : null}
                 </div>
             </div>
             {createPortal(
@@ -427,6 +440,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                 renderChildItem={renderChildItem}
                 item={item}
                 updateChildItem={NOOP}
+                onRemove={NOOP}
             />
         )
     }
@@ -452,14 +466,32 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                         renderChildItem={renderChildItem}
                         item={item}
                         updateChildItem={NOOP}
+                        onRemove={NOOP}
                     />
                 ))}
             </Container>
         )
     }
 
-    function handleRemove(containerID: UniqueIdentifier): void {
+    function handleRemoveContainer(containerID: UniqueIdentifier): void {
         setContainers((containers) => containers.filter((id) => id !== containerID))
+    }
+
+    function handleRemoveChild(childId: UniqueIdentifier): void {
+        setItems((items) => {
+            const containerId = findContainer(childId)
+            if (!containerId) {
+                return items
+            }
+            const container = items[containerId]
+            return {
+                ...items,
+                [containerId]: {
+                    ...container,
+                    items: container.items?.filter((item) => item.id !== childId),
+                },
+            }
+        })
     }
 
     function handleAddColumn(): void {
@@ -540,6 +572,7 @@ interface SortableItemProps<Item extends VDNDChildItem> {
     getIndex(id: UniqueIdentifier): number
     renderChildItem(item: Item, callbacks: { updateChildItem: (item: Item) => void }): JSX.Element | null
     updateChildItem(item: Item): void
+    onRemove(id: UniqueIdentifier): void
     item: Item
 }
 
@@ -550,6 +583,7 @@ function SortableItem<Item extends VDNDChildItem>({
     handle,
     renderChildItem,
     updateChildItem,
+    onRemove,
     item,
 }: SortableItemProps<Item>): JSX.Element {
     const { setNodeRef, setActivatorNodeRef, listeners, isDragging, isSorting, transform, transition } = useSortable({
@@ -572,6 +606,7 @@ function SortableItem<Item extends VDNDChildItem>({
             listeners={listeners}
             renderChildItem={renderChildItem}
             updateChildItem={updateChildItem}
+            onRemove={onRemove}
             item={item}
         />
     )
@@ -655,6 +690,10 @@ export interface ContainerProps<Item extends VNDNDContainerItem<any>> {
     transform?: string
     renderContainerItem(item: Item, callbacks: { updateContainerItem: (item: Item) => void }): JSX.Element | null
     updateContainerItem(item: Item): void
+    renderAddChildItem?(
+        item: Item,
+        callbacks: { onAddChild: (containerId: UniqueIdentifier) => void }
+    ): JSX.Element | null
     item: Item
 }
 
@@ -679,6 +718,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
         renderContainerItem,
         updateContainerItem,
         item,
+        renderAddChildItem,
         ...props
     }: ContainerProps<Item>,
     ref: React.ForwardedRef<HTMLDivElement>
@@ -700,7 +740,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
             onClick={onClick}
             tabIndex={onClick ? 0 : undefined}
         >
-            <div className="flex flex-row justify-between px-2 space-x-2">
+            <div className="flex flex-row justify-between px-2 space-x-2 items-start">
                 <Handle {...handleProps} />
                 <div className="flex-1">
                     {renderContainerItem ? (
@@ -712,14 +752,18 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
                 <Remove onClick={onRemove} />
             </div>
             {placeholder ? children : <ul className="space-y-2">{children}</ul>}
-            <div className="flex flex-row justify-between px-2 mb-2 space-x-2">
-                <LemonButton
-                    onClick={onRemove ? () => onAddChild(item.id) : undefined}
-                    fullWidth={false}
-                    type="secondary"
-                >
-                    Add child
-                </LemonButton>
+            <div className="flex flex-row justify-end px-2 mb-2 space-x-2">
+                {renderAddChildItem ? (
+                    renderAddChildItem(item, { onAddChild })
+                ) : (
+                    <LemonButton
+                        onClick={onRemove ? () => onAddChild(item.id) : undefined}
+                        fullWidth={false}
+                        type="secondary"
+                    >
+                        Add child
+                    </LemonButton>
+                )}
             </div>
         </Component>
     )
@@ -742,7 +786,7 @@ export interface ChildItemProps<Item extends VDNDChildItem> {
     wrapperStyle?: React.CSSProperties
     childItemId: UniqueIdentifier
     item: Item
-    onRemove?(): void
+    onRemove(id: UniqueIdentifier): void
     renderChildItem(item: Item, callbacks: { updateChildItem: (item: Item) => void }): JSX.Element | null
     updateChildItem(item: Item): void
 }
@@ -798,13 +842,13 @@ export const ChildItem = React.memo(
                     {...(!handle ? listeners : undefined)}
                     {...props}
                     tabIndex={!handle ? 0 : undefined}
-                    className="flex flex-row justify-between w-full space-x-2"
+                    className="flex flex-row justify-between w-full space-x-2 items-start"
                 >
                     <Handle {...handleProps} {...listeners} />
                     <div className="flex-1">
                         {renderChildItem ? renderChildItem(item, { updateChildItem }) : <span>Item {childItemId}</span>}
                     </div>
-                    <Remove onClick={onRemove} />
+                    <Remove onClick={() => onRemove(item.id)} />
                 </div>
             </li>
         )

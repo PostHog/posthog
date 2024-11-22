@@ -147,7 +147,7 @@ def custom_condition_to_expr(
 
 def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTypeExprs) -> ast.Expr:
     conditions: list[Union[ast.Expr | ast.Call]] = []
-    for condition in custom_rule.conditions:
+    for condition in custom_rule.items:
         if condition.key == CustomChannelField.UTM_SOURCE:
             expr = source_exprs.source
         elif condition.key == CustomChannelField.UTM_MEDIUM:
