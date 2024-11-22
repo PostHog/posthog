@@ -712,6 +712,14 @@
                 </replica>
             </shard>
         </posthog>
+        <posthog_single_shard>
+            <shard>
+                <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_single_shard>
     </remote_servers>
 
     <!-- The list of hosts allowed to use in URL-related storage engines and table functions.

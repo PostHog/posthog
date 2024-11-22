@@ -11,7 +11,6 @@ CREATE TABLE posthog_errortrackingsymbolset (
 -- Create index for team_id and ref combination
 CREATE INDEX idx_error_tracking_symbol_sets_team_ref ON posthog_errortrackingsymbolset(team_id, ref);
 
--- Add migration script here
 CREATE TABLE IF NOT EXISTS posthog_errortrackingstackframe (
     id UUID PRIMARY KEY,
     raw_id TEXT NOT NULL,
@@ -20,5 +19,23 @@ CREATE TABLE IF NOT EXISTS posthog_errortrackingstackframe (
     symbol_set_id UUID,
     contents JSONB NOT NULL,
     resolved BOOLEAN NOT NULL,
+    context JSONB,
     UNIQUE(raw_id, team_id)
+);
+
+CREATE TABLE IF NOT EXISTS posthog_errortrackingissue (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status TEXT,
+    team_id INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS posthog_errortrackingissuefingerprintv2 (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    fingerprint TEXT NOT NULL,
+    version BIGINT NOT NULL,
+    team_id INTEGER NOT NULL,
+    issue_id UUID NOT NULL,
+    UNIQUE(team_id, fingerprint)
 );

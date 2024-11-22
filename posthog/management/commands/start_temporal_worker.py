@@ -8,23 +8,29 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, DATA_WAREHOUSE_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE
-from posthog.temporal.batch_exports import ACTIVITIES as BATCH_EXPORTS_ACTIVITIES
-from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORTS_WORKFLOWS
+from posthog.constants import (
+    BATCH_EXPORTS_TASK_QUEUE,
+    DATA_WAREHOUSE_TASK_QUEUE,
+    GENERAL_PURPOSE_TASK_QUEUE,
+    SYNC_BATCH_EXPORTS_TASK_QUEUE,
+)
+from posthog.temporal.batch_exports import (
+    ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
+    WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
 from posthog.temporal.common.worker import start_worker
-from posthog.temporal.data_imports import ACTIVITIES as DATA_SYNC_ACTIVITIES
-from posthog.temporal.data_imports import WORKFLOWS as DATA_SYNC_WORKFLOWS
-from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES
-from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
-from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES
-from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
+from posthog.temporal.data_imports import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
+from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
+from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES, WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 
 WORKFLOWS_DICT = {
+    SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
     DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
     GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
+    SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
     DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
     GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES,
@@ -75,6 +81,16 @@ class Command(BaseCommand):
             default=settings.PROMETHEUS_METRICS_EXPORT_PORT,
             help="Port to export Prometheus metrics on",
         )
+        parser.add_argument(
+            "--max-concurrent-workflow-tasks",
+            default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
+            help="Maximum number of concurrent workflow tasks for this worker",
+        )
+        parser.add_argument(
+            "--max-concurrent-activities",
+            default=settings.MAX_CONCURRENT_ACTIVITIES,
+            help="Maximum number of concurrent activity tasks for this worker",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -84,6 +100,8 @@ class Command(BaseCommand):
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
+        max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
+        max_concurrent_activities = options.get("max_concurrent_activities", None)
 
         try:
             workflows = WORKFLOWS_DICT[task_queue]
@@ -110,5 +128,7 @@ class Command(BaseCommand):
                 client_key=client_key,
                 workflows=workflows,
                 activities=activities,
+                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                max_concurrent_activities=max_concurrent_activities,
             )
         )

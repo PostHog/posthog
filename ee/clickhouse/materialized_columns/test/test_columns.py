@@ -1,18 +1,25 @@
 from datetime import timedelta
 from time import sleep
+from unittest import TestCase
 from unittest.mock import patch
 
 from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns.columns import (
+    MaterializedColumn,
+    MaterializedColumnDetails,
     backfill_materialized_columns,
+    drop_column,
     get_materialized_columns,
     materialize,
+    update_column_is_disabled,
 )
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
@@ -20,6 +27,46 @@ EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_
     "$session_id",
     "$window_id",
 ]
+
+
+class TestMaterializedColumnDetails(TestCase):
+    def test_column_comment_formats(self):
+        old_format_comment = "column_materializer::foo"
+        old_format_details = MaterializedColumnDetails.from_column_comment(old_format_comment)
+        assert old_format_details == MaterializedColumnDetails(
+            "properties",  # the default
+            "foo",
+            is_disabled=False,
+        )
+        # old comment format is implicitly upgraded to the newer format when serializing
+        assert old_format_details.as_column_comment() == "column_materializer::properties::foo"
+
+        new_format_comment = "column_materializer::person_properties::bar"
+        new_format_details = MaterializedColumnDetails.from_column_comment(new_format_comment)
+        assert new_format_details == MaterializedColumnDetails(
+            "person_properties",
+            "bar",
+            is_disabled=False,
+        )
+        assert new_format_details.as_column_comment() == new_format_comment
+
+        new_format_disabled_comment = "column_materializer::person_properties::bar::disabled"
+        new_format_disabled_details = MaterializedColumnDetails.from_column_comment(new_format_disabled_comment)
+        assert new_format_disabled_details == MaterializedColumnDetails(
+            "person_properties",
+            "bar",
+            is_disabled=True,
+        )
+        assert new_format_disabled_details.as_column_comment() == new_format_disabled_comment
+
+        with self.assertRaises(ValueError):
+            MaterializedColumnDetails.from_column_comment("bad-prefix::property")
+
+        with self.assertRaises(ValueError):
+            MaterializedColumnDetails.from_column_comment("bad-prefix::column::property")
+
+        with self.assertRaises(ValueError):
+            MaterializedColumnDetails.from_column_comment("column_materializer::column::property::enabled")
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
@@ -50,24 +97,33 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             materialize("person", "$zeta", create_minmax_index=True)
 
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
             self.assertCountEqual(
-                get_materialized_columns("person", use_cache=True).keys(),
+                get_enabled_materialized_columns("person", use_cache=True).keys(),
                 [("$zeta", "properties")],
             )
 
             materialize("events", "abc", create_minmax_index=True)
 
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
         with freeze_time("2020-01-04T14:00:01Z"):
             self.assertCountEqual(
-                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
+                [
+                    property_name
+                    for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
+                ],
                 ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
@@ -238,3 +294,45 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 "column": column,
             },
         )[0]
+
+    def test_lifecycle(self):
+        table: TablesWithMaterializedColumns = "events"
+        property: PropertyName = "myprop"
+        source_column: TableColumn = "properties"
+
+        # create the materialized column
+        destination_column = materialize(table, property, table_column=source_column, create_minmax_index=True)
+        assert destination_column is not None
+
+        # ensure it exists everywhere
+        key = (property, source_column)
+        assert get_materialized_columns(table)[key] == destination_column
+        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+            destination_column,
+            MaterializedColumnDetails(source_column, property, is_disabled=False),
+        )
+
+        # disable it and ensure updates apply as needed
+        update_column_is_disabled(table, destination_column, is_disabled=True)
+        assert get_materialized_columns(table)[key] == destination_column
+        assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
+        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+            destination_column,
+            MaterializedColumnDetails(source_column, property, is_disabled=True),
+        )
+
+        # re-enable it and ensure updates apply as needed
+        update_column_is_disabled(table, destination_column, is_disabled=False)
+        assert get_materialized_columns(table, exclude_disabled_columns=False)[key] == destination_column
+        assert get_materialized_columns(table, exclude_disabled_columns=True)[key] == destination_column
+        assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
+            destination_column,
+            MaterializedColumnDetails(source_column, property, is_disabled=False),
+        )
+
+        # drop it and ensure updates apply as needed
+        drop_column(table, destination_column)
+        assert key not in get_materialized_columns(table, exclude_disabled_columns=False)
+        assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
+        with self.assertRaises(ValueError):
+            MaterializedColumn.get(table, destination_column)

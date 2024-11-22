@@ -19,7 +19,7 @@ try {
 } catch (e: FishError) {
     print(f'FishError: {e.message}')
 } catch (e: Error) {
-    print(f'Error of type {e.name}: {e.message}')
+    print(f'Error of type {e.type}: {e.message}')
 }
 
 try {
@@ -29,7 +29,7 @@ try {
       print(f'Problem with your food: {e.message}')
     }
 } catch (e: Error) {
-    print(f'Error of type {e.name}: {e.message}')
+    print(f'Error of type {e.type}: {e.message}')
 } catch (e: FishError) {
     print(f'FishError: {e.message}')
 }

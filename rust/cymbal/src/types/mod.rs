@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{digest::Update, Sha512};
+use uuid::Uuid;
 
 use crate::frames::{Frame, RawFrame};
 
@@ -45,10 +46,30 @@ pub struct Exception {
 // of only a small subset. This struct is used to give us a strongly-typed
 // "view" of those event properties we care about.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ErrProps {
+pub struct RawErrProps {
     #[serde(rename = "$exception_list")]
-    pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
-    #[serde(flatten)] // A catch-all for all the properties we don't "care" about
+    pub exception_list: Vec<Exception>,
+    #[serde(flatten)]
+    // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
+    pub other: HashMap<String, Value>,
+}
+
+pub struct FingerprintedErrProps {
+    pub exception_list: Vec<Exception>,
+    pub fingerprint: String,
+    pub other: HashMap<String, Value>,
+}
+
+// We emit this
+#[derive(Debug, Serialize, Clone)]
+pub struct OutputErrProps {
+    #[serde(rename = "$exception_list")]
+    pub exception_list: Vec<Exception>,
+    #[serde(rename = "$exception_fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "$exception_issue_id")]
+    pub issue_id: Uuid,
+    #[serde(flatten)]
     pub other: HashMap<String, Value>,
 }
 
@@ -80,6 +101,65 @@ impl Exception {
     }
 }
 
+impl RawErrProps {
+    pub fn add_error_message(&mut self, msg: impl ToString) {
+        let mut errors = match self.other.remove("$cymbal_errors") {
+            Some(serde_json::Value::Array(errors)) => errors,
+            _ => Vec::new(),
+        };
+
+        errors.push(serde_json::Value::String(msg.to_string()));
+
+        self.other.insert(
+            "$cymbal_errors".to_string(),
+            serde_json::Value::Array(errors),
+        );
+    }
+
+    pub fn to_fingerprinted(self, fingerprint: String) -> FingerprintedErrProps {
+        FingerprintedErrProps {
+            exception_list: self.exception_list,
+            fingerprint,
+            other: self.other,
+        }
+    }
+}
+
+impl FingerprintedErrProps {
+    pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
+        OutputErrProps {
+            exception_list: self.exception_list,
+            fingerprint: self.fingerprint,
+            issue_id,
+            other: self.other,
+        }
+    }
+}
+
+impl OutputErrProps {
+    pub fn add_error_message(&mut self, msg: impl ToString) {
+        let mut errors = match self.other.remove("$cymbal_errors") {
+            Some(serde_json::Value::Array(errors)) => errors,
+            _ => Vec::new(),
+        };
+
+        errors.push(serde_json::Value::String(msg.to_string()));
+
+        self.other.insert(
+            "$cymbal_errors".to_string(),
+            serde_json::Value::Array(errors),
+        );
+    }
+
+    pub fn strip_frame_junk(&mut self) {
+        self.exception_list.iter_mut().for_each(|exception| {
+            if let Some(Stacktrace::Resolved { frames }) = &mut exception.stack {
+                frames.iter_mut().for_each(|frame| frame.junk_drawer = None);
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_types::ClickHouseEvent;
@@ -87,7 +167,7 @@ mod test {
 
     use crate::{frames::RawFrame, types::Stacktrace};
 
-    use super::ErrProps;
+    use super::RawErrProps;
 
     #[test]
     fn it_deserialises_error_props() {
@@ -95,8 +175,8 @@ mod test {
 
         let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
-        let props: ErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
-        let exception_list = &props.exception_list.unwrap();
+        let props: RawErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
+        let exception_list = &props.exception_list;
 
         assert_eq!(exception_list.len(), 1);
         assert_eq!(
@@ -125,8 +205,8 @@ mod test {
         );
         assert_eq!(frame.fn_name, "?".to_string());
         assert!(frame.in_app);
-        assert_eq!(frame.line, 64);
-        assert_eq!(frame.column, 25112);
+        assert_eq!(frame.location.as_ref().unwrap().line, 64);
+        assert_eq!(frame.location.as_ref().unwrap().column, 25112);
 
         let RawFrame::JavaScript(frame) = &frames[1];
         assert_eq!(
@@ -135,8 +215,8 @@ mod test {
         );
         assert_eq!(frame.fn_name, "n.loadForeignModule".to_string());
         assert!(frame.in_app);
-        assert_eq!(frame.line, 64);
-        assert_eq!(frame.column, 15003);
+        assert_eq!(frame.location.as_ref().unwrap().line, 64);
+        assert_eq!(frame.location.as_ref().unwrap().column, 15003);
     }
 
     #[test]
@@ -145,9 +225,9 @@ mod test {
             "$exception_list": []
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_ok());
-        assert_eq!(props.unwrap().exception_list.unwrap().len(), 0);
+        assert_eq!(props.unwrap().exception_list.len(), 0);
 
         let raw: &'static str = r#"{
             "$exception_list": [{
@@ -155,7 +235,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
@@ -169,7 +249,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),

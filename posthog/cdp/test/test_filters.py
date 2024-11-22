@@ -3,7 +3,7 @@ from inline_snapshot import snapshot
 
 from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.filters import hog_function_filters_to_expr
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.models.action.action import Action
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 

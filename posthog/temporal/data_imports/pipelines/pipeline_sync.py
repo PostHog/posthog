@@ -3,12 +3,11 @@ from typing import Any, Literal, Optional
 from collections.abc import Iterator, Sequence
 import uuid
 
-from deltalake import DeltaTable
-from deltalake.exceptions import TableNotFoundError
 import dlt
 from django.conf import settings
 from django.db.models import Prefetch
 from dlt.pipeline.exceptions import PipelineStepFailed
+from deltalake import DeltaTable
 
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
@@ -43,7 +42,7 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.temporal.data_imports.util import is_posthog_team, prepare_s3_files_for_querying
+from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 
 @dataclass
@@ -105,6 +104,7 @@ class DataImportPipelineSync:
             "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
             "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
             "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
@@ -154,15 +154,14 @@ class DataImportPipelineSync:
                 yield lst[i : i + n]
 
         # Monkey patch to fix large memory consumption until https://github.com/dlt-hub/dlt/pull/2031 gets merged in
-        if self._incremental or is_posthog_team(self.inputs.team_id):
-            FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
-            FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
-            FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
+        FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
+        FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
+        FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
 
-            dlt.config["data_writer.file_max_items"] = 500_000
-            dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
-            dlt.config["loader_parallelism_strategy"] = "table-sequential"
-            dlt.config["delta_jobs_per_write"] = 1
+        dlt.config["data_writer.file_max_items"] = 500_000
+        dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
+        dlt.config["parallelism_strategy"] = "table-sequential"
+        dlt.config["delta_jobs_per_write"] = 1
 
         dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
         dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
@@ -191,21 +190,25 @@ class DataImportPipelineSync:
         pipeline = self._create_pipeline()
 
         # Workaround for full refresh schemas while we wait for Rust to fix memory issue
-        if is_posthog_team(self.inputs.team_id):
-            for name, resource in self.source._resources.items():
-                if resource.write_disposition == "replace":
-                    try:
-                        delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{name}"
-                        delta_table = DeltaTable(delta_uri, storage_options=self._get_credentials())
-                    except TableNotFoundError:
-                        delta_table = None
+        for name, resource in self.source._resources.items():
+            if resource.write_disposition == "replace":
+                normalized_schema_name = NamingConvention().normalize_identifier(name)
+                delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{normalized_schema_name}"
+                storage_options = self._get_credentials()
 
-                    if delta_table:
-                        self.logger.debug("Deleting existing delta table")
-                        delta_table.delete()
+                self.logger.debug(f"delta_uri={delta_uri}")
 
-                    self.logger.debug("Updating table write_disposition to append")
-                    resource.apply_hints(write_disposition="append")
+                is_delta_table = DeltaTable.is_deltatable(delta_uri, storage_options)
+
+                self.logger.debug(f"is_delta_table={is_delta_table}")
+
+                if is_delta_table:
+                    delta_table = DeltaTable(delta_uri, storage_options=storage_options)
+                    self.logger.debug("Deleting existing delta table")
+                    delta_table.delete()
+
+                self.logger.debug("Updating table write_disposition to append")
+                resource.apply_hints(write_disposition="append")
 
         total_counts: Counter[str] = Counter({})
 
