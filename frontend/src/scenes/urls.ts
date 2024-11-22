@@ -20,6 +20,7 @@ import {
     SDKKey,
 } from '~/types'
 
+import { FeatureManagementSceneId } from './feature-flags/FeatureManagementScenes'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 import { SurveysTabs } from './surveys/surveysLogic'
@@ -159,6 +160,8 @@ export const urls = {
     experiments: (): string => '/experiments',
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
+    featureManagement: (scene: FeatureManagementSceneId | ':sceneId' = 'features'): string =>
+        `/feature-management/${scene}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,

@@ -475,13 +475,24 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tag: 'alpha' as const,
                               }
                             : null,
-                        {
-                            identifier: Scene.FeatureFlags,
-                            label: 'Feature flags',
-                            icon: <IconToggle />,
-                            logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.featureFlags(),
-                        },
+                        featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]
+                            ? null
+                            : {
+                                  identifier: Scene.FeatureFlags,
+                                  label: 'Feature flags',
+                                  icon: <IconToggle />,
+                                  logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
+                                  to: isUsingSidebar ? undefined : urls.featureFlags(),
+                              },
+                        featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]
+                            ? {
+                                  identifier: Scene.FeatureManagement,
+                                  label: 'Feature management',
+                                  icon: <IconToggle />,
+                                  logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
+                                  to: isUsingSidebar ? undefined : urls.featureManagement('features'),
+                              }
+                            : null,
                         {
                             identifier: Scene.Experiments,
                             label: 'Experiments',
@@ -495,7 +506,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
-                        featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
+                        (featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags) &&
+                        !featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,
                                   label: 'Early access features',
