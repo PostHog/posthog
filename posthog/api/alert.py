@@ -249,7 +249,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
         user_org = self.context["request"].user.organization
 
-        has_alerts_feature = user_org.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        has_alerts_feature = user_org.is_feature_available(AvailableFeature.ALERTS)
 
         allowed_alerts_count = next(
             (
