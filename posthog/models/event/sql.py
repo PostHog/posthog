@@ -264,7 +264,7 @@ DISTRIBUTED_EVENTS_RECENT_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     engine=Distributed(
         data_table=EVENTS_RECENT_DATA_TABLE(),
         sharding_key="sipHash64(distinct_id)",
-        cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER
+        cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
     ),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
     materialized_columns="",
