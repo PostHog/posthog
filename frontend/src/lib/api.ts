@@ -5,7 +5,6 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { ErrorTrackingSymbolSet } from 'scenes/error-tracking/errorTrackingSymbolSetLogic'
 import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -114,7 +113,11 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
-import { ErrorTrackingStackFrameContext, ErrorTrackingStackFrameRecord } from './components/Errors/types'
+import {
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
+    ErrorTrackingSymbolSet,
+} from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -720,23 +723,23 @@ class ApiRequest {
     }
 
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('symbol_set')
+        return this.errorTracking(teamId).addPathComponent('symbol_sets')
     }
 
     public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
-    public errorTrackingSymbolSetFrames(id: ErrorTrackingSymbolSet['id']): ApiRequest {
-        return this.errorTrackingSymbolSet(id).addPathComponent('stack_frames')
-    }
-
-    public errorTrackingStackFrames(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('stack_frames')
-    }
-
-    public errorTrackingStackFrameContexts(ids: string[]): ApiRequest {
-        return this.errorTrackingStackFrames().addPathComponent('contexts').withQueryString(toParams({ ids }, true))
+    public errorTrackingStackFrames({
+        raw_ids,
+        symbol_set,
+    }: {
+        raw_ids?: ErrorTrackingStackFrame['raw_id'][]
+        symbol_set?: ErrorTrackingSymbolSet['id']
+    }): ApiRequest {
+        return this.errorTracking()
+            .addPathComponent('stack_frames')
+            .withQueryString(toParams({ raw_ids, symbol_set }, true))
     }
 
     // # Warehouse
@@ -1886,11 +1889,11 @@ const api = {
         },
 
         async symbolSetStackFrames(id: ErrorTrackingSymbolSet['id']): Promise<ErrorTrackingStackFrameRecord[]> {
-            return await new ApiRequest().errorTrackingSymbolSetFrames(id).get()
+            return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
         },
 
-        async stackFrameContexts(ids: string[]): Promise<Record<string, ErrorTrackingStackFrameContext>> {
-            return await new ApiRequest().errorTrackingStackFrameContexts(ids).get()
+        async stackFrames(raw_ids: ErrorTrackingStackFrame['raw_id'][]): Promise<ErrorTrackingStackFrameRecord[]> {
+            return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
         },
     },
 

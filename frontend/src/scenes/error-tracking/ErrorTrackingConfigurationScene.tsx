@@ -1,8 +1,8 @@
 import { IconTrash, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import api from 'lib/api'
-import { ErrorTrackingStackFrameRecord, ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
+import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
+import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -49,7 +49,7 @@ const SymbolSetTable = ({
         { title: missing && 'Missing symbol sets', dataIndex: 'ref' },
         {
             dataIndex: 'id',
-            render: (id) => {
+            render: (_, { id }) => {
                 return (
                     <div className="flex justify-end">
                         <LemonButton
@@ -89,30 +89,29 @@ const SymbolSetTable = ({
             dataSource={dataSource}
             expandable={{
                 noIndent: true,
-                expandedRowRender: function RenderPropertiesTable({ id }) {
-                    return <SymbolSetStackFrames id={id} />
+                expandedRowRender: function RenderPropertiesTable(symbolSet) {
+                    return <SymbolSetStackFrames symbolSet={symbolSet} />
                 },
             }}
         />
     )
 }
 
-const SymbolSetStackFrames = ({ id }: { id: ErrorTrackingSymbolSet['id'] }): JSX.Element => {
+const SymbolSetStackFrames = ({ symbolSet }: { symbolSet: ErrorTrackingSymbolSet }): JSX.Element => {
+    const { stackFrameRecords } = useValues(stackFrameLogic)
+    const { loadForSymbolSet } = useActions(stackFrameLogic)
     const [activeTab, setActiveTab] = useState<'contents' | 'context'>('contents')
-    const [stackFrames, setStackFrames] = useState<ErrorTrackingStackFrameRecord[]>([])
 
     useEffect(() => {
-        const func = async (): Promise<void> => {
-            const frames = await api.errorTracking.symbolSetStackFrames(id)
-            setStackFrames(frames)
-        }
-        void func()
-    }, [])
+        loadForSymbolSet(symbolSet.id)
+    }, [loadForSymbolSet, symbolSet])
+
+    const frames = Object.values(stackFrameRecords).filter((r) => r.symbol_set_ref == symbolSet.ref)
 
     return (
         <LemonCollapse
             size="small"
-            panels={stackFrames.map(({ id, raw_id, contents, context }) => ({
+            panels={frames.map(({ id, raw_id, contents, context }) => ({
                 key: id,
                 header: raw_id,
                 className: 'py-0',

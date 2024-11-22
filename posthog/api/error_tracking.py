@@ -1,6 +1,6 @@
 import structlog
 
-from rest_framework import serializers, viewsets, status, response
+from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
@@ -8,7 +8,6 @@ from django.conf import settings
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action
 from posthog.models import ErrorTrackingSymbolSet
 from posthog.models.error_tracking import ErrorTrackingStackFrame
 from posthog.models.utils import uuid7
@@ -50,9 +49,11 @@ class ObjectStorageUnavailable(Exception):
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
+    symbol_set_ref = serializers.CharField(source="symbol_set.ref")
+
     class Meta:
         model = ErrorTrackingStackFrame
-        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context"]
+        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref"]
 
 
 class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
@@ -60,13 +61,17 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     queryset = ErrorTrackingStackFrame.objects.all()
     serializer_class = ErrorTrackingStackFrameSerializer
 
-    @action(methods=["GET"], detail=False)
-    def contexts(self, request, **kwargs) -> response.Response:
-        ids = request.GET.getlist("ids", [])
-        queryset = self.filter_queryset(self.queryset.filter(team=self.team, raw_id__in=ids))
-        serializer = self.get_serializer(queryset, many=True)
-        keyed_data = {frame["raw_id"]: frame["context"] for frame in serializer.data}
-        return response.Response(keyed_data)
+    def safely_get_queryset(self, queryset):
+        if self.action == "list":
+            raw_ids = self.request.GET.getlist("raw_ids", [])
+            if raw_ids:
+                queryset = self.queryset.filter(raw_id__in=raw_ids)
+
+            symbol_set = self.request.GET.get("symbol_set", None)
+            if symbol_set:
+                queryset = self.queryset.filter(symbol_set=symbol_set)
+
+        return queryset.filter(team_id=self.team.id)
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
@@ -82,11 +87,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMod
     serializer_class = ErrorTrackingSymbolSetSerializer
 
     def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            missing = self.request.GET.get("missing", False)
-            if missing:
-                queryset = queryset.filter(storage_ptr=None)
-
         return queryset.filter(team_id=self.team.id)
 
     def destroy(self, request, *args, **kwargs):
@@ -103,13 +103,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMod
         symbol_set.storage_ptr = storage_ptr
         symbol_set.save()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
-
-    @action(methods=["GET"], detail=True)
-    def stack_frames(self, request, *args, **kwargs):
-        symbol_set = self.get_object()
-        frames = ErrorTrackingStackFrame.objects.filter(symbol_set=symbol_set)
-        serializer = ErrorTrackingStackFrameSerializer(frames, many=True)
-        return Response(serializer.data)
 
 
 def upload_symbol_set(file, team_id) -> str:

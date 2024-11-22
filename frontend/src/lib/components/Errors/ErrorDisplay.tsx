@@ -29,20 +29,20 @@ function StackTrace({
     frames: ErrorTrackingStackFrame[]
     showAllFrames: boolean
 }): JSX.Element | null {
-    const { frameContexts } = useValues(stackFrameLogic)
-    const { loadFrameContexts } = useActions(stackFrameLogic)
+    const { stackFrameRecords } = useValues(stackFrameLogic)
+    const { loadFromRawIds } = useActions(stackFrameLogic)
     const { setUploadSymbolSetReference } = useActions(errorTrackingSymbolSetLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     useEffect(() => {
-        loadFrameContexts({ frames })
-    }, [frames, loadFrameContexts])
+        loadFromRawIds(frames.map(({ raw_id }) => raw_id))
+    }, [frames, loadFromRawIds])
 
     const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0
 
     const panels = displayFrames.map(
         ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure }, index) => {
-            const frameContext = frameContexts[raw_id]
+            const record = stackFrameRecords[raw_id]
             return {
                 key: index,
                 header: (
@@ -80,7 +80,10 @@ function StackTrace({
                         )}
                     </div>
                 ),
-                content: frameContext ? <FrameContext context={frameContext} language={getLanguage(lang)} /> : null,
+                content:
+                    record && record.context ? (
+                        <FrameContext context={record.context} language={getLanguage(lang)} />
+                    ) : null,
                 className: 'p-0',
             }
         }

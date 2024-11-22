@@ -20,7 +20,7 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
     path(['scenes', 'error-tracking', 'errorTrackingSymbolSetLogic']),
 
     actions({
-        setUploadSymbolSetReference: (ref: string | null) => ({ ref }),
+        setUploadSymbolSetReference: (ref: ErrorTrackingSymbolSet['id'] | null) => ({ ref }),
     }),
 
     reducers({
