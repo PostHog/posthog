@@ -62,7 +62,7 @@ export const themeLogic = kea<themeLogicType>([
         ],
         customCssEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags): boolean => featureFlags[FEATURE_FLAGS.CUSTOM_CSS_THEMES],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.CUSTOM_CSS_THEMES],
         ],
         customCss: [
             (s) => [s.persistedCustomCss, s.previewingCustomCss],

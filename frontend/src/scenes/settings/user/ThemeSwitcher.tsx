@@ -16,9 +16,13 @@ export function ThemeSwitcher({
     const { customCssEnabled } = useValues(themeLogic)
 
     const themeOptions: LemonSelectOptions<string> = [
-        { icon: <IconDay />, value: 'light', label: 'Light mode' },
-        { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
-        { icon: <IconLaptop />, value: 'system', label: `Sync with system` },
+        {
+            options: [
+                { icon: <IconDay />, value: 'light', label: 'Light mode' },
+                { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
+                { icon: <IconLaptop />, value: 'system', label: `Sync with system` },
+            ],
+        },
     ]
 
     if (customCssEnabled) {
