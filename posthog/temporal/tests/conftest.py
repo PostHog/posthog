@@ -8,6 +8,7 @@ import temporalio.worker
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from psycopg import sql
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -56,6 +57,12 @@ async def ateam(aorganization):
     yield team
 
     await sync_to_async(team.delete)()
+
+
+@pytest.fixture
+def activity_environment():
+    """Return a testing temporal ActivityEnvironment."""
+    return ActivityEnvironment()
 
 
 @pytest_asyncio.fixture(scope="module")
