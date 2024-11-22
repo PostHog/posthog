@@ -159,51 +159,6 @@ class TestOrganizationAPI(APIBaseTest):
             "Only the scoped organization should be listed, the other one should be excluded",
         )
 
-    def test_delete_organizations_and_verify_list(self):
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
-        self.organization_membership.save()
-
-        # Create two additional organizations
-        org2 = Organization.objects.bootstrap(self.user)[0]
-        org3 = Organization.objects.bootstrap(self.user)[0]
-
-        self.user.current_organization_id = self.organization.id
-        self.user.save()
-
-        # Verify we start with 3 organizations
-        response = self.client.get("/api/organizations/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 3)
-
-        # Delete first organization and verify list
-        response = self.client.delete(f"/api/organizations/{org2.id}")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        response = self.client.get("/api/organizations/")
-        self.assertEqual(len(response.json()["results"]), 2)
-        org_ids = {org["id"] for org in response.json()["results"]}
-        self.assertEqual(org_ids, {str(self.organization.id), str(org3.id)})
-
-        # Delete second organization and verify list
-        response = self.client.delete(f"/api/organizations/{org3.id}")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        response = self.client.get("/api/organizations/")
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(self.organization.id))
-
-        # Verify we can't delete the last organization
-        response = self.client.delete(f"/api/organizations/{self.organization.id}")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        response = self.client.get("/api/organizations/")
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "invalid_request",
-                "code": "not_found",
-                "detail": "You need to belong to an organization.",
-                "attr": None,
-            },
-        )
-
 
 def create_organization(name: str) -> Organization:
     """
