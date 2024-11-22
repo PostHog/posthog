@@ -9,12 +9,14 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
     path(['scenes', 'settings', 'environment', 'dataColorThemesModalLogic']),
     actions({
         openModal: (theme) => ({ theme }),
+        closeModal: true,
     }),
     reducers({
         theme: [
             null as null | DataColorThemeModel,
             {
                 openModal: (_, { theme }) => theme,
+                closeModal: () => null,
             },
         ],
     }),
@@ -22,9 +24,6 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
         theme: {
             // defaults: {},
             submit: async ({ id, name, colors }, breakpoint) => {
-                console.debug('name', name)
-                console.debug('colors', colors)
-
                 const payload: DataColorThemeModel = {
                     name,
                     colors,

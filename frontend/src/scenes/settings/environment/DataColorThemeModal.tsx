@@ -7,12 +7,11 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 
 export function DataColorThemeModal(): JSX.Element {
-    const { theme } = useValues(dataColorThemesModalLogic)
-    const { submitTheme } = useActions(dataColorThemesModalLogic)
+    const { theme, themeChanged } = useValues(dataColorThemesModalLogic)
+    const { submitTheme, closeModal } = useActions(dataColorThemesModalLogic)
 
     const isNew = theme?.id == null
     const title = isNew ? 'Add theme' : 'Edit theme'
-    const closeModal = () => {}
 
     return (
         <LemonModal
@@ -25,6 +24,7 @@ export function DataColorThemeModal(): JSX.Element {
                     Save
                 </LemonButton>
             }
+            hasUnsavedInput={themeChanged}
         >
             <Form logic={dataColorThemesModalLogic} formKey="theme" className="flex flex-col gap-2">
                 <LemonField name="name" label="Name">
@@ -54,13 +54,11 @@ export function DataColorThemeModal(): JSX.Element {
                         {
                             title: 'Color',
                             dataIndex: 'color',
-                            render: (_, { index }) => {
-                                return (
-                                    <LemonField key={index} name={['colors', index]}>
-                                        <LemonInput className="max-w-20 font-mono" />
-                                    </LemonField>
-                                )
-                            },
+                            render: (_, { index }) => (
+                                <LemonField key={index} name={['colors', index]}>
+                                    <LemonInput className="max-w-20 font-mono" />
+                                </LemonField>
+                            ),
                         },
                         {
                             title: '',
