@@ -51,8 +51,11 @@ export function Destinations(): JSX.Element {
         </>
     )
 }
+export type DestinationsTableProps = {
+    askForFeedback?: boolean
+}
 
-export function DestinationsTable(): JSX.Element {
+export function DestinationsTable({ askForFeedback }: DestinationsTableProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(pipelineDestinationsLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
@@ -60,7 +63,7 @@ export function DestinationsTable(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <DestinationsFilters />
+            <DestinationsFilters askForFeedback={askForFeedback} />
 
             <LemonTable
                 dataSource={filteredDestinations}
