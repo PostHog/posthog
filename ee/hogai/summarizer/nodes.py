@@ -1,6 +1,7 @@
+import asyncio
 import json
-from time import sleep
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from langchain_core.prompts import ChatPromptTemplate
@@ -30,7 +31,7 @@ class SummarizerNode(AssistantNode):
             raise ValueError("Did not found query in the visualization message")
 
         try:
-            results_response = process_query_dict(  # type: ignore
+            response = await sync_to_async(process_query_dict)(  # type: ignore
                 self._team,  # TODO: Add user
                 viz_message.answer.model_dump(mode="json"),  # We need mode="json" so that
                 # Celery doesn't run in tests, so there we use force_blocking instead
@@ -38,11 +39,12 @@ class SummarizerNode(AssistantNode):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
                 if not settings.TEST
                 else ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            ).model_dump(mode="json")
+            )
+            results_response = response.model_dump(mode="json")
             if results_response.get("query_status") and not results_response["query_status"]["complete"]:
                 query_id = results_response["query_status"]["id"]
                 for i in range(0, 999):
-                    sleep(i / 2)  # We start at 0.5s and every iteration we wait 0.5s more
+                    await asyncio.sleep(i / 2)  # We start at 0.5s and every iteration we wait 0.5s more
                     query_status = get_query_status(team_id=self._team.pk, query_id=query_id)
                     if query_status.error:
                         if query_status.error_message:

@@ -1,6 +1,5 @@
 import itertools
 import xml.etree.ElementTree as ET
-from functools import cached_property
 from typing import Generic, Optional, TypeVar
 
 from langchain_core.agents import AgentAction
@@ -66,9 +65,11 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     ) -> AssistantState:
         generated_plan = state.get("plan", "")
         intermediate_steps = state.get("intermediate_steps") or []
-        validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
-        generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
+        validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
+        conversation = await self._construct_messages(state, validation_error_message)
+
+        generation_prompt = prompt + conversation
         merger = merge_message_runs()
         parser = parse_pydantic_structured_output(self.OUTPUT_MODEL)
 
@@ -112,9 +113,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             return "tools"
         return "next"
 
-    @cached_property
-    def _group_mapping_prompt(self) -> str:
-        groups = GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")
+    async def _get_group_mapping_prompt(self) -> str:
+        groups = [
+            group async for group in GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")
+        ]
         if not groups:
             return "The user has not defined any groups."
 
@@ -124,7 +126,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
         return ET.tostring(root, encoding="unicode")
 
-    def _construct_messages(
+    async def _construct_messages(
         self, state: AssistantState, validation_error_message: Optional[str] = None
     ) -> list[BaseMessage]:
         """
@@ -138,7 +140,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         conversation: list[BaseMessage] = [
             HumanMessagePromptTemplate.from_template(GROUP_MAPPING_PROMPT, template_format="mustache").format(
-                group_mapping=self._group_mapping_prompt
+                group_mapping=await self._get_group_mapping_prompt()
             )
         ]
 
