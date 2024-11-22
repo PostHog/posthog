@@ -313,7 +313,6 @@ class BatchExportWriter(abc.ABC):
         self.flush_callable = flush_callable
         self.max_bytes = max_bytes
         self.file_kwargs: collections.abc.Mapping[str, typing.Any] = file_kwargs or {}
-        self.flushed_date_ranges: list[DateRange] = []
 
         self._batch_export_file: BatchExportTemporaryFile | None = None
         self.reset_writer_tracking()
@@ -463,8 +462,8 @@ class BatchExportWriter(abc.ABC):
         self.records_since_last_flush = 0
         self.bytes_since_last_flush = 0
         self.flush_counter += 1
-        self.start_at_since_last_flush: dt.datetime | None = None
-        self.end_at_since_last_flush: dt.datetime | None = None
+        self.start_at_since_last_flush = None
+        self.end_at_since_last_flush = None
 
 
 class JSONLBatchExportWriter(BatchExportWriter):
