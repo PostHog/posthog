@@ -300,16 +300,9 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
     before (if ever) we convert this to a query runner that takes a post
     we need to convert to a valid dict from the data that arrived in query params
     """
-    converted = {
-        **params_dict,
-        "console_log_filters": json.loads(params_dict.get("console_log_filters", "[]")),
-        "events": json.loads(params_dict.get("events", "[]")),
-        "actions": json.loads(params_dict.get("actions", "[]")),
-        "having_predicates": json.loads(params_dict.get("having_predicates", "{}")),
-        "properties": json.loads(params_dict.get("properties", "[]")),
-    }
-    if "user_modified_filters" in params_dict:
-        converted["user_modified_filters"] = json.loads(params_dict["user_modified_filters"])
+    converted = {}
+    for key in params_dict:
+        converted[key] = json.loads(params_dict[key])
 
     converted.pop("as_query", None)
     return converted
@@ -341,7 +334,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        use_query_type = request.GET.get("as_query", False)
+        use_query_type = (request.GET.get("as_query", "False")).lower() == "true"
         if use_query_type:
             data_dict = query_as_params_to_dict(request.GET.dict())
             query = RecordingsQuery.model_validate(data_dict)

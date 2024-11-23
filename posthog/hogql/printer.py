@@ -617,7 +617,11 @@ class _Printer(Visitor):
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
-        return f"{self.visit(node.expr)} {node.order}"
+        try:
+            return f"{self.visit(node.expr)} {node.order}"
+        except:
+            breakpoint()
+            return ""
 
     def __get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """

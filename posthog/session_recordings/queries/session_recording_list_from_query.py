@@ -7,7 +7,7 @@ import posthoganalytics
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperation
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import entity_to_expr, property_to_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team, Property
@@ -16,7 +16,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
 from posthog.schema import QueryTiming, HogQLQueryModifiers, PersonsOnEventsMode, RecordingsQuery
 from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 import structlog
 
@@ -170,12 +169,12 @@ class SessionRecordingListFromQuery:
                 ),
                 "order_by": self._order_by_clause(),
                 "where_predicates": self._where_predicates(),
-                "having_predicates": self._having_predicates(),
+                "having_predicates": self._having_predicates() or ast.Constant(value=True),
             },
         )
 
     def _order_by_clause(self) -> ast.Field:
-        return ast.Field(chain=[self._query.order])
+        return ast.Field(chain=[self._query.order or "start_time"])
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
@@ -253,12 +252,12 @@ class SessionRecordingListFromQuery:
                 )
             )
 
-        remaining_properties = self._strip_person_and_event_and_cohort_properties(self._query.property_groups)
+        remaining_properties = self._strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
             posthoganalytics.capture_exception(UnexpectedQueryProperties(remaining_properties))
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
-        if self._query.console_log_filters and self._query.console_log_filters.values:
+        if self._query.console_log_filters:
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
@@ -291,10 +290,20 @@ class SessionRecordingListFromQuery:
 
         return ast.And(exprs=exprs)
 
-    def _having_predicates(self) -> ast.Expr:
-        return property_to_expr(self._query.having_predicates, team=self._team, scope="replay")
+    def _having_predicates(self) -> ast.Expr | None:
+        return (
+            property_to_expr(self._query.having_predicates, team=self._team, scope="replay")
+            if self._query.having_predicates
+            else None
+        )
 
-    def _strip_person_and_event_and_cohort_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
+    def _strip_person_and_event_and_cohort_properties(
+        self, property_group: PropertyGroup | None
+    ) -> PropertyGroup | None:
+        if not property_group:
+            return None
+
+        breakpoint()
         property_groups_to_keep = [
             g
             for g in property_group.flat
@@ -345,7 +354,7 @@ class PersonsPropertiesSubQuery:
 
     @cached_property
     def person_properties(self) -> PropertyGroup | None:
-        person_property_groups = [g for g in self._query.property_groups.flat if is_person_property(g)]
+        person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
             PropertyGroup(
                 type=self._query.property_operand,
@@ -394,7 +403,7 @@ HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
 
     @cached_property
     def cohort_properties(self) -> PropertyGroup | None:
-        cohort_property_groups = [g for g in self._query.property_groups.flat if is_cohort_property(g)]
+        cohort_property_groups = [g for g in (self._query.properties or []) if is_cohort_property(g)]
         return (
             PropertyGroup(
                 type=self._query.property_operand,
@@ -495,28 +504,28 @@ class ReplayFiltersEventsSubQuery:
         self._query = filter
         self._hogql_query_modifiers = hogql_query_modifiers
 
-    @cached_property
-    def _event_predicates(self):
-        event_exprs: list[ast.Expr] = []
-        event_names: set[int | str] = set()
-
-        for entity in self._query.entities:
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                action = entity.get_action()
-                event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
-            else:
-                if entity.id and entity.id not in event_names:
-                    event_names.add(entity.id)
-
-            # TODO: we're not passing the "right" type in here - should we change the signature or do something else?
-            entity_exprs = [entity_to_expr(entity=entity)]  # type: ignore
-
-            if entity.property_groups:
-                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="replay_entity"))
-
-            event_exprs.append(ast.And(exprs=entity_exprs))
-
-        return event_exprs, list(event_names)
+    # @cached_property
+    # def _event_predicates(self):
+    #     event_exprs: list[ast.Expr] = []
+    #     event_names: set[int | str] = set()
+    #
+    #     for entity in self._query.entities:
+    #         if entity.type == TREND_FILTER_TYPE_ACTIONS:
+    #             action = entity.get_action()
+    #             event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
+    #         else:
+    #             if entity.id and entity.id not in event_names:
+    #                 event_names.add(entity.id)
+    #
+    #         # TODO: we're not passing the "right" type in here - should we change the signature or do something else?
+    #         entity_exprs = [entity_to_expr(entity=entity)]  # type: ignore
+    #
+    #         if entity.property_groups:
+    #             entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="replay_entity"))
+    #
+    #         event_exprs.append(ast.And(exprs=entity_exprs))
+    #
+    #     return event_exprs, list(event_names)
 
     def _select_from_events(self, select_expr: ast.Expr) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -525,13 +534,14 @@ class ReplayFiltersEventsSubQuery:
                 table=ast.Field(chain=["events"]),
             ),
             where=self._where_predicates(),
-            having=self._having_predicates(),
+            # having=self._having_predicates(),
             group_by=[ast.Field(chain=["$session_id"])],
         )
 
     def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         use_poe = poe_is_active(self._team) and self.person_properties
-        if self._query.entities or self.event_properties or self.group_properties or use_poe:
+        # todo entities were in filter what's the equivalent?
+        if self.event_properties or self.group_properties or use_poe:
             return self._select_from_events(ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])))
         else:
             return None
@@ -597,10 +607,10 @@ class ReplayFiltersEventsSubQuery:
                 )
             )
 
-        (event_where_exprs, _) = self._event_predicates
-        if event_where_exprs:
-            # we OR all events in the where and use hasAll / hasAny in the HAVING clause
-            exprs.append(ast.Or(exprs=event_where_exprs))
+        # (event_where_exprs, _) = self._event_predicates
+        # if event_where_exprs:
+        #     # we OR all events in the where and use hasAll / hasAny in the HAVING clause
+        #     exprs.append(ast.Or(exprs=event_where_exprs))
 
         if self.event_properties:
             exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
@@ -622,32 +632,32 @@ class ReplayFiltersEventsSubQuery:
 
         return ast.And(exprs=exprs)
 
-    def _having_predicates(self) -> ast.Expr:
-        (_, event_names) = self._event_predicates
-
-        if event_names:
-            return ast.Call(
-                name="hasAll" if self._query._operand == "AND" else "hasAny",
-                args=[
-                    ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
-                    # KLUDGE: sorting only so that snapshot tests are consistent
-                    ast.Constant(value=sorted(event_names)),
-                ],
-            )
-
-        return ast.Constant(value=True)
+    # def _having_predicates(self) -> ast.Expr:
+    # (_, event_names) = self._event_predicates
+    #
+    # if event_names:
+    #     return ast.Call(
+    #         name="hasAll" if self._query._operand == "AND" else "hasAny",
+    #         args=[
+    #             ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
+    #             # KLUDGE: sorting only so that snapshot tests are consistent
+    #             ast.Constant(value=sorted(event_names)),
+    #         ],
+    #     )
+    #
+    # return ast.Constant(value=True)
 
     @cached_property
     def event_properties(self):
-        return [g for g in self._query.property_groups.flat if is_event_property(g)]
+        return [g for g in (self._query.properties or []) if is_event_property(g)]
 
     @cached_property
     def group_properties(self):
-        return [g for g in self._query.property_groups.flat if is_group_property(g)]
+        return [g for g in (self._query.properties or []) if is_group_property(g)]
 
     @cached_property
     def person_properties(self) -> PropertyGroup | None:
-        person_property_groups = [g for g in self._query.property_groups.flat if is_person_property(g)]
+        person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
             PropertyGroup(
                 type=self._query.property_operand,

@@ -19,6 +19,7 @@ from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.property import Property
 from posthog.models.team import Team
+from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
@@ -169,24 +170,62 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results_[0]["distinct_id"] == "user2"
         assert results_[1]["distinct_id"] in twelve_distinct_ids
 
-    @parameterized.expand([[True], [False]])
     @patch("posthoganalytics.capture")
     @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
-    def test_console_log_filters_are_correctly_passed_to_listing(self, as_query, mock_summary_lister, mock_capture):
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_console_log_filters_are_correctly_passed_to_listing_when_filters_are_used(
+        self, mock_query_lister, mock_summary_lister, mock_capture
+    ):
         mock_summary_lister.return_value.run.return_value = ([], False)
+        mock_query_lister.return_value.run.return_value = ([], False)
 
         params_string = urlencode(
             {
-                "console_log_filters": '[{"key": "console_log_level", "value": ["warn", "error"], "operator": "exact", "type": "recording"}]',
+                "console_log_filters": '[{"key": "console_log_level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}]',
                 "user_modified_filters": '{"my_filter": "something"}',
-                "as_query": as_query,
+                "as_query": False,
             }
         )
         self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
 
         assert len(mock_summary_lister.call_args_list) == 1
+        assert len(mock_query_lister.call_args_list) == 0
         filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
         console_filter = cast(Property, filter_passed_to_mock.console_log_filters.values[0])
+        assert console_filter.value == ["warn", "error"]
+        assert mock_capture.call_args_list[0] == call(
+            self.user.distinct_id,
+            "recording list filters changed",
+            properties={
+                "$current_url": ANY,
+                "$session_id": ANY,
+                "partial_filter_chosen_my_filter": "something",
+            },
+            groups=ANY,
+        )
+
+    @patch("posthoganalytics.capture")
+    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_console_log_filters_are_correctly_passed_to_listing_when_query_is_used(
+        self, mock_query_lister, mock_summary_lister, mock_capture
+    ):
+        mock_summary_lister.return_value.run.return_value = ([], False)
+        mock_query_lister.return_value = ([], False)
+
+        params_string = urlencode(
+            {
+                "console_log_filters": '[{"key": "console_log_level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}]',
+                "user_modified_filters": '{"my_filter": "something"}',
+                "as_query": True,
+            }
+        )
+        self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+
+        assert len(mock_summary_lister.call_args_list) == 0
+        assert len(mock_query_lister.call_args_list) == 1
+        query_passed_to_mock: RecordingsQuery = mock_query_lister.call_args_list[0][0][0]
+        console_filter = cast(LogEntryPropertyFilter, query_passed_to_mock.console_log_filters[0])
         assert console_filter.value == ["warn", "error"]
         assert mock_capture.call_args_list[0] == call(
             self.user.distinct_id,
