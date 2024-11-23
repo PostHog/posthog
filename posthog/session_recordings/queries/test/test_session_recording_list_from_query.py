@@ -1851,7 +1851,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(session_recordings) == 1
-        assert session_recordings[0]["session_id"] == "three days before base time"
+        assert [s["session_id"] for s in session_recordings] == ["three days before base time"]
 
     def test_recording_that_spans_time_bounds(self):
         user = "test_recording_that_spans_time_bounds-user"
@@ -1963,7 +1963,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "person_uuid": str(p.uuid),
                 "date_to": (self.an_hour_ago + relativedelta(days=3)).strftime("%Y-%m-%d"),
                 "date_from": (self.an_hour_ago - relativedelta(days=10)).strftime("%Y-%m-%d"),
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
                 "events": [
                     {
                         "id": "$pageview",

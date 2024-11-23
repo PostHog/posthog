@@ -199,7 +199,7 @@ class SessionRecordingListFromQuery:
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
+            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to),
             team=self._team,
             interval=None,
             now=datetime.now(),
@@ -306,9 +306,6 @@ class SessionRecordingListFromQuery:
                     ]
                 ),
             )
-
-            if self.ast_operand == ast.Or:
-                breakpoint()
 
             optional_exprs.append(
                 ast.CompareOperation(
@@ -574,7 +571,8 @@ class ReplayFiltersEventsSubQuery:
         if entity.kind == NodeKind.ACTIONS_NODE and entity.id is not None:
             action = Action.objects.get(pk=entity.id)
             return action_to_expr(action)
-        if entity.name is None:
+
+        if entity.event is None:
             return ast.Constant(value=True)
 
         return ast.CompareOperation(
@@ -588,9 +586,9 @@ class ReplayFiltersEventsSubQuery:
         event_exprs: list[ast.Expr] = []
         event_names: set[int | str] = set()
 
-        for entity in self.event_entities:
+        for entity in self.entities:
             if entity.kind == NodeKind.ACTIONS_NODE:
-                action = entity.get_action()
+                action = Action.objects.get(pk=int(entity.id), team__project_id=self._team.project_id)
                 event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
             else:
                 if entity.event and entity.event not in event_names:
