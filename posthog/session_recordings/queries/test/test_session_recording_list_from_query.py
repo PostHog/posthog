@@ -2387,7 +2387,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                     }
                 )
 
-                assert len(session_recordings) == 0
+                assert [s["session_id"] for s in session_recordings] == []
 
                 (session_recordings, _, _) = self._filter_recordings_by(
                     {
@@ -3095,7 +3095,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # there are 5 warn and 4 error logs, message 4 matches in both
-                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "exact", "type": "log_entry"}]',
+                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "icontains", "type": "log_entry"}]',
                 "operand": "OR",
             }
         )

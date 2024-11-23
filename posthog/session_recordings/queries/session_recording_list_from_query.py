@@ -194,7 +194,7 @@ class SessionRecordingListFromQuery:
         )
 
     def _order_by_clause(self) -> ast.Field:
-        return ast.Field(chain=[self._query.order or "start_time"])
+        return ast.Field(chain=[self._query.order])
 
     @cached_property
     def query_date_range(self):
@@ -291,18 +291,9 @@ class SessionRecordingListFromQuery:
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=ast.And(
+                where=self.ast_operand(
                     exprs=[
-                        self.ast_operand(
-                            exprs=[
-                                property_to_expr(self._query.console_log_filters, team=self._team),
-                            ]
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["log_source"]),
-                            right=ast.Constant(value="session_replay"),
-                        ),
+                        property_to_expr(self._query.console_log_filters, team=self._team),
                     ]
                 ),
             )
@@ -610,7 +601,7 @@ class ReplayFiltersEventsSubQuery:
                 table=ast.Field(chain=["events"]),
             ),
             where=self._where_predicates(),
-            # having=self._having_predicates(),
+            having=self._having_predicates(),
             group_by=[ast.Field(chain=["$session_id"])],
         )
 
@@ -713,7 +704,7 @@ class ReplayFiltersEventsSubQuery:
 
         if event_names:
             return ast.Call(
-                name="hasAll" if self._query._operand == "AND" else "hasAny",
+                name="hasAll" if self.property_operand == PropertyOperatorType.AND else "hasAny",
                 args=[
                     ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
                     # KLUDGE: sorting only so that snapshot tests are consistent
