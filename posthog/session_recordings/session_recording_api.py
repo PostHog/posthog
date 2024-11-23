@@ -4,6 +4,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from json import JSONDecodeError
 from typing import Any, Optional, cast
 
 import posthoganalytics
@@ -302,7 +303,10 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
     """
     converted = {}
     for key in params_dict:
-        converted[key] = json.loads(params_dict[key])
+        try:
+            converted[key] = json.loads(params_dict[key]) if isinstance(params_dict[key], str) else params_dict[key]
+        except JSONDecodeError:
+            converted[key] = params_dict[key]
 
     converted.pop("as_query", None)
     return converted

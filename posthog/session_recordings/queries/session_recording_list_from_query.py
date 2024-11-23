@@ -4,17 +4,28 @@ from datetime import datetime, timedelta
 
 import posthoganalytics
 
+from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperation
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Team, Property
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Team, Property, Entity, Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
-from posthog.schema import QueryTiming, HogQLQueryModifiers, PersonsOnEventsMode, RecordingsQuery
+from posthog.schema import (
+    QueryTiming,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+    RecordingsQuery,
+    DateRange,
+    NodeKind,
+    EventsNode,
+    ActionsNode,
+)
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 import structlog
@@ -123,11 +134,20 @@ class SessionRecordingListFromQuery:
         **_,
     ):
         self._team = team
+
         self._query = query
+        if self._query.filter_test_accounts:
+            self._query.properties = self._query.properties or []
+            self._query.properties += self._test_account_filters
+
         self._paginator = HogQLHasMorePaginator(
             limit=query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=query.offset or 0
         )
         self._hogql_query_modifiers = hogql_query_modifiers
+
+    @cached_property
+    def _test_account_filters(self) -> list[Property]:
+        return [Property(**p) for p in self._team.test_account_filters]
 
     @property
     def ttl_days(self):
@@ -176,6 +196,15 @@ class SessionRecordingListFromQuery:
     def _order_by_clause(self) -> ast.Field:
         return ast.Field(chain=[self._query.order or "start_time"])
 
+    @cached_property
+    def query_date_range(self):
+        return QueryDateRange(
+            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
+            team=self._team,
+            interval=None,
+            now=datetime.now(),
+        )
+
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -204,15 +233,16 @@ class SessionRecordingListFromQuery:
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=self._query.date_from),
+                    right=ast.Constant(value=self.query_date_range.date_from()),
                 )
             )
+
         if self._query.date_to:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=self._query.date_to),
+                    right=ast.Constant(value=self.query_date_range.date_to()),
                 )
             )
 
@@ -263,7 +293,7 @@ class SessionRecordingListFromQuery:
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
                 where=ast.And(
                     exprs=[
-                        self._query.ast_operand(
+                        self.ast_operand(
                             exprs=[
                                 property_to_expr(self._query.console_log_filters, team=self._team),
                             ]
@@ -277,6 +307,9 @@ class SessionRecordingListFromQuery:
                 ),
             )
 
+            if self.ast_operand == ast.Or:
+                breakpoint()
+
             optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
@@ -286,7 +319,7 @@ class SessionRecordingListFromQuery:
             )
 
         if optional_exprs:
-            exprs.append(self._query.ast_operand(exprs=optional_exprs))
+            exprs.append(self.ast_operand(exprs=optional_exprs))
 
         return ast.And(exprs=exprs)
 
@@ -297,16 +330,23 @@ class SessionRecordingListFromQuery:
             else None
         )
 
+    @cached_property
+    def property_operand(self):
+        return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
+
+    @cached_property
+    def ast_operand(self) -> type[Union[ast.And, ast.Or]]:
+        return ast.And if self.property_operand == "AND" else ast.Or
+
     def _strip_person_and_event_and_cohort_properties(
-        self, property_group: PropertyGroup | None
+        self, properties: list[Property] | list[PropertyGroup] | None
     ) -> PropertyGroup | None:
-        if not property_group:
+        if not properties:
             return None
 
-        breakpoint()
         property_groups_to_keep = [
             g
-            for g in property_group.flat
+            for g in properties
             if not is_event_property(g)
             and not is_person_property(g)
             and not is_group_property(g)
@@ -315,7 +355,7 @@ class SessionRecordingListFromQuery:
 
         return (
             PropertyGroup(
-                type=self._query.property_operand,
+                type=self.property_operand,
                 values=property_groups_to_keep,
             )
             if property_groups_to_keep
@@ -353,11 +393,15 @@ class PersonsPropertiesSubQuery:
             return None
 
     @cached_property
+    def property_operand(self):
+        return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
+
+    @cached_property
     def person_properties(self) -> PropertyGroup | None:
         person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
             PropertyGroup(
-                type=self._query.property_operand,
+                type=self.property_operand,
                 values=person_property_groups,
             )
             if person_property_groups
@@ -402,11 +446,15 @@ HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
         return None
 
     @cached_property
+    def property_operand(self):
+        return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
+
+    @cached_property
     def cohort_properties(self) -> PropertyGroup | None:
         cohort_property_groups = [g for g in (self._query.properties or []) if is_cohort_property(g)]
         return (
             PropertyGroup(
-                type=self._query.property_operand,
+                type=self.property_operand,
                 values=cohort_property_groups,
             )
             if cohort_property_groups
@@ -442,6 +490,15 @@ class PersonsIdCompareOperation:
                 right=q,
             )
 
+    @cached_property
+    def query_date_range(self):
+        return QueryDateRange(
+            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
+            team=self._team,
+            interval=None,
+            now=datetime.now(),
+        )
+
     def get_query(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         if not self._query.person_uuid:
             return None
@@ -467,8 +524,8 @@ class PersonsIdCompareOperation:
                 {
                     "person_id": ast.Constant(value=self._query.person_uuid),
                     "ttl_days": ast.Constant(value=self._ttl_days),
-                    "date_from": ast.Constant(value=self._query.date_from),
-                    "date_to": ast.Constant(value=self._query.date_to),
+                    "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                    "date_to": ast.Constant(value=self.query_date_range.date_to()),
                     "now": ast.Constant(value=now),
                     "ttl_date": ast.Constant(value=now - timedelta(days=self._ttl_days)),
                 },
@@ -490,6 +547,15 @@ class ReplayFiltersEventsSubQuery:
     _team: Team
     _query: RecordingsQuery
 
+    @cached_property
+    def query_date_range(self):
+        return QueryDateRange(
+            date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
+            team=self._team,
+            interval=None,
+            now=datetime.now(),
+        )
+
     @property
     def ttl_days(self):
         return ttl_days(self._team)
@@ -497,35 +563,47 @@ class ReplayFiltersEventsSubQuery:
     def __init__(
         self,
         team: Team,
-        filter: SessionRecordingsFilter,
+        query: RecordingsQuery,
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
     ):
         self._team = team
-        self._query = filter
+        self._query = query
         self._hogql_query_modifiers = hogql_query_modifiers
 
-    # @cached_property
-    # def _event_predicates(self):
-    #     event_exprs: list[ast.Expr] = []
-    #     event_names: set[int | str] = set()
-    #
-    #     for entity in self._query.entities:
-    #         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-    #             action = entity.get_action()
-    #             event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
-    #         else:
-    #             if entity.id and entity.id not in event_names:
-    #                 event_names.add(entity.id)
-    #
-    #         # TODO: we're not passing the "right" type in here - should we change the signature or do something else?
-    #         entity_exprs = [entity_to_expr(entity=entity)]  # type: ignore
-    #
-    #         if entity.property_groups:
-    #             entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="replay_entity"))
-    #
-    #         event_exprs.append(ast.And(exprs=entity_exprs))
-    #
-    #     return event_exprs, list(event_names)
+    def _entity_to_expr(self, entity: EventsNode | ActionsNode) -> ast.Expr:
+        if entity.kind == NodeKind.ACTIONS_NODE and entity.id is not None:
+            action = Action.objects.get(pk=entity.id)
+            return action_to_expr(action)
+        if entity.name is None:
+            return ast.Constant(value=True)
+
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value=entity.name),
+        )
+
+    @cached_property
+    def _event_predicates(self):
+        event_exprs: list[ast.Expr] = []
+        event_names: set[int | str] = set()
+
+        for entity in self.event_entities:
+            if entity.kind == NodeKind.ACTIONS_NODE:
+                action = entity.get_action()
+                event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
+            else:
+                if entity.event and entity.event not in event_names:
+                    event_names.add(entity.event)
+
+            entity_exprs = [self._entity_to_expr(entity=entity)]
+
+            if entity.properties:
+                entity_exprs.append(property_to_expr(entity.properties, team=self._team, scope="replay_entity"))
+
+            event_exprs.append(ast.And(exprs=entity_exprs))
+
+        return event_exprs, list(event_names)
 
     def _select_from_events(self, select_expr: ast.Expr) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -540,8 +618,8 @@ class ReplayFiltersEventsSubQuery:
 
     def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         use_poe = poe_is_active(self._team) and self.person_properties
-        # todo entities were in filter what's the equivalent?
-        if self.event_properties or self.group_properties or use_poe:
+
+        if self.entities or self.event_properties or self.group_properties or use_poe:
             return self._select_from_events(ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])))
         else:
             return None
@@ -593,7 +671,7 @@ class ReplayFiltersEventsSubQuery:
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._query.date_from - timedelta(minutes=2)),
+                    right=ast.Constant(value=self.query_date_range.date_from() - timedelta(minutes=2)),
                 )
             )
 
@@ -603,14 +681,14 @@ class ReplayFiltersEventsSubQuery:
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._query.date_to),
+                    right=ast.Constant(value=self.query_date_range.date_to()),
                 )
             )
 
-        # (event_where_exprs, _) = self._event_predicates
-        # if event_where_exprs:
-        #     # we OR all events in the where and use hasAll / hasAny in the HAVING clause
-        #     exprs.append(ast.Or(exprs=event_where_exprs))
+        (event_where_exprs, _) = self._event_predicates
+        if event_where_exprs:
+            # we OR all events in the where and use hasAll / hasAny in the HAVING clause
+            exprs.append(ast.Or(exprs=event_where_exprs))
 
         if self.event_properties:
             exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
@@ -632,20 +710,35 @@ class ReplayFiltersEventsSubQuery:
 
         return ast.And(exprs=exprs)
 
-    # def _having_predicates(self) -> ast.Expr:
-    # (_, event_names) = self._event_predicates
-    #
-    # if event_names:
-    #     return ast.Call(
-    #         name="hasAll" if self._query._operand == "AND" else "hasAny",
-    #         args=[
-    #             ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
-    #             # KLUDGE: sorting only so that snapshot tests are consistent
-    #             ast.Constant(value=sorted(event_names)),
-    #         ],
-    #     )
-    #
-    # return ast.Constant(value=True)
+    def _having_predicates(self) -> ast.Expr:
+        (_, event_names) = self._event_predicates
+
+        if event_names:
+            return ast.Call(
+                name="hasAll" if self._query._operand == "AND" else "hasAny",
+                args=[
+                    ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
+                    # KLUDGE: sorting only so that snapshot tests are consistent
+                    ast.Constant(value=sorted(event_names)),
+                ],
+            )
+
+        return ast.Constant(value=True)
+
+    @cached_property
+    def action_entities(self):
+        # TODO what do we send to the API instead to avoid needing to do this
+        return [legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable) for e in self._query.actions or []]
+
+    @cached_property
+    def event_entities(self):
+        # TODO what do we send to the API instead to avoid needing to do this
+        # TODO is this overkill since it feels like we only need a few things off the entity
+        return [legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable) for e in self._query.events or []]
+
+    @cached_property
+    def entities(self):
+        return self.action_entities + self.event_entities
 
     @cached_property
     def event_properties(self):
@@ -656,11 +749,15 @@ class ReplayFiltersEventsSubQuery:
         return [g for g in (self._query.properties or []) if is_group_property(g)]
 
     @cached_property
+    def property_operand(self):
+        return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
+
+    @cached_property
     def person_properties(self) -> PropertyGroup | None:
         person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
             PropertyGroup(
-                type=self._query.property_operand,
+                type=self.property_operand,
                 values=person_property_groups,
             )
             if person_property_groups
