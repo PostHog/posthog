@@ -12,6 +12,7 @@ import {
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -331,7 +332,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    const params: RecordingsQuery = {
+                    // as_query is a temporary parameter as a flag
+                    // to let the backend know not to convert the query to a legacy filter when processing
+                    const params: RecordingsQuery & { as_query?: boolean } = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
@@ -347,6 +350,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     if (direction === 'newer') {
                         params.offset = 0
+                    }
+
+                    if (values.listAPIAsQuery) {
+                        params.as_query = true
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -544,6 +551,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
+
+        listAPIAsQuery: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return !!featureFlags[FEATURE_FLAGS.REPLAY_LIST_RECORDINGS_AS_QUERY]
+            },
+        ],
 
         matchingEventsMatchType: [
             (s) => [s.filters],

@@ -322,9 +322,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        filter = SessionRecordingsFilter(request=request, team=self.team)
-        self._maybe_report_recording_list_filters_changed(request, team=self.team)
-        return list_recordings_response(filter, request, self.get_serializer_context())
+        use_query_type = request.GET.get("as_query", False)
+        if use_query_type:
+            raise ValueError("as_query is not supported for session recordings")
+        else:
+            filter = SessionRecordingsFilter(request=request, team=self.team)
+            self._maybe_report_recording_list_filters_changed(request, team=self.team)
+            return list_recordings_response(filter, request, self.get_serializer_context())
 
     @extend_schema(
         exclude=True,
