@@ -261,7 +261,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 editFeatureFlag(false)
                                                 loadFeatureFlag()
                                             } else {
-                                                router.actions.push(urls.featureFlags())
+                                                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
+                                                    router.actions.replace(urls.featureManagement('flags'))
+                                                    return
+                                                }
+                                                router.actions.replace(urls.featureFlags())
                                             }
                                         }}
                                     >
