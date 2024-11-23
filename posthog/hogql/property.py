@@ -389,6 +389,8 @@ def property_to_expr(
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
+        elif property.type == "feature" and scope == "replay":
+            chain = ["events", "properties"]
         else:
             chain = ["properties"]
 

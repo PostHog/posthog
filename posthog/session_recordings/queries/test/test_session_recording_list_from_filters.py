@@ -4110,3 +4110,112 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "ongoing": 1,
             }
         ]
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_feature_filter(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user2"],
+            properties={"email": "not-the-other-one"},
+        )
+
+        session_id_with_flag = str(uuid4())
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id_with_flag,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
+        )
+        # this session needs to have multiple matching
+        for _ in range(10):
+            self.create_event(
+                "user",
+                self.an_hour_ago,
+                properties={
+                    "$session_id": session_id_with_flag,
+                    "$window_id": "1",
+                    "$host": "localhost",
+                    "$feature/replay-flags-testing": True,
+                },
+            )
+
+        session_id_without_flag = str(uuid4())
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id_without_flag,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
+        )
+        # this session needs to have multiple not matching
+        for _ in range(10):
+            self.create_event(
+                "user",
+                self.an_hour_ago,
+                properties={
+                    "$session_id": session_id_without_flag,
+                    "$window_id": "1",
+                    "$host": "localhost",
+                    "$feature/replay-flags-testing": False,
+                },
+            )
+
+        # and this session does not have the flag at all
+        session_with_flag_not_set = str(uuid4())
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_with_flag_not_set,
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
+            team_id=self.team.id,
+            click_count=10,
+            ensure_analytics_event_in_session=False,
+        )
+
+        for _ in range(10):
+            self.create_event(
+                "user",
+                self.an_hour_ago,
+                properties={
+                    "$session_id": session_with_flag_not_set,
+                    "$window_id": "1",
+                    "$host": "example.com",
+                },
+            )
+
+        # there are three states, flag is true, flag is false, and flag is not set
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {"properties": [{"key": "replay-flags-testing", "value": ["true"], "operator": "exact", "type": "feature"}]}
+        )
+        assert [sr["session_id"] for sr in session_recordings] == [session_id_with_flag]
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {"key": "replay-flags-testing", "value": ["false"], "operator": "exact", "type": "feature"}
+                ]
+            }
+        )
+        assert [sr["session_id"] for sr in session_recordings] == [session_id_without_flag]
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {"key": "replay-hogql-filters", "value": "is_not_set", "operator": "is_not_set", "type": "feature"}
+                ]
+            }
+        )
+        assert [sr["session_id"] for sr in session_recordings] == [session_with_flag_not_set]
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {"key": "replay-hogql-filters", "value": "is_set", "operator": "is_set", "type": "feature"}
+                ]
+            }
+        )
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [session_id_with_flag, session_id_without_flag]
+        )
