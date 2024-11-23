@@ -1,6 +1,6 @@
 from typing import Optional
 from posthog.models.action.action import Action
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr, ast
 from posthog.models.team.team import Team

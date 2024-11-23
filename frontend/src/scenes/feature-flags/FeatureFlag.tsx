@@ -917,7 +917,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             ) : (
                 <div className="mb-8">
                     <h3 className="l3">Served value</h3>
-                    <div className="mb-2">
+                    <div className="mb-2" data-attr="feature-flag-served-value-segmented-button">
                         <LemonSegmentedButton
                             size="small"
                             options={[
@@ -1091,19 +1091,18 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         type="number"
                                                         min={0}
                                                         max={100}
-                                                        value={value}
+                                                        // .toString() prevents user from typing leading zeroes
+                                                        value={value.toString()}
                                                         onChange={(changedValue) => {
-                                                            if (changedValue !== null) {
-                                                                const valueInt =
-                                                                    changedValue !== undefined
-                                                                        ? parseInt(changedValue.toString())
-                                                                        : 0
-                                                                if (!isNaN(valueInt)) {
-                                                                    onChange(valueInt)
-                                                                }
-                                                            }
+                                                            const valueInt =
+                                                                changedValue !== undefined && !isNaN(changedValue)
+                                                                    ? parseInt(changedValue.toString())
+                                                                    : 0
+
+                                                            onChange(valueInt)
                                                         }}
                                                         suffix={<span>%</span>}
+                                                        data-attr="feature-flag-variant-rollout-percentage-input"
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (

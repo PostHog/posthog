@@ -12,6 +12,7 @@ from posthog.tasks.alerts.checks import (
     check_alerts_task,
     checks_cleanup_task,
     alerts_backlog_task,
+    reset_stuck_alerts_task,
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
@@ -53,6 +54,7 @@ from posthog.tasks.tasks import (
     update_quota_limiting,
     update_survey_iteration,
     verify_persons_data_in_sync,
+    update_survey_adaptive_sampling,
 )
 from posthog.utils import get_crontab
 
@@ -256,6 +258,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*/12"),
+        update_survey_adaptive_sampling.s(),
+        name="update survey's sampling feature flag rollout  based on date",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="*", minute="*/2"),
         check_alerts_task.s(),
         name="check_alerts_task",
@@ -265,6 +273,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="*/12"),
         alerts_backlog_task.s(),
         name="alerts_backlog_task",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/15"),
+        reset_stuck_alerts_task.s(),
+        name="reset_stuck_alerts_task",
     )
 
     sender.add_periodic_task(

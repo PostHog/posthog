@@ -250,7 +250,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {ff_property: "control", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
                     },
                 ],
                 "user_control_2": [
@@ -258,7 +258,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {ff_property: "control", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
                     },
                 ],
                 "user_test_1": [
@@ -268,7 +268,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {ff_property: "test", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "test", "$feature_flag": feature_flag.key},
                     },
                 ],
                 "user_test_2": [
@@ -277,7 +277,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {ff_property: "test", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "test", "$feature_flag": feature_flag.key},
                     },
                 ],
                 "user_out_of_control": [
@@ -291,7 +291,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2019-01-01",
-                        "properties": {ff_property: "control", "$feature_flag": feature_flag.key},
+                        "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
                     },
                 ],
             },

@@ -113,6 +113,7 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { ErrorTrackingStackFrameContext } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -717,6 +718,14 @@ class ApiRequest {
 
     public errorTrackingUploadSourceMaps(): ApiRequest {
         return this.errorTracking().addPathComponent('upload_source_maps')
+    }
+
+    public errorTrackingStackFrames(): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames')
+    }
+
+    public errorTrackingStackFrameContexts(ids: string[]): ApiRequest {
+        return this.errorTrackingStackFrames().addPathComponent('contexts').withQueryString(toParams({ ids }, true))
     }
 
     // # Warehouse
@@ -1857,6 +1866,10 @@ const api = {
         async uploadSourceMaps(data: FormData): Promise<{ content: string }> {
             return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
         },
+
+        async fetchStackFrames(ids: string[]): Promise<Record<string, ErrorTrackingStackFrameContext>> {
+            return await new ApiRequest().errorTrackingStackFrameContexts(ids).get()
+        },
     },
 
     recordings: {
@@ -2198,7 +2211,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+            data: Partial<DataWarehouseSavedQuery>
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },

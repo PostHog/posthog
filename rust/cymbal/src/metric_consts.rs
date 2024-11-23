@@ -4,7 +4,6 @@ pub const STACK_PROCESSED: &str = "cymbal_stack_track_processed";
 pub const BASIC_FETCHES: &str = "cymbal_basic_fetches";
 pub const SOURCEMAP_HEADER_FOUND: &str = "cymbal_sourcemap_header_found";
 pub const SOURCEMAP_BODY_REF_FOUND: &str = "cymbal_sourcemap_body_ref_found";
-pub const SOURCE_REF_BODY_FETCHES: &str = "cymbal_source_ref_body_fetches";
 pub const SOURCEMAP_NOT_FOUND: &str = "cymbal_sourcemap_not_found";
 pub const SOURCEMAP_BODY_FETCHES: &str = "cymbal_sourcemap_body_fetches";
 pub const STORE_CACHE_HITS: &str = "cymbal_store_cache_hits";

@@ -64,9 +64,7 @@ FORMAT ArrowStream
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
     max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1,
-    max_threads=32,
-    join_algorithm='partial_merge'
+    optimize_aggregation_in_order=1
 """
 
 SELECT_FROM_PERSONS_VIEW_BACKFILL = """
@@ -87,9 +85,7 @@ FORMAT ArrowStream
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
     max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1,
-    max_threads=32,
-    join_algorithm='partial_merge'
+    optimize_aggregation_in_order=1
 """
 
 SELECT_FROM_EVENTS_VIEW = Template(

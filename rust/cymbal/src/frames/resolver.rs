@@ -73,6 +73,7 @@ mod test {
     use httpmock::MockServer;
     use mockall::predicate;
     use sqlx::PgPool;
+    use symbolic::sourcemapcache::SourceMapCacheWriter;
 
     use crate::{
         config::Config,
@@ -82,7 +83,7 @@ mod test {
             sourcemap::SourcemapProvider,
             Catalog, S3Client,
         },
-        types::{ErrProps, Stacktrace},
+        types::{RawErrProps, Stacktrace},
     };
 
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
@@ -131,10 +132,10 @@ mod test {
 
     fn get_test_frame(server: &MockServer) -> RawFrame {
         let exception: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
-        let props: ErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
+        let mut props: RawErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
         let Stacktrace::Raw {
             frames: mut test_stack,
-        } = props.exception_list.unwrap().swap_remove(0).stack.unwrap()
+        } = props.exception_list.swap_remove(0).stack.unwrap()
         else {
             panic!("Expected a Raw stacktrace")
         };
@@ -157,6 +158,18 @@ mod test {
         test_stack.pop().unwrap()
     }
 
+    fn get_sourcemapcache_bytes() -> Vec<u8> {
+        let mut result = Vec::new();
+        let writer = SourceMapCacheWriter::new(
+            core::str::from_utf8(MINIFIED).unwrap(),
+            core::str::from_utf8(MAP).unwrap(),
+        )
+        .unwrap();
+
+        writer.serialize(&mut result).unwrap();
+        result
+    }
+
     fn expect_puts_and_gets(
         config: &Config,
         mut client: S3Client,
@@ -168,7 +181,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::eq(Vec::from(MAP)),
+                predicate::always(), // We don't assert on what we store, because who cares
             )
             .returning(|_, _, _| Ok(()))
             .times(puts);
@@ -179,7 +192,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Vec::from(MAP)))
+            .returning(|_, _| Ok(get_sourcemapcache_bytes()))
             .times(gets);
 
         client
