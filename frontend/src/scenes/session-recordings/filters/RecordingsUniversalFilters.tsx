@@ -20,15 +20,34 @@ export const RecordingsUniversalFilters = ({
     filters,
     setFilters,
     className,
+    allowReplayFlagsFilters = false,
+    allowReplayHogQLFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     className?: string
+    allowReplayFlagsFilters?: boolean
+    allowReplayHogQLFilters?: boolean
 }): JSX.Element => {
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
 
     const durationFilter = filters.duration[0]
+
+    const taxonomicGroupTypes = [
+        TaxonomicFilterGroupType.Replay,
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.SessionProperties,
+    ]
+    if (allowReplayFlagsFilters) {
+        taxonomicGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
+    }
+    if (allowReplayHogQLFilters) {
+        taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+    }
 
     return (
         <div className={clsx('divide-y bg-bg-light rounded', className)}>
@@ -103,16 +122,7 @@ export const RecordingsUniversalFilters = ({
                 <UniversalFilters
                     rootKey="session-recordings"
                     group={filters.filter_group}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.Replay,
-                        TaxonomicFilterGroupType.Events,
-                        TaxonomicFilterGroupType.Actions,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.SessionProperties,
-                        TaxonomicFilterGroupType.FeatureFlags,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                    ]}
+                    taxonomicGroupTypes={taxonomicGroupTypes}
                     onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                 >
                     <RecordingsUniversalFilterGroup />
