@@ -20,7 +20,6 @@ export const RecordingsUniversalFilters = ({
     filters,
     setFilters,
     className,
-    allowReplayFlagsFilters = false,
     allowReplayHogQLFilters = false,
 }: {
     filters: RecordingUniversalFilters
@@ -42,9 +41,7 @@ export const RecordingsUniversalFilters = ({
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
     ]
-    if (allowReplayFlagsFilters) {
-        taxonomicGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
-    }
+
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
     }
