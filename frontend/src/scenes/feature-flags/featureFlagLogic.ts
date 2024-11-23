@@ -3,6 +3,7 @@ import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -942,13 +943,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.featureFlag],
-            (featureFlag): Breadcrumb[] => [
-                {
-                    key: Scene.FeatureFlags,
-                    name: 'Feature Flags',
-                    path: urls.featureFlags(),
-                },
+            (s) => [s.featureFlag, s.enabledFeatures],
+            (featureFlag, enabledFeatures): Breadcrumb[] => [
+                enabledFeatures[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]
+                    ? {
+                          key: Scene.FeatureManagement,
+                          name: 'Feature management',
+                          path: urls.featureManagement('flags'),
+                      }
+                    : {
+                          key: Scene.FeatureFlags,
+                          name: 'Feature Flags',
+                          path: urls.featureFlags(),
+                      },
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],

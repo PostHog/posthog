@@ -1006,13 +1006,19 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.experiment, s.experimentId],
-            (experiment, experimentId): Breadcrumb[] => [
-                {
-                    key: Scene.Experiments,
-                    name: 'Experiments',
-                    path: urls.experiments(),
-                },
+            (s) => [s.experiment, s.experimentId, s.featureFlags],
+            (experiment, experimentId, featureFlags): Breadcrumb[] => [
+                featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]
+                    ? {
+                          key: Scene.FeatureManagement,
+                          name: 'Feature management',
+                          path: urls.featureManagement('experiments'),
+                      }
+                    : {
+                          key: Scene.Experiments,
+                          name: 'Experiments',
+                          path: urls.experiments(),
+                      },
                 {
                     key: [Scene.Experiment, experimentId],
                     name: experiment?.name || '',
