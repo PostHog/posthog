@@ -169,15 +169,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results_[0]["distinct_id"] == "user2"
         assert results_[1]["distinct_id"] in twelve_distinct_ids
 
+    @parameterized.expand([[True], [False]])
     @patch("posthoganalytics.capture")
     @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
-    def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister, mock_capture):
+    def test_console_log_filters_are_correctly_passed_to_listing(self, as_query, mock_summary_lister, mock_capture):
         mock_summary_lister.return_value.run.return_value = ([], False)
 
         params_string = urlencode(
             {
                 "console_log_filters": '[{"key": "console_log_level", "value": ["warn", "error"], "operator": "exact", "type": "recording"}]',
                 "user_modified_filters": '{"my_filter": "something"}',
+                "as_query": as_query,
             }
         )
         self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
