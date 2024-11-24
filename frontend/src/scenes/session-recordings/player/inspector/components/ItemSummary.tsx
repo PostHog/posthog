@@ -8,7 +8,7 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
     return (
         <div
             data-attr="item-summary-item"
-            className="font-light text-xs w-full flex items-center justify-end gap-2 px-2 py-1"
+            className="font-light text-xs w-full flex items-center justify-end gap-2 py-1"
         >
             <div className="flex items-center justify-end">
                 <IconHandClick />
