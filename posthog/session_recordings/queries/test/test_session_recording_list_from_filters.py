@@ -3037,6 +3037,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         with_warns_session_id = "with-warns-session"
         with_errors_session_id = "with-errors-session"
         with_two_session_id = "with-two-session"
+        with_no_matches_session_id = "with-no-matches-session"
 
         produce_replay_summary(
             distinct_id="user",
@@ -3096,8 +3097,18 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     "error message 1",
                     "error message 2",
                     "error message 3",
-                    "error message 4",
                 ],
+                "info": ["log message 1", "log message 2", "log message 3"],
+            },
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_no_matches_session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_error_count=4,
+            console_log_count=3,
+            log_messages={
                 "info": ["log message 1", "log message 2", "log message 3"],
             },
         )
@@ -3111,11 +3122,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [
-                with_errors_session_id,
-                with_two_session_id,
-                with_warns_session_id,
-            ]
+            [with_errors_session_id, with_two_session_id, with_warns_session_id, with_logs_session_id]
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
