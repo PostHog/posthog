@@ -16,6 +16,7 @@ from ee.billing.billing_manager import build_billing_token
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -530,12 +531,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_responses_count_in_period": 1,
-                    "hogql_app_bytes_read": 0,
-                    "hogql_app_rows_read": 0,
-                    "hogql_app_duration_ms": 0,
-                    "hogql_api_bytes_read": 0,
-                    "hogql_api_rows_read": 0,
-                    "hogql_api_duration_ms": 0,
+                    "query_app_bytes_read": 0,
+                    "query_app_rows_read": 0,
+                    "query_app_duration_ms": 0,
+                    "query_api_bytes_read": 0,
+                    "query_api_rows_read": 0,
+                    "query_api_duration_ms": 0,
                     "event_explorer_app_bytes_read": 0,
                     "event_explorer_app_rows_read": 0,
                     "event_explorer_app_duration_ms": 0,
@@ -584,12 +585,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_responses_count_in_period": 1,
-                            "hogql_app_bytes_read": 0,
-                            "hogql_app_rows_read": 0,
-                            "hogql_app_duration_ms": 0,
-                            "hogql_api_bytes_read": 0,
-                            "hogql_api_rows_read": 0,
-                            "hogql_api_duration_ms": 0,
+                            "query_app_bytes_read": 0,
+                            "query_app_rows_read": 0,
+                            "query_app_duration_ms": 0,
+                            "query_api_bytes_read": 0,
+                            "query_api_rows_read": 0,
+                            "query_api_duration_ms": 0,
                             "event_explorer_app_bytes_read": 0,
                             "event_explorer_app_rows_read": 0,
                             "event_explorer_app_duration_ms": 0,
@@ -632,12 +633,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_responses_count_in_period": 0,
-                            "hogql_app_bytes_read": 0,
-                            "hogql_app_rows_read": 0,
-                            "hogql_app_duration_ms": 0,
-                            "hogql_api_bytes_read": 0,
-                            "hogql_api_rows_read": 0,
-                            "hogql_api_duration_ms": 0,
+                            "query_app_bytes_read": 0,
+                            "query_app_rows_read": 0,
+                            "query_app_duration_ms": 0,
+                            "query_api_bytes_read": 0,
+                            "query_api_rows_read": 0,
+                            "query_api_duration_ms": 0,
                             "event_explorer_app_bytes_read": 0,
                             "event_explorer_app_rows_read": 0,
                             "event_explorer_app_duration_ms": 0,
@@ -703,12 +704,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_responses_count_in_period": 0,
-                    "hogql_app_bytes_read": 0,
-                    "hogql_app_rows_read": 0,
-                    "hogql_app_duration_ms": 0,
-                    "hogql_api_bytes_read": 0,
-                    "hogql_api_rows_read": 0,
-                    "hogql_api_duration_ms": 0,
+                    "query_app_bytes_read": 0,
+                    "query_app_rows_read": 0,
+                    "query_app_duration_ms": 0,
+                    "query_api_bytes_read": 0,
+                    "query_api_rows_read": 0,
+                    "query_api_duration_ms": 0,
                     "event_explorer_app_bytes_read": 0,
                     "event_explorer_app_rows_read": 0,
                     "event_explorer_app_duration_ms": 0,
@@ -757,12 +758,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_responses_count_in_period": 0,
-                            "hogql_app_bytes_read": 0,
-                            "hogql_app_rows_read": 0,
-                            "hogql_app_duration_ms": 0,
-                            "hogql_api_bytes_read": 0,
-                            "hogql_api_rows_read": 0,
-                            "hogql_api_duration_ms": 0,
+                            "query_app_bytes_read": 0,
+                            "query_app_rows_read": 0,
+                            "query_app_duration_ms": 0,
+                            "query_api_bytes_read": 0,
+                            "query_api_rows_read": 0,
+                            "query_api_duration_ms": 0,
                             "event_explorer_app_bytes_read": 0,
                             "event_explorer_app_rows_read": 0,
                             "event_explorer_app_duration_ms": 0,
@@ -894,7 +895,7 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         sync_execute("TRUNCATE TABLE system.query_log")
 
         execute_hogql_query(
-            query="select * from events limit 200",
+            query="select * from events limit 400",
             team=self.team,
             query_type="HogQLQuery",
         )
@@ -907,15 +908,55 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
 
         report = _get_team_report(all_reports, self.team)
 
-        # We selected 200 or 50 rows, but still read 100 rows to return the query
-        assert report.hogql_app_rows_read == 100
-        assert report.hogql_app_bytes_read > 0
+        # We selected 400 rows, but still read 200 rows to return the query
+        assert report.query_app_rows_read == 200
+        assert report.query_app_bytes_read > 0
+        # We selected 50 rows, but still read 100 rows to return the query
         assert report.event_explorer_app_rows_read == 100
         assert report.event_explorer_app_bytes_read > 0
 
         # Nothing was read via the API
-        assert report.hogql_api_rows_read == 0
+        assert report.query_api_rows_read == 0
         assert report.event_explorer_api_rows_read == 0
+
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    def test_usage_report_api_queries(self) -> None:
+        for _ in range(0, 100):
+            _create_event(
+                distinct_id="hello",
+                event="$event1",
+                properties={"$lib": "web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.team,
+            )
+        flush_persons_and_events()
+        sync_execute("SYSTEM FLUSH LOGS")
+        sync_execute("TRUNCATE TABLE system.query_log")
+        tag_queries(kind="request", id="1", access_method="personal_api_key")
+
+        execute_hogql_query(
+            query="select * from events limit 400",
+            team=self.team,
+            query_type="HogQLQuery",
+        )
+        EventsQueryRunner(query=EventsQuery(select=["event"], limit=50), team=self.team).calculate()
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+
+        report = _get_team_report(all_reports, self.team)
+
+        # No queries were read via the app
+        assert report.query_app_rows_read == 0
+        assert report.query_app_bytes_read == 0
+        assert report.event_explorer_app_rows_read == 0
+        assert report.event_explorer_app_bytes_read == 0
+
+        # Queries were read via the API
+        assert report.query_api_rows_read == 200
+        assert report.event_explorer_api_rows_read == 100
 
 
 @freeze_time("2022-01-10T00:01:00Z")

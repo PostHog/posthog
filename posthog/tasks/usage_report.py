@@ -97,13 +97,13 @@ class UsageReportCounters:
     decide_requests_count_in_period: int
     local_evaluation_requests_count_in_period: int
     billable_feature_flag_requests_count_in_period: int
-    # HogQL
-    hogql_app_bytes_read: int
-    hogql_app_rows_read: int
-    hogql_app_duration_ms: int
-    hogql_api_bytes_read: int
-    hogql_api_rows_read: int
-    hogql_api_duration_ms: int
+    # Queries
+    query_app_bytes_read: int
+    query_app_rows_read: int
+    query_app_duration_ms: int
+    query_api_bytes_read: int
+    query_api_rows_read: int
+    query_api_duration_ms: int
     # Event Explorer
     event_explorer_app_bytes_read: int
     event_explorer_app_rows_read: int
@@ -563,30 +563,34 @@ def get_teams_with_recording_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_hogql_metric(
+def get_teams_with_query_metric(
     begin: datetime,
     end: datetime,
-    query_types: list[str],
+    query_types: Optional[list[str]] = None,
     access_method: str = "",
     metric: Literal["read_bytes", "read_rows", "query_duration_ms"] = "read_bytes",
 ) -> list[tuple[int, int]]:
     if metric not in ["read_bytes", "read_rows", "query_duration_ms"]:
         # :TRICKY: Inlined into the query below.
         raise ValueError(f"Invalid metric {metric}")
-    result = sync_execute(
-        f"""
+
+    query_types_clause = "AND query_type IN (%(query_types)s)" if query_types and len(query_types) > 0 else ""
+
+    query = f"""
         WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-             JSONExtractString(log_comment, 'query_type') as query_type,
-             JSONExtractString(log_comment, 'access_method') as access_method
+            JSONExtractString(log_comment, 'query_type') as query_type,
+            JSONExtractString(log_comment, 'access_method') as access_method
         SELECT team_id, sum({metric}) as count
         FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
         WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
-          AND is_initial_query = 1
-          AND query_type IN (%(query_types)s)
-          AND query_start_time between %(begin)s AND %(end)s
-          AND access_method = %(access_method)s
+        AND is_initial_query = 1
+        {query_types_clause}
+        AND query_start_time between %(begin)s AND %(end)s
+        AND access_method = %(access_method)s
         GROUP BY team_id
-    """,
+    """
+    result = sync_execute(
+        query,
         {
             "begin": begin,
             "end": end,
@@ -825,84 +829,78 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_ff_active_count": list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        "teams_with_hogql_app_bytes_read": get_teams_with_hogql_metric(
+        "teams_with_query_app_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_bytes",
-            query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        "teams_with_hogql_app_rows_read": get_teams_with_hogql_metric(
+        "teams_with_query_app_rows_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_rows",
-            query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        "teams_with_hogql_app_duration_ms": get_teams_with_hogql_metric(
+        "teams_with_query_app_duration_ms": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
-            query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        "teams_with_hogql_api_bytes_read": get_teams_with_hogql_metric(
+        "teams_with_query_api_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_bytes",
-            query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        "teams_with_hogql_api_rows_read": get_teams_with_hogql_metric(
+        "teams_with_query_api_rows_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_rows",
-            query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        "teams_with_hogql_api_duration_ms": get_teams_with_hogql_metric(
+        "teams_with_query_api_duration_ms": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
-            query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        "teams_with_event_explorer_app_bytes_read": get_teams_with_hogql_metric(
+        "teams_with_event_explorer_app_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        "teams_with_event_explorer_app_rows_read": get_teams_with_hogql_metric(
+        "teams_with_event_explorer_app_rows_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        "teams_with_event_explorer_app_duration_ms": get_teams_with_hogql_metric(
+        "teams_with_event_explorer_app_duration_ms": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        "teams_with_event_explorer_api_bytes_read": get_teams_with_hogql_metric(
+        "teams_with_event_explorer_api_bytes_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        "teams_with_event_explorer_api_rows_read": get_teams_with_hogql_metric(
+        "teams_with_event_explorer_api_rows_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        "teams_with_event_explorer_api_duration_ms": get_teams_with_hogql_metric(
+        "teams_with_event_explorer_api_duration_ms": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
@@ -974,12 +972,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         dashboard_tagged_count=all_data["teams_with_dashboard_tagged_count"].get(team.id, 0),
         ff_count=all_data["teams_with_ff_count"].get(team.id, 0),
         ff_active_count=all_data["teams_with_ff_active_count"].get(team.id, 0),
-        hogql_app_bytes_read=all_data["teams_with_hogql_app_bytes_read"].get(team.id, 0),
-        hogql_app_rows_read=all_data["teams_with_hogql_app_rows_read"].get(team.id, 0),
-        hogql_app_duration_ms=all_data["teams_with_hogql_app_duration_ms"].get(team.id, 0),
-        hogql_api_bytes_read=all_data["teams_with_hogql_api_bytes_read"].get(team.id, 0),
-        hogql_api_rows_read=all_data["teams_with_hogql_api_rows_read"].get(team.id, 0),
-        hogql_api_duration_ms=all_data["teams_with_hogql_api_duration_ms"].get(team.id, 0),
+        query_app_bytes_read=all_data["teams_with_query_app_bytes_read"].get(team.id, 0),
+        query_app_rows_read=all_data["teams_with_query_app_rows_read"].get(team.id, 0),
+        query_app_duration_ms=all_data["teams_with_query_app_duration_ms"].get(team.id, 0),
+        query_api_bytes_read=all_data["teams_with_query_api_bytes_read"].get(team.id, 0),
+        query_api_rows_read=all_data["teams_with_query_api_rows_read"].get(team.id, 0),
+        query_api_duration_ms=all_data["teams_with_query_api_duration_ms"].get(team.id, 0),
         event_explorer_app_bytes_read=all_data["teams_with_event_explorer_app_bytes_read"].get(team.id, 0),
         event_explorer_app_rows_read=all_data["teams_with_event_explorer_app_rows_read"].get(team.id, 0),
         event_explorer_app_duration_ms=all_data["teams_with_event_explorer_app_duration_ms"].get(team.id, 0),

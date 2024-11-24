@@ -4,14 +4,15 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconFeatures,
+    IconGraph,
     IconHelmet,
     IconMap,
     IconMessage,
     IconPieChart,
     IconRewindPlay,
     IconStack,
+    IconTestTube,
     IconToggle,
-    IconTrends,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -40,7 +41,7 @@ const PRODUCTS = [
     {
         name: 'Product analytics',
         slug: 'product-analytics',
-        icon: <IconTrends className="text-brand-blue h-5 w-5" />,
+        icon: <IconGraph className="text-[#2F80FA] h-5 w-5" />,
     },
     {
         name: 'Web analytics',
@@ -55,7 +56,12 @@ const PRODUCTS = [
     {
         name: 'Feature flags',
         slug: 'feature-flags',
-        icon: <IconToggle className="text-success h-5 w-5" />,
+        icon: <IconToggle className="text-[#30ABC6] h-5 w-5" />,
+    },
+    {
+        name: 'Experiments',
+        slug: 'experiments',
+        icon: <IconTestTube className="text-[#B62AD9] h-5 w-5" />,
     },
     {
         name: 'Surveys',
