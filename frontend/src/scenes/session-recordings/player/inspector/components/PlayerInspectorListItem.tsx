@@ -81,7 +81,7 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
     const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     return (
-        <span className="px-2 py-1 text-xs min-w-12">
+        <span className="px-2 py-1 text-xs min-w-18 align-middle">
             {timestampFormat != TimestampFormat.Relative ? (
                 (timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp).format(
                     'DD, MMM HH:mm:ss'
