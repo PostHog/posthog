@@ -30,22 +30,10 @@ function isPostHogEvent(item: InspectorListItem): boolean {
 function isNetworkEvent(item: InspectorListItem): item is InspectorListItemPerformance {
     return item.type === InspectorListItemType.NETWORK
 }
-//
-// function isOfflineStatusChange(item: InspectorListItem): item is InspectorListOfflineStatusChange {
-//     return item.type === 'offline-status'
-// }
-//
-// function isBrowserVisibilityEvent(item: InspectorListItem): item is InspectorListBrowserVisibility {
-//     return item.type === 'browser-visibility'
-// }
 
 function isNavigationEvent(item: InspectorListItem): boolean {
     return isNetworkEvent(item) && ['navigation'].includes(item.data.entry_type || '')
 }
-//
-// function isNetworkError(item: InspectorListItem): boolean {
-//     return isNetworkEvent(item) && (item.data.response_status || -1) >= 400
-// }
 
 function isEvent(item: InspectorListItem): item is InspectorListItemEvent {
     return item.type === InspectorListItemType.EVENTS
@@ -78,13 +66,9 @@ function isErrorEvent(item: InspectorListItem): boolean {
 function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor {
     return item.type === 'doctor'
 }
-//
-// function isComment(item: InspectorListItem): item is InspectorListItemComment {
-//     return item.type === 'comment'
-// }
 
 function isContextItem(item: InspectorListItem): boolean {
-    return ['browser-visibility', 'offline-status', 'comment'].includes(item.type)
+    return ['browser-visibility', 'offline-status', 'comment', 'inspector-summary'].includes(item.type)
 }
 
 const eventsMatch = (

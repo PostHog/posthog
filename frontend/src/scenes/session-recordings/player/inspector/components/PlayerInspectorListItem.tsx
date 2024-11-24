@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
+import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
@@ -55,6 +56,10 @@ const typeToIconAndDescription = {
     ['comment']: {
         Icon: IconComment,
         tooltip: 'A user commented on this timestamp in the recording',
+    },
+    ['inspector-summary']: {
+        Icon: undefined,
+        tooltip: undefined,
     },
 }
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
@@ -120,6 +125,8 @@ function RowItemTitle({
                 <ItemDoctor item={item} />
             ) : item.type === 'comment' ? (
                 <ItemComment item={item} />
+            ) : item.type === 'inspector-summary' ? (
+                <ItemSummary item={item} />
             ) : null}
         </div>
     )
@@ -257,7 +264,7 @@ export function PlayerInspectorListItem({
                         </Tooltip>
                     ) : null}
 
-                    <ItemTimeDisplay item={item} />
+                    {item.type !== 'inspector-summary' && <ItemTimeDisplay item={item} />}
 
                     <div
                         className={clsx(
@@ -268,18 +275,20 @@ export function PlayerInspectorListItem({
                         <RowItemTitle item={item} finalTimestamp={end} />
                     </div>
                 </div>
-                <LemonButton
-                    icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
-                    size="small"
-                    noPadding
-                    onClick={() => setItemExpanded(index, !isExpanded)}
-                    data-attr="expand-inspector-row"
-                    disabledReason={
-                        item.type === 'offline-status' || item.type === 'browser-visibility'
-                            ? 'This event type does not have a detail view'
-                            : undefined
-                    }
-                />
+                {item.type !== 'inspector-summary' && (
+                    <LemonButton
+                        icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
+                        size="small"
+                        noPadding
+                        onClick={() => setItemExpanded(index, !isExpanded)}
+                        data-attr="expand-inspector-row"
+                        disabledReason={
+                            item.type === 'offline-status' || item.type === 'browser-visibility'
+                                ? 'This event type does not have a detail view'
+                                : undefined
+                        }
+                    />
+                )}
             </div>
 
             {isExpanded ? (

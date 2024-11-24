@@ -444,7 +444,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
         reportRecordingInspectorItemExpanded: (
-            tab: InspectorListItemType | 'offline-status' | 'browser-visibility' | 'comment',
+            tab: InspectorListItemType | 'offline-status' | 'browser-visibility' | 'comment' | 'inspector-summary',
             index: number
         ) => ({ tab, index }),
         reportRecordingInspectorMiniFilterViewed: (minifilterKey: MiniFilterKey, enabled: boolean) => ({

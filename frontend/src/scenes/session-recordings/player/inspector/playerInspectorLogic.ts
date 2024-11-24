@@ -106,6 +106,13 @@ export type InspectorListItemDoctor = InspectorListItemBase & {
     window_id?: string
 }
 
+export type InspectorListItemSummary = InspectorListItemBase & {
+    type: 'inspector-summary'
+    clickCount: number | null
+    keypressCount: number | null
+    errorCount: number | null
+}
+
 export type InspectorListItem =
     | InspectorListItemEvent
     | InspectorListItemConsole
@@ -114,6 +121,7 @@ export type InspectorListItem =
     | InspectorListItemDoctor
     | InspectorListBrowserVisibility
     | InspectorListItemComment
+    | InspectorListItemSummary
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -218,6 +226,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'durationMs',
                 'sessionComments',
                 'windowIdForTimestamp',
+                'sessionPlayerMetaData',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -503,37 +512,27 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        allItems: [
+        allContextItems: [
             (s) => [
                 s.start,
-                s.allPerformanceEvents,
-                s.consoleLogs,
-                s.sessionEventsData,
-                s.matchingEventUUIDs,
                 s.offlineStatusChanges,
                 s.doctorEvents,
                 s.browserVisibilityChanges,
                 s.sessionComments,
                 s.windowIdForTimestamp,
                 s.windowNumberForID,
+                s.sessionPlayerMetaData,
             ],
             (
                 start,
-                performanceEvents,
-                consoleLogs,
-                eventsData,
-                matchingEventUUIDs,
                 offlineStatusChanges,
                 doctorEvents,
                 browserVisibilityChanges,
                 sessionComments,
                 windowIdForTimestamp,
-                windowNumberForID
-            ): InspectorListItem[] => {
-                // NOTE: Possible perf improvement here would be to have a selector to parse the items
-                // and then do the filtering of what items are shown, elsewhere
-                // ALSO: We could move the individual filtering logic into the MiniFilters themselves
-                // WARNING: Be careful of dayjs functions - they can be slow due to the size of the loop.
+                windowNumberForID,
+                sessionPlayerMetaData
+            ) => {
                 const items: InspectorListItem[] = []
 
                 // no conversion needed for offlineStatusChanges, they're ready to roll
@@ -551,11 +550,72 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push(event)
                 }
 
+                for (const comment of sessionComments || []) {
+                    const { timestamp, timeInRecording } = commentTimestamp(comment, start)
+                    if (timestamp) {
+                        items.push({
+                            highlightColor: 'primary',
+                            type: 'comment',
+                            timeInRecording: timeInRecording,
+                            timestamp: timestamp,
+                            search: comment.comment,
+                            data: comment,
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
+                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
+                        })
+                    }
+                }
+
+                // now we've calculated everything else
+                // always start with a context row that has a little summary
+                if (start) {
+                    items.push({
+                        type: 'inspector-summary',
+                        timestamp: start,
+                        timeInRecording: 0,
+                        search: '',
+                        clickCount: sessionPlayerMetaData?.click_count || null,
+                        keypressCount: sessionPlayerMetaData?.keypress_count || null,
+                        errorCount: 0,
+                    })
+                }
+
+                // NOTE: Native JS sorting is relatively slow here - be careful changing this
+                items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
+
+                return items
+            },
+        ],
+
+        allItems: [
+            (s) => [
+                s.start,
+                s.allPerformanceEvents,
+                s.consoleLogs,
+                s.sessionEventsData,
+                s.matchingEventUUIDs,
+                s.windowNumberForID,
+                s.allContextItems,
+            ],
+            (
+                start,
+                performanceEvents,
+                consoleLogs,
+                eventsData,
+                matchingEventUUIDs,
+                windowNumberForID,
+                allContextItems
+            ): InspectorListItem[] => {
+                // NOTE: Possible perf improvement here would be to have a selector to parse the items
+                // and then do the filtering of what items are shown, elsewhere
+                // ALSO: We could move the individual filtering logic into the MiniFilters themselves
+                // WARNING: Be careful of dayjs functions - they can be slow due to the size of the loop.
+                const items: InspectorListItem[] = []
+
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
                 for (const event of performanceEventsArr) {
-                    // TODO should we be defaulting to 200 here :shrug:
-                    const responseStatus = event.response_status || 200
+                    const responseStatus = event.response_status || null
 
                     if (event.entry_type === 'paint') {
                         // We don't include paint events as they are covered in the navigation events
@@ -569,7 +629,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         timeInRecording,
                         search: event.name || '',
                         data: event,
-                        highlightColor: responseStatus >= 400 ? 'danger' : undefined,
+                        highlightColor: (responseStatus || 0) >= 400 ? 'danger' : undefined,
                         windowId: event.window_id,
                         windowNumber: windowNumberForID(event.window_id),
                     })
@@ -591,8 +651,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
                 }
 
+                let errorCount = 0
                 for (const event of eventsData || []) {
                     let isMatchingEvent = false
+
+                    if (event.event === '$exception') {
+                        errorCount += 1
+                    }
 
                     if (matchingEventUUIDs?.length) {
                         isMatchingEvent = !!matchingEventUUIDs.find((x) => x.uuid === String(event.id))
@@ -623,24 +688,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
                 }
 
-                for (const comment of sessionComments || []) {
-                    const { timestamp, timeInRecording } = commentTimestamp(comment, start)
-                    if (timestamp) {
-                        items.push({
-                            highlightColor: 'primary',
-                            type: 'comment',
-                            timeInRecording: timeInRecording,
-                            timestamp: timestamp,
-                            search: comment.comment,
-                            data: comment,
-                            windowId: windowIdForTimestamp(timestamp.valueOf()),
-                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
-                        })
-                    }
+                for (const event of allContextItems || []) {
+                    items.push(event)
+                    // TODO need to add error count to the summary row
                 }
 
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
                 items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
+                // ensure that item with type 'inspector-summary' is always at the top
+                const summary = items.find((item) => item.type === 'inspector-summary')
+                if (summary) {
+                    ;(summary as InspectorListItemSummary).errorCount = errorCount
+                    items.splice(items.indexOf(summary), 1)
+                    items.unshift(summary)
+                }
 
                 return items
             },
