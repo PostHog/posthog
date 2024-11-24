@@ -11,6 +11,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_global_properties
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, Property, Entity, Action
@@ -30,22 +31,24 @@ from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 import structlog
 
+from posthog.types import AnyPropertyFilter
+
 logger = structlog.get_logger(__name__)
 
 
-def is_event_property(p: Property) -> bool:
+def is_event_property(p: AnyPropertyFilter) -> bool:
     return p.type == "event" or (p.type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p.key)))
 
 
-def is_person_property(p: Property) -> bool:
+def is_person_property(p: AnyPropertyFilter) -> bool:
     return p.type == "person" or (p.type == "hogql" and "person.properties" in p.key)
 
 
-def is_group_property(p: Property) -> bool:
+def is_group_property(p: AnyPropertyFilter) -> bool:
     return p.type == "group"
 
 
-def is_cohort_property(p: Property) -> bool:
+def is_cohort_property(p: AnyPropertyFilter) -> bool:
     return "cohort" in p.type
 
 
@@ -147,7 +150,7 @@ class SessionRecordingListFromQuery:
 
     @cached_property
     def _test_account_filters(self) -> list[Property]:
-        return [Property(**p) for p in self._team.test_account_filters]
+        return [clean_global_properties(p) for p in self._team.test_account_filters]
 
     @property
     def ttl_days(self):
@@ -194,7 +197,7 @@ class SessionRecordingListFromQuery:
         )
 
     def _order_by_clause(self) -> ast.Field:
-        return ast.Field(chain=[self._query.order])
+        return ast.Field(chain=[self._query.order.value])
 
     @cached_property
     def query_date_range(self):
@@ -327,12 +330,12 @@ class SessionRecordingListFromQuery:
         return ast.And if self.property_operand == "AND" else ast.Or
 
     def _strip_person_and_event_and_cohort_properties(
-        self, properties: list[Property] | list[PropertyGroup] | None
-    ) -> PropertyGroup | None:
+        self, properties: list[AnyPropertyFilter] | None
+    ) -> list[AnyPropertyFilter] | None:
         if not properties:
             return None
 
-        property_groups_to_keep = [
+        properties_to_keep = [
             g
             for g in properties
             if not is_event_property(g)
@@ -341,14 +344,7 @@ class SessionRecordingListFromQuery:
             and not is_cohort_property(g)
         ]
 
-        return (
-            PropertyGroup(
-                type=self.property_operand,
-                values=property_groups_to_keep,
-            )
-            if property_groups_to_keep
-            else None
-        )
+        return properties_to_keep
 
 
 def poe_is_active(team: Team) -> bool:
