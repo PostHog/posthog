@@ -695,12 +695,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
                 items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
+
                 // ensure that item with type 'inspector-summary' is always at the top
                 const summary = items.find((item) => item.type === 'inspector-summary')
                 if (summary) {
                     ;(summary as InspectorListItemSummary).errorCount = errorCount
                     items.splice(items.indexOf(summary), 1)
                     items.unshift(summary)
+                }
+                if (items.length > 0) {
+                    items[0].windowNumber = items[1]?.windowNumber
+                    items[0].windowId = items[1]?.windowId
                 }
 
                 return items
