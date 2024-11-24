@@ -276,6 +276,22 @@ class HogQLCohortQuery:
 
         return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
 
+    def get_stopped_performing_event(self, prop: Property) -> ast.SelectSetQuery:
+        # time_value / time_value_interval is the furthest back
+        # seq_time_value / seq_time_interval is when they stopped it
+        select_for_full_range = self.get_performed_event_condition(prop)
+
+        new_props = prop.to_dict()
+        new_props.update({"time_value": prop.seq_time_value, "time_interval": prop.seq_time_interval})
+        select_for_recent_range = self.get_performed_event_condition(Property(**new_props))
+        return ast.SelectSetQuery(
+            initial_select_query=select_for_full_range,
+            subsequent_select_queries=[
+                SelectSetNode(set_operator="EXCEPT", select_query=select_for_recent_range)
+            ],
+        )
+
+
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         res: str = ""
         params: dict[str, Any] = {}
@@ -293,7 +309,7 @@ class HogQLCohortQuery:
             elif prop.value == "performed_event_sequence":
                 return self.get_performed_event_sequence(prop)
             elif prop.value == "stopped_performing_event":
-                res, params = self.get_stopped_performing_event(prop, prepend, idx)
+                return self.get_stopped_performing_event(prop)
             elif prop.value == "restarted_performing_event":
                 res, params = self.get_restarted_performing_event(prop, prepend, idx)
             elif prop.value == "performed_event_regularly":
@@ -325,7 +341,6 @@ class HogQLCohortQuery:
                         queries.append(query)
                         # params.update(q_params)
 
-                # TODO: make this do union or intersection based on prop.type
                 if prop.type == PropertyOperatorType.OR:
                     return ast.SelectSetQuery(
                         initial_select_query=queries[0],
