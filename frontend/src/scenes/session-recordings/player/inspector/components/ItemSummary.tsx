@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { IconExclamation, IconHandClick, IconKey } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 
@@ -17,7 +18,12 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
                 <IconKey />
                 <span>{pluralize(item.keypressCount || 0, 'keystroke')}</span>
             </div>
-            <div className="flex text-danger items-center justify-end">
+            <div
+                className={clsx(
+                    'flex text-danger items-center justify-end',
+                    (item.errorCount || 0) > 0 ? 'text-danger' : 'text-success'
+                )}
+            >
                 <IconExclamation />
                 <span>{pluralize(item.errorCount || 0, 'error')}</span>
             </div>
