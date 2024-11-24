@@ -1,4 +1,12 @@
-import { IconDashboard, IconEye, IconGear, IconMinusSquare, IconPlusSquare, IconTerminal } from '@posthog/icons'
+import {
+    BaseIcon,
+    IconDashboard,
+    IconEye,
+    IconGear,
+    IconMinusSquare,
+    IconPlusSquare,
+    IconTerminal,
+} from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -23,6 +31,8 @@ import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
+
+const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
     [InspectorListItemType.EVENTS]: {
@@ -62,7 +72,6 @@ const typeToIconAndDescription = {
         tooltip: undefined,
     },
 }
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
@@ -102,11 +111,8 @@ function RowItemTitle({
     item: InspectorListItem
     finalTimestamp: Dayjs | null
 }): JSX.Element {
-    const TypeIcon = typeToIconAndDescription[item.type].Icon
-
     return (
-        <div className="flex gap-1 items-center">
-            {TypeIcon ? <TypeIcon className="text-mid" /> : null}
+        <div className="flex items-center text-text-3000" data-attr="row-item-title">
             {item.type === InspectorListItemType.NETWORK ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === InspectorListItemType.CONSOLE ? (
@@ -114,11 +120,11 @@ function RowItemTitle({
             ) : item.type === InspectorListItemType.EVENTS ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
-                <div className="flex items-start p-2 text-xs font-light font-mono">
+                <div className="flex w-full items-start p-2 text-xs font-light font-mono">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
                 </div>
             ) : item.type === 'browser-visibility' ? (
-                <div className="flex items-start px-2 py-1 font-light font-mono text-xs">
+                <div className="flex w-full items-start px-2 py-1 font-light font-mono text-xs">
                     Window became {item.status}
                 </div>
             ) : item.type === InspectorListItemType.DOCTOR ? (
@@ -214,6 +220,8 @@ export function PlayerInspectorListItem({
 
     const isHovering = useIsHovering(hoverRef)
 
+    const TypeIcon = typeToIconAndDescription[item.type].Icon
+
     return (
         <div
             ref={ref}
@@ -265,6 +273,8 @@ export function PlayerInspectorListItem({
                     ) : null}
 
                     {item.type !== 'inspector-summary' && <ItemTimeDisplay item={item} />}
+
+                    {TypeIcon ? <TypeIcon className="min-w-4" /> : <BaseIcon className="min-w-4" />}
 
                     <div
                         className={clsx(
