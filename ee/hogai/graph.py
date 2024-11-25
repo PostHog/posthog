@@ -1,7 +1,6 @@
 from collections.abc import Hashable
-from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
+from typing import Optional, cast
 
-from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
 from langgraph.graph.state import StateGraph
 
@@ -13,7 +12,6 @@ from ee.hogai.funnels.nodes import (
     FunnelPlannerToolsNode,
 )
 from ee.hogai.router.nodes import RouterNode
-from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
@@ -30,39 +28,6 @@ if settings.LANGFUSE_PUBLIC_KEY:
     )
 else:
     langfuse_handler = None
-
-
-def is_value_update(update: list[Any]) -> TypeGuard[tuple[Literal["values"], dict[AssistantNodeName, AssistantState]]]:
-    """
-    Transition between nodes.
-    """
-    return len(update) == 2 and update[0] == "updates"
-
-
-class LangGraphState(TypedDict):
-    langgraph_node: AssistantNodeName
-
-
-def is_message_update(
-    update: list[Any],
-) -> TypeGuard[tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]]:
-    """
-    Streaming of messages. Returns a partial state.
-    """
-    return len(update) == 2 and update[0] == "messages"
-
-
-def is_state_update(update: list[Any]) -> TypeGuard[tuple[Literal["updates"], AssistantState]]:
-    """
-    Update of the state.
-    """
-    return len(update) == 2 and update[0] == "values"
-
-
-VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
-    AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-    AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-}
 
 
 class AssistantGraph:
