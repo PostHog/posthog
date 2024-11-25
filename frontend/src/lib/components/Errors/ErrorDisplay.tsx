@@ -242,7 +242,8 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $cymbal_errors,
     } = getExceptionPropertiesFrom(eventProperties)
 
-    const exceptionWithStack = $exception_list?.length && $exception_list.some((e) => !!e.stacktrace)
+    const exceptionList: ErrorTrackingException[] | undefined = $exception_list
+    const exceptionWithStack = exceptionList?.length && exceptionList.some((e) => !!e.stacktrace)
 
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">
