@@ -236,6 +236,12 @@ export const cohortOperatorMap: Record<string, string> = {
     not_in: 'user not in',
 }
 
+export const stickinessOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    gte: '≥ greater than or equals',
+    lte: '≤ less than or equals',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -245,6 +251,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
+    ...stickinessOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
