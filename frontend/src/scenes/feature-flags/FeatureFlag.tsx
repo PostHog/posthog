@@ -724,7 +724,7 @@ function variantConcatWithPunctuation(phrases: string[]): string {
     return `${phrases[0]} and ${phrases.length - 1} more sets`
 }
 
-function FeatureFlagRollout({ readOnly, id }: { readOnly?: boolean, id?: string }): JSX.Element {
+function FeatureFlagRollout({ readOnly, id }: { readOnly?: boolean; id?: string }): JSX.Element {
     const {
         multivariateEnabled,
         variants,
