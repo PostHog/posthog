@@ -27,7 +27,8 @@ impl RawPythonFrame {
         // the module, function, line number and surrounding context to
         // uniquely identify a frame, with the intuition being that even
         // if two frames are from two different library versions, if the
-        // files they're in are sufficiently similar
+        // files they're in are sufficiently similar we can consider
+        // them to be the same frame
         let mut hasher = Sha512::new();
         self.context_line
             .as_ref()
