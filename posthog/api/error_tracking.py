@@ -49,7 +49,7 @@ class ObjectStorageUnavailable(Exception):
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
-    symbol_set_ref = serializers.CharField(source="symbol_set.ref")
+    symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
 
     class Meta:
         model = ErrorTrackingStackFrame
