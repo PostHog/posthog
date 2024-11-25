@@ -132,7 +132,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 newValues.push(newFeatureFlagFilter)
             } else {
                 const propertyType =
-                    item.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+                    item?.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
                 if (propertyKey && propertyType) {
                     const newPropertyFilter = createDefaultPropertyFilter(
                         {},

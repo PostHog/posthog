@@ -118,6 +118,8 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
+    const allowReplayFlagsFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS]
+    const allowReplayHogQLFilters = !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS]
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
 
@@ -163,7 +165,13 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
                 {!notebookNode && (
-                    <RecordingsUniversalFilters filters={filters} setFilters={setFilters} className="border" />
+                    <RecordingsUniversalFilters
+                        filters={filters}
+                        setFilters={setFilters}
+                        className="border"
+                        allowReplayHogQLFilters={allowReplayHogQLFilters}
+                        allowReplayFlagsFilters={allowReplayFlagsFilters}
+                    />
                 )}
                 <Playlist
                     data-attr="session-recordings-playlist"

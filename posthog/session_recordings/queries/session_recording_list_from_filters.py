@@ -24,7 +24,11 @@ logger = structlog.get_logger(__name__)
 
 
 def is_event_property(p: Property) -> bool:
-    return p.type == "event" or (p.type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p.key)))
+    return (
+        p.type == "event"
+        or (p.type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p.key)))
+        or p.type == "feature"
+    )
 
 
 def is_person_property(p: Property) -> bool:

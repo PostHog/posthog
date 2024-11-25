@@ -133,6 +133,7 @@ export type AnyDataNode =
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+    | RecordingsQuery
 
 /**
  * @discriminator kind
