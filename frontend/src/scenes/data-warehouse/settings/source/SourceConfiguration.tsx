@@ -39,7 +39,6 @@ function UpdateSourceConnectionFormContainer(props: UpdateSourceConnectionFormCo
             </LemonBanner>
         )
     }
-
     return (
         <>
             <span className="block mb-2">Overwrite your existing configuration here</span>
