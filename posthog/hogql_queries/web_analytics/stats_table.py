@@ -504,19 +504,15 @@ ORDER BY "context.columns.visitors" DESC,
 
     def where_breakdown(self):
         match self.query.breakdownBy:
-            case WebStatsBreakdown.REGION:
+            case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.CITY:
-                return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.INITIAL_UTM_SOURCE:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_MEDIUM:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_TERM:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_CONTENT:
+            case (
+                WebStatsBreakdown.INITIAL_UTM_SOURCE
+                | WebStatsBreakdown.INITIAL_UTM_CAMPAIGN
+                | WebStatsBreakdown.INITIAL_UTM_MEDIUM
+                | WebStatsBreakdown.INITIAL_UTM_TERM
+                | WebStatsBreakdown.INITIAL_UTM_CONTENT
+            ):
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr(
