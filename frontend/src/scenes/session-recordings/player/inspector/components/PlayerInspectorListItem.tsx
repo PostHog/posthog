@@ -17,6 +17,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
+import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
@@ -71,6 +72,10 @@ const typeToIconAndDescription = {
         Icon: undefined,
         tooltip: undefined,
     },
+    ['inactivity']: {
+        Icon: undefined,
+        tooltip: undefined,
+    },
 }
 
 function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
@@ -81,7 +86,7 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
     const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     return (
-        <span className="px-2 py-1 text-xs min-w-18 align-middle">
+        <span className="px-2 py-1 text-xs min-w-18 text-center">
             {timestampFormat != TimestampFormat.Relative ? (
                 (timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp).format(
                     'DD, MMM HH:mm:ss'
@@ -133,6 +138,8 @@ function RowItemTitle({
                 <ItemComment item={item} />
             ) : item.type === 'inspector-summary' ? (
                 <ItemSummary item={item} />
+            ) : item.type === 'inactivity' ? (
+                <ItemInactivity item={item} />
             ) : null}
         </div>
     )
@@ -272,7 +279,7 @@ export function PlayerInspectorListItem({
                         </Tooltip>
                     ) : null}
 
-                    {item.type !== 'inspector-summary' && <ItemTimeDisplay item={item} />}
+                    {item.type !== 'inspector-summary' && item.type !== 'inactivity' && <ItemTimeDisplay item={item} />}
 
                     {TypeIcon ? <TypeIcon className="min-w-4" /> : <BaseIcon className="min-w-4" />}
 
@@ -285,7 +292,7 @@ export function PlayerInspectorListItem({
                         <RowItemTitle item={item} finalTimestamp={end} />
                     </div>
                 </div>
-                {item.type !== 'inspector-summary' && (
+                {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
                     <LemonButton
                         icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
                         size="small"

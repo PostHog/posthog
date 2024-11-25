@@ -71,6 +71,11 @@ export type InspectorListItemEvent = InspectorListItemBase & {
     data: RecordingEventType
 }
 
+export type InspectorListItemInactivity = InspectorListItemBase & {
+    type: 'inactivity'
+    durationMs: number
+}
+
 export type RecordingComment = {
     id: string
     notebookShortId: string
@@ -122,6 +127,7 @@ export type InspectorListItem =
     | InspectorListBrowserVisibility
     | InspectorListItemComment
     | InspectorListItemSummary
+    | InspectorListItemInactivity
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -152,7 +158,12 @@ function snapshotDescription(snapshot: eventWithTime): string {
 }
 
 function timeRelativeToStart(
-    thingWithTime: eventWithTime | PerformanceEvent | RecordingConsoleLogV2 | RecordingEventType,
+    thingWithTime:
+        | eventWithTime
+        | PerformanceEvent
+        | RecordingConsoleLogV2
+        | RecordingEventType
+        | { timestamp: number },
     start: Dayjs | null
 ): {
     timeInRecording: number
@@ -227,6 +238,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionComments',
                 'windowIdForTimestamp',
                 'sessionPlayerMetaData',
+                'segments',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -522,6 +534,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.windowIdForTimestamp,
                 s.windowNumberForID,
                 s.sessionPlayerMetaData,
+                s.segments,
             ],
             (
                 start,
@@ -531,9 +544,29 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 sessionComments,
                 windowIdForTimestamp,
                 windowNumberForID,
-                sessionPlayerMetaData
+                sessionPlayerMetaData,
+                segments
             ) => {
                 const items: InspectorListItem[] = []
+
+                segments
+                    .filter((segment) => segment.kind === 'gap')
+                    .filter((segment) => segment.durationMs > 15000)
+                    .map((segment) => {
+                        const { timestamp, timeInRecording } = timeRelativeToStart(
+                            { timestamp: segment.startTimestamp },
+                            start
+                        )
+                        items.push({
+                            type: 'inactivity',
+                            durationMs: segment.durationMs,
+                            windowId: segment.windowId,
+                            windowNumber: windowNumberForID(segment.windowId),
+                            timestamp,
+                            timeInRecording,
+                            search: 'inactiv',
+                        })
+                    })
 
                 // no conversion needed for offlineStatusChanges, they're ready to roll
                 for (const event of offlineStatusChanges || []) {
