@@ -140,7 +140,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             break
         case WebStatsBreakdown.Timezone:
             if (typeof value === 'number') {
-                return toUtcOffsetFormat(value)
+                return <>{toUtcOffsetFormat(value)}</>
             }
             break
     }
