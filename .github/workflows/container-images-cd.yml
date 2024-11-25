@@ -30,12 +30,12 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 2
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
+              uses: docker/setup-buildx-action@v3
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v3
