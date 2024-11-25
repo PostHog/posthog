@@ -119,7 +119,8 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                 <div className="truncate">
                     <PropertyKeyInfo
                         className="font-medium"
-                        disablePopover
+                        disablePopover={true}
+                        disableIcon={true}
                         ellipsis={true}
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
                         type={TaxonomicFilterGroupType.Events}
