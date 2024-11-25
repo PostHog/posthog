@@ -91,6 +91,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.DateTime,
         }
     ],
+    "Opportunity": [
+        {
+            "label": "SystemModstamp",
+            "type": IncrementalFieldType.DateTime,
+            "field": "SystemModstamp",
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ],
     "Account": [
         {
             "label": "SystemModstamp",
