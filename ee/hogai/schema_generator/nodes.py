@@ -99,8 +99,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             "messages": [
                 VisualizationMessage(
                     plan=generated_plan,
-                    reasoning_steps=message.reasoning_steps,
-                    answer=message.answer,
+                    answer=message.query,
                     done=True,
                 )
             ],
