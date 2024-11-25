@@ -118,8 +118,8 @@ export function CustomChannelTypes(): JSX.Element {
 
     const channelTypeOptions = useMemo((): LemonInputSelectOption[] => {
         const optionsSet = new Set<string>([
-           ...customChannelTypeRules.map(rule => rule.channel_type),
-           ...Object.values(DefaultChannelTypes)
+            ...customChannelTypeRules.map((rule) => rule.channel_type),
+            ...Object.values(DefaultChannelTypes),
         ])
         return Array.from(optionsSet)
             .filter(Boolean)
