@@ -77,6 +77,7 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -118,6 +119,7 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -162,6 +164,7 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -269,6 +272,7 @@ LEFT JOIN (
 ) AS scroll
 ON counts.breakdown_value = scroll.breakdown_value
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -346,6 +350,7 @@ LEFT JOIN (
 ) as bounce
 ON counts.breakdown_value = bounce.breakdown_value
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -500,9 +505,11 @@ ORDER BY "context.columns.visitors" DESC,
             case WebStatsBreakdown.CITY:
                 return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
             case WebStatsBreakdown.TIMEZONE:
-                # Timezone offsets would be slightly more useful, but that's not easily achievable
-                # with Clickhouse, we might attempt to change this in the future
-                return ast.Field(chain=["properties", "$timezone"])
+                # Get the difference between the UNIX timestamp at UTC and the UNIX timestamp at the event's timezone
+                # Value is in milliseconds, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
+                return parse_expr(
+                    "if(isNull(properties.$timezone), NULL, (toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, properties.$timezone)))) - toUnixTimestamp64Milli(timestamp)) / 3600000)"
+                )
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 

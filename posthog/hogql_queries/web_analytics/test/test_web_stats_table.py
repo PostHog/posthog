@@ -1006,50 +1006,67 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results == [["/path1", 1, 1]]
 
     def test_timezone_filter(self):
-        d1, s1 = "d1", str(uuid7("2024-07-30"))
-        d2, s2 = "d2", str(uuid7("2024-07-30"))
+        date = "2024-07-30"
 
-        _create_person(
-            team_id=self.team.pk,
-            distinct_ids=[d1],
-            properties={"name": d1, "email": "test@example.com"},
-        )
+        for idx, (distinct_id, session_id) in enumerate(
+            [
+                ("UTC", str(uuid7(date))),
+                ("Asia/Calcutta", str(uuid7(date))),
+                ("America/New_York", str(uuid7(date))),
+                ("America/Sao_Paulo", str(uuid7(date))),
+            ]
+        ):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={"name": session_id, "email": f"{distinct_id}@example.com"},
+            )
 
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id=d1,
-            timestamp="2024-07-30",
-            properties={"$session_id": s1, "$pathname": "/path1", "$timezone": "America/New_York"},
-        )
-
-        _create_person(
-            team_id=self.team.pk,
-            distinct_ids=[d2],
-            properties={"name": d2, "email": "d2@hedgebox.net"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id=d2,
-            timestamp="2024-07-30",
-            properties={"$session_id": s2, "$pathname": "/path2", "$timezone": "America/Brasilia"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id=d2,
-            timestamp="2024-07-30",
-            properties={"$session_id": s2, "$pathname": "/path3", "$timezone": "America/Brasilia"},
-        )
-
-        flush_persons_and_events()
+            for i in range(idx + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=date,
+                    properties={"$session_id": session_id, "$pathname": f"/path{i}", "$timezone": distinct_id},
+                )
 
         results = self._run_web_stats_table_query(
             "all",
             None,
             breakdown_by=WebStatsBreakdown.TIMEZONE,
-            filter_test_accounts=True,
         ).results
 
-        assert results == [["America/Brasilia", 1.0, 2.0], ["America/New_York", 1.0, 1.0]]
+        # Brasilia UTC-3, New York UTC-4, Calcutta UTC+5:30, UTC
+        assert results == [[-3.0, 1.0, 4.0], [-4.0, 1.0, 3.0], [5.5, 1.0, 2.0], [0.0, 1.0, 1.0]]
+
+    def test_timezone_filter_with_invalid_timezone(self):
+        date = "2024-07-30"
+
+        for idx, (distinct_id, session_id) in enumerate(
+            [
+                ("UTC", str(uuid7(date))),
+                ("Timezone_not_exists", str(uuid7(date))),
+            ]
+        ):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={"name": session_id, "email": f"{distinct_id}@example.com"},
+            )
+
+            for i in range(idx + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=date,
+                    properties={"$session_id": session_id, "$pathname": f"/path{i}", "$timezone": distinct_id},
+                )
+
+        with self.assertRaisesRegex(Exception, "Cannot load time zone"):
+            self._run_web_stats_table_query(
+                "all",
+                None,
+                breakdown_by=WebStatsBreakdown.TIMEZONE,
+            )
