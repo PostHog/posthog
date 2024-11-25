@@ -30,6 +30,7 @@ import {
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyMathType,
+    PropertyOperator,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -1261,11 +1262,20 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
 export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
 
+export type StickinessOperator =
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThanOrEqual
+    | PropertyOperator.Exact
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     hiddenLegendIndexes?: integer[]
+    stickinessCriteria?: {
+        operator: StickinessOperator
+        value: integer
+    }
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
