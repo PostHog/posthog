@@ -10,6 +10,7 @@ from django.db.models import Prefetch, F
 
 from temporalio import activity
 
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.data_imports.pipelines.bigquery import delete_table
@@ -82,7 +83,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         endpoints = [schema.name]
 
-        if settings.TEMPORAL_V2:
+        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
             # Get the V2 last value, if it's not set yet (e.g. the first run), then fallback to the V1 value
             processed_incremental_last_value = process_incremental_last_value(
                 schema.sync_type_config.get("incremental_field_last_value_v2"),
@@ -472,7 +473,7 @@ def _run(
     schema: ExternalDataSchema,
     reset_pipeline: bool,
 ):
-    if settings.TEMPORAL_V2:
+    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
         PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental).run()
     else:
         table_row_counts = DataImportPipelineSync(

@@ -7,6 +7,7 @@ from temporalio import activity
 
 # TODO: remove dependency
 
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import (
     ExternalDataSchema,
@@ -22,7 +23,7 @@ class CreateExternalDataJobModelActivityInputs:
 
 
 def get_pipeline_version() -> str:
-    if settings.TEMPORAL_V2:
+    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
         return ExternalDataJob.PipelineVersion.V2
 
     return ExternalDataJob.PipelineVersion.V1

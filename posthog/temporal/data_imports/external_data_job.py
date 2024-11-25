@@ -176,7 +176,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
     async def run(self, inputs: ExternalDataWorkflowInputs):
         assert inputs.external_data_schema_id is not None
 
-        if not settings.TEMPORAL_V2:
+        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
             await workflow.execute_activity(
                 trigger_pipeline_v2,
                 inputs,
