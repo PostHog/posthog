@@ -15,7 +15,7 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { isHumanMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -27,6 +27,7 @@ import {
     FailureMessage,
     HumanMessage,
     NodeKind,
+    ReasoningMessage,
     RefreshType,
     RootAssistantMessage,
     SuggestedQuestionsQuery,
@@ -228,13 +229,18 @@ export const maxLogic = kea<maxLogicType>([
                     }
                 }
             } catch (e) {
-                captureException(e)
+                const relevantErrorMessage = { ...FAILURE_MESSAGE } // Generic message by default
+                if (e instanceof ApiError && e.status === 429) {
+                    relevantErrorMessage.content = "You've reached my limit for now. Please try again later."
+                } else {
+                    captureException(e) // Unhandled error, log to Sentry
+                }
 
                 if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                    actions.replaceMessage(values.thread.length - 1, FAILURE_MESSAGE)
+                    actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
                 } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
                     actions.addMessage({
-                        ...FAILURE_MESSAGE,
+                        ...relevantErrorMessage,
                         status: 'completed',
                     })
                 }
@@ -275,14 +281,21 @@ export const maxLogic = kea<maxLogicType>([
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
                     if (finalMessageSoFar?.done && finalMessageSoFar.type !== AssistantMessageType.Reasoning) {
-                        // If now waiting for the current node to start streaming,
-                        // add "Thinking" message so that there's _some_ indication of processing
-                        threadGrouped[threadGrouped.length - 1].push({
+                        // If now waiting for the current node to start streaming, add "Thinking" message
+                        // so that there's _some_ indication of processing
+                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
                             type: AssistantMessageType.Reasoning,
                             content: 'Thinking',
-                            status: 'loading',
+                            status: 'completed',
                             done: true,
-                        })
+                        }
+                        if (finalMessageSoFar.type === AssistantMessageType.Human) {
+                            // If the last message was human, we need to add a new "ephemeral" AI group
+                            threadGrouped.push([thinkingMessage])
+                        } else {
+                            // Otherwise, add to the last group
+                            threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                        }
                     }
                 }
                 return threadGrouped
