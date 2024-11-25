@@ -12,6 +12,7 @@ from ee.hogai.taxonomy_agent.nodes import (
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from ee.hogai.utils import AssistantState
+from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
@@ -187,6 +188,13 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(
             "retrieve_event_properties(event_name: str)", node._get_react_format_prompt(DummyToolkit(self.team))
         )
+
+    def test_property_filters_prompt(self):
+        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="account", group_type_index=1)
+        node = self._get_node()
+        prompt = node._get_react_property_filters_prompt()
+        self.assertIn("org, account.", prompt)
 
 
 @override_settings(IN_UNIT_TESTING=True)

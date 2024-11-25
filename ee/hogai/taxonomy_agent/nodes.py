@@ -78,7 +78,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
-                        "react_property_filters": REACT_PROPERTY_FILTERS_PROMPT,
+                        "react_property_filters": self._get_react_property_filters_prompt(),
                         "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
@@ -129,6 +129,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 tools=toolkit.render_text_description(),
                 tool_names=", ".join([t["name"] for t in toolkit.tools]),
             )[0]
+            .content,
+        )
+
+    def _get_react_property_filters_prompt(self) -> str:
+        return cast(
+            str,
+            ChatPromptTemplate.from_template(REACT_PROPERTY_FILTERS_PROMPT, template_format="mustache")
+            .format_messages(groups=self._team_group_types)[0]
             .content,
         )
 
