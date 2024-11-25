@@ -73,6 +73,8 @@ ALERT_COMPUTED_COUNTER = Counter(
     "Number of alerts we calculated",
 )
 
+ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
+
 
 @shared_task(ignore_result=True)
 def checks_cleanup_task() -> None:
@@ -102,7 +104,7 @@ def alerts_backlog_task() -> None:
     HOURLY_ALERTS_BACKLOG_GAUGE.set(hourly_alerts_breaching_sla)
 
     posthoganalytics.capture(
-        "anirudh@posthog.com",
+        ANIRUDH_DISTINCT_ID,
         "alert check backlog",
         properties={
             "alert_check_frequency": AlertCalculationInterval.HOURLY,
@@ -123,7 +125,7 @@ def alerts_backlog_task() -> None:
     DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
 
     posthoganalytics.capture(
-        "anirudh@posthog.com",
+        ANIRUDH_DISTINCT_ID,
         "alert check backlog",
         properties={
             "alert_check_frequency": AlertCalculationInterval.DAILY,
@@ -264,7 +266,7 @@ def check_alert(alert_id: str) -> None:
         ALERT_CHECK_ERROR_COUNTER.inc()
 
         posthoganalytics.capture(
-            alert.created_by.email,
+            alert.created_by.distinct_id,
             "alert check failed",
             properties={
                 "alert_id": alert.id,
@@ -308,7 +310,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
 
     # Event to count alert checks
     posthoganalytics.capture(
-        alert.created_by.email,
+        alert.created_by.distinct_id,
         "alert check",
         properties={
             "alert_id": alert.id,
@@ -331,7 +333,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         evaluation_error_message = traceback.format_exc()
 
         posthoganalytics.capture(
-            alert.created_by.email,
+            alert.created_by.distinct_id,
             "alert check failed",
             properties={
                 "alert_id": alert.id,
@@ -371,7 +373,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         evaluation_error_message = traceback.format_exc()
 
         posthoganalytics.capture(
-            alert.created_by.email,
+            alert.created_by.distinct_id,
             "alert check failed",
             properties={
                 "alert_id": alert.id,
