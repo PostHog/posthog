@@ -257,7 +257,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
             </div>
 
-            <LemonDivider dashed={true} />
+            {ingestionErrors || exceptionWithStack ? <LemonDivider dashed={true} /> : null}
             {ingestionErrors && (
                 <>
                     <LemonBanner type="error">
