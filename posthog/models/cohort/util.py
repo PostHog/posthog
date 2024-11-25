@@ -147,7 +147,7 @@ def get_count_operator(count_operator: Optional[str]) -> str:
         raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
-def get_count_operator_ast(count_operator: Optional[str]) -> str:
+def get_count_operator_ast(count_operator: Optional[str]) -> ast.CompareOperationOp:
     if count_operator == "gte":
         return ast.CompareOperationOp.GtEq
     elif count_operator == "lte":
