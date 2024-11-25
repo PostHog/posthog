@@ -1,5 +1,3 @@
-import './Max.scss'
-
 import { BindLogic, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
