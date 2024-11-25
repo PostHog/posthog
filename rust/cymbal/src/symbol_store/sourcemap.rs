@@ -109,11 +109,15 @@ impl Parser for SourcemapProvider {
 }
 
 async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url, String), Error> {
-    info!("Fetching sourcemap from {}", start);
+    info!("Fetching script source from {}", start);
 
-    // If this request fails, we cannot resolve the frame, and do not hand this error to the frames
-    // failure-case handling - it just didn't work. We should tell the user about it, somehow, though.
-    let res = client.get(start).send().await.map_err(JsResolveErr::from)?;
+    // If this request fails, we cannot resolve the frame, and hand this error to the frames
+    // failure-case handling.
+    let res = client
+        .get(start.clone())
+        .send()
+        .await
+        .map_err(JsResolveErr::from)?;
 
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
 
@@ -173,9 +177,23 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url
     }
 
     metrics::counter!(SOURCEMAP_NOT_FOUND).increment(1);
-    // We looked in the headers and the body, and couldn't find a source map. This /might/ indicate the frame
-    // is not minified, or it might just indicate someone misconfigured their sourcemaps - we'll hand this error
-    // back to the frame itself to figure out.
+
+    // We looked in the headers and the body, and couldn't find a source map. We lastly just see if there's some data at
+    // the start URL, with `.map` appended. We don't actually fetch the body here, just see if the URL resolves to a 200
+    let mut test_url = start; // Move the `start` into `test_url`, since we don't need it anymore, making it mutable
+    test_url.set_path(&(test_url.path().to_owned() + ".map"));
+    match client.head(test_url).send().await {
+        Ok(res) => {
+            if res.status().is_success() {
+                return Ok((res.url().clone(), body));
+            }
+        }
+        Err(_) => {} // Just continue to the error we would have returned below
+    }
+
+    // We failed entirely to find a sourcemap. This /might/ indicate the frame is not minified, or it might
+    // just indicate someone misconfigured their sourcemaps - we'll hand this error back to the frame itself
+    // to figure out.
     Err(JsResolveErr::NoSourcemap(final_url.to_string()).into())
 }
 
@@ -193,6 +211,8 @@ mod test {
 
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
+    const MINIFIED_WITH_NO_MAP_REF: &[u8] =
+        include_bytes!("../../tests/static/chunk-PGUQKT6S-no-map.js");
 
     use super::*;
 
@@ -239,6 +259,41 @@ mod test {
         store.fetch(1, start_url).await.unwrap();
 
         first_mock.assert_hits(1);
+        second_mock.assert_hits(1);
+    }
+
+    #[tokio::test]
+    async fn checks_dot_map_urls_test() {
+        let server = MockServer::start();
+
+        let first_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js");
+            then.status(200).body(MINIFIED_WITH_NO_MAP_REF);
+        });
+
+        // We expect cymbal to then make a HEAD request to see if the map might exist
+        let head_mock = server.mock(|when, then| {
+            when.method("HEAD").path("/static/chunk-PGUQKT6S.js.map");
+            then.status(200);
+        });
+
+        // And then fetch it
+        let second_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js.map");
+            then.status(200).body(MAP);
+        });
+
+        let mut config = Config::init_with_defaults().unwrap();
+        // Needed because we're using mockserver, so hitting localhost
+        config.allow_internal_ips = true;
+        let store = SourcemapProvider::new(&config);
+
+        let start_url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
+
+        store.fetch(1, start_url).await.unwrap();
+
+        first_mock.assert_hits(1);
+        head_mock.assert_hits(1);
         second_mock.assert_hits(1);
     }
 
