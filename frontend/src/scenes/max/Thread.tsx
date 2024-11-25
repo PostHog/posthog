@@ -125,7 +125,7 @@ const MessageTemplate = React.forwardRef<
         <div className={clsx('flex flex-col gap-1', type === 'human' ? 'items-end' : 'items-start')} ref={ref}>
             <div
                 className={clsx(
-                    'border py-2 px-3 rounded-[20px] bg-bg-light',
+                    'border py-2 px-3 rounded-lg bg-bg-light',
                     type === 'human' && 'font-medium',
                     className
                 )}
