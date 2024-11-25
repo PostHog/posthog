@@ -81,14 +81,6 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
 }
 
-NODE_TO_REASONING_MESSAGE: dict[AssistantNodeName, str] = {
-    AssistantNodeName.ROUTER: "Identifying type of analysis",
-    AssistantNodeName.TRENDS_PLANNER: "Picking relevant events and properties",
-    AssistantNodeName.FUNNEL_PLANNER: "Picking relevant events and properties",
-    AssistantNodeName.TRENDS_GENERATOR: "Creating trends query",
-    AssistantNodeName.FUNNEL_GENERATOR: "Creating funnel query",
-}
-
 
 class Assistant:
     _team: Team
@@ -146,6 +138,42 @@ class Assistant:
         messages = [message.root for message in self._conversation.messages]
         return {"messages": messages, "intermediate_steps": None, "plan": None}
 
+    def _node_to_reasoning_message(
+        self, node_name: AssistantNodeName, input: AssistantState
+    ) -> Optional[ReasoningMessage]:
+        match node_name:
+            case AssistantNodeName.ROUTER:
+                return ReasoningMessage(content="Identifying type of analysis")
+            case (
+                AssistantNodeName.TRENDS_PLANNER
+                | AssistantNodeName.TRENDS_PLANNER_TOOLS
+                | AssistantNodeName.FUNNEL_GENERATOR
+                | AssistantNodeName.FUNNEL_PLANNER
+            ):
+                substeps = []
+                if input and input.get("intermediate_steps"):
+                    for action, _ in input["intermediate_steps"]:
+                        match action.tool:
+                            case "retrieve_event_properties":
+                                substeps.append(f"Exploring `{action.tool_input}` event's properties")
+                            case "retrieve_entity_properties":
+                                substeps.append(f"Exploring `{action.tool_input}` properties")
+                            case "retrieve_event_property_values":
+                                substeps.append(
+                                    f"Looking through values of event property `{action.tool_input['property_name']}` for `{action.tool_input['event_name']}`"
+                                )
+                            case "retrieve_entity_property_values":
+                                substeps.append(
+                                    f"Looking through values of {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
+                                )
+                return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
+            case AssistantNodeName.TRENDS_GENERATOR:
+                return ReasoningMessage(content="Creating trends query")
+            case AssistantNodeName.FUNNEL_GENERATOR:
+                return ReasoningMessage(content="Creating funnel query")
+            case _:
+                return None
+
     def _process_update(self, update: Any) -> BaseModel | None:
         if is_value_update(update):
             _, state_update = update
@@ -180,8 +208,8 @@ class Assistant:
         elif is_task_started_update(update):
             _, task_update = update
             node_name = task_update["payload"]["name"]  # type: ignore
-            if reasoning_message := NODE_TO_REASONING_MESSAGE.get(node_name):
-                return ReasoningMessage(content=reasoning_message)
+            if reasoning_message := self._node_to_reasoning_message(node_name, task_update["payload"]["input"]):
+                return reasoning_message
         return None
 
     def _serialize_message(self, message: BaseModel) -> str:
