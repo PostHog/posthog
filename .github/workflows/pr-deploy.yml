@@ -43,7 +43,7 @@ jobs:
                   role-duration-seconds: 3600
 
             - name: connect to tailscale
-              uses: tailscale/github-action@8b804aa882ac3429b804a2a22f9803a2101a0db9
+              uses: tailscale/github-action@67573e622a7b555a2f4e2078c6ad161201e3e91e
               env:
                   TS_EXPERIMENT_OAUTH_AUTHKEY: true
               with:
