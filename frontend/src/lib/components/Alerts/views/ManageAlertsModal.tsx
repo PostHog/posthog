@@ -1,4 +1,5 @@
 import { IconCheck, IconX } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -85,8 +86,12 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                 <div className="mb-4">
                     With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
                     not evaluate alerts in real-time, but rather on a schedule (hourly, daily...). Please note that
-                    alerts are in alpha and may not be fully reliable.
+                    alerts are in alpha and may not be fully reliable. <br />
+                    <Link to={urls.alerts()} target="_blank">
+                        View all your alerts here
+                    </Link>
                 </div>
+
                 {alerts.length ? (
                     <div className="space-y-2">
                         <div>

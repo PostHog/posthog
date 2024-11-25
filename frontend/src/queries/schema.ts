@@ -2472,6 +2472,7 @@ export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<Acto
 export enum AssistantMessageType {
     Human = 'human',
     Assistant = 'ai',
+    Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
     Router = 'ai/router',
@@ -2494,10 +2495,15 @@ export interface AssistantMessage {
     done?: boolean
 }
 
+export interface ReasoningMessage {
+    type: AssistantMessageType.Reasoning
+    content: string
+    done: true
+}
+
 export interface VisualizationMessage {
     type: AssistantMessageType.Visualization
     plan?: string
-    reasoning_steps?: string[] | null
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
     done?: boolean
 }
@@ -2517,6 +2523,7 @@ export interface RouterMessage {
 
 export type RootAssistantMessage =
     | VisualizationMessage
+    | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage

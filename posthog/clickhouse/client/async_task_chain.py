@@ -2,6 +2,7 @@ import threading
 import typing
 from contextlib import contextmanager
 from functools import partial
+import uuid
 
 from celery import chain
 from celery.canvas import Signature
@@ -22,12 +23,15 @@ def kick_off_task(
     query_status: QueryStatus,
     task_signature: Signature,
 ) -> None:
-    task = task_signature.apply_async()
+    task_id = str(uuid.uuid4())
+    query_status.task_id = task_id
+    manager.store_query_status(query_status)
+    task = task_signature.apply_async(task_id=task_id)
+
     # During end-to-end tests, the task is executed synchronously, so we have to refresh the status.
     if isinstance(task, EagerResult):
         query_status = manager.get_query_status()
-    query_status.task_id = task.id
-    manager.store_query_status(query_status)
+        manager.store_query_status(query_status)
 
 
 def get_task_chain() -> list[tuple[Signature, "QueryStatusManager", QueryStatus]]:

@@ -501,6 +501,7 @@ export const humanFriendlyMilliseconds = (timestamp: number | undefined): string
 
     return `${(timestamp / 1000).toFixed(2)}s`
 }
+
 export function humanFriendlyDuration(
     d: string | number | null | undefined,
     {

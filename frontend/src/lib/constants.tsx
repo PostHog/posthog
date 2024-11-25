@@ -222,7 +222,6 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
-    EXPERIMENTS_HOLDOUTS: 'experiments-holdouts', // owner: @jurajmajerik #team-experiments
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
     SESSION_REPLAY_URL_BLOCKLIST: 'session-replay-url-blocklist', // owner: @richard-better #team-replay
     BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
