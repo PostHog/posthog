@@ -28,6 +28,7 @@ from posthog.models.person.sql import (
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
+from posthog.settings import CLICKHOUSE_CLUSTER
 
 Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 
@@ -129,7 +130,7 @@ SELECT
     --formatReadableSize(avg(read_bytes)),
     --formatReadableSize(max(read_bytes))
 FROM
-    clusterAllReplicas(posthog, system, query_log)
+    clusterAllReplicas(%(cluster)s, system, query_log)
 WHERE
     query_start_time > now() - toIntervalHour({since})
     and query LIKE '%JSONExtract%'
@@ -158,6 +159,7 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
             min_query_time=min_query_time,
             team_id_filter=f"and JSONExtractInt(log_comment, 'team_id') = {team_id}" if team_id else "",
         ),
+        {"cluster": CLICKHOUSE_CLUSTER},
     )
 
     return [("events", table_column, property_name) for (table_column, property_name) in raw_queries]
