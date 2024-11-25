@@ -122,6 +122,7 @@ const templateToConfiguration = (
         description: subTemplate?.name ?? template.description,
         inputs_schema: template.inputs_schema,
         filters: subTemplate?.filters ?? template.filters,
+        masking: subTemplate?.masking ?? template.masking,
         hog: template.hog,
         icon_url: template.icon_url,
         inputs,
