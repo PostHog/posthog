@@ -713,11 +713,13 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
         >
             <div className="flex flex-row justify-between px-2 space-x-2 items-start">
                 <Handle {...handleProps} />
-                <div className="flex-1">
+                <div className="flex-1 self-stretch">
                     {renderContainerItem ? (
                         renderContainerItem(item, { updateContainerItem })
                     ) : (
-                        <span>Container {containerItemId}</span>
+                        <div className="h-full flex flex-row items-center">
+                            <span>Container {containerItemId}</span>
+                        </div>
                     )}
                 </div>
                 <Remove onClick={onRemove} />
@@ -816,8 +818,14 @@ export const ChildItem = React.memo(
                     className="flex flex-row justify-between w-full space-x-2 items-start"
                 >
                     <Handle {...handleProps} {...listeners} />
-                    <div className="flex-1">
-                        {renderChildItem ? renderChildItem(item, { updateChildItem }) : <span>Item {childItemId}</span>}
+                    <div className="flex-1 self-stretch">
+                        {renderChildItem ? (
+                            renderChildItem(item, { updateChildItem })
+                        ) : (
+                            <div className="h-full flex flex-row items-center">
+                                <span>Item {childItemId}</span>
+                            </div>
+                        )}
                     </div>
                     <Remove onClick={() => onRemove(item.id)} />
                 </div>
