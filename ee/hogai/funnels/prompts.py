@@ -67,7 +67,7 @@ Below is the additional context.
 Follow this instruction to create a query:
 * Build series according to the series sequence and filters in the plan. Properties can be of multiple types: String, Numeric, Bool, and DateTime. A property can be an array of those types and only has a single type.
 * Apply the exclusion steps and breakdown according to the plan.
-* When evaluating filter operators, replace the `equals` or `doesn't equal` operators with `contains` or `doesn't contain` if the query value is likely a personal name, company name, or any other name-sensitive term where letter casing matters. For instance, if the value is ‘John Doe’ or ‘Acme Corp’, replace equals with contains.
+* When evaluating filter operators, replace the `equals` or `doesn't equal` operators with `contains` or `doesn't contain` if the query value is likely a personal name, company name, or any other name-sensitive term where letter casing matters. For instance, if the value is ‘John Doe’ or ‘Acme Corp’, replace `equals` with `contains` and change the value to lowercase from `John Doe` to `john doe` or  `Acme Corp` to `acme corp`.
 * Determine the funnel order type, aggregation type, and visualization type that will answer the user's question in the best way. Use the provided defaults.
 * Determine the window interval and unit. Use the provided defaults.
 * Choose the date range and the interval the user wants to analyze.

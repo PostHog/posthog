@@ -110,7 +110,7 @@ Below is the additional context.
 
 Follow this instruction to create a query:
 * Build series according to the plan. The plan includes event, math types, property filters, and breakdowns. Properties can be of multiple types: String, Numeric, Bool, and DateTime. A property can be an array of those types and only has a single type.
-* When evaluating filter operators, replace the `equals` or `doesn't equal` operators with `contains` or `doesn't contain` if the query value is likely a personal name, company name, or any other name-sensitive term where letter casing matters. For instance, if the value is ‘John Doe’ or ‘Acme Corp’, replace equals with contains.
+* When evaluating filter operators, replace the `equals` or `doesn't equal` operators with `contains` or `doesn't contain` if the query value is likely a personal name, company name, or any other name-sensitive term where letter casing matters. For instance, if the value is ‘John Doe’ or ‘Acme Corp’, replace `equals` with `contains` and change the value to lowercase from `John Doe` to `john doe` or  `Acme Corp` to `acme corp`.
 * Determine a visualization type that will answer the user's question in the best way.
 * Determine if the user wants to name the series or use the default names.
 * Choose the date range and the interval the user wants to analyze.

@@ -19,16 +19,18 @@ class TestEvalFunnelGenerator(EvalBaseTest):
         return state["messages"][-1].answer
 
     def test_node_replaces_equals_with_contains(self):
-        query = "what is the conversion rate from a page view to sign up for users with name john?"
+        query = "what is the conversion rate from a page view to sign up for users with name John?"
         plan = """Sequence:
         1. $pageview
         - property filter 1
             - person
             - name
             - equals
-            - john
+            - John
         2. signed_up
         """
         actual_output = self._call_node(query, plan).model_dump_json(exclude_none=True)
         assert "exact" not in actual_output
         assert "icontains" in actual_output
+        assert "John" not in actual_output
+        assert "john" in actual_output

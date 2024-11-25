@@ -19,7 +19,7 @@ class TestEvalTrendsGenerator(EvalBaseTest):
         return state["messages"][-1].answer
 
     def test_node_replaces_equals_with_contains(self):
-        query = "what is pageview trend for users with name john?"
+        query = "what is pageview trend for users with name John?"
         plan = """Events:
         - $pageview
             - math operation: total count
@@ -27,8 +27,10 @@ class TestEvalTrendsGenerator(EvalBaseTest):
                 - person
                 - name
                 - equals
-                - john
+                - John
         """
         actual_output = self._call_node(query, plan).model_dump_json(exclude_none=True)
         assert "exact" not in actual_output
         assert "icontains" in actual_output
+        assert "John" not in actual_output
+        assert "john" in actual_output
