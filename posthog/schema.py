@@ -1723,6 +1723,7 @@ class WebStatsBreakdown(StrEnum):
     COUNTRY = "Country"
     REGION = "Region"
     CITY = "City"
+    TIMEZONE = "Timezone"
 
 
 class Scale(StrEnum):

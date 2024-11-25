@@ -1840,6 +1840,7 @@ export enum WebStatsBreakdown {
     Country = 'Country',
     Region = 'Region',
     City = 'City',
+    Timezone = 'Timezone',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery

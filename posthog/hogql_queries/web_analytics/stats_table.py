@@ -499,6 +499,10 @@ ORDER BY "context.columns.visitors" DESC,
                 )
             case WebStatsBreakdown.CITY:
                 return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
+            case WebStatsBreakdown.TIMEZONE:
+                # Timezone offsets would be slightly more useful, but that's not easily achievable
+                # with Clickhouse, we might attempt to change this in the future
+                return ast.Field(chain=["properties", "$timezone"])
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
