@@ -1,4 +1,4 @@
-import { IconTrash, IconUpload } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
@@ -43,7 +43,7 @@ const SymbolSetTable = ({
     missing?: boolean
 }): JSX.Element => {
     const { symbolSetsLoading } = useValues(errorTrackingSymbolSetLogic)
-    const { setUploadSymbolSetReference, deleteSymbolSet } = useActions(errorTrackingSymbolSetLogic)
+    const { deleteSymbolSet } = useActions(errorTrackingSymbolSetLogic)
 
     const columns: LemonTableColumns<ErrorTrackingSymbolSet> = [
         { title: missing && 'Missing symbol sets', dataIndex: 'ref' },
@@ -52,14 +52,6 @@ const SymbolSetTable = ({
             render: (_, { id }) => {
                 return (
                     <div className="flex justify-end">
-                        <LemonButton
-                            type={missing ? 'primary' : 'secondary'}
-                            size="xsmall"
-                            icon={<IconUpload />}
-                            onClick={() => setUploadSymbolSetReference(id || null)}
-                            className="py-1"
-                            tooltip="Upload source map"
-                        />
                         {!missing && (
                             <LemonButton
                                 type="secondary"

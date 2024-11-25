@@ -1,7 +1,7 @@
 import './ErrorDisplay.scss'
 
-import { IconFlag, IconUpload } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { IconFlag } from '@posthog/icons'
+import { LemonBanner, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -9,7 +9,6 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useState } from 'react'
-import { errorTrackingSymbolSetLogic } from 'scenes/error-tracking/errorTrackingSymbolSetLogic'
 
 import { EventType } from '~/types'
 
@@ -31,7 +30,6 @@ function StackTrace({
 }): JSX.Element | null {
     const { stackFrameRecords } = useValues(stackFrameLogic)
     const { loadFromRawIds } = useActions(stackFrameLogic)
-    const { setUploadSymbolSetReference } = useActions(errorTrackingSymbolSetLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     useEffect(() => {
@@ -70,12 +68,6 @@ function StackTrace({
                                 <Tooltip title={resolve_failure}>
                                     <LemonTag>Unresolved</LemonTag>
                                 </Tooltip>
-                                <LemonButton
-                                    icon={<IconUpload />}
-                                    size="xsmall"
-                                    onClick={() => setUploadSymbolSetReference(source)}
-                                    tooltip="Upload source map"
-                                />
                             </div>
                         )}
                     </div>
