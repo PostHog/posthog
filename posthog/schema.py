@@ -676,6 +676,27 @@ class Day(RootModel[int]):
     root: int
 
 
+class DefaultChannelTypes(StrEnum):
+    CROSS_NETWORK = "Cross Network"
+    PAID_SEARCH = "Paid Search"
+    PAID_SOCIAL = "Paid Social"
+    PAID_VIDEO = "Paid Video"
+    PAID_SHOPPING = "Paid Shopping"
+    PAID_UNKNOWN = "Paid Unknown"
+    DIRECT = "Direct"
+    ORGANIC_SEARCH = "Organic Search"
+    ORGANIC_SOCIAL = "Organic Social"
+    ORGANIC_VIDEO = "Organic Video"
+    ORGANIC_SHOPPING = "Organic Shopping"
+    PUSH = "Push"
+    SMS = "SMS"
+    AUDIO = "Audio"
+    EMAIL = "Email"
+    REFERRAL = "Referral"
+    AFFILIATE = "Affiliate"
+    UNKNOWN = "Unknown"
+
+
 class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
@@ -2095,6 +2116,7 @@ class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    id: str
     key: CustomChannelField
     op: CustomChannelOperator
     value: Optional[Union[str, list[str]]] = None
@@ -2106,7 +2128,8 @@ class CustomChannelRule(BaseModel):
     )
     channel_type: str
     combiner: FilterLogicalOperator
-    conditions: list[CustomChannelCondition]
+    id: str
+    items: list[CustomChannelCondition]
 
 
 class DataWarehousePersonPropertyFilter(BaseModel):
