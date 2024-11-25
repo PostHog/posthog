@@ -6243,8 +6243,8 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             filters={
                 "multivariate": {
                     "variants": [
-                        {"key": "var1key", "name": "test", "rollout_percentage": 100},
-                        {"key": "var2key", "name": "control", "rollout_percentage": 0},
+                        {"key": "test", "rollout_percentage": 100},
+                        {"key": "control", "rollout_percentage": 0},
                     ],
                 },
                 "groups": [{"variant": None, "properties": [], "rollout_percentage": 100}],
@@ -6253,10 +6253,10 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             multivariate_flag_enabled_variant.id,
             FeatureFlagStatus.STALE,
-            "One variant and one release condition are rolled out to 100%",
+            'Currently, this flag will always use the variant "test"',
         )
 
-        # Request status for multivariate flag with no variants set to 100% but no release condition set to 100%
+        # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
         multivariate_flag_enabled_variant_no_enabled_release = FeatureFlag.objects.create(
             name="Multivariate flag with variant set to 100%, no release condition set to 100%",
             key="multivariate-enabled-variant-no-release-enabled-flag",
@@ -6281,29 +6281,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
-        # Request status for multivariate flag with no variants set to 100%
-        multivariate_flag_enabled_variant_enabled_release = FeatureFlag.objects.create(
-            name="Multivariate flag with variant and release condition set to 100%",
-            key="multivariate-enabled-variant-and-release-condition-flag",
-            team=self.team,
-            active=True,
-            filters={
-                "multivariate": {
-                    "variants": [
-                        {"key": "var1key", "name": "test", "rollout_percentage": 100},
-                        {"key": "var2key", "name": "control", "rollout_percentage": 0},
-                    ],
-                },
-                "groups": [{"variant": None, "properties": [], "rollout_percentage": 100}],
-            },
-        )
-        self.assert_expected_response(
-            multivariate_flag_enabled_variant_enabled_release.id,
-            FeatureFlagStatus.STALE,
-            "One variant and one release condition are rolled out to 100%",
-        )
-
-        # Request status for multivariate flag with no variants set to 100%
+        # Request status for multivariate flag with variants set to 100% and a filtered release condition
         multivariate_flag_enabled_variant_enabled_filtered_release = FeatureFlag.objects.create(
             name="Multivariate flag with variant and release condition set to 100%",
             key="multivariate-enabled-variant-and-release-condition-with-properties-flag",
@@ -6382,13 +6360,13 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             filters={
                 "multivariate": {
                     "variants": [
-                        {"key": "var1key", "name": "test", "rollout_percentage": 60},
-                        {"key": "var2key", "name": "control", "rollout_percentage": 40},
+                        {"key": "test", "rollout_percentage": 60},
+                        {"key": "control", "rollout_percentage": 40},
                     ],
                 },
                 "groups": [
                     {
-                        "variant": "var1key",
+                        "variant": "test",
                         "properties": [],
                         "rollout_percentage": 100,
                     }
@@ -6398,7 +6376,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             multivariate_flag_enabled_release_with_override.id,
             FeatureFlagStatus.STALE,
-            "One variant and one release condition are rolled out to 100%",
+            'Currently, this flag will always use the variant "test"',
         )
 
         # Request status for boolean flag with empty filters
@@ -6412,7 +6390,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             boolean_flag_empty_filters.id,
             FeatureFlagStatus.STALE,
-            "Boolean flag has a release condition rolled out to 100%",
+            'Currently, this boolean flag will always evaluate to "true"',
         )
 
         # Request status for boolean flag with no fully enabled release conditions
@@ -6480,7 +6458,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             boolean_flag_enabled_release_condition.id,
             FeatureFlagStatus.STALE,
-            "Boolean flag has a release condition rolled out to 100%",
+            'Currently, this boolean flag will always evaluate to "true"',
         )
 
         # Request status for a boolean flag with no enabled release conditions and has
@@ -6539,6 +6517,6 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
         self.assert_expected_response(
             boolean_flag_enabled_release_condition_not_recently_evaluated.id,
-            FeatureFlagStatus.STALE,
+            FeatureFlagStatus.INACTIVE,
             "Flag has not been evaluated recently",
         )

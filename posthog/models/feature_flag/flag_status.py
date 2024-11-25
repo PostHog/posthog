@@ -10,6 +10,7 @@ FeatureFlagStatusReason = str
 
 class FeatureFlagStatus(StrEnum):
     ACTIVE = "active"
+    INACTIVE = "inactive"
     STALE = "stale"
     DELETED = "deleted"
     UNKNOWN = "unknown"
@@ -20,7 +21,8 @@ class FeatureFlagStatus(StrEnum):
 #
 # Status can be one of the following:
 # - ACTIVE: The feature flag is actively evaluated and the evaluations continue to vary.
-# - STALE: The feature flag either has not been evaluated recently, or the evaluation has not changed recently.
+# - STALE: The feature flag has been fully rolled out to users. Its evaluations can not vary.
+# - INACTIVE: The feature flag is not being actively evaluated. STALE takes precedence over INACTIVE.
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
 class FeatureFlagStatusChecker:
@@ -49,7 +51,7 @@ class FeatureFlagStatusChecker:
 
         # Final, and most expensive check: see if the flag has been evaluated recently.
         if self.is_flag_unevaluated_recently(flag):
-            return FeatureFlagStatus.STALE, "Flag has not been evaluated recently"
+            return FeatureFlagStatus.INACTIVE, "Flag has not been evaluated recently"
 
         return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be actively called"
 
@@ -77,41 +79,45 @@ class FeatureFlagStatusChecker:
                     return True, "Holdout group is rolled out to 100%"
 
         multivariate = flag.filters.get("multivariate", None)
-        if multivariate and self.is_multivariate_flag_fully_enabled(flag):
-            return True, "One variant and one release condition are rolled out to 100%"
+        if multivariate:
+            is_multivariate_flag_fully_enabled, fully_enabled_variant_name = self.is_multivariate_flag_fully_enabled(
+                flag
+            )
+        if multivariate and is_multivariate_flag_fully_enabled:
+            return True, f'Currently, this flag will always use the variant "{fully_enabled_variant_name}"'
         elif self.is_boolean_flag_fully_enabled(flag):
-            return True, "Boolean flag has a release condition rolled out to 100%"
+            return True, 'Currently, this boolean flag will always evaluate to "true"'
 
         return False, ""
 
-    def is_multivariate_flag_fully_enabled(self, flag: FeatureFlag) -> bool:
+    def is_multivariate_flag_fully_enabled(self, flag: FeatureFlag) -> tuple[bool, str]:
         # If flag is multivariant and one variant is rolled out to 100%,
         # and there is a release condition set to 100%, it is fully enabled.
         #
         # Alternatively, if there is a release condition set to 100% and it has a
         # variant override, the flag is fully enabled.
-        some_variant_fully_enabled = False
+        fully_enabled_variant_key = None
         some_release_condition_fully_enabled = False
-        some_fully_enabled_release_condition_has_override = False
+        fully_enabled_release_condition_variant_override = None
 
         multivariate = flag.filters.get("multivariate", None)
         variants = multivariate.get("variants", [])
         for variant in variants:
             if variant.get("rollout_percentage") == 100:
-                some_variant_fully_enabled = True
+                fully_enabled_variant_key = variant.get("key")
                 break
 
         for release_condition in flag.filters.get("groups", []):
             if self.is_group_fully_rolled_out(release_condition):
                 some_release_condition_fully_enabled = True
-                some_fully_enabled_release_condition_has_override = (
-                    some_fully_enabled_release_condition_has_override
-                    or release_condition.get("variant", None) is not None
+                fully_enabled_release_condition_variant_override = (
+                    fully_enabled_release_condition_variant_override or release_condition.get("variant", None)
                 )
 
+        fully_enabled_variant = fully_enabled_release_condition_variant_override or fully_enabled_variant_key
         return some_release_condition_fully_enabled and (
-            some_fully_enabled_release_condition_has_override or some_variant_fully_enabled
-        )
+            fully_enabled_release_condition_variant_override is not None or fully_enabled_variant_key is not None
+        ), fully_enabled_variant
 
     def is_group_fully_rolled_out(self, group: dict) -> bool:
         rollout_percentage = group.get("rollout_percentage")
