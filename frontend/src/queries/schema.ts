@@ -2020,17 +2020,19 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
+    name?: string
+    experiment_id?: integer
     funnels_query: FunnelsQuery
-    experiment_id: integer
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
     kind: NodeKind.ExperimentTrendsQuery
+    name?: string
+    experiment_id?: integer
     count_query: TrendsQuery
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
-    experiment_id: integer
 }
 
 /**
@@ -2470,6 +2472,7 @@ export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<Acto
 export enum AssistantMessageType {
     Human = 'human',
     Assistant = 'ai',
+    Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
     Router = 'ai/router',
@@ -2492,10 +2495,15 @@ export interface AssistantMessage {
     done?: boolean
 }
 
+export interface ReasoningMessage {
+    type: AssistantMessageType.Reasoning
+    content: string
+    done: true
+}
+
 export interface VisualizationMessage {
     type: AssistantMessageType.Visualization
     plan?: string
-    reasoning_steps?: string[] | null
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery
     done?: boolean
 }
@@ -2515,6 +2523,7 @@ export interface RouterMessage {
 
 export type RootAssistantMessage =
     | VisualizationMessage
+    | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage

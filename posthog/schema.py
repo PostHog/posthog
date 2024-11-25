@@ -261,6 +261,7 @@ class AssistantMessage(BaseModel):
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     AI = "ai"
+    AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
@@ -1393,6 +1394,15 @@ class QueryTiming(BaseModel):
     )
     k: str = Field(..., description="Key. Shortened to 'k' to save on data.")
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
+
+
+class ReasoningMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    done: Literal[True] = True
+    type: Literal["ai/reasoning"] = "ai/reasoning"
 
 
 class RecordingOrder(StrEnum):
@@ -5549,7 +5559,6 @@ class VisualizationMessage(BaseModel):
     answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
     done: Optional[bool] = None
     plan: Optional[str] = None
-    reasoning_steps: Optional[list[str]] = None
     type: Literal["ai/viz"] = "ai/viz"
 
 
@@ -5936,9 +5945,11 @@ class RetentionQuery(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
+    RootModel[
+        Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    ]
 ):
-    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
 
 
 class StickinessQuery(BaseModel):
@@ -6725,12 +6736,13 @@ class ExperimentTrendsQuery(BaseModel):
         extra="forbid",
     )
     count_query: TrendsQuery
-    experiment_id: int
+    experiment_id: Optional[int] = None
     exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
 
 
@@ -6839,12 +6851,13 @@ class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    experiment_id: int
+    experiment_id: Optional[int] = None
     funnels_query: FunnelsQuery
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
 
 

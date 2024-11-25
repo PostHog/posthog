@@ -1,11 +1,10 @@
-from collections.abc import Generator
-from typing import Any, Literal, TypedDict, TypeGuard, Union
+from collections.abc import Generator, Hashable, Iterator
+from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
 
 from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
-from langgraph.graph.state import StateGraph
+from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import BaseModel
-from sentry_sdk import capture_exception
 
 from ee import settings
 from ee.hogai.funnels.nodes import (
@@ -30,6 +29,7 @@ from posthog.schema import (
     AssistantGenerationStatusType,
     AssistantMessage,
     FailureMessage,
+    ReasoningMessage,
     VisualizationMessage,
 )
 
@@ -68,31 +68,73 @@ def is_state_update(update: list[Any]) -> TypeGuard[tuple[Literal["updates"], As
     return len(update) == 2 and update[0] == "values"
 
 
+def is_task_started_update(
+    update: list[Any],
+) -> TypeGuard[tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]]:
+    """
+    Streaming of messages. Returns a partial state.
+    """
+    return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
+
+
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
 }
 
 
-class Assistant:
+NODE_TO_REASONING_MESSAGE: dict[AssistantNodeName, str] = {
+    AssistantNodeName.ROUTER: "Identifying type of analysis",
+    AssistantNodeName.TRENDS_PLANNER: "Picking relevant events and properties",
+    AssistantNodeName.FUNNEL_PLANNER: "Picking relevant events and properties",
+    AssistantNodeName.TRENDS_GENERATOR: "Creating trends query",
+    AssistantNodeName.FUNNEL_GENERATOR: "Creating funnel query",
+}
+
+
+class AssistantGraph:
     _team: Team
     _graph: StateGraph
 
     def __init__(self, team: Team):
         self._team = team
         self._graph = StateGraph(AssistantState)
+        self._has_start_node = False
 
-    def _compile_graph(self):
+    def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
+        if from_node == AssistantNodeName.START:
+            self._has_start_node = True
+        self._graph.add_edge(from_node, to_node)
+        return self
+
+    def compile(self):
+        if not self._has_start_node:
+            raise ValueError("Start node not added to the graph")
+        return self._graph.compile()
+
+    def add_start(self):
+        return self.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
+
+    def add_router(
+        self,
+        path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
+    ):
         builder = self._graph
-
+        path_map = path_map or {
+            "trends": AssistantNodeName.TRENDS_PLANNER,
+            "funnel": AssistantNodeName.FUNNEL_PLANNER,
+        }
         router_node = RouterNode(self._team)
         builder.add_node(AssistantNodeName.ROUTER, router_node.run)
-        builder.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
         builder.add_conditional_edges(
             AssistantNodeName.ROUTER,
             router_node.router,
-            path_map={"trends": AssistantNodeName.TRENDS_PLANNER, "funnel": AssistantNodeName.FUNNEL_PLANNER},
+            path_map=cast(dict[Hashable, str], path_map),
         )
+        return self
+
+    def add_trends_planner(self, next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR):
+        builder = self._graph
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node.run)
@@ -111,25 +153,35 @@ class Assistant:
             create_trends_plan_tools_node.router,
             path_map={
                 "continue": AssistantNodeName.TRENDS_PLANNER,
-                "plan_found": AssistantNodeName.TRENDS_GENERATOR,
+                "plan_found": next_node,
             },
         )
 
-        generate_trends_node = TrendsGeneratorNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_GENERATOR, generate_trends_node.run)
+        return self
 
-        generate_trends_tools_node = TrendsGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, generate_trends_tools_node.run)
+    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+        builder = self._graph
+
+        trends_generator = TrendsGeneratorNode(self._team)
+        builder.add_node(AssistantNodeName.TRENDS_GENERATOR, trends_generator.run)
+
+        trends_generator_tools = TrendsGeneratorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, trends_generator_tools.run)
 
         builder.add_edge(AssistantNodeName.TRENDS_GENERATOR_TOOLS, AssistantNodeName.TRENDS_GENERATOR)
         builder.add_conditional_edges(
             AssistantNodeName.TRENDS_GENERATOR,
-            generate_trends_node.router,
+            trends_generator.router,
             path_map={
                 "tools": AssistantNodeName.TRENDS_GENERATOR_TOOLS,
-                "next": AssistantNodeName.SUMMARIZER,
+                "next": next_node,
             },
         )
+
+        return self
+
+    def add_funnel_planner(self, next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR):
+        builder = self._graph
 
         funnel_planner = FunnelPlannerNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner.run)
@@ -148,44 +200,72 @@ class Assistant:
             funnel_planner_tools.router,
             path_map={
                 "continue": AssistantNodeName.FUNNEL_PLANNER,
-                "plan_found": AssistantNodeName.FUNNEL_GENERATOR,
+                "plan_found": next_node,
             },
         )
+
+        return self
+
+    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+        builder = self._graph
 
         funnel_generator = FunnelGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator.run)
 
-        funnel_generator_tools_node = FunnelGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools_node.run)
+        funnel_generator_tools = FunnelGeneratorToolsNode(self._team)
+        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools.run)
 
         builder.add_edge(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, AssistantNodeName.FUNNEL_GENERATOR)
         builder.add_conditional_edges(
             AssistantNodeName.FUNNEL_GENERATOR,
-            generate_trends_node.router,
+            funnel_generator.router,
             path_map={
                 "tools": AssistantNodeName.FUNNEL_GENERATOR_TOOLS,
-                "next": AssistantNodeName.SUMMARIZER,
+                "next": next_node,
             },
         )
 
+        return self
+
+    def add_summarizer(self, next_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
         summarizer_node = SummarizerNode(self._team)
         builder.add_node(AssistantNodeName.SUMMARIZER, summarizer_node.run)
-        builder.add_edge(AssistantNodeName.SUMMARIZER, AssistantNodeName.END)
+        builder.add_edge(AssistantNodeName.SUMMARIZER, next_node)
+        return self
 
-        return builder.compile()
+    def compile_full_graph(self):
+        return (
+            self.add_start()
+            .add_router()
+            .add_trends_planner()
+            .add_trends_generator()
+            .add_funnel_planner()
+            .add_funnel_generator()
+            .add_summarizer()
+            .compile()
+        )
+
+
+class Assistant:
+    _team: Team
+    _graph: CompiledStateGraph
+
+    def __init__(self, team: Team):
+        self._team = team
+        self._graph = AssistantGraph(team).compile_full_graph()
 
     def stream(self, conversation: Conversation) -> Generator[BaseModel, None, None]:
-        assistant_graph = self._compile_graph()
         callbacks = [langfuse_handler] if langfuse_handler else []
         messages = [message.root for message in conversation.messages]
 
         chunks = AIMessageChunk(content="")
         state: AssistantState = {"messages": messages, "intermediate_steps": None, "plan": None}
 
-        generator = assistant_graph.stream(
+        generator: Iterator[Any] = self._graph.stream(
             state,
             config={"recursion_limit": 24, "callbacks": callbacks},
-            stream_mode=["messages", "values", "updates"],
+            stream_mode=["messages", "values", "updates", "debug"],
         )
 
         chunks = AIMessageChunk(content="")
@@ -228,12 +308,15 @@ class Assistant:
                                 chunks.tool_calls[0]["args"]
                             )
                             if parsed_message:
-                                yield VisualizationMessage(
-                                    reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
-                                )
+                                yield VisualizationMessage(answer=parsed_message.query)
                         elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
                             chunks += langchain_message  # type: ignore
                             yield AssistantMessage(content=chunks.content)
-        except Exception as e:
-            capture_exception(e)
+                elif is_task_started_update(update):
+                    _, task_update = update
+                    node_name = task_update["payload"]["name"]  # type: ignore
+                    if reasoning_message := NODE_TO_REASONING_MESSAGE.get(node_name):
+                        yield ReasoningMessage(content=reasoning_message)
+        except:
             yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point
+            raise  # Re-raise, so that this is printed or  goes into Sentry

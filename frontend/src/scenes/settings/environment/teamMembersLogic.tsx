@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -27,8 +27,19 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             user,
             newLevel,
         }),
+        openAddMembersModal: true,
+        closeAddMembersModal: true,
     }),
-    loaders(({ values }) => ({
+    reducers({
+        isAddMembersModalOpen: [
+            false,
+            {
+                openAddMembersModal: () => true,
+                closeAddMembersModal: () => false,
+            },
+        ],
+    }),
+    loaders(({ actions, values }) => ({
         explicitMembers: {
             __default: [] as ExplicitTeamMemberType[],
             loadMembers: async () => {
@@ -46,6 +57,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                 lemonToast.success(
                     `Added ${newMembers.length} member${newMembers.length !== 1 ? 's' : ''} to the project.`
                 )
+                actions.closeAddMembersModal()
                 return [...values.explicitMembers, ...newMembers]
             },
             removeMember: async ({ member }: { member: BaseMemberType }) => {
@@ -175,6 +187,9 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                 </>
             )
             actions.loadMembers()
+        },
+        closeAddMembersModal: () => {
+            actions.resetAddMembers()
         },
     })),
     afterMount(({ actions }) => {

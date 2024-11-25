@@ -136,6 +136,30 @@ impl FingerprintedErrProps {
     }
 }
 
+impl OutputErrProps {
+    pub fn add_error_message(&mut self, msg: impl ToString) {
+        let mut errors = match self.other.remove("$cymbal_errors") {
+            Some(serde_json::Value::Array(errors)) => errors,
+            _ => Vec::new(),
+        };
+
+        errors.push(serde_json::Value::String(msg.to_string()));
+
+        self.other.insert(
+            "$cymbal_errors".to_string(),
+            serde_json::Value::Array(errors),
+        );
+    }
+
+    pub fn strip_frame_junk(&mut self) {
+        self.exception_list.iter_mut().for_each(|exception| {
+            if let Some(Stacktrace::Resolved { frames }) = &mut exception.stack {
+                frames.iter_mut().for_each(|frame| frame.junk_drawer = None);
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_types::ClickHouseEvent;
@@ -181,8 +205,8 @@ mod test {
         );
         assert_eq!(frame.fn_name, "?".to_string());
         assert!(frame.in_app);
-        assert_eq!(frame.line, 64);
-        assert_eq!(frame.column, 25112);
+        assert_eq!(frame.location.as_ref().unwrap().line, 64);
+        assert_eq!(frame.location.as_ref().unwrap().column, 25112);
 
         let RawFrame::JavaScript(frame) = &frames[1];
         assert_eq!(
@@ -191,8 +215,8 @@ mod test {
         );
         assert_eq!(frame.fn_name, "n.loadForeignModule".to_string());
         assert!(frame.in_app);
-        assert_eq!(frame.line, 64);
-        assert_eq!(frame.column, 15003);
+        assert_eq!(frame.location.as_ref().unwrap().line, 64);
+        assert_eq!(frame.location.as_ref().unwrap().column, 15003);
     }
 
     #[test]
