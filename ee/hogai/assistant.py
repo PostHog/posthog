@@ -150,22 +150,23 @@ class Assistant:
                 | AssistantNodeName.FUNNEL_GENERATOR
                 | AssistantNodeName.FUNNEL_PLANNER
             ):
-                substeps = []
-                if input and input.get("intermediate_steps"):
-                    for action, _ in input["intermediate_steps"]:
-                        match action.tool:
-                            case "retrieve_event_properties":
-                                substeps.append(f"Analyzing `{action.tool_input}` event's properties")
-                            case "retrieve_entity_properties":
-                                substeps.append(f"Analyzing {action.tool_input} properties")
-                            case "retrieve_event_property_values":
-                                substeps.append(
-                                    f"Exploring values of event property `{action.tool_input['property_name']}` for `{action.tool_input['event_name']}`"
-                                )
-                            case "retrieve_entity_property_values":
-                                substeps.append(
-                                    f"Exploring values of {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
-                                )
+                substeps: list[str] = []
+                if input:
+                    if intermediate_steps := input.get("intermediate_steps"):
+                        for action, _ in intermediate_steps:
+                            match action.tool:
+                                case "retrieve_event_properties":
+                                    substeps.append(f"Analyzing `{action.tool_input}` event's properties")
+                                case "retrieve_entity_properties":
+                                    substeps.append(f"Analyzing {action.tool_input} properties")
+                                case "retrieve_event_property_values":
+                                    substeps.append(
+                                        f"Exploring values of event property `{action.tool_input['property_name']}` for `{action.tool_input['event_name']}`"
+                                    )
+                                case "retrieve_entity_property_values":
+                                    substeps.append(
+                                        f"Exploring values of {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
+                                    )
                 return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
@@ -208,7 +209,8 @@ class Assistant:
         elif is_task_started_update(update):
             _, task_update = update
             node_name = task_update["payload"]["name"]  # type: ignore
-            if reasoning_message := self._node_to_reasoning_message(node_name, task_update["payload"]["input"]):
+            node_input = task_update["payload"]["input"]  # type: ignore
+            if reasoning_message := self._node_to_reasoning_message(node_name, node_input):
                 return reasoning_message
         return None
 
