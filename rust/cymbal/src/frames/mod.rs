@@ -29,7 +29,7 @@ impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
-            RawFrame::JavaScript(frame) => (frame.resolve(team_id, catalog).await, "js"),
+            RawFrame::JavaScript(frame) => (frame.resolve(team_id, catalog).await, "javascript"),
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
         };
 
