@@ -5,17 +5,63 @@ import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { useEffect, useState } from 'react'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import {
+    errorTrackingConfigurationSceneLogic,
+    ErrorTrackingConfigurationTab,
+} from './errorTrackingConfigurationSceneLogic'
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
 export const scene: SceneExport = {
     component: ErrorTrackingConfigurationScene,
-    logic: errorTrackingSymbolSetLogic,
+    logic: errorTrackingConfigurationSceneLogic,
 }
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {
+    const { activeTab } = useValues(errorTrackingConfigurationSceneLogic)
+    const { setActiveTab } = useActions(errorTrackingConfigurationSceneLogic)
+
+    return (
+        <LemonTabs
+            activeKey={activeTab}
+            tabs={[
+                {
+                    key: ErrorTrackingConfigurationTab.ALERTS,
+                    label: 'Alerts',
+                    content: <Alerts />,
+                },
+                {
+                    key: ErrorTrackingConfigurationTab.SYMBOL_SETS,
+                    label: 'Symbol sets',
+                    content: <SymbolSets />,
+                },
+            ]}
+            onChange={setActiveTab}
+        />
+    )
+}
+
+const Alerts = (): JSX.Element => {
+    return (
+        <LinkedHogFunctions
+            type="destination"
+            subTemplateId="exception"
+            filters={{
+                events: [
+                    {
+                        id: `$exception`,
+                        type: 'events',
+                    },
+                ],
+            }}
+        />
+    )
+}
+
+const SymbolSets = (): JSX.Element => {
     const { missingSymbolSets, validSymbolSets } = useValues(errorTrackingSymbolSetLogic)
 
     return (

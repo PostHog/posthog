@@ -102,7 +102,7 @@ if (inputs.debug) {
         ),
         HogFunctionSubTemplate(
             id="exception",
-            name="HTTP Webhook on Exception",
+            name="HTTP Webhook on new issue",
             filters=SUB_TEMPLATE_COMMON["exception"].filters,
             masking=SUB_TEMPLATE_COMMON["exception"].masking,
         ),

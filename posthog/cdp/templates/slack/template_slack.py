@@ -170,8 +170,8 @@ if (res.status != 200 or not res.body.ok) {
         ),
         HogFunctionSubTemplate(
             id="exception",
-            name="Post to Slack on Exception",
-            description="Posts a message to Slack when an error or exception occurs",
+            name="Post to Slack on new issue",
+            description="Posts a message to Slack when a new error or exception occurs",
             filters=SUB_TEMPLATE_COMMON["exception"].filters,
             masking=SUB_TEMPLATE_COMMON["exception"].masking,
             inputs={
