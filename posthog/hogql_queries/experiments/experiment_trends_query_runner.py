@@ -3,9 +3,11 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import LazyJoin
+from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.errors import ResolutionError
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
@@ -103,7 +105,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _get_data_warehouse_breakdown_filter(self, column_name: str) -> BreakdownFilter:
         return BreakdownFilter(
-            breakdown=f"{column_name}.properties.{self.breakdown_key}",
+            breakdown=f"phe.properties.{self.breakdown_key}",
             breakdown_type="data_warehouse",
         )
 
@@ -136,18 +138,18 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         prepared_count_query.dateRange = self._get_insight_date_range()
         if self._is_data_warehouse_query(prepared_count_query):
             column_name = self._get_data_warehouse_events_column_name(prepared_count_query)
-            if not column_name:
-                raise ValueError("Data warehouse table is expected to have a lazy join to the events table")
+            # if not column_name:
+            #     raise ValueError("Data warehouse table is expected to have a lazy join to the events table")
             prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
             prepared_count_query.properties = [
                 DataWarehousePropertyFilter(
-                    key=f"{column_name}.event",
+                    key="phe.event",
                     value="$feature_flag_called",
                     operator=PropertyOperator.EXACT,
                     type="data_warehouse",
                 ),
                 DataWarehousePropertyFilter(
-                    key=f"{column_name}.properties.{self.breakdown_key}",
+                    key=f"phe.properties.{self.breakdown_key}",
                     value=self.variants,
                     operator=PropertyOperator.EXACT,
                     type="data_warehouse",
@@ -276,7 +278,22 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
             try:
-                result = query_runner.calculate()
+                database = create_hogql_database(team_id=self.team.pk)
+                events_table = database.get_table("events")
+                if self._is_data_warehouse_query(query_runner.query):
+                    table_name = self._get_data_warehouse_table_name(query_runner.query)
+                    if not table_name:
+                        raise ValueError("Data warehouse table name not found")
+                    table = database.get_table(table_name)
+                    table.fields["events"] = LazyJoin(
+                        from_field=["distinct_id"],
+                        join_table=events_table,
+                        join_function=self._join_events_to_data_warehouse_table,
+                    )
+
+                context = HogQLContext(team_id=self.team.pk, database=database)
+
+                result = query_runner.calculate(context=context)
                 shared_results[result_key] = result
             except Exception as e:
                 errors.append(e)
@@ -415,6 +432,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def _is_data_warehouse_query(self, query: TrendsQuery) -> bool:
         return any(isinstance(series, DataWarehouseNode) for series in query.series)
 
+    def _get_data_warehouse_table_name(self, query: TrendsQuery) -> str | None:
+        return getattr(query.series[0], "table_name", None)
+
     def _get_data_warehouse_events_column_name(self, query: TrendsQuery) -> str | Literal[False] | None:
         data_warehouse_events_column_name: str | Literal[False] | None = getattr(
             self, "data_warehouse_events_column_name", None
@@ -432,10 +452,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             if not database:
                 raise ValueError("Failed to create HogQL database")
 
-            table_name = query.series[0].table_name
             if not database.model_extra:
                 raise ValueError("Database model_extra is None")
 
+            table_name = self._get_data_warehouse_table_name(query)
             if table_name not in database.model_extra:
                 raise ValueError(f"Table '{table_name}' not found in database model")
 
@@ -454,6 +474,48 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         except Exception as e:
             # You might want to log the error here
             raise ValueError(f"Failed to get data warehouse events column name: {str(e)}") from e
+
+    @staticmethod
+    def _join_events_to_data_warehouse_table(
+        join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.JoinExpr:
+        from posthog.hogql import ast
+
+        if not join_to_add.fields_accessed:
+            raise ResolutionError("No fields requested from events")
+
+        # Add properties to requested fields if not present
+        requested_fields = {**join_to_add.fields_accessed}
+        if "properties" not in requested_fields:
+            requested_fields["properties"] = ["properties"]
+
+        lateral_subquery = ast.SelectQuery(
+            select=[ast.Alias(alias=name, expr=ast.Field(chain=chain)) for name, chain in requested_fields.items()],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="phe"),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["phe", "distinct_id"]),
+                        right=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["phe", "timestamp"]),
+                        right=ast.Field(chain=[join_to_add.from_table, "timestamp"]),
+                    ),
+                ]
+            ),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["phe", "timestamp"]), order="DESC")],
+            limit=ast.Constant(value=1),
+        )
+
+        join_expr = ast.JoinExpr(table=lateral_subquery)
+        join_expr.join_type = "LEFT JOIN LATERAL"
+        join_expr.alias = join_to_add.to_table
+        join_expr.constraint = ast.JoinConstraint(expr=ast.Constant(value=True), constraint_type="ON")
+
+        return join_expr
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
