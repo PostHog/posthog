@@ -43,9 +43,7 @@ fn python_exceptions() {
             };
             frames
         })
-        // Some (useless) python frames are indistinguishable from js frames right now, since we don't have language tagging at the frame level yet
         .map(|f| {
-            println!("UNWRAPPING FRAME: {:?}", f);
             let RawFrame::Python(f) = f else {
                 panic!("Expected a Python frame")
             };
@@ -54,9 +52,5 @@ fn python_exceptions() {
         })
         .collect::<Vec<_>>();
 
-    assert!(!frames.is_empty());
-
-    for frame in frames {
-        println!("{}", frame)
-    }
+    assert_eq!(frames.len(), 31);
 }
