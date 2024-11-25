@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 import posthoganalytics
@@ -15,6 +16,7 @@ from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
@@ -27,6 +29,7 @@ from posthog.tasks.email import send_invite
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     send_email = serializers.BooleanField(write_only=True, default=True)
+    combine_pending_invites = serializers.BooleanField(write_only=True, default=False)
 
     class Meta:
         model = OrganizationInvite
@@ -43,6 +46,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "message",
             "private_project_access",
             "send_email",
+            "combine_pending_invites",
         ]
         read_only_fields = [
             "id",
@@ -107,12 +111,65 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             user__email=validated_data["target_email"],
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
+
+        combine_pending_invites = validated_data.pop("combine_pending_invites", False)
         send_email = validated_data.pop("send_email", True)
+        # Get existing non-expired invites
+        existing_invites = OrganizationInvite.objects.filter(
+            organization_id=self.context["organization_id"],
+            target_email=validated_data["target_email"],
+            created_at__gt=datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY),  # Invites expire after 3 days
+        ).order_by("-created_at")
+
+        if combine_pending_invites and existing_invites.exists():
+            # Use most recent invite as base
+            base_invite = existing_invites.first()
+            # first() returns None if no results exist, but we just checked exists() so we know it's not None
+            assert base_invite is not None
+
+            # Use highest level
+            highest_level = max(
+                [base_invite.level]
+                + [invite.level for invite in existing_invites[1:]]
+                + [validated_data.get("level", OrganizationMembership.Level.MEMBER)]
+            )
+            validated_data["level"] = highest_level
+
+            # Combine private_project_access
+            combined_access = {}
+            # Add current invite's access
+            if validated_data.get("private_project_access"):
+                for access in validated_data["private_project_access"]:
+                    combined_access[access["id"]] = access["level"]
+
+            # Add existing invites' private project access
+            for existing_invite in existing_invites:
+                if existing_invite.private_project_access:
+                    for access in existing_invite.private_project_access:
+                        if access["id"] not in combined_access or access["level"] > combined_access[access["id"]]:
+                            combined_access[access["id"]] = access["level"]
+
+            validated_data["private_project_access"] = [
+                {"id": project_id, "level": level} for project_id, level in combined_access.items()
+            ]
+
+        # Delete existing invites
+        existing_invites.delete()
+
+        # delete any existing expired invites
+        expired_invites = OrganizationInvite.objects.filter(
+            organization_id=self.context["organization_id"],
+            created_at__lt=datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        )
+        expired_invites.delete()
+
+        # Create new invite
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"],
             created_by=self.context["request"].user,
             **validated_data,
         )
+
         if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
             send_invite(invite_id=invite.id)
