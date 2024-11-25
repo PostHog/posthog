@@ -6,5 +6,4 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class SchemaGeneratorOutput(BaseModel, Generic[T]):
-    reasoning_steps: Optional[list[str]] = None
-    answer: Optional[T] = None
+    query: Optional[T] = None
