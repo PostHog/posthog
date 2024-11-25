@@ -7,7 +7,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd
 from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.errors import ResolutionError
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
@@ -481,39 +480,28 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     ) -> ast.JoinExpr:
         from posthog.hogql import ast
 
-        if not join_to_add.fields_accessed:
-            raise ResolutionError("No fields requested from events")
-
-        # Add properties to requested fields if not present
-        requested_fields = {**join_to_add.fields_accessed}
-        if "properties" not in requested_fields:
-            requested_fields["properties"] = ["properties"]
-
-        lateral_subquery = ast.SelectQuery(
-            select=[ast.Alias(alias=name, expr=ast.Field(chain=chain)) for name, chain in requested_fields.items()],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias=join_to_add.to_table),
-            where=ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
-                        right=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
-                        left=ast.Field(chain=[join_to_add.to_table, "timestamp"]),
-                        right=ast.Field(chain=[join_to_add.from_table, "timestamp"]),
-                    ),
-                ]
+        join_expr = ast.JoinExpr(
+            table=ast.Field(chain=["events"]),
+            join_type="ASOF LEFT JOIN",
+            alias=join_to_add.to_table,
+            constraint=ast.JoinConstraint(
+                expr=ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
+                        ),
+                        ast.CompareOperation(
+                            left=ast.Field(chain=[join_to_add.from_table, "timestamp"]),
+                            op=ast.CompareOperationOp.GtEq,
+                            right=ast.Field(chain=[join_to_add.to_table, "timestamp"]),
+                        ),
+                    ]
+                ),
+                constraint_type="ON",
             ),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=[join_to_add.to_table, "timestamp"]), order="DESC")],
-            limit=ast.Constant(value=1),
         )
-
-        join_expr = ast.JoinExpr(table=lateral_subquery)
-        join_expr.join_type = "LEFT JOIN LATERAL"
-        join_expr.alias = join_to_add.to_table
-        join_expr.constraint = ast.JoinConstraint(expr=ast.Constant(value=True), constraint_type="ON")
 
         return join_expr
 
