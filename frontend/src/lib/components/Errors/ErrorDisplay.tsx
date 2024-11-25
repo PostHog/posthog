@@ -1,6 +1,5 @@
 import './ErrorDisplay.scss'
 
-import { IconFlag } from '@posthog/icons'
 import { LemonBanner, LemonCollapse } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
@@ -160,28 +159,6 @@ function ChainedStackTraces({
     )
 }
 
-function ActiveFlags({ flags }: { flags: string[] }): JSX.Element {
-    return (
-        <>
-            {flags && flags.length ? (
-                <div className="flex flex-row gap-2 flex-wrap">
-                    {flags.map((flag, index) => {
-                        return (
-                            <div key={index} className="border rounded px-1.5 py-1 bg-primary-alt-highlight text-muted">
-                                <IconFlag className="pr-1" />
-
-                                {flag}
-                            </div>
-                        )
-                    })}
-                </div>
-            ) : (
-                <div>No active feature flags</div>
-            )}
-        </>
-    )
-}
-
 export function getExceptionPropertiesFrom(eventProperties: Record<string, any>): Record<string, any> {
     const {
         $lib,
@@ -247,7 +224,6 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $browser_version,
         $os,
         $os_version,
-        $active_feature_flags,
         $sentry_url,
         $exception_list,
         $level,
@@ -287,10 +263,6 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 <ChainedStackTraces exceptionList={$exception_list} ingestionErrors={$cymbal_errors} />
             ) : null}
             <LemonDivider dashed={true} />
-            <div className="flex flex-col gap-1 mt-6">
-                <h2 className="mb-0">Active Feature Flags</h2>
-                <ActiveFlags flags={$active_feature_flags} />
-            </div>
         </div>
     )
 }
