@@ -19,6 +19,7 @@ import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/ins
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -53,7 +54,6 @@ import {
     FunnelCorrelation,
     HelpType,
     InsightShortId,
-    InspectorListItemType,
     MultipleSurveyQuestion,
     PersonType,
     PropertyFilterType,
@@ -443,10 +443,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingInspectorItemExpanded: (
-            tab: InspectorListItemType | 'offline-status' | 'browser-visibility' | 'comment' | 'inspector-summary',
-            index: number
-        ) => ({ tab, index }),
+        reportRecordingInspectorItemExpanded: (tab: InspectorListItemType, index: number) => ({ tab, index }),
         reportRecordingInspectorMiniFilterViewed: (minifilterKey: MiniFilterKey, enabled: boolean) => ({
             minifilterKey,
             enabled,

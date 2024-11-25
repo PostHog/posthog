@@ -5,7 +5,7 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
-import { InspectorListItemType } from '~/types'
+import { FilterableInspectorListItemTypes } from '~/types'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
@@ -20,8 +20,8 @@ function HideProperties(): JSX.Element | null {
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
-    const hasEventsFiltersSelected = miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled)
-    const hasEventsToDisplay = allItemsByItemType[InspectorListItemType.EVENTS]?.length > 0
+    const hasEventsFiltersSelected = miniFiltersForType(FilterableInspectorListItemTypes.EVENTS).some((x) => x.enabled)
+    const hasEventsToDisplay = allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0
 
     return (
         <SettingsToggle
@@ -72,8 +72,8 @@ function ShowOnlyMatching(): JSX.Element {
     const { showOnlyMatching, miniFiltersForType } = useValues(miniFiltersLogic)
     const { setShowOnlyMatching } = useActions(miniFiltersLogic)
 
-    const hasEventsFiltersSelected = miniFiltersForType(InspectorListItemType.EVENTS).some((x) => x.enabled)
-    const hasEventsToDisplay = allItemsByItemType[InspectorListItemType.EVENTS]?.length > 0
+    const hasEventsFiltersSelected = miniFiltersForType(FilterableInspectorListItemTypes.EVENTS).some((x) => x.enabled)
+    const hasEventsToDisplay = allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0
 
     return (
         <SettingsToggle

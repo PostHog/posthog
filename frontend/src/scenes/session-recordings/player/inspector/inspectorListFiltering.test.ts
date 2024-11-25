@@ -8,7 +8,7 @@ import {
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { InspectorListItemType, PerformanceEvent } from '~/types'
+import { FilterableInspectorListItemTypes, PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {
     it('hides context events when no other events', () => {
@@ -82,12 +82,12 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: InspectorListItemType.EVENTS,
+                        type: FilterableInspectorListItemTypes.EVENTS,
                         windowId: 'this window',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                     {
-                        type: InspectorListItemType.EVENTS,
+                        type: FilterableInspectorListItemTypes.EVENTS,
                         windowId: 'a different window',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
@@ -105,7 +105,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: InspectorListItemType.EVENTS,
+                        type: FilterableInspectorListItemTypes.EVENTS,
                         data: { event: 'an event' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],
@@ -125,7 +125,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: InspectorListItemType.EVENTS,
+                        type: FilterableInspectorListItemTypes.EVENTS,
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],

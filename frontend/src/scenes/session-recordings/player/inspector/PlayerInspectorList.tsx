@@ -8,7 +8,7 @@ import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
-import { InspectorListItemType } from '~/types'
+import { FilterableInspectorListItemTypes } from '~/types'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
@@ -125,15 +125,15 @@ export function PlayerInspectorList(): JSX.Element {
                         )}
                     </AutoSizer>
                 </div>
-            ) : inspectorDataState[InspectorListItemType.EVENTS] === 'loading' ||
-              inspectorDataState[InspectorListItemType.CONSOLE] === 'loading' ||
-              inspectorDataState[InspectorListItemType.NETWORK] === 'loading' ? (
+            ) : inspectorDataState[FilterableInspectorListItemTypes.EVENTS] === 'loading' ||
+              inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'loading' ||
+              inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'loading' ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
-            ) : inspectorDataState[InspectorListItemType.EVENTS] === 'ready' ||
-              inspectorDataState[InspectorListItemType.CONSOLE] === 'ready' ||
-              inspectorDataState[InspectorListItemType.NETWORK] === 'ready' ? (
+            ) : inspectorDataState[FilterableInspectorListItemTypes.EVENTS] === 'ready' ||
+              inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'ready' ||
+              inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'ready' ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
                 <div className="p-16 text-center text-muted-alt">No results matching your filters.</div>
             ) : null}

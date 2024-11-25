@@ -10,12 +10,12 @@ import {
     SessionRecordingDataLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { InspectorListItemType, PerformanceEvent, RecordingEventType } from '~/types'
+import { FilterableInspectorListItemTypes, PerformanceEvent, RecordingEventType } from '~/types'
 
 import type { performanceEventDataLogicType } from './performanceEventDataLogicType'
 
 export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: InspectorListItemType.NETWORK
+    type: FilterableInspectorListItemTypes.NETWORK
     data: PerformanceEvent
 }
 

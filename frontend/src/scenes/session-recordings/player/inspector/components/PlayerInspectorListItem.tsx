@@ -22,7 +22,7 @@ import { ItemSummary } from 'scenes/session-recordings/player/inspector/componen
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
-import { InspectorListItemType } from '~/types'
+import { FilterableInspectorListItemTypes } from '~/types'
 
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
@@ -36,15 +36,15 @@ import { ItemEvent, ItemEventDetail } from './ItemEvent'
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
-    [InspectorListItemType.EVENTS]: {
+    [FilterableInspectorListItemTypes.EVENTS]: {
         Icon: undefined,
         tooltip: 'Recording event',
     },
-    [InspectorListItemType.CONSOLE]: {
+    [FilterableInspectorListItemTypes.CONSOLE]: {
         Icon: IconTerminal,
         tooltip: 'Console log',
     },
-    [InspectorListItemType.NETWORK]: {
+    [FilterableInspectorListItemTypes.NETWORK]: {
         Icon: IconDashboard,
         tooltip: 'Network event',
     },
@@ -118,11 +118,11 @@ function RowItemTitle({
 }): JSX.Element {
     return (
         <div className="flex items-center text-text-3000" data-attr="row-item-title">
-            {item.type === InspectorListItemType.NETWORK ? (
+            {item.type === FilterableInspectorListItemTypes.NETWORK ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === InspectorListItemType.CONSOLE ? (
+            ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (
                 <ItemConsoleLog item={item} />
-            ) : item.type === InspectorListItemType.EVENTS ? (
+            ) : item.type === FilterableInspectorListItemTypes.EVENTS ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
                 <div className="flex w-full items-start p-2 text-xs font-light font-mono">
@@ -132,7 +132,7 @@ function RowItemTitle({
                 <div className="flex w-full items-start px-2 py-1 font-light font-mono text-xs">
                     Window became {item.status}
                 </div>
-            ) : item.type === InspectorListItemType.DOCTOR ? (
+            ) : item.type === FilterableInspectorListItemTypes.DOCTOR ? (
                 <ItemDoctor item={item} />
             ) : item.type === 'comment' ? (
                 <ItemComment item={item} />
@@ -156,14 +156,14 @@ function RowItemDetail({
 }): JSX.Element | null {
     return (
         <div onClick={onClick}>
-            {item.type === InspectorListItemType.NETWORK ? (
+            {item.type === FilterableInspectorListItemTypes.NETWORK ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === InspectorListItemType.CONSOLE ? (
+            ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (
                 <ItemConsoleLogDetail item={item} />
-            ) : item.type === InspectorListItemType.EVENTS ? (
+            ) : item.type === FilterableInspectorListItemTypes.EVENTS ? (
                 <ItemEventDetail item={item} />
             ) : item.type === 'offline-status' ? null : item.type === 'browser-visibility' ? null : item.type ===
-              InspectorListItemType.DOCTOR ? (
+              FilterableInspectorListItemTypes.DOCTOR ? (
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemCommentDetail item={item} />

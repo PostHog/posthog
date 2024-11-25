@@ -2,12 +2,12 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InspectorListItemType } from '~/types'
+import { FilterableInspectorListItemTypes } from '~/types'
 
 import type { miniFiltersLogicType } from './miniFiltersLogicType'
 
 export type SharedListMiniFilter = {
-    type: InspectorListItemType
+    type: FilterableInspectorListItemTypes
     key: string
     name: string
     tooltip?: string
@@ -16,88 +16,88 @@ export type SharedListMiniFilter = {
 
 const MiniFilters: SharedListMiniFilter[] = [
     {
-        type: InspectorListItemType.EVENTS,
+        type: FilterableInspectorListItemTypes.EVENTS,
         key: 'events-posthog',
         name: 'PostHog',
         tooltip: 'Standard PostHog events except Pageviews, Autocapture, and Exceptions.',
     },
     {
-        type: InspectorListItemType.EVENTS,
+        type: FilterableInspectorListItemTypes.EVENTS,
         key: 'events-custom',
         name: 'Custom',
         tooltip: 'Custom events tracked by your app',
     },
     {
-        type: InspectorListItemType.EVENTS,
+        type: FilterableInspectorListItemTypes.EVENTS,
         key: 'events-pageview',
         name: 'Pageview / Screen',
         tooltip: 'Pageview (or Screen for mobile) events',
     },
     {
-        type: InspectorListItemType.EVENTS,
+        type: FilterableInspectorListItemTypes.EVENTS,
         key: 'events-autocapture',
         name: 'Autocapture',
         tooltip: 'Autocapture events such as clicks and inputs',
     },
     {
-        type: InspectorListItemType.EVENTS,
+        type: FilterableInspectorListItemTypes.EVENTS,
         key: 'events-exceptions',
         name: 'Exceptions',
         tooltip: 'Exception events from PostHog or its Sentry integration',
     },
     {
-        type: InspectorListItemType.CONSOLE,
+        type: FilterableInspectorListItemTypes.CONSOLE,
         key: 'console-info',
         name: 'Info',
     },
     {
-        type: InspectorListItemType.CONSOLE,
+        type: FilterableInspectorListItemTypes.CONSOLE,
         key: 'console-warn',
         name: 'Warn',
     },
     {
-        type: InspectorListItemType.CONSOLE,
+        type: FilterableInspectorListItemTypes.CONSOLE,
         key: 'console-error',
         name: 'Error',
     },
     {
-        type: InspectorListItemType.NETWORK,
+        type: FilterableInspectorListItemTypes.NETWORK,
         key: 'performance-fetch',
         name: 'Fetch/XHR',
         tooltip: 'Requests during the session to external resources like APIs via XHR or Fetch',
     },
     {
-        type: InspectorListItemType.NETWORK,
+        type: FilterableInspectorListItemTypes.NETWORK,
         key: 'performance-document',
         name: 'Doc',
         tooltip: 'Page load information collected on a fresh browser page load, refresh, or page paint.',
     },
     {
-        type: InspectorListItemType.NETWORK,
+        type: FilterableInspectorListItemTypes.NETWORK,
         key: 'performance-assets-js',
         name: 'JS',
         tooltip: 'Scripts loaded during the session.',
     },
     {
-        type: InspectorListItemType.NETWORK,
+        type: FilterableInspectorListItemTypes.NETWORK,
         key: 'performance-assets-css',
         name: 'CSS',
         tooltip: 'CSS loaded during the session.',
     },
     {
-        type: InspectorListItemType.NETWORK,
+        type: FilterableInspectorListItemTypes.NETWORK,
         key: 'performance-assets-img',
         name: 'Img',
         tooltip: 'Images loaded during the session.',
     },
     {
-        type: InspectorListItemType.NETWORK,
+        type: FilterableInspectorListItemTypes.NETWORK,
         key: 'performance-other',
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
     },
     {
-        type: InspectorListItemType.DOCTOR,
+        type: FilterableInspectorListItemTypes.DOCTOR,
         key: 'doctor',
         name: 'Doctor',
         tooltip:
@@ -162,8 +162,8 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     selectors({
         miniFiltersForType: [
             (s) => [s.selectedMiniFilters],
-            (selectedMiniFilters): ((tab: InspectorListItemType) => SharedListMiniFilter[]) => {
-                return (tab: InspectorListItemType) => {
+            (selectedMiniFilters): ((tab: FilterableInspectorListItemTypes) => SharedListMiniFilter[]) => {
+                return (tab: FilterableInspectorListItemTypes) => {
                     return MiniFilters.filter((filter) => filter.type === tab).map((x) => ({
                         ...x,
                         enabled: selectedMiniFilters.includes(x.key),
@@ -194,7 +194,9 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
 
         miniFiltersForTypeByKey: [
             (s) => [s.miniFiltersForType],
-            (miniFiltersForType): ((tab: InspectorListItemType) => { [key: string]: SharedListMiniFilter }) => {
+            (
+                miniFiltersForType
+            ): ((tab: FilterableInspectorListItemTypes) => { [key: string]: SharedListMiniFilter }) => {
                 return (tab) => {
                     return miniFiltersForType(tab).reduce((acc, filter) => {
                         acc[filter.key] = filter

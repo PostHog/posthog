@@ -21,16 +21,16 @@ import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-import { InspectorListItemType } from '~/types'
+import { FilterableInspectorListItemTypes } from '~/types'
 
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
 export const TabToIcon = {
-    [InspectorListItemType.EVENTS]: IconUnverifiedEvent,
-    [InspectorListItemType.CONSOLE]: IconTerminal,
-    [InspectorListItemType.NETWORK]: IconDashboard,
-    [InspectorListItemType.DOCTOR]: IconBug,
+    [FilterableInspectorListItemTypes.EVENTS]: IconUnverifiedEvent,
+    [FilterableInspectorListItemTypes.CONSOLE]: IconTerminal,
+    [FilterableInspectorListItemTypes.NETWORK]: IconDashboard,
+    [FilterableInspectorListItemTypes.DOCTOR]: IconBug,
 }
 
 export function PlayerInspectorControls(): JSX.Element {
@@ -54,7 +54,7 @@ export function PlayerInspectorControls(): JSX.Element {
         }
     }, [])
 
-    function filterMenuForType(type: InspectorListItemType): LemonMenuItem[] {
+    function filterMenuForType(type: FilterableInspectorListItemTypes): LemonMenuItem[] {
         return miniFiltersForType(type)
             ?.filter((x) => x.name !== 'All')
             .map(
@@ -84,11 +84,11 @@ export function PlayerInspectorControls(): JSX.Element {
             )
     }
 
-    const eventsFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.EVENTS)
-    const consoleFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.CONSOLE)
-    const hasConsoleItems = allItemsByItemType[InspectorListItemType.CONSOLE]?.length > 0
-    const networkFilters: LemonMenuItem[] = filterMenuForType(InspectorListItemType.NETWORK)
-    const hasNetworkItems = allItemsByItemType[InspectorListItemType.NETWORK]?.length > 0
+    const eventsFilters: LemonMenuItem[] = filterMenuForType(FilterableInspectorListItemTypes.EVENTS)
+    const consoleFilters: LemonMenuItem[] = filterMenuForType(FilterableInspectorListItemTypes.CONSOLE)
+    const hasConsoleItems = allItemsByItemType[FilterableInspectorListItemTypes.CONSOLE]?.length > 0
+    const networkFilters: LemonMenuItem[] = filterMenuForType(FilterableInspectorListItemTypes.NETWORK)
+    const hasNetworkItems = allItemsByItemType[FilterableInspectorListItemTypes.NETWORK]?.length > 0
 
     return (
         <div className="bg-bg-3000 border-b">
@@ -97,13 +97,13 @@ export function PlayerInspectorControls(): JSX.Element {
                     {mode !== SessionRecordingPlayerMode.Sharing && (
                         <SettingsMenu
                             items={eventsFilters}
-                            label={capitalizeFirstLetter(InspectorListItemType.EVENTS)}
+                            label={capitalizeFirstLetter(FilterableInspectorListItemTypes.EVENTS)}
                             icon={<IconUnverifiedEvent />}
                         />
                     )}
                     <SettingsMenu
                         items={consoleFilters}
-                        label={capitalizeFirstLetter(InspectorListItemType.CONSOLE)}
+                        label={capitalizeFirstLetter(FilterableInspectorListItemTypes.CONSOLE)}
                         icon={<IconTerminal />}
                         isAvailable={hasConsoleItems || !!currentTeam?.capture_console_log_opt_in}
                         whenUnavailable={{
@@ -114,7 +114,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     />
                     <SettingsMenu
                         items={networkFilters}
-                        label={capitalizeFirstLetter(InspectorListItemType.NETWORK)}
+                        label={capitalizeFirstLetter(FilterableInspectorListItemTypes.NETWORK)}
                         icon={<IconDashboard />}
                         isAvailable={hasNetworkItems || !!currentTeam?.capture_performance_opt_in}
                         whenUnavailable={{

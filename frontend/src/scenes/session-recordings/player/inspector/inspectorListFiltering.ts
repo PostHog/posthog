@@ -8,7 +8,7 @@ import {
     InspectorListItemEvent,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { InspectorListItemType } from '~/types'
+import { FilterableInspectorListItemTypes } from '~/types'
 
 const PostHogMobileEvents = [
     'Deep Link Opened',
@@ -28,7 +28,7 @@ function isPostHogEvent(item: InspectorListItem): boolean {
 }
 
 function isNetworkEvent(item: InspectorListItem): item is InspectorListItemPerformance {
-    return item.type === InspectorListItemType.NETWORK
+    return item.type === FilterableInspectorListItemTypes.NETWORK
 }
 
 function isNavigationEvent(item: InspectorListItem): boolean {
@@ -36,7 +36,7 @@ function isNavigationEvent(item: InspectorListItem): boolean {
 }
 
 function isEvent(item: InspectorListItem): item is InspectorListItemEvent {
-    return item.type === InspectorListItemType.EVENTS
+    return item.type === FilterableInspectorListItemTypes.EVENTS
 }
 
 function isPageviewOrScreen(item: InspectorListItem): boolean {
@@ -48,7 +48,7 @@ function isAutocapture(item: InspectorListItem): boolean {
 }
 
 function isConsoleEvent(item: InspectorListItem): item is InspectorListItemConsole {
-    return item.type === InspectorListItemType.CONSOLE
+    return item.type === FilterableInspectorListItemTypes.CONSOLE
 }
 
 function isConsoleError(item: InspectorListItem): boolean {
@@ -150,13 +150,13 @@ export function itemToMiniFilter(
     miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
 ): SharedListMiniFilter | null {
     switch (item.type) {
-        case InspectorListItemType.EVENTS:
+        case FilterableInspectorListItemTypes.EVENTS:
             return eventsMatch(item, miniFiltersByKey)
-        case InspectorListItemType.CONSOLE:
+        case FilterableInspectorListItemTypes.CONSOLE:
             return consoleMatch(item, miniFiltersByKey)
-        case InspectorListItemType.NETWORK:
+        case FilterableInspectorListItemTypes.NETWORK:
             return networkMatch(item, miniFiltersByKey)
-        case InspectorListItemType.DOCTOR:
+        case FilterableInspectorListItemTypes.DOCTOR:
             if (isDoctorEvent(item)) {
                 return miniFiltersByKey['doctor']
             }
