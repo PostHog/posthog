@@ -261,6 +261,7 @@ class AssistantMessage(BaseModel):
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     AI = "ai"
+    AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
     AI_ROUTER = "ai/router"
@@ -673,6 +674,27 @@ class DatetimeDay(RootModel[AwareDatetime]):
 
 class Day(RootModel[int]):
     root: int
+
+
+class DefaultChannelTypes(StrEnum):
+    CROSS_NETWORK = "Cross Network"
+    PAID_SEARCH = "Paid Search"
+    PAID_SOCIAL = "Paid Social"
+    PAID_VIDEO = "Paid Video"
+    PAID_SHOPPING = "Paid Shopping"
+    PAID_UNKNOWN = "Paid Unknown"
+    DIRECT = "Direct"
+    ORGANIC_SEARCH = "Organic Search"
+    ORGANIC_SOCIAL = "Organic Social"
+    ORGANIC_VIDEO = "Organic Video"
+    ORGANIC_SHOPPING = "Organic Shopping"
+    PUSH = "Push"
+    SMS = "SMS"
+    AUDIO = "Audio"
+    EMAIL = "Email"
+    REFERRAL = "Referral"
+    AFFILIATE = "Affiliate"
+    UNKNOWN = "Unknown"
 
 
 class DurationType(StrEnum):
@@ -1395,6 +1417,15 @@ class QueryTiming(BaseModel):
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
 
 
+class ReasoningMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    done: Literal[True] = True
+    type: Literal["ai/reasoning"] = "ai/reasoning"
+
+
 class RecordingOrder(StrEnum):
     DURATION = "duration"
     RECORDING_DURATION = "recording_duration"
@@ -1692,6 +1723,7 @@ class WebStatsBreakdown(StrEnum):
     COUNTRY = "Country"
     REGION = "Region"
     CITY = "City"
+    TIMEZONE = "Timezone"
 
 
 class Scale(StrEnum):
@@ -2085,6 +2117,7 @@ class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    id: str
     key: CustomChannelField
     op: CustomChannelOperator
     value: Optional[Union[str, list[str]]] = None
@@ -2096,7 +2129,8 @@ class CustomChannelRule(BaseModel):
     )
     channel_type: str
     combiner: FilterLogicalOperator
-    conditions: list[CustomChannelCondition]
+    id: str
+    items: list[CustomChannelCondition]
 
 
 class DataWarehousePersonPropertyFilter(BaseModel):
@@ -5549,7 +5583,6 @@ class VisualizationMessage(BaseModel):
     answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery]] = None
     done: Optional[bool] = None
     plan: Optional[str] = None
-    reasoning_steps: Optional[list[str]] = None
     type: Literal["ai/viz"] = "ai/viz"
 
 
@@ -5936,9 +5969,11 @@ class RetentionQuery(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]]
+    RootModel[
+        Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    ]
 ):
-    root: Union[VisualizationMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
 
 
 class StickinessQuery(BaseModel):
