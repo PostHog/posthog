@@ -11,7 +11,7 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const stickinessCriteria = stickinessFilter?.stickinessCriteria
-    const currentOperator = stickinessCriteria?.operator ?? PropertyOperator.Exact
+    const currentOperator = stickinessCriteria?.operator ?? PropertyOperator.GreaterThanOrEqual
     const currentValue = stickinessCriteria?.value ?? 1
 
     /*
