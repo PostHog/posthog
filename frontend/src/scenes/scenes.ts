@@ -65,6 +65,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Error tracking',
     },
+    [Scene.ErrorTrackingConfiguration]: {
+        projectBased: true,
+        name: 'Error tracking configuration',
+    },
     [Scene.ErrorTrackingGroup]: {
         projectBased: true,
         name: 'Error tracking group',
@@ -130,6 +134,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Replay recording',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.CustomCss]: {
+        projectBased: true,
+        name: 'Custom CSS',
     },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
@@ -539,6 +547,7 @@ export const routes: Record<string, Scene> = {
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.pipelineNode(':stage', ':id')]: Scene.PipelineNode,
+    [urls.customCss()]: Scene.CustomCss,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
@@ -549,6 +558,7 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.errorTracking()]: Scene.ErrorTracking,
+    [urls.errorTrackingConfiguration()]: Scene.ErrorTrackingConfiguration,
     [urls.errorTrackingGroup(':fingerprint')]: Scene.ErrorTrackingGroup,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,

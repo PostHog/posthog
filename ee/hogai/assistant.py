@@ -1,37 +1,36 @@
-from collections.abc import Generator, Hashable, Iterator
-from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union, cast
+from collections.abc import AsyncGenerator, Generator, Iterator
+from functools import partial
+from typing import Any, Literal, Optional, TypedDict, TypeGuard, Union
 
+from asgiref.sync import sync_to_async
 from langchain_core.messages import AIMessageChunk
 from langfuse.callback import CallbackHandler
-from langgraph.graph.state import CompiledStateGraph, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from ee import settings
 from ee.hogai.funnels.nodes import (
     FunnelGeneratorNode,
-    FunnelGeneratorToolsNode,
-    FunnelPlannerNode,
-    FunnelPlannerToolsNode,
 )
-from ee.hogai.router.nodes import RouterNode
+from ee.hogai.graph import AssistantGraph
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
-from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
-    TrendsGeneratorToolsNode,
-    TrendsPlannerNode,
-    TrendsPlannerToolsNode,
 )
 from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
-from posthog.models.team.team import Team
+from posthog.event_usage import report_user_action
+from posthog.models import Team, User
 from posthog.schema import (
+    AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
     FailureMessage,
+    HumanMessage,
     ReasoningMessage,
     VisualizationMessage,
 )
+from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 if settings.LANGFUSE_PUBLIC_KEY:
     langfuse_handler = CallbackHandler(
@@ -82,7 +81,6 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
 }
 
-
 NODE_TO_REASONING_MESSAGE: dict[AssistantNodeName, str] = {
     AssistantNodeName.ROUTER: "Identifying type of analysis",
     AssistantNodeName.TRENDS_PLANNER: "Picking relevant events and properties",
@@ -92,231 +90,113 @@ NODE_TO_REASONING_MESSAGE: dict[AssistantNodeName, str] = {
 }
 
 
-class AssistantGraph:
-    _team: Team
-    _graph: StateGraph
-
-    def __init__(self, team: Team):
-        self._team = team
-        self._graph = StateGraph(AssistantState)
-        self._has_start_node = False
-
-    def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
-        if from_node == AssistantNodeName.START:
-            self._has_start_node = True
-        self._graph.add_edge(from_node, to_node)
-        return self
-
-    def compile(self):
-        if not self._has_start_node:
-            raise ValueError("Start node not added to the graph")
-        return self._graph.compile()
-
-    def add_start(self):
-        return self.add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
-
-    def add_router(
-        self,
-        path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
-    ):
-        builder = self._graph
-        path_map = path_map or {
-            "trends": AssistantNodeName.TRENDS_PLANNER,
-            "funnel": AssistantNodeName.FUNNEL_PLANNER,
-        }
-        router_node = RouterNode(self._team)
-        builder.add_node(AssistantNodeName.ROUTER, router_node.run)
-        builder.add_conditional_edges(
-            AssistantNodeName.ROUTER,
-            router_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
-        )
-        return self
-
-    def add_trends_planner(self, next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR):
-        builder = self._graph
-
-        create_trends_plan_node = TrendsPlannerNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node.run)
-        builder.add_conditional_edges(
-            AssistantNodeName.TRENDS_PLANNER,
-            create_trends_plan_node.router,
-            path_map={
-                "tools": AssistantNodeName.TRENDS_PLANNER_TOOLS,
-            },
-        )
-
-        create_trends_plan_tools_node = TrendsPlannerToolsNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_PLANNER_TOOLS, create_trends_plan_tools_node.run)
-        builder.add_conditional_edges(
-            AssistantNodeName.TRENDS_PLANNER_TOOLS,
-            create_trends_plan_tools_node.router,
-            path_map={
-                "continue": AssistantNodeName.TRENDS_PLANNER,
-                "plan_found": next_node,
-            },
-        )
-
-        return self
-
-    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
-        builder = self._graph
-
-        trends_generator = TrendsGeneratorNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_GENERATOR, trends_generator.run)
-
-        trends_generator_tools = TrendsGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, trends_generator_tools.run)
-
-        builder.add_edge(AssistantNodeName.TRENDS_GENERATOR_TOOLS, AssistantNodeName.TRENDS_GENERATOR)
-        builder.add_conditional_edges(
-            AssistantNodeName.TRENDS_GENERATOR,
-            trends_generator.router,
-            path_map={
-                "tools": AssistantNodeName.TRENDS_GENERATOR_TOOLS,
-                "next": next_node,
-            },
-        )
-
-        return self
-
-    def add_funnel_planner(self, next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR):
-        builder = self._graph
-
-        funnel_planner = FunnelPlannerNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner.run)
-        builder.add_conditional_edges(
-            AssistantNodeName.FUNNEL_PLANNER,
-            funnel_planner.router,
-            path_map={
-                "tools": AssistantNodeName.FUNNEL_PLANNER_TOOLS,
-            },
-        )
-
-        funnel_planner_tools = FunnelPlannerToolsNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_PLANNER_TOOLS, funnel_planner_tools.run)
-        builder.add_conditional_edges(
-            AssistantNodeName.FUNNEL_PLANNER_TOOLS,
-            funnel_planner_tools.router,
-            path_map={
-                "continue": AssistantNodeName.FUNNEL_PLANNER,
-                "plan_found": next_node,
-            },
-        )
-
-        return self
-
-    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
-        builder = self._graph
-
-        funnel_generator = FunnelGeneratorNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator.run)
-
-        funnel_generator_tools = FunnelGeneratorToolsNode(self._team)
-        builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools.run)
-
-        builder.add_edge(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, AssistantNodeName.FUNNEL_GENERATOR)
-        builder.add_conditional_edges(
-            AssistantNodeName.FUNNEL_GENERATOR,
-            funnel_generator.router,
-            path_map={
-                "tools": AssistantNodeName.FUNNEL_GENERATOR_TOOLS,
-                "next": next_node,
-            },
-        )
-
-        return self
-
-    def add_summarizer(self, next_node: AssistantNodeName = AssistantNodeName.END):
-        builder = self._graph
-        summarizer_node = SummarizerNode(self._team)
-        builder.add_node(AssistantNodeName.SUMMARIZER, summarizer_node.run)
-        builder.add_edge(AssistantNodeName.SUMMARIZER, next_node)
-        return self
-
-    def compile_full_graph(self):
-        return (
-            self.add_start()
-            .add_router()
-            .add_trends_planner()
-            .add_trends_generator()
-            .add_funnel_planner()
-            .add_funnel_generator()
-            .add_summarizer()
-            .compile()
-        )
-
-
 class Assistant:
     _team: Team
     _graph: CompiledStateGraph
+    _user: Optional[User]
+    _conversation: Conversation
 
-    def __init__(self, team: Team):
+    def __init__(self, team: Team, conversation: Conversation, user: Optional[User] = None):
         self._team = team
+        self._user = user
+        self._conversation = conversation
         self._graph = AssistantGraph(team).compile_full_graph()
+        self._chunks = AIMessageChunk(content="")
 
-    def stream(self, conversation: Conversation) -> Generator[BaseModel, None, None]:
+    def stream(self):
+        if SERVER_GATEWAY_INTERFACE == "ASGI":
+            return self._astream()
+        return self._stream()
+
+    async def _astream(self) -> AsyncGenerator[str, None]:
+        generator = self._stream()
+        while True:
+            try:
+                if message := await sync_to_async(partial(next, generator), thread_sensitive=False)():
+                    yield message
+            except StopIteration:
+                break
+
+    def _stream(self) -> Generator[str, None, None]:
         callbacks = [langfuse_handler] if langfuse_handler else []
-        messages = [message.root for message in conversation.messages]
-
-        chunks = AIMessageChunk(content="")
-        state: AssistantState = {"messages": messages, "intermediate_steps": None, "plan": None}
-
         generator: Iterator[Any] = self._graph.stream(
-            state,
+            self._initial_state,
             config={"recursion_limit": 24, "callbacks": callbacks},
             stream_mode=["messages", "values", "updates", "debug"],
         )
 
-        chunks = AIMessageChunk(content="")
-
         # Send a chunk to establish the connection avoiding the worker's timeout.
-        yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
+        yield self._serialize_message(AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK))
 
         try:
+            last_viz_message = None
             for update in generator:
-                if is_state_update(update):
-                    _, new_state = update
-                    state = new_state
-
-                elif is_value_update(update):
-                    _, state_update = update
-
-                    if (
-                        AssistantNodeName.ROUTER in state_update
-                        and "messages" in state_update[AssistantNodeName.ROUTER]
-                    ):
-                        yield state_update[AssistantNodeName.ROUTER]["messages"][0]
-                    elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
-                        # Reset chunks when schema validation fails.
-                        chunks = AIMessageChunk(content="")
-
-                        node_name = intersected_nodes.pop()
-                        if "messages" in state_update[node_name]:
-                            yield state_update[node_name]["messages"][0]
-                        elif state_update[node_name].get("intermediate_steps", []):
-                            yield AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-                    elif AssistantNodeName.SUMMARIZER in state_update:
-                        chunks = AIMessageChunk(content="")
-                        yield state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
-                elif is_message_update(update):
-                    langchain_message, langgraph_state = update[1]
-                    if isinstance(langchain_message, AIMessageChunk):
-                        if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
-                            chunks += langchain_message  # type: ignore
-                            parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
-                                chunks.tool_calls[0]["args"]
-                            )
-                            if parsed_message:
-                                yield VisualizationMessage(answer=parsed_message.query)
-                        elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
-                            chunks += langchain_message  # type: ignore
-                            yield AssistantMessage(content=chunks.content)
-                elif is_task_started_update(update):
-                    _, task_update = update
-                    node_name = task_update["payload"]["name"]  # type: ignore
-                    if reasoning_message := NODE_TO_REASONING_MESSAGE.get(node_name):
-                        yield ReasoningMessage(content=reasoning_message)
+                if message := self._process_update(update):
+                    if isinstance(message, VisualizationMessage):
+                        last_viz_message = message
+                    yield self._serialize_message(message)
+            self._report_conversation(last_viz_message)
         except:
-            yield FailureMessage()  # This is an unhandled error, so we just stop further generation at this point
-            raise  # Re-raise, so that this is printed or  goes into Sentry
+            # This is an unhandled error, so we just stop further generation at this point
+            yield self._serialize_message(FailureMessage())
+            raise  # Re-raise, so that the error is printed or goes into Sentry
+
+    @property
+    def _initial_state(self) -> AssistantState:
+        messages = [message.root for message in self._conversation.messages]
+        return {"messages": messages, "intermediate_steps": None, "plan": None}
+
+    def _process_update(self, update: Any) -> BaseModel | None:
+        if is_value_update(update):
+            _, state_update = update
+
+            if AssistantNodeName.ROUTER in state_update and "messages" in state_update[AssistantNodeName.ROUTER]:
+                return state_update[AssistantNodeName.ROUTER]["messages"][0]
+            elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+                # Reset chunks when schema validation fails.
+                self._chunks = AIMessageChunk(content="")
+
+                node_name = intersected_nodes.pop()
+                if "messages" in state_update[node_name]:
+                    return state_update[node_name]["messages"][0]
+                elif state_update[node_name].get("intermediate_steps", []):
+                    return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+            elif AssistantNodeName.SUMMARIZER in state_update:
+                self._chunks = AIMessageChunk(content="")
+                return state_update[AssistantNodeName.SUMMARIZER]["messages"][0]
+        elif is_message_update(update):
+            langchain_message, langgraph_state = update[1]
+            if isinstance(langchain_message, AIMessageChunk):
+                if langgraph_state["langgraph_node"] in VISUALIZATION_NODES.keys():
+                    self._chunks += langchain_message  # type: ignore
+                    parsed_message = VISUALIZATION_NODES[langgraph_state["langgraph_node"]].parse_output(
+                        self._chunks.tool_calls[0]["args"]
+                    )
+                    if parsed_message:
+                        return VisualizationMessage(answer=parsed_message.query)
+                elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
+                    self._chunks += langchain_message  # type: ignore
+                    return AssistantMessage(content=self._chunks.content)
+        elif is_task_started_update(update):
+            _, task_update = update
+            node_name = task_update["payload"]["name"]  # type: ignore
+            if reasoning_message := NODE_TO_REASONING_MESSAGE.get(node_name):
+                return ReasoningMessage(content=reasoning_message)
+        return None
+
+    def _serialize_message(self, message: BaseModel) -> str:
+        output = ""
+        if isinstance(message, AssistantGenerationStatusEvent):
+            output += f"event: {AssistantEventType.STATUS}\n"
+        else:
+            output += f"event: {AssistantEventType.MESSAGE}\n"
+        return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
+
+    def _report_conversation(self, message: Optional[VisualizationMessage]):
+        human_message = self._conversation.messages[-1].root
+        if self._user and message and isinstance(human_message, HumanMessage):
+            report_user_action(
+                self._user,
+                "chat with ai",
+                {"prompt": human_message.content, "response": message.model_dump_json(exclude_none=True)},
+            )

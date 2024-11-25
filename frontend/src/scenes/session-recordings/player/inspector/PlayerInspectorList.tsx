@@ -14,6 +14,8 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
+export const DEFAULT_INSPECTOR_ROW_HEIGHT = 40
+
 export function PlayerInspectorList(): JSX.Element {
     const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
@@ -27,7 +29,7 @@ export function PlayerInspectorList(): JSX.Element {
             new CellMeasurerCache({
                 fixedWidth: true,
                 minHeight: 10,
-                defaultHeight: 40,
+                defaultHeight: DEFAULT_INSPECTOR_ROW_HEIGHT,
             }),
         []
     )

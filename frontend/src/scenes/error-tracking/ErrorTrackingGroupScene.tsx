@@ -13,6 +13,7 @@ import { AssigneeSelect } from './AssigneeSelect'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingGroupSceneLogic } from './errorTrackingGroupSceneLogic'
 import { OverviewTab } from './groups/OverviewTab'
+import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
 export const scene: SceneExport = {
     component: ErrorTrackingGroupScene,
@@ -82,6 +83,7 @@ export function ErrorTrackingGroupScene(): JSX.Element {
             <LemonDivider className="mt-2" />
             <ErrorTrackingFilters.Options isGroup />
             <OverviewTab />
+            <SymbolSetUploadModal />
         </>
     )
 }
