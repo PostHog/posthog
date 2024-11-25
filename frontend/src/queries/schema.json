@@ -1102,7 +1102,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "ai", "ai/viz", "ai/failure", "ai/router"],
+            "enum": ["human", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -11275,6 +11275,24 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "ReasoningMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "done": {
+                    "const": true,
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "ai/reasoning",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content", "done"],
+            "type": "object"
+        },
         "RecordingOrder": {
             "enum": [
                 "duration",
@@ -11685,6 +11703,9 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/VisualizationMessage"
+                },
+                {
+                    "$ref": "#/definitions/ReasoningMessage"
                 },
                 {
                     "$ref": "#/definitions/AssistantMessage"
@@ -12866,19 +12887,6 @@
                 },
                 "plan": {
                     "type": "string"
-                },
-                "reasoning_steps": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
                 },
                 "type": {
                     "const": "ai/viz",

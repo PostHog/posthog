@@ -113,7 +113,11 @@ import {
 } from '~/types'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
-import { ErrorTrackingStackFrameContext } from './components/Errors/types'
+import {
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
+    ErrorTrackingSymbolSet,
+} from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -709,23 +713,33 @@ class ApiRequest {
     }
 
     public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent(stringifiedFingerprint(fingerprint))
+        return this.errorTracking(teamId)
+            .addPathComponent('group')
+            .addPathComponent(stringifiedFingerprint(fingerprint))
     }
 
-    public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
+    public errorTrackingGroupMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
         return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
     }
 
-    public errorTrackingUploadSourceMaps(): ApiRequest {
-        return this.errorTracking().addPathComponent('upload_source_maps')
+    public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('symbol_sets')
     }
 
-    public errorTrackingStackFrames(): ApiRequest {
-        return this.errorTracking().addPathComponent('stack_frames')
+    public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
+        return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
-    public errorTrackingStackFrameContexts(ids: string[]): ApiRequest {
-        return this.errorTrackingStackFrames().addPathComponent('contexts').withQueryString(toParams({ ids }, true))
+    public errorTrackingStackFrames({
+        raw_ids,
+        symbol_set,
+    }: {
+        raw_ids?: ErrorTrackingStackFrame['raw_id'][]
+        symbol_set?: ErrorTrackingSymbolSet['id']
+    }): ApiRequest {
+        return this.errorTracking()
+            .addPathComponent('stack_frames')
+            .withQueryString(toParams({ raw_ids, symbol_set }, true))
     }
 
     // # Warehouse
@@ -1847,7 +1861,7 @@ const api = {
     },
 
     errorTracking: {
-        async update(
+        async updateIssue(
             fingerprint: ErrorTrackingGroup['fingerprint'],
             data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
         ): Promise<ErrorTrackingGroup> {
@@ -1859,16 +1873,27 @@ const api = {
             mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
         ): Promise<{ content: string }> {
             return await new ApiRequest()
-                .errorTrackingMerge(primaryFingerprint)
+                .errorTrackingGroup(primaryFingerprint)
                 .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
-
-        async uploadSourceMaps(data: FormData): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
+        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<ErrorTrackingGroup> {
+            return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
         },
 
-        async fetchStackFrames(ids: string[]): Promise<Record<string, ErrorTrackingStackFrameContext>> {
-            return await new ApiRequest().errorTrackingStackFrameContexts(ids).get()
+        async deleteSymbolSet(id: ErrorTrackingSymbolSet['id']): Promise<void> {
+            return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+        },
+
+        async symbolSets(): Promise<{ results: ErrorTrackingSymbolSet[] }> {
+            return await new ApiRequest().errorTrackingSymbolSets().get()
+        },
+
+        async symbolSetStackFrames(id: ErrorTrackingSymbolSet['id']): Promise<ErrorTrackingStackFrameRecord[]> {
+            return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
+        },
+
+        async stackFrames(raw_ids: ErrorTrackingStackFrame['raw_id'][]): Promise<ErrorTrackingStackFrameRecord[]> {
+            return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
         },
     },
 

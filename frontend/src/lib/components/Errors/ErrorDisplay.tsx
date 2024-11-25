@@ -1,6 +1,6 @@
 import './ErrorDisplay.scss'
 
-import { LemonBanner, LemonCollapse } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -27,42 +27,56 @@ function StackTrace({
     frames: ErrorTrackingStackFrame[]
     showAllFrames: boolean
 }): JSX.Element | null {
-    const { frameContexts } = useValues(stackFrameLogic)
-    const { loadFrameContexts } = useActions(stackFrameLogic)
+    const { stackFrameRecords } = useValues(stackFrameLogic)
+    const { loadFromRawIds } = useActions(stackFrameLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     useEffect(() => {
-        loadFrameContexts({ frames })
-    }, [frames, loadFrameContexts])
+        loadFromRawIds(frames.map(({ raw_id }) => raw_id))
+    }, [frames, loadFromRawIds])
 
-    const panels = displayFrames.map(({ raw_id, source, line, column, resolved_name, lang }, index) => {
-        const frameContext = frameContexts[raw_id]
-        return {
-            key: index,
-            header: (
-                <div className="flex flex-wrap space-x-0.5">
-                    <span>{source}</span>
-                    {resolved_name ? (
-                        <div className="flex space-x-0.5">
-                            <span className="text-muted">in</span>
-                            <span>{resolved_name}</span>
+    const panels = displayFrames.map(
+        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure }, index) => {
+            const record = stackFrameRecords[raw_id]
+            return {
+                key: index,
+                header: (
+                    <div className="flex flex-1 justify-between items-center">
+                        <div className="flex flex-wrap space-x-0.5">
+                            <span>{source}</span>
+                            {resolved_name ? (
+                                <div className="flex space-x-0.5">
+                                    <span className="text-muted">in</span>
+                                    <span>{resolved_name}</span>
+                                </div>
+                            ) : null}
+                            {line ? (
+                                <div className="flex space-x-0.5">
+                                    <span className="text-muted">@</span>
+                                    <span>
+                                        {line}
+                                        {column && `:${column}`}
+                                    </span>
+                                </div>
+                            ) : null}
                         </div>
-                    ) : null}
-                    {line ? (
-                        <div className="flex space-x-0.5">
-                            <span className="text-muted">@</span>
-                            <span>
-                                {line}
-                                {column && `:${column}`}
-                            </span>
-                        </div>
-                    ) : null}
-                </div>
-            ),
-            content: frameContext ? <FrameContext context={frameContext} language={getLanguage(lang)} /> : null,
-            className: 'p-0',
+                        {!resolved && (
+                            <div className="flex items-center space-x-1">
+                                <Tooltip title={resolve_failure}>
+                                    <LemonTag>Unresolved</LemonTag>
+                                </Tooltip>
+                            </div>
+                        )}
+                    </div>
+                ),
+                content:
+                    record && record.context ? (
+                        <FrameContext context={record.context} language={getLanguage(lang)} />
+                    ) : null,
+                className: 'p-0',
+            }
         }
-    })
+    )
 
     return <LemonCollapse multiple panels={panels} size="xsmall" />
 }
