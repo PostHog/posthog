@@ -261,6 +261,7 @@ export function PersonScene(): JSX.Element | null {
                     person.uuid
                         ? {
                               key: PersonsTabType.FEATURE_FLAGS,
+                              tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
                               content: (
                                   <>

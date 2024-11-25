@@ -1,9 +1,11 @@
+from concurrent.futures import ThreadPoolExecutor
 import functools
 import uuid
 from typing import Any, Optional
 from unittest import mock
 
 import aioboto3
+from deltalake import DeltaTable
 import posthoganalytics
 import psycopg
 import pytest
@@ -77,7 +79,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(autouse=True)
 async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket.
 
@@ -209,6 +211,8 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
             ):
                 await activity_environment.client.execute_workflow(  # type: ignore
                     ExternalDataJobWorkflow.run,
@@ -487,46 +491,6 @@ async def test_reset_pipeline(team, stripe_balance_transaction):
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
         mock_data_response=stripe_balance_transaction["data"],
     )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_make_sure_deletions_occur(team, stripe_balance_transaction):
-    workflow_id, inputs = await _run(
-        team=team,
-        schema_name="BalanceTransaction",
-        table_name="stripe_balancetransaction",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-        mock_data_response=stripe_balance_transaction["data"],
-    )
-
-    @sync_to_async
-    def get_jobs():
-        job_ids = (
-            ExternalDataJob.objects.filter(
-                team_id=team.pk,
-                pipeline_id=inputs.external_data_source_id,
-            )
-            .order_by("-created_at")
-            .values_list("id", flat=True)
-        )
-
-        return [str(job_id) for job_id in job_ids]
-
-    with mock.patch("posthog.warehouse.models.external_data_job.get_s3_client") as mock_s3_client:
-        s3_client_mock = mock.Mock()
-        mock_s3_client.return_value = s3_client_mock
-
-        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
-        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
-
-        job_ids = await get_jobs()
-        latest_job = job_ids[0]
-        assert s3_client_mock.exists.call_count == 3
-
-        for call in s3_client_mock.exists.call_args_list:
-            assert latest_job not in call[0][0]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -907,10 +871,11 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer):
 
         return list(jobs)
 
-    with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.create_job_model.create_external_data_job",
-    ) as mock_list_limited_team_attributes:
-        mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
+    with mock.patch.object(
+        ExternalDataJob.objects,
+        "create",
+    ) as create_external_data_job:
+        create_external_data_job.side_effect = Exception("Ruhoh!")
 
         with pytest.raises(Exception):
             await _execute_run(workflow_id, inputs, stripe_customer["data"])
@@ -974,3 +939,75 @@ async def test_non_retryable_error(team, stripe_customer):
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_non_retryable_error_with_special_characters(team, stripe_customer):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="Customer",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type_config={},
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+    )
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+        ) as mock_list_limited_team_attributes,
+        mock.patch.object(posthoganalytics, "capture") as capture_mock,
+    ):
+        mock_list_limited_team_attributes.side_effect = Exception(
+            "401 Client Error:\nUnauthorized for url: https://api.stripe.com"
+        )
+
+        with pytest.raises(Exception):
+            await _execute_run(workflow_id, inputs, stripe_customer["data"])
+
+        capture_mock.assert_called_once()
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert job.status == ExternalDataJob.Status.FAILED
+    assert schema.should_sync is False
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_table_deleted(team, stripe_balance_transaction):
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_balance_transaction["data"],
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+    )
+
+    with mock.patch.object(DeltaTable, "delete") as mock_delta_table_delete:
+        await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
+
+        mock_delta_table_delete.assert_called_once()

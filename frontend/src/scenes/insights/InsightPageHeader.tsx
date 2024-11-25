@@ -206,7 +206,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     ]}
                                                 />
                                             ) : null}
-                                            <AlertsButton insight={insight} />
                                             <LemonDivider />
                                         </>
                                     )}
@@ -346,6 +345,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <>
+                                <AlertsButton
+                                    insight={insight}
+                                    insightLogicProps={insightLogicProps}
+                                    type="secondary"
+                                    text="Alerts"
+                                />
                                 <NotebookSelectButton
                                     resource={{
                                         type: NotebookNodeType.Query,

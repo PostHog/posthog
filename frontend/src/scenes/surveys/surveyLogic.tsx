@@ -105,6 +105,7 @@ export interface QuestionResultsReady {
     [key: string]: boolean
 }
 
+export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
 export type ScheduleType = 'once' | 'recurring'
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
@@ -168,6 +169,9 @@ export const surveyLogic = kea<surveyLogicType>([
             nextStep,
             specificQuestionIndex,
         }),
+        setDataCollectionType: (dataCollectionType: DataCollectionType) => ({
+            dataCollectionType,
+        }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
         archiveSurvey: true,
@@ -178,9 +182,16 @@ export const surveyLogic = kea<surveyLogicType>([
 
         setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
+        resetSurveyAdaptiveSampling: true,
+        resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
     loaders(({ props, actions, values }) => ({
+        responseSummary: {
+            summarize: async ({ questionIndex }: { questionIndex?: number }) => {
+                return api.surveys.summarize_responses(props.id, questionIndex)
+            },
+        },
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
@@ -603,6 +614,19 @@ export const surveyLogic = kea<surveyLogicType>([
         loadSurveySuccess: () => {
             actions.loadSurveyUserStats()
         },
+        resetSurveyResponseLimits: () => {
+            actions.setSurveyValue('responses_limit', null)
+        },
+
+        resetSurveyAdaptiveSampling: () => {
+            actions.setSurveyValues({
+                response_sampling_interval: null,
+                response_sampling_interval_type: null,
+                response_sampling_limit: null,
+                response_sampling_start_date: null,
+                response_sampling_daily_limits: null,
+            })
+        },
         resetTargeting: () => {
             actions.setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
             actions.setSurveyValue('targeting_flag_filters', NEW_SURVEY.targeting_flag_filters)
@@ -640,6 +664,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 setSurveyMissing: () => true,
+            },
+        ],
+        dataCollectionType: [
+            'until_stopped' as DataCollectionType,
+            {
+                setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
             },
         ],
 
@@ -872,6 +902,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!(survey.start_date && !survey.end_date)
             },
         ],
+        surveyUsesLimit: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return !!(survey.responses_limit && survey.responses_limit > 0)
+            },
+        ],
+        surveyUsesAdaptiveLimit: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                return !!(
+                    survey.response_sampling_interval &&
+                    survey.response_sampling_interval > 0 &&
+                    survey.response_sampling_interval_type !== '' &&
+                    survey.response_sampling_limit &&
+                    survey.response_sampling_limit > 0
+                )
+            },
+        ],
         surveyShufflingQuestionsAvailable: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
@@ -1017,6 +1065,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         ],
+
         getBranchingDropdownValue: [
             (s) => [s.survey],
             (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {

@@ -163,6 +163,7 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     errorTracking: (): string => '/error_tracking',
+    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     errorTrackingGroup: (fingerprint: string): string =>
         `/error_tracking/${fingerprint === ':fingerprint' ? fingerprint : encodeURIComponent(fingerprint)}`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
@@ -173,6 +174,7 @@ export const urls = {
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
+    sqlEditor: (): string => `/sql`,
     dataWarehouseView: (id: string): string => combineUrl(`/data-warehouse/view/${id}`).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
@@ -236,6 +238,7 @@ export const urls = {
         urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    debugHog: (): string => '/debug/hog',
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
     notebooks: (): string => '/notebooks',

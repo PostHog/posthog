@@ -48,6 +48,7 @@ class Project(models.Model):
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    product_description = models.TextField(null=True, blank=True, max_length=1000)
 
     objects: ProjectManager = ProjectManager()
 

@@ -1,18 +1,14 @@
-use std::{collections::HashMap, future::ready, sync::Arc};
+use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
-    error::Error,
-    metric_consts::{
-        ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, PER_FRAME_GROUP_TIME, PER_STACK_TIME,
-        STACK_PROCESSED,
-    },
-    types::{frames::RawFrame, ErrProps},
+    hack::kafka::{send_keyed_iter_to_kafka, RecvErr},
+    handle_event,
+    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -53,12 +49,12 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env()?;
-    let context = Arc::new(AppContext::new(&config).await?);
+    let config = Config::init_from_env().unwrap();
+    let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());
 
@@ -70,7 +66,7 @@ async fn main() -> Result<(), Error> {
         let (event, offset): (ClickHouseEvent, _) = match context.kafka_consumer.json_recv().await {
             Ok(r) => r,
             Err(RecvErr::Kafka(e)) => {
-                return Err(e.into()); // Just die if we recieve a Kafka error
+                panic!("Kafka error: {}", e)
             }
             Err(err) => {
                 // If we failed to parse the message, or it was empty, just log and continue, our
@@ -82,81 +78,28 @@ async fn main() -> Result<(), Error> {
         };
         metrics::counter!(EVENT_RECEIVED).increment(1);
 
+        let event = match handle_event(context.clone(), event).await {
+            Ok(e) => e,
+            Err(e) => {
+                error!("Error handling event: {:?}", e);
+                // If we get an unhandled error, it means we have some logical error in the code, or a
+                // dependency is down, and we should just fall over.
+                panic!("Unhandled error: {:?}", e);
+            }
+        };
+
+        send_keyed_iter_to_kafka(
+            &context.kafka_producer,
+            &context.config.events_topic,
+            |ev| Some(ev.uuid.to_string()),
+            &[event],
+        )
+        .await
+        .expect("Failed to send event to Kafka");
+
         offset.store().unwrap();
 
-        if event.event != "$exception" {
-            error!("event of type {}", event.event);
-            continue;
-        }
-
-        let Some(properties) = &event.properties else {
-            metrics::counter!(ERRORS, "cause" => "no_properties").increment(1);
-            continue;
-        };
-
-        let properties: ErrProps = match serde_json::from_str(properties) {
-            Ok(r) => r,
-            Err(err) => {
-                metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
-                error!("Error parsing properties: {:?}", err);
-                continue;
-            }
-        };
-
-        let Some(exception_list) = &properties.exception_list else {
-            // Known issue that $exception_list didn't exist on old clients
-            continue;
-        };
-
-        if exception_list.is_empty() {
-            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
-            continue;
-        }
-
-        // TODO - we should resolve all traces
-        let Some(trace) = exception_list[0].stacktrace.as_ref() else {
-            metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
-            continue;
-        };
-
-        let stack_trace: &Vec<RawFrame> = &trace.frames;
-
-        let per_stack = common_metrics::timing_guard(PER_STACK_TIME, &[]);
-
-        // Cluster the frames by symbol set
-        let mut groups = HashMap::new();
-        for frame in stack_trace {
-            let group = groups
-                .entry(frame.symbol_set_group_key())
-                .or_insert_with(Vec::new);
-            group.push(frame.clone());
-        }
-
-        let team_id = event.team_id;
-        let mut results = Vec::with_capacity(stack_trace.len());
-        for (_, frames) in groups.into_iter() {
-            context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
-            let mut any_success = false;
-            let per_frame_group = common_metrics::timing_guard(PER_FRAME_GROUP_TIME, &[]);
-            for frame in frames {
-                results.push(frame.resolve(team_id, &context.catalog).await);
-                if results.last().unwrap().is_ok() {
-                    any_success = true;
-                }
-            }
-            per_frame_group
-                .label("resolved_any", if any_success { "true" } else { "false" })
-                .fin();
-        }
-
-        per_stack
-            .label(
-                "resolved_any",
-                if results.is_empty() { "true" } else { "false" },
-            )
-            .fin();
-        whole_loop.label("had_frame", "true").fin();
-
         metrics::counter!(STACK_PROCESSED).increment(1);
+        whole_loop.label("finished", "true").fin();
     }
 }

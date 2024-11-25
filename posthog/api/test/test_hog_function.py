@@ -710,6 +710,22 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         }
 
+        # No bytecode for non-destination filters
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "broadcast",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
+                    "filter_test_accounts": True,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["filters"].get("bytecode") is None
+
     def test_saves_masking_config(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",

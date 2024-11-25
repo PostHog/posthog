@@ -31,7 +31,6 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.filters.filter import Filter
-from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
 from posthog.utils import generate_cache_key, get_safe_cache
 
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 60  # 1 hour
@@ -192,7 +191,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "type",
             "metrics",
+            "metrics_secondary",
         ]
         read_only_fields = [
             "id",
@@ -234,36 +235,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_metrics(self, value):
-        # TODO: This isn't correct most probably, we wouldn't have experiment_id inside ExperimentTrendsQuery
-        # on creation. Not sure how this is supposed to work yet.
-        if not value:
-            return value
-
-        if not isinstance(value, list):
-            raise ValidationError("Metrics must be a list")
-
-        if len(value) > 10:
-            raise ValidationError("Experiments can have a maximum of 10 metrics")
-
-        for metric in value:
-            if not isinstance(metric, dict):
-                raise ValidationError("Metrics must be objects")
-            if not metric.get("query"):
-                raise ValidationError("Metric query is required")
-
-            if metric.get("type") not in ["primary", "secondary"]:
-                raise ValidationError("Metric type must be 'primary' or 'secondary'")
-
-            metric_query = metric["query"]
-
-            if metric_query.get("kind") not in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
-                raise ValidationError("Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'")
-
-            # pydantic models are used to validate the query
-            if metric_query["kind"] == "ExperimentTrendsQuery":
-                ExperimentTrendsQuery(**metric_query)
-            else:
-                ExperimentFunnelsQuery(**metric_query)
+        # TODO 2024-11-15: commented code will be addressed when persistent metrics are implemented.
 
         return value
 
@@ -282,8 +254,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        if not validated_data.get("filters"):
-            raise ValidationError("Filters are required to create an Experiment")
+        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
+
+        # if not validated_data.get("filters") and not is_draft:
+        #     raise ValidationError("Filters are required when creating a launched experiment")
 
         saved_metrics_data = validated_data.pop("saved_metrics_ids", [])
 
@@ -298,13 +272,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
-
-        properties = validated_data["filters"].get("properties", [])
-
-        if properties:
-            raise ValidationError("Experiments do not support global filter properties")
-
         holdout_groups = None
         if validated_data.get("holdout"):
             holdout_groups = validated_data["holdout"].filters
@@ -314,8 +281,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
         ]
 
-        filters = {
-            "groups": [{"properties": properties, "rollout_percentage": 100}],
+        feature_flag_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
             "multivariate": {"variants": variants or default_variants},
             "aggregation_group_type_index": aggregation_group_type_index,
             "holdout_groups": holdout_groups,
@@ -325,8 +292,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             data={
                 "key": feature_flag_key,
                 "name": f'Feature Flag for Experiment {validated_data["name"]}',
-                "filters": filters,
+                "filters": feature_flag_filters,
                 "active": not is_draft,
+                "creation_context": "experiments",
             },
             context=self.context,
         )
@@ -337,6 +305,19 @@ class ExperimentSerializer(serializers.ModelSerializer):
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
+
+        # if this is a web experiment, copy over the variant data to the experiment itself.
+        if validated_data.get("type", "") == "web":
+            web_variants = {}
+            ff_variants = variants or default_variants
+
+            for variant in ff_variants:
+                web_variants[variant.get("key")] = {
+                    "rollout_percentage": variant.get("rollout_percentage"),
+                }
+
+            experiment.variants = web_variants
+            experiment.save()
 
         if saved_metrics_data:
             for saved_metric_data in saved_metrics_data:
@@ -355,6 +336,14 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
+        # if (
+        #     not instance.filters.get("events")
+        #     and not instance.filters.get("actions")
+        #     and validated_data.get("start_date")
+        #     and not validated_data.get("filters")
+        # ):
+        #     raise ValidationError("Filters are required when launching an experiment")
+
         update_saved_metrics = "saved_metrics_ids" in validated_data
         saved_metrics_data = validated_data.pop("saved_metrics_ids", []) or []
 
@@ -386,6 +375,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "archived",
             "secondary_metrics",
             "holdout",
+            "metrics",
+            "metrics_secondary",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys

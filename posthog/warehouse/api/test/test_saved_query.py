@@ -124,7 +124,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_view_2_response.status_code, 400, saved_view_2_response.content)
+        self.assertEqual(saved_view_2_response.status_code, 201, saved_view_2_response.content)
 
     def test_create_with_saved_query(self):
         response = self.client.post(

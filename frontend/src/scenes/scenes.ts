@@ -65,6 +65,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Error tracking',
     },
+    [Scene.ErrorTrackingConfiguration]: {
+        projectBased: true,
+        name: 'Error tracking configuration',
+    },
     [Scene.ErrorTrackingGroup]: {
         projectBased: true,
         name: 'Error tracking group',
@@ -234,6 +238,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.SQLEditor]: {
+        projectBased: true,
+        name: 'SQL editor',
+        defaultDocsPath: '/docs/data-warehouse/setup',
+        layout: 'app-raw-no-header',
+    },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
         name: 'Data warehouse',
@@ -361,6 +371,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.DebugQuery]: {
         projectBased: true,
+    },
+    [Scene.DebugHog]: {
+        projectBased: true,
+        name: 'Hog Repl',
     },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
@@ -539,6 +553,7 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.errorTracking()]: Scene.ErrorTracking,
+    [urls.errorTrackingConfiguration()]: Scene.ErrorTrackingConfiguration,
     [urls.errorTrackingGroup(':fingerprint')]: Scene.ErrorTrackingGroup,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
@@ -548,6 +563,7 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
+    [urls.sqlEditor()]: Scene.SQLEditor,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.DataManagement,
@@ -586,6 +602,7 @@ export const routes: Record<string, Scene> = {
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.debugQuery()]: Scene.DebugQuery,
+    [urls.debugHog()]: Scene.DebugHog,
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
     [urls.canvas()]: Scene.Canvas,

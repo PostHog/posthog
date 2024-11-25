@@ -114,6 +114,11 @@ import {
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
+    ErrorTrackingSymbolSet,
+} from './components/Errors/types'
+import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
     EVENT_DEFINITIONS_PER_PAGE,
@@ -708,15 +713,33 @@ class ApiRequest {
     }
 
     public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent(stringifiedFingerprint(fingerprint))
+        return this.errorTracking(teamId)
+            .addPathComponent('group')
+            .addPathComponent(stringifiedFingerprint(fingerprint))
     }
 
-    public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
+    public errorTrackingGroupMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
         return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
     }
 
-    public errorTrackingUploadSourceMaps(): ApiRequest {
-        return this.errorTracking().addPathComponent('upload_source_maps')
+    public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('symbol_sets')
+    }
+
+    public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
+        return this.errorTrackingSymbolSets().addPathComponent(id)
+    }
+
+    public errorTrackingStackFrames({
+        raw_ids,
+        symbol_set,
+    }: {
+        raw_ids?: ErrorTrackingStackFrame['raw_id'][]
+        symbol_set?: ErrorTrackingSymbolSet['id']
+    }): ApiRequest {
+        return this.errorTracking()
+            .addPathComponent('stack_frames')
+            .withQueryString(toParams({ raw_ids, symbol_set }, true))
     }
 
     // # Warehouse
@@ -1740,8 +1763,8 @@ const api = {
         },
     },
     hog: {
-        async create(hog: string): Promise<HogCompileResponse> {
-            return await new ApiRequest().hog().create({ data: { hog } })
+        async create(hog: string, locals?: any[], inRepl?: boolean): Promise<HogCompileResponse> {
+            return await new ApiRequest().hog().create({ data: { hog, locals, in_repl: inRepl || false } })
         },
     },
     hogFunctions: {
@@ -1838,7 +1861,7 @@ const api = {
     },
 
     errorTracking: {
-        async update(
+        async updateIssue(
             fingerprint: ErrorTrackingGroup['fingerprint'],
             data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
         ): Promise<ErrorTrackingGroup> {
@@ -1850,12 +1873,27 @@ const api = {
             mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
         ): Promise<{ content: string }> {
             return await new ApiRequest()
-                .errorTrackingMerge(primaryFingerprint)
+                .errorTrackingGroup(primaryFingerprint)
                 .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
+        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<ErrorTrackingGroup> {
+            return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
+        },
 
-        async uploadSourceMaps(data: FormData): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
+        async deleteSymbolSet(id: ErrorTrackingSymbolSet['id']): Promise<void> {
+            return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+        },
+
+        async symbolSets(): Promise<{ results: ErrorTrackingSymbolSet[] }> {
+            return await new ApiRequest().errorTrackingSymbolSets().get()
+        },
+
+        async symbolSetStackFrames(id: ErrorTrackingSymbolSet['id']): Promise<ErrorTrackingStackFrameRecord[]> {
+            return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
+        },
+
+        async stackFrames(raw_ids: ErrorTrackingStackFrame['raw_id'][]): Promise<ErrorTrackingStackFrameRecord[]> {
+            return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
         },
     },
 
@@ -2144,6 +2182,13 @@ const api = {
         async getResponsesCount(): Promise<{ [key: string]: number }> {
             return await new ApiRequest().surveysResponsesCount().get()
         },
+        async summarize_responses(surveyId: Survey['id'], questionIndex: number | undefined): Promise<any> {
+            let apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+            if (questionIndex !== undefined) {
+                apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
+            }
+            return await apiRequest.create()
+        },
     },
 
     dataWarehouseTables: {
@@ -2191,7 +2236,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
+            data: Partial<DataWarehouseSavedQuery>
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
@@ -2609,6 +2654,11 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         }
 
         const data = await getJSONOrNull(response)
+
+        if (response.status >= 400 && data && typeof data.error === 'string') {
+            throw new ApiError(data.error, response.status, data)
+        }
+
         throw new ApiError('Non-OK response', response.status, data)
     }
 

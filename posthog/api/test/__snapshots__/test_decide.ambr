@@ -158,77 +158,6 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.15
-  '''
-  SELECT "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
-  FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
-  LIMIT 21
-  '''
-# ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.16
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
-  FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 2)
-  '''
-# ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.17
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 2)
-  '''
-# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.2
   '''
   SELECT "posthog_team"."id",
@@ -267,6 +196,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -428,6 +358,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -506,6 +437,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -587,6 +519,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -689,6 +622,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -779,6 +713,22 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.5
   '''
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE "posthog_group"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.6
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -800,6 +750,22 @@
   FROM "posthog_cohort"
   WHERE (NOT "posthog_cohort"."deleted"
          AND "posthog_cohort"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.7
+  '''
+  SELECT "posthog_group"."id",
+         "posthog_group"."team_id",
+         "posthog_group"."group_key",
+         "posthog_group"."group_type_index",
+         "posthog_group"."group_properties",
+         "posthog_group"."created_at",
+         "posthog_group"."properties_last_updated_at",
+         "posthog_group"."properties_last_operation",
+         "posthog_group"."version"
+  FROM "posthog_group"
+  WHERE "posthog_group"."team_id" = 99999
+  LIMIT 21
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts
@@ -850,6 +816,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -952,6 +919,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1118,6 +1086,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1238,6 +1207,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",

@@ -5,6 +5,8 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from dateutil import parser
+
+from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
@@ -100,6 +102,59 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
+        self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
+
+        id = response.json()["id"]
+        end_date = "2021-12-10T00:00"
+
+        # Now update
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {"description": "Bazinga", "end_date": end_date},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.description, "Bazinga")
+        self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+
+    def test_creating_updating_web_experiment(self):
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "type": "web",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+        web_experiment_id = response.json()["id"]
+        self.assertEqual(
+            WebExperiment.objects.get(pk=web_experiment_id).variants,
+            {"test": {"rollout_percentage": 50}, "control": {"rollout_percentage": 50}},
+        )
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -626,29 +681,12 @@ class TestExperimentCRUD(APILicensedTest):
                 "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": {},
-                "filters": {},  # also invalid
+                "filters": {},
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "This field may not be null.")
-
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "None",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": {},
-                "filters": {},  # still invalid
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Filters are required to create an Experiment")
 
     def test_invalid_update(self):
         # Draft experiment
@@ -753,7 +791,12 @@ class TestExperimentCRUD(APILicensedTest):
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "filters": {}},
+            {
+                "description": "Bazinga",
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                },
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -784,7 +827,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": {},
-                "filters": {"events": []},
+                "filters": {"events": [{"id": "$pageview"}]},
             },
         )
 
@@ -1191,42 +1234,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(feature_flag_response.json().get("deleted"), True)
 
         self.assertIsNotNone(Experiment.objects.get(pk=id))
-
-    def test_cant_add_global_properties_to_new_experiment(self):
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [
-                        {
-                            "key": "industry",
-                            "type": "group",
-                            "value": ["technology"],
-                            "operator": "exact",
-                            "group_type_index": 1,
-                        }
-                    ],
-                    "aggregation_group_type_index": 1,
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Experiments do not support global filter properties",
-        )
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
@@ -1676,6 +1683,75 @@ class TestExperimentCRUD(APILicensedTest):
                 "holdout_groups": None,
             },
         )
+
+    def test_create_draft_experiment_with_filters(self) -> None:
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+    def test_create_launched_experiment_with_filters(self) -> None:
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+    def test_create_draft_experiment_without_filters(self) -> None:
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
