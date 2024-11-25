@@ -1,6 +1,11 @@
 .ErrorDisplay__stacktrace {
     .LemonCollapsePanel__header {
-        min-height: 2.375rem !important;
-        padding: 0.25rem !important;
+        min-height: 1.875rem !important;
+        padding: 0 !important;
+        background-color: var(--bg-3000);
+
+        &--disabled:hover {
+            background-color: var(--bg-3000) !important;
+        }
     }
 }
