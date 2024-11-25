@@ -1,3 +1,5 @@
+import './ImagePreview.scss'
+
 import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
@@ -16,7 +18,6 @@ import { ElementType } from '~/types'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
-
 export interface ItemEventProps {
     item: InspectorListItemEvent
 }
@@ -71,9 +72,13 @@ function AutocaptureImage({ item }: ItemEventProps): JSX.Element | null {
         return (
             <Tooltip
                 title={
-                    <div className="flex bg-bg-3000 items-center justify-center h-100">
+                    <div className="flex bg-bg-3000 items-center justify-center relative border-2">
+                        {/* Transparent grid background */}
+                        <div className="ImagePreview__background absolute h-full w-full" />
+
+                        {/* Image preview */}
                         <img
-                            className="max-h-100 object-contain"
+                            className="relative z-10 max-h-100 object-contain"
                             src={img.src}
                             alt="Autocapture image src"
                             height={img.height || 'auto'}
