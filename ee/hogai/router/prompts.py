@@ -8,6 +8,9 @@ A: The insight type is "trends". The request asks for an event count from unique
 
 Q: What is the onboarding conversion rate?
 A: The insight type is "funnels". The request explicitly asks for a conversion rate. Next steps should find at least two events to build this insight.
+
+Q: What is the ratio of $identify divided by page views?
+A: The insight type is "trends". The request asks for a custom formula, which the trends visualization supports.
 """
 
 ROUTER_INSIGHT_DESCRIPTION_PROMPT = f"""
