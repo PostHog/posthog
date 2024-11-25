@@ -108,8 +108,8 @@ pub struct Context {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ContextLine {
-    pub number: u32,
-    pub line: String,
+    number: u32,
+    line: String,
 }
 
 impl Frame {
