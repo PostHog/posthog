@@ -1040,6 +1040,35 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Brasilia UTC-3, New York UTC-4, Calcutta UTC+5:30, UTC
         assert results == [[-3.0, 1.0, 4.0], [-4.0, 1.0, 3.0], [5.5, 1.0, 2.0], [0.0, 1.0, 1.0]]
 
+    def test_timezone_filter_dst_change(self):
+        did = "id"
+        sid = str(uuid7("2019-02-17"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[did],
+            properties={"name": sid, "email": f"test@example.com"},
+        )
+
+        # Cross daylight savings time change in Brazil
+        for i in range(6):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=did,
+                timestamp=f"2019-02-17 0{i}:00:00",
+                properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": "America/Sao_Paulo"},
+            )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Change from UTC-2 to UTC-3 in the middle of the night
+        assert results == [[-3.0, 1.0, 4.0], [-2.0, 1.0, 2.0]]
+
     def test_timezone_filter_with_invalid_timezone(self):
         date = "2024-07-30"
 
