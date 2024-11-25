@@ -95,7 +95,7 @@ def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table
     # TODO(@Gilbert09): support different operations here (e.g. min)
     last_value = numpy_arr.max()
 
-    logger.debug(f"Updating incremental_field_last_value with {last_value}")
+    logger.debug(f"Updating incremental_field_last_value_v2 with {last_value}")
 
     schema.update_incremental_field_last_value(last_value)
 

@@ -82,10 +82,23 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         endpoints = [schema.name]
 
-        processed_incremental_last_value = process_incremental_last_value(
-            schema.sync_type_config.get("incremental_field_last_value"),
-            schema.sync_type_config.get("incremental_field_type"),
-        )
+        if settings.TEMPORAL_V2:
+            # Get the V2 last value, if it's not set yet (e.g. the first run), then fallback to the V1 value
+            processed_incremental_last_value = process_incremental_last_value(
+                schema.sync_type_config.get("incremental_field_last_value_v2"),
+                schema.sync_type_config.get("incremental_field_type"),
+            )
+
+            if processed_incremental_last_value is None:
+                processed_incremental_last_value = process_incremental_last_value(
+                    schema.sync_type_config.get("incremental_field_last_value"),
+                    schema.sync_type_config.get("incremental_field_type"),
+                )
+        else:
+            processed_incremental_last_value = process_incremental_last_value(
+                schema.sync_type_config.get("incremental_field_last_value"),
+                schema.sync_type_config.get("incremental_field_type"),
+            )
 
         source = None
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
@@ -459,7 +472,7 @@ def _run(
     schema: ExternalDataSchema,
     reset_pipeline: bool,
 ):
-    if settings.DEBUG:
+    if settings.TEMPORAL_V2:
         PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental).run()
     else:
         table_row_counts = DataImportPipelineSync(

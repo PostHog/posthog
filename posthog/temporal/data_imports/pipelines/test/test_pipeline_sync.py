@@ -66,6 +66,7 @@ class TestDataImportPipeline(APIBaseTest):
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
             workflow_id=str(uuid.uuid4()),
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
         pipeline = DataImportPipelineSync(

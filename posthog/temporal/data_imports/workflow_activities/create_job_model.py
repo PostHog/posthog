@@ -1,6 +1,7 @@
 import dataclasses
 import uuid
 
+from django.conf import settings
 from django.db import close_old_connections
 from temporalio import activity
 
@@ -20,6 +21,13 @@ class CreateExternalDataJobModelActivityInputs:
     source_id: uuid.UUID
 
 
+def get_pipeline_version() -> str:
+    if settings.TEMPORAL_V2:
+        return ExternalDataJob.PipelineVersion.V2
+
+    return ExternalDataJob.PipelineVersion.V1
+
+
 @activity.defn
 def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
@@ -37,6 +45,7 @@ def create_external_data_job_model_activity(
             rows_synced=0,
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
+            pipeline_version=get_pipeline_version(),
         )
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)

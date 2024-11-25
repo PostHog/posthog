@@ -48,6 +48,7 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
         workflow_id="some_workflow_id",
+        pipeline_version=ExternalDataJob.PipelineVersion.V1,
     )
 
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))

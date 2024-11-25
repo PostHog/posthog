@@ -49,7 +49,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
 
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_last_value_v2": any }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -80,7 +80,12 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         else:
             last_value_json = str(last_value)
 
-        self.sync_type_config["incremental_field_last_value"] = last_value_json
+        if settings.TEMPORAL_V2:
+            key = "incremental_field_last_value_v2"
+        else:
+            key = "incremental_field_last_value"
+
+        self.sync_type_config[key] = last_value_json
         self.save()
 
     def soft_delete(self):

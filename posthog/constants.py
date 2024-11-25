@@ -303,6 +303,7 @@ class FlagRequestType(StrEnum):
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
+DATA_WAREHOUSE_TASK_QUEUE_V2 = "data-warehouse-task-queue-v2"
 BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 
