@@ -23,13 +23,19 @@ pub enum RawFrame {
     Python(RawPythonFrame),
     #[serde(rename = "web:javascript")]
     JavaScript(RawJSFrame),
+    // TODO - remove once we're happy no clients are using this anymore
+    #[serde(rename = "javascript")]
+    LegacyJS(RawJSFrame),
 }
 
 impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
-            RawFrame::JavaScript(frame) => (frame.resolve(team_id, catalog).await, "javascript"),
+            RawFrame::JavaScript(frame) | RawFrame::LegacyJS(frame) => {
+                (frame.resolve(team_id, catalog).await, "javascript")
+            }
+
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
         };
 
@@ -52,14 +58,16 @@ impl RawFrame {
 
     pub fn symbol_set_ref(&self) -> Option<String> {
         match self {
-            RawFrame::JavaScript(frame) => frame.source_url().map(String::from).ok(),
+            RawFrame::JavaScript(frame) | RawFrame::LegacyJS(frame) => {
+                frame.source_url().map(String::from).ok()
+            }
             RawFrame::Python(_) => None, // Python frames don't have symbol sets
         }
     }
 
     pub fn frame_id(&self) -> String {
         match self {
-            RawFrame::JavaScript(raw) => raw.frame_id(),
+            RawFrame::JavaScript(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
         }
     }
