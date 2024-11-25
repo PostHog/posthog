@@ -15,7 +15,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.models import AlertConfiguration
+from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
 from posthog.schema import (
@@ -264,9 +264,10 @@ def check_alert(alert_id: str) -> None:
         check_alert_and_notify_atomically(alert)
     except Exception as err:
         ALERT_CHECK_ERROR_COUNTER.inc()
+        user = cast(User, alert.created_by)
 
         posthoganalytics.capture(
-            alert.created_by.distinct_id,
+            cast(str, user.distinct_id),
             "alert check failed",
             properties={
                 "alert_id": alert.id,
@@ -308,9 +309,11 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
 
     ALERT_COMPUTED_COUNTER.inc()
 
+    user = cast(User, alert.created_by)
+
     # Event to count alert checks
     posthoganalytics.capture(
-        alert.created_by.distinct_id,
+        cast(str, user.distinct_id),
         "alert check",
         properties={
             "alert_id": alert.id,
@@ -333,7 +336,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         evaluation_error_message = traceback.format_exc()
 
         posthoganalytics.capture(
-            alert.created_by.distinct_id,
+            cast(str, user.distinct_id),
             "alert check failed",
             properties={
                 "alert_id": alert.id,
@@ -373,7 +376,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         evaluation_error_message = traceback.format_exc()
 
         posthoganalytics.capture(
-            alert.created_by.distinct_id,
+            cast(str, user.distinct_id),
             "alert check failed",
             properties={
                 "alert_id": alert.id,
