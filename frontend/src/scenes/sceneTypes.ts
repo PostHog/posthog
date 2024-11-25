@@ -11,6 +11,7 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingGroup = 'ErrorTrackingGroup',
+    ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',

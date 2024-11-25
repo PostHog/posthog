@@ -34,6 +34,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.EarlyAccessFeatures]: () => import('./early-access-features/EarlyAccessFeatures'),
     [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),
     [Scene.ErrorTracking]: () => import('./error-tracking/ErrorTrackingScene'),
+    [Scene.ErrorTrackingConfiguration]: () => import('./error-tracking/ErrorTrackingConfigurationScene'),
     [Scene.ErrorTrackingGroup]: () => import('./error-tracking/ErrorTrackingGroupScene'),
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.Survey]: () => import('./surveys/Survey'),
