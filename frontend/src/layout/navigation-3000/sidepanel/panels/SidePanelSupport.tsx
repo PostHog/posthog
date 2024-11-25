@@ -132,7 +132,7 @@ const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
                     </div>
                 </div>
                 {/* If placing a support message, comment out (don't remove) the section below */}
-                /* {supportPlans?.map((plan) => {
+                {supportPlans?.map((plan) => {
                     // If they have an addon plan, only show the addon plan
                     const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
                     return (
@@ -152,7 +152,7 @@ const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
                             </div>
                         </React.Fragment>
                     )
-                })} */
+                })}
             </div>
         </Section>
     )
