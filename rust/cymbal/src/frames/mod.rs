@@ -155,9 +155,16 @@ impl Frame {
 
 impl ContextLine {
     pub fn new(number: u32, line: impl ToString) -> Self {
+        let line = line.to_string();
+        // We limit context line length to 300 chars
+        let mut constrained: String = line.chars().take(300).collect();
+        if line.len() > constrained.len() {
+            constrained.push_str("...<snip>");
+        }
+
         Self {
             number,
-            line: line.to_string(),
+            line: line.to_string().chars().take(300).collect(), // We limit context line length to 300 chars
         }
     }
 }
