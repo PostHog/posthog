@@ -77,7 +77,7 @@ export const maxLogic = kea<maxLogicType>([
                 askMax: () => '',
             },
         ],
-        thread: [
+        threadRaw: [
             [] as ThreadMessage[],
             {
                 addMessage: (state, { message }) => [...state, message],
@@ -178,7 +178,7 @@ export const maxLogic = kea<maxLogicType>([
             try {
                 const response = await api.chat({
                     session_id: props.sessionId,
-                    messages: values.thread.map(({ status, ...message }) => message),
+                    messages: values.threadRaw.map(({ status, ...message }) => message),
                 })
                 const reader = response.body?.getReader()
 
@@ -196,13 +196,13 @@ export const maxLogic = kea<maxLogicType>([
                                 return
                             }
 
-                            if (values.thread[values.thread.length - 1].status === 'completed') {
+                            if (values.threadRaw[values.threadRaw.length - 1].status === 'completed') {
                                 actions.addMessage({
                                     ...parsedResponse,
                                     status: !parsedResponse.done ? 'loading' : 'completed',
                                 })
                             } else if (parsedResponse) {
-                                actions.replaceMessage(values.thread.length - 1, {
+                                actions.replaceMessage(values.threadRaw.length - 1, {
                                     ...parsedResponse,
                                     status: !parsedResponse.done ? 'loading' : 'completed',
                                 })
@@ -214,7 +214,7 @@ export const maxLogic = kea<maxLogicType>([
                             }
 
                             if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
-                                actions.setMessageStatus(values.thread.length - 1, 'error')
+                                actions.setMessageStatus(values.threadRaw.length - 1, 'error')
                             }
                         }
                     },
@@ -230,9 +230,9 @@ export const maxLogic = kea<maxLogicType>([
             } catch (e) {
                 captureException(e)
 
-                if (values.thread[values.thread.length - 1]?.status === 'loading') {
+                if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
                     actions.replaceMessage(values.thread.length - 1, FAILURE_MESSAGE)
-                } else if (values.thread[values.thread.length - 1]?.status !== 'error') {
+                } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
                     actions.addMessage({
                         ...FAILURE_MESSAGE,
                         status: 'completed',
@@ -243,7 +243,7 @@ export const maxLogic = kea<maxLogicType>([
             actions.setThreadLoaded()
         },
         retryLastMessage: () => {
-            const lastMessage = values.thread.filter(isHumanMessage).pop() as HumanMessage | undefined
+            const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
                 actions.askMax(lastMessage.content)
             }
@@ -254,7 +254,7 @@ export const maxLogic = kea<maxLogicType>([
     selectors({
         sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
         threadGrouped: [
-            (s) => [s.thread, s.threadLoading],
+            (s) => [s.threadRaw, s.threadLoading],
             (thread, threadLoading): ThreadMessage[][] => {
                 const threadGrouped: ThreadMessage[][] = []
                 for (let i = 0; i < thread.length; i++) {
@@ -273,17 +273,16 @@ export const maxLogic = kea<maxLogicType>([
                     }
                 }
                 if (threadLoading) {
-                    let lastGroup = threadGrouped[threadGrouped.length - 1]
-                    if (lastGroup[0].type === AssistantMessageType.Human) {
-                        lastGroup = [
-                            {
-                                type: AssistantMessageType.Reasoning,
-                                content: 'Thinking',
-                                status: 'loading',
-                                done: true,
-                            },
-                        ]
-                        threadGrouped.push(lastGroup)
+                    const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
+                    if (finalMessageSoFar?.done && finalMessageSoFar.type !== AssistantMessageType.Reasoning) {
+                        // If now waiting for the current node to start streaming,
+                        // add "Thinking" message so that there's _some_ indication of processing
+                        threadGrouped[threadGrouped.length - 1].push({
+                            type: AssistantMessageType.Reasoning,
+                            content: 'Thinking',
+                            status: 'loading',
+                            done: true,
+                        })
                     }
                 }
                 return threadGrouped

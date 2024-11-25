@@ -44,13 +44,21 @@ export function Thread(): JSX.Element | null {
     return (
         <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
             {threadGrouped.map((group, index) => (
-                <MessageGroup key={index} messages={group} />
+                <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
             ))}
         </div>
     )
 }
 
-function MessageGroup({ messages }: { messages: ThreadMessage[] }): JSX.Element {
+function MessageGroup({
+    messages,
+    isFinal: isGroupFinal,
+    index: messageGroupIndex,
+}: {
+    messages: ThreadMessage[]
+    isFinal: boolean
+    index: number
+}): JSX.Element {
     const { user } = useValues(userLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
@@ -69,11 +77,11 @@ function MessageGroup({ messages }: { messages: ThreadMessage[] }): JSX.Element 
                 />
             </Tooltip>
             <div className="flex flex-col gap-2 min-w-0">
-                {messages.map((message, index) => {
+                {messages.map((message, messageIndex) => {
                     if (isHumanMessage(message)) {
                         return (
                             <MessageTemplate
-                                key={index}
+                                key={messageIndex}
                                 type="human"
                                 className={message.status === 'error' ? 'border-danger' : undefined}
                             >
@@ -81,12 +89,20 @@ function MessageGroup({ messages }: { messages: ThreadMessage[] }): JSX.Element 
                             </MessageTemplate>
                         )
                     } else if (isAssistantMessage(message) || isFailureMessage(message)) {
-                        return <TextAnswer key={index} message={message} index={index} />
+                        return (
+                            <TextAnswer
+                                key={messageIndex}
+                                message={message}
+                                rateable={messageIndex === messages.length - 1}
+                                retriable={messageIndex === messages.length - 1 && isGroupFinal}
+                                messageGroupIndex={messageGroupIndex}
+                            />
+                        )
                     } else if (isVisualizationMessage(message)) {
-                        return <VisualizationAnswer key={index} message={message} status={message.status} />
+                        return <VisualizationAnswer key={messageIndex} message={message} status={message.status} />
                     } else if (isReasoningMessage(message)) {
                         return (
-                            <MessageTemplate key={index} type="ai">
+                            <MessageTemplate key={messageIndex} type="ai">
                                 <div className="flex items-center gap-2">
                                     <span>{message.content}…</span>
                                     <Spinner className="text-xl" />
@@ -123,23 +139,24 @@ const MessageTemplate = React.forwardRef<
 
 const TextAnswer = React.forwardRef<
     HTMLDivElement,
-    { message: (AssistantMessage | FailureMessage) & ThreadMessage; index: number }
->(function TextAnswer({ message, index }, ref) {
-    const { thread } = useValues(maxLogic)
-
+    {
+        message: (AssistantMessage | FailureMessage) & ThreadMessage
+        rateable: boolean
+        retriable: boolean
+        messageGroupIndex: number
+    }
+>(function TextAnswer({ message, rateable, retriable, messageGroupIndex }, ref) {
     return (
         <MessageTemplate
             type="ai"
             className={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
             ref={ref}
             action={
-                message.type === 'ai/failure' && index === thread.length - 1 ? (
+                message.status === 'completed' && message.type === 'ai/failure' && retriable ? (
                     <RetriableAnswerActions />
-                ) : message.type === 'ai' &&
-                  message.status === 'completed' &&
-                  (thread[index + 1] === undefined || thread[index + 1].type === 'human') ? (
+                ) : message.status === 'completed' && message.type === 'ai' && rateable ? (
                     // Show answer actions if the assistant's response is complete at this point
-                    <SuccessfulAnswerActions messageIndex={index} />
+                    <SuccessfulAnswerActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
                 ) : null
             }
         >
@@ -214,8 +231,14 @@ function RetriableAnswerActions(): JSX.Element {
     )
 }
 
-function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JSX.Element {
-    const { thread } = useValues(maxLogic)
+function SuccessfulAnswerActions({
+    messageGroupIndex,
+    retriable,
+}: {
+    messageGroupIndex: number
+    retriable: boolean
+}): JSX.Element {
+    const { threadGrouped } = useValues(maxLogic)
     const { retryLastMessage } = useActions(maxLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
@@ -226,11 +249,12 @@ function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JS
     const [relevantHumanMessage, relevantVisualizationMessage] = useMemo(() => {
         // We need to find the relevant visualization message (which might be a message earlier if the most recent one
         // is a results summary message), and the human message that triggered it.
-        const relevantMessages = thread.slice(0, messageIndex + 1).reverse()
-        const visualizationMessage = relevantMessages.find(isVisualizationMessage) as VisualizationMessage
-        const humanMessage = relevantMessages.find(isHumanMessage) as HumanMessage
+        const visualizationMessage = threadGrouped[messageGroupIndex].find(
+            isVisualizationMessage
+        ) as VisualizationMessage
+        const humanMessage = threadGrouped[messageGroupIndex - 1][0] as HumanMessage
         return [humanMessage, visualizationMessage]
-    }, [thread, messageIndex])
+    }, [threadGrouped, messageGroupIndex])
 
     function submitRating(newRating: 'good' | 'bad'): void {
         if (rating) {
@@ -280,7 +304,7 @@ function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JS
                         onClick={() => submitRating('bad')}
                     />
                 )}
-                {messageIndex === thread.length - 1 && (
+                {retriable && (
                     <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"

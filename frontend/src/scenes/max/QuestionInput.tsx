@@ -9,12 +9,12 @@ import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { question, thread, threadLoading } = useValues(maxLogic)
+    const { question, threadGrouped, threadLoading } = useValues(maxLogic)
     const { askMax, setQuestion } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
-    const isFloating = thread.length > 0
+    const isFloating = threadGrouped.length > 0
 
     useEffect(() => {
         if (!threadLoading) {
