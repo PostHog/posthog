@@ -96,7 +96,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
-const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
+    const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
 
     return (
         <Section title="Email an engineer">
@@ -147,7 +147,6 @@ const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
                                 )}
                             </div>
                             <div className={currentPlan ? 'font-bold' : undefined}>
-                                {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
                                 {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
                             </div>
                         </React.Fragment>
