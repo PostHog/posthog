@@ -108,8 +108,8 @@ pub struct Context {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ContextLine {
-    pub number: u32,
-    pub line: String,
+    number: u32,
+    line: String,
 }
 
 impl Frame {
@@ -155,9 +155,16 @@ impl Frame {
 
 impl ContextLine {
     pub fn new(number: u32, line: impl ToString) -> Self {
+        let line = line.to_string();
+        // We limit context line length to 300 chars
+        let mut constrained: String = line.to_string().chars().take(300).collect();
+        if line.len() > constrained.len() {
+            constrained.push_str("...✂️");
+        }
+
         Self {
             number,
-            line: line.to_string(),
+            line: constrained,
         }
     }
 }
