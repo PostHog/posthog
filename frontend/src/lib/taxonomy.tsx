@@ -219,8 +219,20 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     metadata: {
         distinct_id: {
             label: 'Distinct ID',
-            description: 'The current distinct ID of the user',
+            description: 'The current distinct ID of the user.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
+        timestamp: {
+            label: 'Timestamp',
+            description: 'Time the event happened.',
+            examples: ['2023-05-20T15:30:00Z'],
+            system: true,
+        },
+        event: {
+            label: 'Event',
+            description: 'The name of the event.',
+            examples: ['$pageview'],
+            system: true,
         },
     },
     event_properties: {
@@ -750,9 +762,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             system: true,
         },
         $timestamp: {
-            label: 'Timestamp',
-            description: 'Time the event happened.',
-            examples: [new Date().toISOString()],
+            label: 'Timestamp (deprecated)',
+            description:
+                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
+            examples: ['2023-05-20T15:30:00Z'],
+            system: true,
         },
         $sent_at: {
             label: 'Sent At',

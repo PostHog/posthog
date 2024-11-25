@@ -232,6 +232,7 @@ export const FEATURE_FLAGS = {
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     EXPERIMENTS_MIGRATION_DISABLE_UI: 'experiments-migration-disable-ui', // owner: @jurajmajerik #team-experiments
     FEATURE_MANAGEMENT_UI: 'feature-management-ui', // owner: @haven #team-feature-flags
+    CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
