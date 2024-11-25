@@ -64,14 +64,14 @@ def _get_events_last_seen_at(team_id: int) -> dict[str, timezone.datetime]:
 
 
 InferredPropertyKey = tuple[PropertyDefinition.Type, str, Optional[int]]
-InferredProperties = dict[InferredPropertyKey, PropertyType]
+InferredProperties = dict[InferredPropertyKey, Optional[PropertyType]]
 
 
-def _get_property_types(team_id: int) -> dict[str, InferredProperties]:
+def _get_property_types(team_id: int) -> InferredProperties:
     """Determine property types based on ClickHouse data."""
     from posthog.client import sync_execute
 
-    property_types = {
+    property_types: InferredProperties = {
         (PropertyDefinition.Type.EVENT, property_key, None): _infer_property_type(sample_json_value)
         for property_key, sample_json_value in sync_execute(
             _GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}
