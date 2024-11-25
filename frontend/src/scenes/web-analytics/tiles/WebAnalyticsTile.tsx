@@ -72,6 +72,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Region</>
         case WebStatsBreakdown.City:
             return <>City</>
+        case WebStatsBreakdown.Timezone:
+            return <>Timezone</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
         default:
@@ -167,6 +169,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
         case WebStatsBreakdown.City:
             return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Timezone:
+            return { key: '$timezone', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
         default:

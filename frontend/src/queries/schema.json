@@ -13363,7 +13363,8 @@
                 "DeviceType",
                 "Country",
                 "Region",
-                "City"
+                "City",
+                "Timezone"
             ],
             "type": "string"
         },
