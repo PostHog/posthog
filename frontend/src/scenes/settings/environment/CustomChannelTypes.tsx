@@ -57,27 +57,15 @@ const isNullary = (operator: CustomChannelOperator): boolean => {
     return [CustomChannelOperator.IsSet, CustomChannelOperator.IsNotSet].includes(operator)
 }
 
-function opToPropertyOperator(op: CustomChannelOperator): PropertyOperator {
-    switch (op) {
-        case CustomChannelOperator.Exact:
-            return PropertyOperator.Exact
-        case CustomChannelOperator.IsNot:
-            return PropertyOperator.IsNot
-        case CustomChannelOperator.IsSet:
-            return PropertyOperator.IsSet
-        case CustomChannelOperator.IsNotSet:
-            return PropertyOperator.IsNotSet
-        case CustomChannelOperator.IContains:
-            return PropertyOperator.IContains
-        case CustomChannelOperator.NotIContains:
-            return PropertyOperator.NotIContains
-        case CustomChannelOperator.Regex:
-            return PropertyOperator.Regex
-        case CustomChannelOperator.NotRegex:
-            return PropertyOperator.NotRegex
-        default:
-            throw new UnexpectedNeverError(op)
-    }
+const opToPropertyOperator: Record<CustomChannelOperator, PropertyOperator> = {
+    [CustomChannelOperator.Exact]: PropertyOperator.Exact,
+    [CustomChannelOperator.IsNot]: PropertyOperator.IsNot,
+    [CustomChannelOperator.IsSet]: PropertyOperator.IsSet,
+    [CustomChannelOperator.IsNotSet]: PropertyOperator.IsNotSet,
+    [CustomChannelOperator.IContains]: PropertyOperator.IContains,
+    [CustomChannelOperator.NotIContains]: PropertyOperator.NotIContains,
+    [CustomChannelOperator.Regex]: PropertyOperator.Regex,
+    [CustomChannelOperator.NotRegex]: PropertyOperator.NotRegex,
 }
 
 function keyToSessionProperty(key: CustomChannelField): string {
@@ -252,7 +240,7 @@ export function ChannelTypeEditor({
                                 onSet={(propertyValue: any) => {
                                     updateChildItem({ ...rule, value: propertyValue })
                                 }}
-                                operator={opToPropertyOperator(rule.op)}
+                                operator={opToPropertyOperator[rule.op]}
                                 value={rule.value}
                                 placeholder="Enter a value"
                             />
