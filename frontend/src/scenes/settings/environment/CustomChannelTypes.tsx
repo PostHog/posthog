@@ -95,8 +95,8 @@ function keyToSessionProperty(key: CustomChannelField): string {
     }
 }
 
-const sanitizeCustomChannelTypeRules = (rules: CustomChannelRule[]): CustomChannelRule[] => {
-    return (rules || [])
+const sanitizeCustomChannelTypeRules = (rules?: CustomChannelRule[]): CustomChannelRule[] => {
+    return (rules ?? [])
         .map((rule) => {
             return {
                 id: rule.id || uuid(),
@@ -122,9 +122,7 @@ export function CustomChannelTypes(): JSX.Element {
 
     const [savedCustomChannelTypeRules, setSavedCustomChannelTypeRules] = useState(() =>
         sanitizeCustomChannelTypeRules(
-            currentTeam?.modifiers?.customChannelTypeRules ??
-                currentTeam?.default_modifiers?.customChannelTypeRules ??
-                []
+            currentTeam?.modifiers?.customChannelTypeRules ?? currentTeam?.default_modifiers?.customChannelTypeRules
         )
     )
 
