@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
+from uuid import UUID
 
 import posthoganalytics
+from django.db.models import QuerySet
 from rest_framework import (
     exceptions,
     mixins,
@@ -24,6 +26,81 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_invite
+
+
+class OrganizationInviteManager:
+    @staticmethod
+    def combine_invites(
+        organization_id: UUID | str, validated_data: dict[str, Any], combine_pending_invites: bool = True
+    ) -> dict[str, Any]:
+        """Combines multiple pending invites for the same email address."""
+        if not combine_pending_invites:
+            return validated_data
+
+        existing_invites = OrganizationInviteManager._get_invites_for_user_org(
+            organization_id=organization_id, target_email=validated_data["target_email"]
+        )
+
+        if not existing_invites.exists():
+            return validated_data
+
+        validated_data["level"] = OrganizationInviteManager._get_highest_level(
+            existing_invites=existing_invites,
+            new_level=validated_data.get("level", OrganizationMembership.Level.MEMBER),
+        )
+
+        validated_data["private_project_access"] = OrganizationInviteManager._combine_project_access(
+            existing_invites=existing_invites, new_access=validated_data.get("private_project_access", [])
+        )
+
+        return validated_data
+
+    @staticmethod
+    def _get_invites_for_user_org(
+        organization_id: UUID | str, target_email: str, include_expired: bool = False
+    ) -> QuerySet:
+        filters = {
+            "organization_id": organization_id,
+            "target_email": target_email,
+        }
+
+        if not include_expired:
+            filters["created_at__gt"] = datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY)
+
+        return OrganizationInvite.objects.filter(**filters).order_by("-created_at")
+
+    @staticmethod
+    def _get_highest_level(existing_invites: QuerySet, new_level: int) -> int:
+        levels = [invite.level for invite in existing_invites]
+        levels.append(new_level)
+        return max(levels)
+
+    @staticmethod
+    def _combine_project_access(existing_invites: QuerySet, new_access: list[dict]) -> list[dict]:
+        combined_access: dict[int, int] = {}
+
+        # Add new access first
+        for access in new_access:
+            combined_access[access["id"]] = access["level"]
+
+        # Combine with existing access, keeping highest levels
+        for invite in existing_invites:
+            if not invite.private_project_access:
+                continue
+
+            for access in invite.private_project_access:
+                project_id = access["id"]
+                if project_id not in combined_access or access["level"] > combined_access[project_id]:
+                    combined_access[project_id] = access["level"]
+
+        return [{"id": project_id, "level": level} for project_id, level in combined_access.items()]
+
+    @staticmethod
+    def delete_existing_invites(organization_id: UUID | str, target_email: str) -> None:
+        """Deletes all existing invites for a given email in an organization."""
+        OrganizationInviteManager._get_invites_for_user_org(
+            organization_id=organization_id, target_email=target_email, include_expired=True
+        ).delete()
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
@@ -114,54 +191,19 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
         combine_pending_invites = validated_data.pop("combine_pending_invites", False)
         send_email = validated_data.pop("send_email", True)
-        # Get existing non-expired invites
-        existing_invites = OrganizationInvite.objects.filter(
-            organization_id=self.context["organization_id"],
-            target_email=validated_data["target_email"],
-            created_at__gt=datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY),  # Invites expire after 3 days
-        ).order_by("-created_at")
 
-        if combine_pending_invites and existing_invites.exists():
-            # Use most recent invite as base
-            base_invite = existing_invites.first()
-            # first() returns None if no results exist, but we just checked exists() so we know it's not None
-            assert base_invite is not None
-
-            # Use highest level
-            highest_level = max(
-                [base_invite.level]
-                + [invite.level for invite in existing_invites[1:]]
-                + [validated_data.get("level", OrganizationMembership.Level.MEMBER)]
+        # Handle invite combination if requested
+        if combine_pending_invites:
+            validated_data = OrganizationInviteManager.combine_invites(
+                organization_id=self.context["organization_id"],
+                validated_data=validated_data,
+                combine_pending_invites=True,
             )
-            validated_data["level"] = highest_level
 
-            # Combine private_project_access
-            combined_access = {}
-            # Add current invite's access
-            if validated_data.get("private_project_access"):
-                for access in validated_data["private_project_access"]:
-                    combined_access[access["id"]] = access["level"]
-
-            # Add existing invites' private project access
-            for existing_invite in existing_invites:
-                if existing_invite.private_project_access:
-                    for access in existing_invite.private_project_access:
-                        if access["id"] not in combined_access or access["level"] > combined_access[access["id"]]:
-                            combined_access[access["id"]] = access["level"]
-
-            validated_data["private_project_access"] = [
-                {"id": project_id, "level": level} for project_id, level in combined_access.items()
-            ]
-
-        # Delete existing invites
-        existing_invites.delete()
-
-        # delete any existing expired invites
-        expired_invites = OrganizationInvite.objects.filter(
-            organization_id=self.context["organization_id"],
-            created_at__lt=datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        # Delete existing invites for this email
+        OrganizationInviteManager.delete_existing_invites(
+            organization_id=self.context["organization_id"], target_email=validated_data["target_email"]
         )
-        expired_invites.delete()
 
         # Create new invite
         invite: OrganizationInvite = OrganizationInvite.objects.create(
