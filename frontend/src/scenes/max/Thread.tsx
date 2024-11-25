@@ -107,6 +107,14 @@ function MessageGroup({
                                     <span>{message.content}…</span>
                                     <Spinner className="text-xl" />
                                 </div>
+                                {message.substeps?.map((substep, substepIndex) => (
+                                    <LemonMarkdown
+                                        key={substepIndex}
+                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-accent-3000 rounded w-fit"
+                                    >
+                                        {substep}
+                                    </LemonMarkdown>
+                                ))}
                             </MessageTemplate>
                         )
                     }

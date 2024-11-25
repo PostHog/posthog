@@ -11285,6 +11285,12 @@
                     "const": true,
                     "type": "boolean"
                 },
+                "substeps": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "const": "ai/reasoning",
                     "type": "string"
