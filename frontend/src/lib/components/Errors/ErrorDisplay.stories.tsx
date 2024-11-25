@@ -213,6 +213,7 @@ export function ChainedErrorStack(): JSX.Element {
                         type: 'ZeroDivisionError',
                         value: 'division by zero',
                         stacktrace: {
+                            type: 'resolved',
                             frames: [
                                 {
                                     source: '/posthog-python/example2.py',
@@ -232,6 +233,7 @@ export function ChainedErrorStack(): JSX.Element {
                         type: 'CustomException',
                         value: 'This is a custom exception',
                         stacktrace: {
+                            type: 'resolved',
                             frames: [
                                 {
                                     source: '/Users/neilkakkar/Project/posthog-python/example2.py',
@@ -272,17 +274,23 @@ export function StackTraceWithLineContext(): JSX.Element {
                                     column: 26,
                                     lang: 'javascript',
                                 },
-                                {
-                                    raw_id: 'notFoundId',
-                                    source: '<anonymous>',
-                                    resolved_name: '?',
-                                    in_app: true,
-                                    line: 1,
-                                    column: 26,
-                                    lang: 'javascript',
-                                },
                             ],
                         },
+                    },
+                ],
+            })}
+        />
+    )
+}
+
+export function Stacktraceless(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
                     },
                 ],
             })}

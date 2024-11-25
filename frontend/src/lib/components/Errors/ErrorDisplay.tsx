@@ -133,7 +133,7 @@ function ChainedStackTraces({
         <>
             <LemonDivider dashed={true} />
             <div className="flex gap-1 mt-6 justify-between items-center">
-                <h2 className="mb-0">Stack Trace</h2>
+                <h3 className="mb-0">Stack Trace</h3>
                 <LemonSwitch
                     checked={showAllFrames}
                     label="Show entire stack trace"
@@ -242,6 +242,8 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $cymbal_errors,
     } = getExceptionPropertiesFrom(eventProperties)
 
+    const exceptionWithStack = $exception_list?.length && $exception_list.some((e) => !!e.stacktrace)
+
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">
             <h1 className="mb-0">{$exception_message}</h1>
@@ -271,7 +273,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
                 <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
             </div>
-            {$exception_list?.length ? (
+            {exceptionWithStack ? (
                 <ChainedStackTraces exceptionList={$exception_list} ingestionErrors={$cymbal_errors} />
             ) : null}
             <LemonDivider dashed={true} />
