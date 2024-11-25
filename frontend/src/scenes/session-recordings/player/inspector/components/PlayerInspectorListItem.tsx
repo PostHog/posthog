@@ -84,6 +84,7 @@ const typeToIconAndDescription = {
     },
 }
 
+// TODO @posthog/icons doesn't export the type we need here
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
 export function eventToIcon(event: string | undefined | null) {
     switch (event) {
