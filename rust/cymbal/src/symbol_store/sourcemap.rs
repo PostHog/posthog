@@ -182,13 +182,10 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url
     // the start URL, with `.map` appended. We don't actually fetch the body here, just see if the URL resolves to a 200
     let mut test_url = start; // Move the `start` into `test_url`, since we don't need it anymore, making it mutable
     test_url.set_path(&(test_url.path().to_owned() + ".map"));
-    match client.head(test_url).send().await {
-        Ok(res) => {
-            if res.status().is_success() {
-                return Ok((res.url().clone(), body));
-            }
+    if let Ok(res) = client.head(test_url.clone()).send().await {
+        if res.status().is_success() {
+            return Ok((res.url().clone(), body));
         }
-        Err(_) => {} // Just continue to the error we would have returned below
     }
 
     // We failed entirely to find a sourcemap. This /might/ indicate the frame is not minified, or it might
