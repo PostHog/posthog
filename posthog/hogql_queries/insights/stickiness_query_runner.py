@@ -20,6 +20,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
 from posthog.models.action.action import Action
+from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionsNode,
@@ -87,7 +88,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return ast.Field(chain=["e", "person_id"])
 
-    def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
+    def _old_events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
         num_intervals_column_expr = ast.Alias(
             alias="num_intervals",
             expr=ast.Call(
@@ -127,6 +128,64 @@ class StickinessQueryRunner(QueryRunner):
         )
 
         return cast(ast.SelectQuery, select_query)
+
+    def _having_clause(self) -> ast.Expr:
+        if not (self.query.stickinessFilter and self.query.stickinessFilter.stickinessCriteria):
+            return parse_expr("count() > 0")
+        operator = self.query.stickinessFilter.stickinessCriteria.operator
+        value = ast.Constant(value=self.query.stickinessFilter.stickinessCriteria.value)
+        return parse_expr(f"""count() {get_count_operator(operator)} {{value}}""", {"value": value})
+
+    def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
+        inner_query = parse_select(
+            """
+            SELECT
+                {aggregation} as aggregation_target,
+                {start_of_interval} as start_of_interval,
+            FROM events e
+            SAMPLE {sample}
+            WHERE {where_clause}
+            GROUP BY aggregation_target, start_of_interval
+            HAVING {having_clause}
+        """,
+            {
+                "aggregation": self._aggregation_expressions(series_with_extra.series),
+                "start_of_interval": self.query_date_range.date_to_start_of_interval_hogql(
+                    ast.Field(chain=["e", "timestamp"])
+                ),
+                "sample": self._sample_value(),
+                "where_clause": self.where_clause(series_with_extra),
+                "having_clause": self._having_clause(),
+            },
+        )
+
+        middle_query = parse_select(
+            """
+            SELECT
+                aggregation_target,
+                count() as num_intervals
+            FROM
+                {inner_query}
+            GROUP BY
+                aggregation_target
+        """,
+            {"inner_query": inner_query},
+        )
+
+        outer_query = parse_select(
+            """
+            SELECT
+                count(DISTINCT aggregation_target),
+                num_intervals
+            FROM
+                {middle_query}
+            GROUP BY num_intervals
+            ORDER BY num_intervals
+            """,
+            {"middle_query": middle_query},
+        )
+
+        return cast(ast.SelectQuery, outer_query)
 
     def to_query(self) -> ast.SelectSetQuery:
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
