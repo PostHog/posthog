@@ -2565,10 +2565,33 @@ export interface CustomChannelCondition {
     key: CustomChannelField
     value?: string | string[]
     op: CustomChannelOperator
+    id: string // the ID is only needed for the drag and drop, so only needs to be unique with one set of rules
 }
 
 export interface CustomChannelRule {
-    conditions: CustomChannelCondition[]
+    items: CustomChannelCondition[]
     combiner: FilterLogicalOperator
     channel_type: string
+    id: string // the ID is only needed for the drag and drop, so only needs to be unique with one set of rules
+}
+
+export enum DefaultChannelTypes {
+    CrossNetwork = 'Cross Network',
+    PaidSearch = 'Paid Search',
+    PaidSocial = 'Paid Social',
+    PaidVideo = 'Paid Video',
+    PaidShopping = 'Paid Shopping',
+    PaidUnknown = 'Paid Unknown',
+    Direct = 'Direct',
+    OrganicSearch = 'Organic Search',
+    OrganicSocial = 'Organic Social',
+    OrganicVideo = 'Organic Video',
+    OrganicShopping = 'Organic Shopping',
+    Push = 'Push',
+    SMS = 'SMS',
+    Audio = 'Audio',
+    Email = 'Email',
+    Referral = 'Referral',
+    Affiliate = 'Affiliate',
+    Unknown = 'Unknown',
 }
