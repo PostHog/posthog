@@ -120,18 +120,11 @@ function FrameContextLine({
         </div>
     )
 }
-function ChainedStackTraces({
-    exceptionList,
-    ingestionErrors,
-}: {
-    exceptionList: ErrorTrackingException[]
-    ingestionErrors: string[]
-}): JSX.Element {
+function ChainedStackTraces({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element {
     const [showAllFrames, setShowAllFrames] = useState(false)
 
     return (
         <>
-            <LemonDivider dashed={true} />
             <div className="flex gap-1 mt-6 justify-between items-center">
                 <h3 className="mb-0">Stack Trace</h3>
                 <LemonSwitch
@@ -142,15 +135,6 @@ function ChainedStackTraces({
                     }}
                 />
             </div>
-            {ingestionErrors && (
-                <LemonBanner type="error">
-                    <ul>
-                        {ingestionErrors.map((e, i) => (
-                            <li key={i}>{e}</li>
-                        ))}
-                    </ul>
-                </LemonBanner>
-            )}
             {exceptionList.map(({ stacktrace, value }, index) => {
                 if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
@@ -239,11 +223,11 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $sentry_url,
         $exception_list,
         $level,
-        $cymbal_errors,
     } = getExceptionPropertiesFrom(eventProperties)
 
     const exceptionList: ErrorTrackingException[] | undefined = $exception_list
     const exceptionWithStack = exceptionList?.length && exceptionList.some((e) => !!e.stacktrace)
+    const ingestionErrors: string[] | undefined = eventProperties['$cymbal_errors']
 
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">
@@ -254,19 +238,17 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     type="success"
                     title="captured by"
                     value={
-                        <>
-                            {$sentry_url ? (
-                                <Link
-                                    className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
-                                    to={$sentry_url}
-                                    target="_blank"
-                                >
-                                    Sentry
-                                </Link>
-                            ) : (
-                                <>PostHog</>
-                            )}
-                        </>
+                        $sentry_url ? (
+                            <Link
+                                className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
+                                to={$sentry_url}
+                                target="_blank"
+                            >
+                                Sentry
+                            </Link>
+                        ) : (
+                            'PostHog'
+                        )
                     }
                 />
                 <TitledSnack title="synthetic" value={$exception_synthetic ? 'true' : 'false'} />
@@ -274,10 +256,20 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
                 <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
             </div>
-            {exceptionWithStack ? (
-                <ChainedStackTraces exceptionList={$exception_list} ingestionErrors={$cymbal_errors} />
-            ) : null}
+
             <LemonDivider dashed={true} />
+            {ingestionErrors && (
+                <>
+                    <LemonBanner type="error">
+                        <ul>
+                            {ingestionErrors.map((e, i) => (
+                                <li key={i}>{e}</li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
+                </>
+            )}
+            {exceptionWithStack ? <ChainedStackTraces exceptionList={$exception_list} /> : null}
         </div>
     )
 }

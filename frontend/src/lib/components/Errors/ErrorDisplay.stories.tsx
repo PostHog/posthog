@@ -297,3 +297,19 @@ export function Stacktraceless(): JSX.Element {
         />
     )
 }
+
+export function WithCymbalErrors(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
+                    },
+                ],
+                $cymbal_errors: ['This is an ingestion error', 'This is a second one'],
+            })}
+        />
+    )
+}
