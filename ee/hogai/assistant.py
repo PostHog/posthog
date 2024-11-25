@@ -155,16 +155,16 @@ class Assistant:
                     for action, _ in input["intermediate_steps"]:
                         match action.tool:
                             case "retrieve_event_properties":
-                                substeps.append(f"Exploring `{action.tool_input}` event's properties")
+                                substeps.append(f"Analyzing `{action.tool_input}` event's properties")
                             case "retrieve_entity_properties":
-                                substeps.append(f"Exploring `{action.tool_input}` properties")
+                                substeps.append(f"Analyzing {action.tool_input} properties")
                             case "retrieve_event_property_values":
                                 substeps.append(
-                                    f"Looking through values of event property `{action.tool_input['property_name']}` for `{action.tool_input['event_name']}`"
+                                    f"Exploring values of event property `{action.tool_input['property_name']}` for `{action.tool_input['event_name']}`"
                                 )
                             case "retrieve_entity_property_values":
                                 substeps.append(
-                                    f"Looking through values of {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
+                                    f"Exploring values of {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                 )
                 return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
             case AssistantNodeName.TRENDS_GENERATOR:
