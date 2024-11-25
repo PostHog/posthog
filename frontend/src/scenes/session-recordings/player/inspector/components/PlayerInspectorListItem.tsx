@@ -1,18 +1,34 @@
-import { IconDashboard, IconEye, IconGear, IconMinusSquare, IconPlusSquare, IconTerminal } from '@posthog/icons'
+import {
+    BaseIcon,
+    IconBolt,
+    IconChat,
+    IconCloud,
+    IconCursor,
+    IconDashboard,
+    IconEye,
+    IconGear,
+    IconLeave,
+    IconLogomark,
+    IconMinusSquare,
+    IconPlusSquare,
+    IconTerminal,
+} from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
-import { IconComment, IconOffline } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
+import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
+import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
-import { SessionRecordingPlayerTab } from '~/types'
+import { FilterableInspectorListItemTypes } from '~/types'
 
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
@@ -23,25 +39,23 @@ import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
 
+const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
+
 const typeToIconAndDescription = {
-    [SessionRecordingPlayerTab.ALL]: {
-        Icon: undefined,
-        tooltip: 'All events',
-    },
-    [SessionRecordingPlayerTab.EVENTS]: {
+    [FilterableInspectorListItemTypes.EVENTS]: {
         Icon: undefined,
         tooltip: 'Recording event',
     },
-    [SessionRecordingPlayerTab.CONSOLE]: {
+    [FilterableInspectorListItemTypes.CONSOLE]: {
         Icon: IconTerminal,
         tooltip: 'Console log',
     },
-    [SessionRecordingPlayerTab.NETWORK]: {
+    [FilterableInspectorListItemTypes.NETWORK]: {
         Icon: IconDashboard,
         tooltip: 'Network event',
     },
     ['offline-status']: {
-        Icon: IconOffline,
+        Icon: IconCloud,
         tooltip: 'browser went offline or returned online',
     },
     ['browser-visibility']: {
@@ -57,11 +71,49 @@ const typeToIconAndDescription = {
         tooltip: 'Doctor event',
     },
     ['comment']: {
-        Icon: IconComment,
+        Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
     },
+    ['inspector-summary']: {
+        Icon: undefined,
+        tooltip: undefined,
+    },
+    ['inactivity']: {
+        Icon: undefined,
+        tooltip: undefined,
+    },
 }
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
+
+// TODO @posthog/icons doesn't export the type we need here
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
+export function eventToIcon(event: string | undefined | null) {
+    switch (event) {
+        case '$pageview':
+            return IconEye
+        case '$screen':
+            return IconEye
+        case '$pageleave':
+            return IconLeave
+        case '$autocapture':
+            return IconBolt
+    }
+
+    if (event && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[event]) {
+        return IconLogomark
+    }
+
+    // technically we should have the select all icon for "All events" completeness,
+    // but we never actually display it, and it messes up the type signatures for the icons
+    if (event === null) {
+        return BaseIcon
+    }
+
+    if (event !== undefined) {
+        return IconCursor
+    }
+
+    return BaseIcon
+}
 
 function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
@@ -71,7 +123,7 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
     const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
 
     return (
-        <span className="px-2 py-1 text-xs min-w-12">
+        <span className="px-2 py-1 text-xs min-w-18 text-center">
             {timestampFormat != TimestampFormat.Relative ? (
                 (timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp).format(
                     'DD, MMM HH:mm:ss'
@@ -97,35 +149,34 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
 function RowItemTitle({
     item,
     finalTimestamp,
-    showIcon,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
-    showIcon?: boolean
 }): JSX.Element {
-    const TypeIcon = typeToIconAndDescription[item.type].Icon
-
     return (
-        <div className="flex gap-1 items-center">
-            {showIcon && TypeIcon ? <TypeIcon /> : null}
-            {item.type === SessionRecordingPlayerTab.NETWORK ? (
+        <div className="flex items-center text-text-3000" data-attr="row-item-title">
+            {item.type === FilterableInspectorListItemTypes.NETWORK ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
+            ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (
                 <ItemConsoleLog item={item} />
-            ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
+            ) : item.type === FilterableInspectorListItemTypes.EVENTS ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
-                <div className="flex items-start p-2 text-xs font-light font-mono">
+                <div className="flex w-full items-start p-2 text-xs font-light font-mono">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
                 </div>
             ) : item.type === 'browser-visibility' ? (
-                <div className="flex items-start px-2 py-1 font-light font-mono text-xs">
+                <div className="flex w-full items-start px-2 py-1 font-light font-mono text-xs">
                     Window became {item.status}
                 </div>
-            ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
+            ) : item.type === FilterableInspectorListItemTypes.DOCTOR ? (
                 <ItemDoctor item={item} />
             ) : item.type === 'comment' ? (
                 <ItemComment item={item} />
+            ) : item.type === 'inspector-summary' ? (
+                <ItemSummary item={item} />
+            ) : item.type === 'inactivity' ? (
+                <ItemInactivity item={item} />
             ) : null}
         </div>
     )
@@ -142,14 +193,14 @@ function RowItemDetail({
 }): JSX.Element | null {
     return (
         <div onClick={onClick}>
-            {item.type === SessionRecordingPlayerTab.NETWORK ? (
+            {item.type === FilterableInspectorListItemTypes.NETWORK ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
+            ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (
                 <ItemConsoleLogDetail item={item} />
-            ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
+            ) : item.type === FilterableInspectorListItemTypes.EVENTS ? (
                 <ItemEventDetail item={item} />
             ) : item.type === 'offline-status' ? null : item.type === 'browser-visibility' ? null : item.type ===
-              SessionRecordingPlayerTab.DOCTOR ? (
+              FilterableInspectorListItemTypes.DOCTOR ? (
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemCommentDetail item={item} />
@@ -172,10 +223,8 @@ export function PlayerInspectorListItem({
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
-    const { tab, end, expandedItems } = useValues(playerInspectorLogic(logicProps))
+    const { end, expandedItems } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
-
-    const showIcon = tab === SessionRecordingPlayerTab.ALL
 
     const isExpanded = expandedItems.includes(index)
 
@@ -214,6 +263,12 @@ export function PlayerInspectorListItem({
     )
 
     const isHovering = useIsHovering(hoverRef)
+
+    let TypeIcon = typeToIconAndDescription[item.type].Icon
+    if (TypeIcon === undefined && item.type === FilterableInspectorListItemTypes.EVENTS) {
+        // KLUDGE this is a hack to lean on this function, yuck
+        TypeIcon = eventToIcon(item.data.event)
+    }
 
     return (
         <div
@@ -265,7 +320,9 @@ export function PlayerInspectorListItem({
                         </Tooltip>
                     ) : null}
 
-                    <ItemTimeDisplay item={item} />
+                    {item.type !== 'inspector-summary' && item.type !== 'inactivity' && <ItemTimeDisplay item={item} />}
+
+                    {TypeIcon ? <TypeIcon /> : <BaseIcon className="min-w-4" />}
 
                     <div
                         className={clsx(
@@ -273,21 +330,23 @@ export function PlayerInspectorListItem({
                             item.highlightColor && `bg-${item.highlightColor}-highlight`
                         )}
                     >
-                        <RowItemTitle item={item} finalTimestamp={end} showIcon={showIcon} />
+                        <RowItemTitle item={item} finalTimestamp={end} />
                     </div>
                 </div>
-                <LemonButton
-                    icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
-                    size="small"
-                    noPadding
-                    onClick={() => setItemExpanded(index, !isExpanded)}
-                    data-attr="expand-inspector-row"
-                    disabledReason={
-                        item.type === 'offline-status' || item.type === 'browser-visibility'
-                            ? 'This event type does not have a detail view'
-                            : undefined
-                    }
-                />
+                {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
+                    <LemonButton
+                        icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
+                        size="small"
+                        noPadding
+                        onClick={() => setItemExpanded(index, !isExpanded)}
+                        data-attr="expand-inspector-row"
+                        disabledReason={
+                            item.type === 'offline-status' || item.type === 'browser-visibility'
+                                ? 'This event type does not have a detail view'
+                                : undefined
+                        }
+                    />
+                )}
             </div>
 
             {isExpanded ? (
