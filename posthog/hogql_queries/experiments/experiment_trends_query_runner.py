@@ -491,22 +491,22 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         lateral_subquery = ast.SelectQuery(
             select=[ast.Alias(alias=name, expr=ast.Field(chain=chain)) for name, chain in requested_fields.items()],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="phe"),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias=join_to_add.to_table),
             where=ast.And(
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["phe", "distinct_id"]),
+                        left=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
                         right=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.LtEq,
-                        left=ast.Field(chain=["phe", "timestamp"]),
+                        left=ast.Field(chain=[join_to_add.to_table, "timestamp"]),
                         right=ast.Field(chain=[join_to_add.from_table, "timestamp"]),
                     ),
                 ]
             ),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["phe", "timestamp"]), order="DESC")],
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=[join_to_add.to_table, "timestamp"]), order="DESC")],
             limit=ast.Constant(value=1),
         )
 
