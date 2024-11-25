@@ -159,7 +159,7 @@ impl ContextLine {
         // We limit context line length to 300 chars
         let mut constrained: String = line.to_string().chars().take(300).collect();
         if line.len() > constrained.len() {
-            constrained.push_str("...<snip>");
+            constrained.push_str("...✂️");
         }
 
         Self {
