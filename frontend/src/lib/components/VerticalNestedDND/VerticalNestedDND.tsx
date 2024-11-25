@@ -836,7 +836,7 @@ export const ChildItem = React.memo(
 
 export function Remove(props: LemonButtonProps): JSX.Element {
     return (
-        <LemonButton type="secondary" fullWidth={false} status="danger" {...props}>
+        <LemonButton type="secondary" fullWidth={false} status="danger" size="small" {...props}>
             <IconTrash />
         </LemonButton>
     )
@@ -844,7 +844,7 @@ export function Remove(props: LemonButtonProps): JSX.Element {
 
 export const Handle = forwardRef<HTMLButtonElement, LemonButtonProps>(function Handle_(props, ref) {
     return (
-        <LemonButton type="tertiary" fullWidth={false} ref={ref} {...props} className="self-start">
+        <LemonButton type="tertiary" fullWidth={false} ref={ref} size="small" {...props} className="self-start">
             <div>
                 <IconDragHandle />
             </div>

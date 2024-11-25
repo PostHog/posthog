@@ -4,7 +4,7 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { VerticalNestedDND, VerticalNestedDNDProps } from './VerticalNestedDND'
 type Story = StoryObj<typeof VerticalNestedDND>
 const meta: Meta<typeof VerticalNestedDND> = {
-    title: 'Lemon UI/VerticalNestedDND',
+    title: 'Components/VerticalNestedDND',
     component: VerticalNestedDND,
     parameters: {
         testOptions: {
