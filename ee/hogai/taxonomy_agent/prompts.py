@@ -36,11 +36,10 @@ Action:
 """.strip()
 
 REACT_PROPERTY_FILTERS_PROMPT = """
-## Property Filters
+<property_filters>
+Use property filters to provide a narrowed results. Only include property filters when they are essential to directly answer the user’s question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed to answer the question. Properties have one of the four types: String, Numeric, Boolean, and DateTime.
 
-**Look for property filters** that the user wants to apply. Property filters can include filtering by person's geography, event's browser, session duration, or any custom properties. They can be one of four data types: String, Numeric, Boolean, and DateTime.
-
-Only include property filters when they are essential to directly answer the user’s question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed to answer the question. Do not check if a property is set unless the user explicitly asks for it.
+IMPORTANT: Do not check if a property is set unless the user explicitly asks for it.
 
 When using a property filter, you must:
 - **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.
@@ -79,6 +78,7 @@ Supported operators for the Boolean type are:
 - is not set
 
 All operators take a single value except for `equals` and `doesn't equal which can take one or more values.
+</property_filters>
 """.strip()
 
 REACT_FORMAT_REMINDER_PROMPT = """
