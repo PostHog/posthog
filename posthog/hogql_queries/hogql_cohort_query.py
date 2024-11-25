@@ -337,6 +337,47 @@ class HogQLCohortQuery:
             ],
         )
 
+    def get_performed_event_regularly(self, prop: Property) -> ast.SelectSetQuery:
+        # time_value / time_value_interval is the furthest back
+        # seq_time_value / seq_time_interval is when they stopped it
+        series = self._get_series(prop)
+        first_time_series = self._get_series(prop, math=BaseMathType.FIRST_TIME_FOR_USER)
+        date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+        date_interval = validate_interval(prop.time_interval)
+        date_from = f"-{date_value}{date_interval[:1]}"
+
+        date_value = parse_and_validate_positive_integer(prop.seq_time_value, "seq_time_value")
+        date_interval = validate_interval(prop.seq_time_interval)
+        date_to = f"-{date_value}{date_interval[:1]}"
+
+        select_for_first_range = self._actors_query_from_trends_query(TrendsQuery(
+            dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
+            trendsFilter=TrendsFilter(display="ActionsBarValue"),
+            series=series,
+        ))
+
+        # want people in here who were not "for the first time" who were not in the prior one
+        select_for_second_range = self._actors_query_from_trends_query(TrendsQuery(
+            dateRange=InsightDateRange(date_from=date_to),
+            trendsFilter=TrendsFilter(display="ActionsBarValue"),
+            series=series,
+        ))
+
+        select_for_second_range_first_time = self._actors_query_from_trends_query(TrendsQuery(
+            dateRange=InsightDateRange(date_from=date_to),
+            trendsFilter=TrendsFilter(display="ActionsBarValue"),
+            series=first_time_series,
+        ))
+
+        # People who did the event in the recent window, who had done it previously, who did not do it in the previous window
+        return ast.SelectSetQuery(
+            initial_select_query=select_for_second_range,
+            subsequent_select_queries=[
+                SelectSetNode(set_operator="EXCEPT", select_query=select_for_second_range_first_time),
+                SelectSetNode(set_operator="EXCEPT", select_query=select_for_first_range)
+            ],
+        )
+
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         res: str = ""
         params: dict[str, Any] = {}
@@ -358,7 +399,7 @@ class HogQLCohortQuery:
             elif prop.value == "restarted_performing_event":
                 return self.get_restarted_performing_event(prop)
             elif prop.value == "performed_event_regularly":
-                res, params = self.get_performed_event_regularly(prop, prepend, idx)
+                return self.get_performed_event_regularly(prop)
         elif prop.type == "person":
             res, params = self.get_person_condition(prop, prepend, idx)
         elif (
