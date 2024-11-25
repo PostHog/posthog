@@ -35,8 +35,6 @@ function StackTrace({
         loadFrameContexts({ frames })
     }, [frames, loadFrameContexts])
 
-    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0
-
     const panels = displayFrames.map(({ raw_id, source, line, column, resolved_name, lang }, index) => {
         const frameContext = frameContexts[raw_id]
         return {
@@ -66,7 +64,7 @@ function StackTrace({
         }
     })
 
-    return <LemonCollapse defaultActiveKeys={[initiallyActiveIndex]} multiple panels={panels} size="xsmall" />
+    return <LemonCollapse multiple panels={panels} size="xsmall" />
 }
 
 function FrameContext({
