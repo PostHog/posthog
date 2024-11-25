@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -106,12 +106,24 @@ const MiniFilters: SharedListMiniFilter[] = [
 ]
 export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
+const defaulMinifilters = [
+    'events-posthog',
+    'events-custom',
+    'events-pageview',
+    'events-autocapture',
+    'events-exceptions',
+    'console-info',
+    'console-warn',
+    'console-error',
+]
+
 export const miniFiltersLogic = kea<miniFiltersLogicType>([
     path(['scenes', 'session-recordings', 'player', 'miniFiltersLogic']),
     actions({
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setMiniFilter: (key: MiniFilterKey, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
+        resetMiniFilters: true,
     }),
     connect({
         values: [teamLogic, ['currentTeam']],
@@ -126,16 +138,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         ],
 
         selectedMiniFilters: [
-            [
-                'events-posthog',
-                'events-custom',
-                'events-pageview',
-                'events-autocapture',
-                'events-exceptions',
-                'console-info',
-                'console-warn',
-                'console-error',
-            ] as MiniFilterKey[],
+            defaulMinifilters,
             { persist: true },
             {
                 setMiniFilter: (state, { key, enabled }) => {
@@ -148,6 +151,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     // ensure it's not in the array
                     return stateWithoutKey
                 },
+                resetMiniFilters: () => defaulMinifilters,
             },
         ],
 
@@ -210,6 +214,14 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         setMiniFilter: ({ key, enabled }) => {
             if (enabled) {
                 eventUsageLogic.actions.reportRecordingInspectorMiniFilterViewed(key, enabled)
+            }
+        },
+    })),
+    events(({ values, actions }) => ({
+        afterMount: () => {
+            // we removed the `all` filters, if someone has them persisted we need to reset to default
+            if (values.selectedMiniFilters.some((filter) => filter.includes('all'))) {
+                actions.resetMiniFilters()
             }
         },
     })),
