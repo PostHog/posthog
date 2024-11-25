@@ -102,11 +102,11 @@ class TestErrorTracking(APIBaseTest):
 
             with open(get_path_to("source.js.map"), "rb") as image:
                 response = self.client.put(
-                    f"/api/projects/{self.team.id}/error_tracking/symbol_set/{symbol_set.id}",
+                    f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
                     {"source_map": image},
                     format="multipart",
                 )
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_rejects_too_large_file_type(self) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -119,7 +119,7 @@ class TestErrorTracking(APIBaseTest):
             content_type="text/plain",
         )
         response = self.client.put(
-            f"/api/projects/{self.team.id}/error_tracking/symbol_set/{symbol_set.id}",
+            f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
             {"source_map": fake_big_file},
             format="multipart",
         )
@@ -133,7 +133,7 @@ class TestErrorTracking(APIBaseTest):
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
             response = self.client.put(
-                f"/api/projects/{self.team.id}/error_tracking/symbol_set/{symbol_set.id}",
+                f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
                 {"source_map": fake_big_file},
                 format="multipart",
             )
@@ -156,7 +156,7 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(ErrorTrackingSymbolSet.objects.count(), 3)
 
         # it only fetches symbol sets for the specified team
-        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/symbol_set")
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/symbol_sets")
         self.assertEqual(len(response.json()["results"]), 2)
 
     def test_fetching_stack_frames(self):
