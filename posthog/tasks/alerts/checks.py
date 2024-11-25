@@ -333,7 +333,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         raise
     except Exception as err:
         error_message = f"Alert id = {alert.id}, failed to evaluate"
-        evaluation_error_message = traceback.format_exc()
 
         posthoganalytics.capture(
             cast(str, user.distinct_id),
@@ -341,12 +340,11 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
             properties={
                 "alert_id": alert.id,
                 "error": error_message,
-                "traceback": evaluation_error_message,
+                "traceback": traceback.format_exc(),
             },
         )
 
         logger.exception(error_message, exc_info=err)
-        set_tag("evaluation_error_message", evaluation_error_message)
         capture_exception(AlertCheckException(err))
 
         # error can be on user side (incorrectly configured insight/alert)
@@ -373,7 +371,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
                 send_notifications_for_breaches(alert, breaches)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
-        evaluation_error_message = traceback.format_exc()
 
         posthoganalytics.capture(
             cast(str, user.distinct_id),
@@ -381,13 +378,11 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
             properties={
                 "alert_id": alert.id,
                 "error": error_message,
-                "traceback": evaluation_error_message,
+                "traceback": traceback.format_exc(),
             },
         )
 
         logger.exception(error_message, exc_info=err)
-
-        set_tag("evaluation_error_message", evaluation_error_message)
         capture_exception(Exception(error_message))
 
         # don't want alert state to be updated (so that it's retried as next_check_at won't be updated)
