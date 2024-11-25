@@ -278,8 +278,8 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                     the Web SDK
                 </Link>
                 ,{' '}
-                <Link to="https://posthog.com/docs/libraries/android" target="_blank">
-                    the Android SDK
+                <Link to="https://posthog.com/docs/libraries" target="_blank">
+                    and the Mobile SDKs (Android, iOS, React Native and Flutter)
                 </Link>
             </p>
         </LemonBanner>
