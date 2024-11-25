@@ -1,4 +1,3 @@
-import datetime as dt
 import os
 
 import pytest
@@ -18,8 +17,7 @@ class EvalBaseTest(BaseTest):
         super().setUpTestData()
         matrix = HedgeboxMatrix(
             seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
-            now=dt.datetime.now(dt.UTC) - dt.timedelta(days=25),
-            days_past=90,
+            days_past=120,
             days_future=30,
             n_clusters=500,
             group_type_index_offset=0,
