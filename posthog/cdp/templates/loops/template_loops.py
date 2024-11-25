@@ -116,20 +116,21 @@ if (empty(inputs.email)) {
 let payload := {
     'email': inputs.email,
     'userId': person.id,
-    'eventName': event.event
+    'eventName': event.event,
+    'eventProperties': {}
 }
 
 if (inputs.include_all_properties) {
     for (let key, value in event.properties) {
         if (not empty(value) and not key like '$%') {
-            payload[key] := value
+            payload.eventProperties[key] := value
         }
     }
 }
 
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
-        payload[key] := value
+        payload.eventProperties[key] := value
     }
 }
 

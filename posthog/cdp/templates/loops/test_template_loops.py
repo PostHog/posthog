@@ -130,7 +130,9 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
                         "email": "max@posthog.com",
                         "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
                         "eventName": "pageview",
-                        "product": "PostHog",
+                        "eventProperties": {
+                            "product": "PostHog",
+                        },
                     },
                 },
             )
@@ -164,8 +166,10 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
                         "email": "max@posthog.com",
                         "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
                         "eventName": "pageview",
-                        "product": "PostHog",
-                        "pathname": "/pricing",
+                        "eventProperties": {
+                            "product": "PostHog",
+                            "pathname": "/pricing",
+                        },
                     },
                 },
             )
