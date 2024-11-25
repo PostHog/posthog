@@ -27,7 +27,6 @@ from posthog.schema import (
     AssistantMessage,
     FailureMessage,
     HumanMessage,
-    RouterMessage,
     ReasoningMessage,
     VisualizationMessage,
 )
@@ -174,7 +173,7 @@ class Assistant:
                         self._chunks.tool_calls[0]["args"]
                     )
                     if parsed_message:
-                        return VisualizationMessage(answer=parsed_message.answer)
+                        return VisualizationMessage(answer=parsed_message.query)
                 elif langgraph_state["langgraph_node"] == AssistantNodeName.SUMMARIZER:
                     self._chunks += langchain_message  # type: ignore
                     return AssistantMessage(content=self._chunks.content)
@@ -194,9 +193,7 @@ class Assistant:
         return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
 
     def _report_conversation(self, message: Optional[VisualizationMessage]):
-        human_message: VisualizationMessage | AssistantMessage | HumanMessage | FailureMessage | RouterMessage = (
-            self._conversation.messages[-1].root
-        )
+        human_message = self._conversation.messages[-1].root
         if self._user and message and isinstance(human_message, HumanMessage):
             report_user_action(
                 self._user,
