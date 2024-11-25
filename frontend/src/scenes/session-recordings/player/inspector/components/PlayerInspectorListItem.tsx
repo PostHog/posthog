@@ -1,8 +1,14 @@
 import {
     BaseIcon,
+    IconBolt,
+    IconChat,
+    IconCloud,
+    IconCursor,
     IconDashboard,
     IconEye,
     IconGear,
+    IconLeave,
+    IconLogomark,
     IconMinusSquare,
     IconPlusSquare,
     IconTerminal,
@@ -12,8 +18,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
-import { IconComment, IconOffline } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
@@ -49,7 +55,7 @@ const typeToIconAndDescription = {
         tooltip: 'Network event',
     },
     ['offline-status']: {
-        Icon: IconOffline,
+        Icon: IconCloud,
         tooltip: 'browser went offline or returned online',
     },
     ['browser-visibility']: {
@@ -65,7 +71,7 @@ const typeToIconAndDescription = {
         tooltip: 'Doctor event',
     },
     ['comment']: {
-        Icon: IconComment,
+        Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
     },
     ['inspector-summary']: {
@@ -76,6 +82,36 @@ const typeToIconAndDescription = {
         Icon: undefined,
         tooltip: undefined,
     },
+}
+
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
+export function eventToIcon(event: string | undefined | null) {
+    switch (event) {
+        case '$pageview':
+            return IconEye
+        case '$screen':
+            return IconEye
+        case '$pageleave':
+            return IconLeave
+        case '$autocapture':
+            return IconBolt
+    }
+
+    if (event && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[event]) {
+        return IconLogomark
+    }
+
+    // technically we should have the select all icon for "All events" completeness,
+    // but we never actually display it, and it messes up the type signatures for the icons
+    if (event === null) {
+        return BaseIcon
+    }
+
+    if (event !== undefined) {
+        return IconCursor
+    }
+
+    return BaseIcon
 }
 
 function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
@@ -227,7 +263,11 @@ export function PlayerInspectorListItem({
 
     const isHovering = useIsHovering(hoverRef)
 
-    const TypeIcon = typeToIconAndDescription[item.type].Icon
+    let TypeIcon = typeToIconAndDescription[item.type].Icon
+    if (TypeIcon === undefined && item.type === FilterableInspectorListItemTypes.EVENTS) {
+        // KLUDGE this is a hack to lean on this function, yuck
+        TypeIcon = eventToIcon(item.data.event)
+    }
 
     return (
         <div
@@ -281,7 +321,7 @@ export function PlayerInspectorListItem({
 
                     {item.type !== 'inspector-summary' && item.type !== 'inactivity' && <ItemTimeDisplay item={item} />}
 
-                    {TypeIcon ? <TypeIcon className="min-w-4" /> : <BaseIcon className="min-w-4" />}
+                    {TypeIcon ? <TypeIcon /> : <BaseIcon className="min-w-4" />}
 
                     <div
                         className={clsx(
