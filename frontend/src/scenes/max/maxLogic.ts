@@ -1,10 +1,22 @@
 import { captureException } from '@sentry/react'
 import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { isHumanMessage, isRouterMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { isHumanMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -13,6 +25,7 @@ import {
     AssistantGenerationStatusType,
     AssistantMessageType,
     FailureMessage,
+    HumanMessage,
     NodeKind,
     RefreshType,
     RootAssistantMessage,
@@ -28,12 +41,14 @@ export interface MaxLogicProps {
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
-    status?: MessageStatus
+    status: MessageStatus
 }
 
-const FAILURE_MESSAGE: FailureMessage = {
+const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
     content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
+    status: 'error',
+    done: true,
 }
 
 export const maxLogic = kea<maxLogicType>([
@@ -48,7 +63,7 @@ export const maxLogic = kea<maxLogicType>([
         setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
-        setMessageStatus: (index: number, status: ThreadMessage['status']) => ({ index, status }),
+        setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         setQuestion: (question: string) => ({ question }),
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
@@ -96,6 +111,7 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     loaders({
+        // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
         allSuggestions: [
             null as string[] | null,
             {
@@ -111,7 +127,16 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    sharedListeners({
+        scrollThreadToBottom: () => {
+            requestAnimationFrame(() => {
+                // On next frame so that the message has been rendered
+                const mainEl = document.querySelector('main')!
+                mainEl.scrollTop = mainEl.scrollHeight
+            })
+        },
+    }),
+    listeners(({ actions, values, sharedListeners, props }) => ({
         [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
             // Load suggestions anew after product description is changed on the project
             // Most important when description is set for the first time, but also when updated,
@@ -149,9 +174,7 @@ export const maxLogic = kea<maxLogicType>([
             )
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ type: AssistantMessageType.Human, content: prompt })
-            let generatingMessageIndex: number = -1
-
+            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, done: true, status: 'completed' })
             try {
                 const response = await api.chat({
                     session_id: props.sessionId,
@@ -173,21 +196,15 @@ export const maxLogic = kea<maxLogicType>([
                                 return
                             }
 
-                            if (isRouterMessage(parsedResponse)) {
+                            if (values.thread[values.thread.length - 1].status === 'completed') {
                                 actions.addMessage({
                                     ...parsedResponse,
-                                    status: 'completed',
+                                    status: !parsedResponse.done ? 'loading' : 'completed',
                                 })
-                            } else if (generatingMessageIndex === -1) {
-                                generatingMessageIndex = values.thread.length
-
-                                if (parsedResponse) {
-                                    actions.addMessage({ ...parsedResponse, status: 'loading' })
-                                }
                             } else if (parsedResponse) {
-                                actions.replaceMessage(generatingMessageIndex, {
+                                actions.replaceMessage(values.thread.length - 1, {
                                     ...parsedResponse,
-                                    status: values.thread[generatingMessageIndex].status,
+                                    status: !parsedResponse.done ? 'loading' : 'completed',
                                 })
                             }
                         } else if (event === AssistantEventType.Status) {
@@ -197,7 +214,7 @@ export const maxLogic = kea<maxLogicType>([
                             }
 
                             if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
-                                actions.setMessageStatus(generatingMessageIndex, 'error')
+                                actions.setMessageStatus(values.thread.length - 1, 'error')
                             }
                         }
                     },
@@ -205,54 +222,73 @@ export const maxLogic = kea<maxLogicType>([
 
                 while (true) {
                     const { done, value } = await reader.read()
-
                     parser.feed(decoder.decode(value))
-
                     if (done) {
-                        if (generatingMessageIndex === -1) {
-                            break
-                        }
-
-                        const generatedMessage = values.thread[generatingMessageIndex]
-                        if (generatedMessage && isVisualizationMessage(generatedMessage) && generatedMessage.plan) {
-                            actions.setMessageStatus(generatingMessageIndex, 'completed')
-                        } else if (generatedMessage) {
-                            actions.replaceMessage(generatingMessageIndex, FAILURE_MESSAGE)
-                        } else {
-                            actions.addMessage({
-                                ...FAILURE_MESSAGE,
-                                status: 'completed',
-                            })
-                        }
                         break
                     }
                 }
             } catch (e) {
                 captureException(e)
 
-                if (generatingMessageIndex !== -1) {
-                    if (values.thread[generatingMessageIndex]) {
-                        actions.replaceMessage(generatingMessageIndex, FAILURE_MESSAGE)
-                    } else {
-                        actions.addMessage({
-                            ...FAILURE_MESSAGE,
-                            status: 'completed',
-                        })
-                    }
+                if (values.thread[values.thread.length - 1]?.status === 'loading') {
+                    actions.replaceMessage(values.thread.length - 1, FAILURE_MESSAGE)
+                } else if (values.thread[values.thread.length - 1]?.status !== 'error') {
+                    actions.addMessage({
+                        ...FAILURE_MESSAGE,
+                        status: 'completed',
+                    })
                 }
             }
 
             actions.setThreadLoaded()
         },
         retryLastMessage: () => {
-            const lastMessage = values.thread.filter(isHumanMessage).pop()
+            const lastMessage = values.thread.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
                 actions.askMax(lastMessage.content)
             }
         },
+        addMessage: sharedListeners.scrollThreadToBottom,
+        replaceMessage: sharedListeners.scrollThreadToBottom,
     })),
     selectors({
         sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
+        threadGrouped: [
+            (s) => [s.thread, s.threadLoading],
+            (thread, threadLoading): ThreadMessage[][] => {
+                const threadGrouped: ThreadMessage[][] = []
+                for (let i = 0; i < thread.length; i++) {
+                    const currentMessage: ThreadMessage = thread[i]
+                    const previousMessage: ThreadMessage | undefined = thread[i - 1]
+                    if (currentMessage.type.split('/')[0] === previousMessage?.type.split('/')[0]) {
+                        const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
+                        if (currentMessage.done && previousMessage.type === AssistantMessageType.Reasoning) {
+                            // Only preserve the latest reasoning message, and remove once reasoning is done
+                            lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
+                        } else {
+                            lastThreadSoFar.push(currentMessage)
+                        }
+                    } else {
+                        threadGrouped.push([currentMessage])
+                    }
+                }
+                if (threadLoading) {
+                    let lastGroup = threadGrouped[threadGrouped.length - 1]
+                    if (lastGroup[0].type === AssistantMessageType.Human) {
+                        lastGroup = [
+                            {
+                                type: AssistantMessageType.Reasoning,
+                                content: 'Thinking',
+                                status: 'loading',
+                                done: true,
+                            },
+                        ]
+                        threadGrouped.push(lastGroup)
+                    }
+                }
+                return threadGrouped
+            },
+        ],
     }),
     afterMount(({ actions, values }) => {
         // We only load suggestions on mount if the product description is already set

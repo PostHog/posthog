@@ -300,6 +300,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": True,
                 "payload_count": 0,
+                "creation_context": "feature_flags",
             },
         )
 
@@ -334,6 +335,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "creation_context": "feature_flags",
             },
         )
 
@@ -385,6 +387,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "creation_context": "feature_flags",
             },
         )
 
@@ -438,6 +441,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
                 "payload_count": 0,
+                "creation_context": "feature_flags",
             },
         )
 

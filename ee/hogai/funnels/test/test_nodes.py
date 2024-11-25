@@ -21,7 +21,7 @@ class TestFunnelsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         node = FunnelGeneratorNode(self.team)
         with patch.object(FunnelGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
-                lambda _: FunnelsSchemaGeneratorOutput(reasoning_steps=["step"], answer=self.schema).model_dump()
+                lambda _: FunnelsSchemaGeneratorOutput(query=self.schema).model_dump()
             )
             new_state = node.run(
                 {
@@ -33,7 +33,7 @@ class TestFunnelsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 new_state,
                 {
-                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"])],
+                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", done=True)],
                     "intermediate_steps": None,
                 },
             )

@@ -16,6 +16,7 @@ from posthog.schema import (
     ExperimentFunnelsQueryResponse,
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
+    FunnelLayout,
     FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -34,6 +35,10 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if not self.query.experiment_id:
+            raise ValidationError("experiment_id is required")
+
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
@@ -109,9 +114,10 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             breakdown_type="event",
         )
 
-        prepared_funnels_query.funnelsFilter = FunnelsFilter(
-            funnelVizType="steps",
-        )
+        # Set the layout to vertical
+        if prepared_funnels_query.funnelsFilter is None:
+            prepared_funnels_query.funnelsFilter = FunnelsFilter()
+        prepared_funnels_query.funnelsFilter.layout = FunnelLayout.VERTICAL
 
         return prepared_funnels_query
 

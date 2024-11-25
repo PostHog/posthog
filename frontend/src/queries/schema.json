@@ -486,6 +486,101 @@
                 }
             ]
         },
+        "AssistantArrayPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                    "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                },
+                "value": {
+                    "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantArrayPropertyFilterOperator": {
+            "enum": ["exact", "is_not"],
+            "type": "string"
+        },
+        "AssistantBaseMultipleBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "property": {
+                    "description": "Property name from the plan to break down by.",
+                    "type": "string"
+                }
+            },
+            "required": ["property"],
+            "type": "object"
+        },
+        "AssistantBasePropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantStringNumberOrBooleanPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantDateTimePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantSetPropertyFilter"
+                }
+            ]
+        },
+        "AssistantBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown_limit": {
+                    "default": 25,
+                    "description": "How many distinct values to show.",
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantCompareFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "default": false,
+                    "description": "Whether to compare the current date range to a previous date range.",
+                    "type": "boolean"
+                },
+                "compare_to": {
+                    "default": "-7d",
+                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDateTimePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
+                },
+                "value": {
+                    "description": "Value must be a date in ISO 8601 format.",
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantDateTimePropertyFilterOperator": {
+            "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+            "type": "string"
+        },
+        "AssistantEventMultipleBreakdownFilterType": {
+            "enum": ["person", "event", "session", "hogql"],
+            "type": "string"
+        },
         "AssistantEventType": {
             "enum": ["status", "message"],
             "type": "string"
@@ -507,11 +602,6 @@
                         }
                     ],
                     "description": "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping."
-                },
-                "breakdown_histogram_bin_count": {
-                    "default": 10,
-                    "description": "Number of bins to show in the histogram. Only applicable for the numeric properties.",
-                    "type": "integer"
                 },
                 "breakdown_limit": {
                     "default": 25,
@@ -649,7 +739,7 @@
                     "description": "Breakdown the chart by a property"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/AssistantInsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -678,7 +768,7 @@
                     "type": "array"
                 },
                 "samplingFactor": {
-                    "description": "Sampling rate",
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
                     "type": ["number", "null"]
                 },
                 "series": {
@@ -706,11 +796,271 @@
             "enum": ["ack", "generation_error"],
             "type": "string"
         },
+        "AssistantGenericMultipleBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "property": {
+                    "description": "Property name from the plan to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/AssistantEventMultipleBreakdownFilterType"
+                }
+            },
+            "required": ["property", "type"],
+            "type": "object"
+        },
+        "AssistantGenericPropertyFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                            "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                        },
+                        "type": {
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                            "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                        },
+                        "type": {
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
+                        },
+                        "type": {
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Value must be a date in ISO 8601 format.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSetPropertyFilterOperator",
+                            "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+                        },
+                        "type": {
+                            "enum": ["event", "person", "session", "feature"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type"],
+                    "type": "object"
+                }
+            ]
+        },
+        "AssistantGroupMultipleBreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Index of the group type from the group mapping."
+                },
+                "property": {
+                    "description": "Property name from the plan to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "group",
+                    "type": "string"
+                }
+            },
+            "required": ["property", "type"],
+            "type": "object"
+        },
+        "AssistantGroupPropertyFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "description": "Index of the group type from the group mapping.",
+                            "type": "integer"
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                            "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "description": "Index of the group type from the group mapping.",
+                            "type": "integer"
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                            "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "description": "Index of the group type from the group mapping.",
+                            "type": "integer"
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Value must be a date in ISO 8601 format.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "description": "Index of the group type from the group mapping.",
+                            "type": "integer"
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSetPropertyFilterOperator",
+                            "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type"],
+                    "type": "object"
+                }
+            ]
+        },
+        "AssistantInsightDateRange": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "default": "-7d",
+                    "description": "Start date. The value can be:\n- a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-1w` for 1 week ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.\n- an absolute ISO 8601 date string. a constant `yStart` for the current year start. a constant `mStart` for the current month start. a constant `dStart` for the current day start. Prefer using relative dates.",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "default": null,
+                    "description": "Right boundary of the date range. Use `null` for the current date. You can not use relative dates here.",
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/AssistantInsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -727,7 +1077,7 @@
                     "type": "array"
                 },
                 "samplingFactor": {
-                    "description": "Sampling rate",
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
                     "type": ["number", "null"]
                 }
             },
@@ -739,6 +1089,10 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "description": "We only need this \"done\" value to tell when the particular message is finished during its streaming. It won't be necessary when we optimize streaming to NOT send the entire message every time a character is added.",
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai",
                     "type": "string"
@@ -748,49 +1102,135 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "ai", "ai/viz", "ai/failure", "ai/router"],
+            "enum": ["human", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
+        },
+        "AssistantMultipleBreakdownFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantGroupMultipleBreakdownFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantGenericMultipleBreakdownFilter"
+                }
+            ]
         },
         "AssistantPropertyFilter": {
             "anyOf": [
                 {
-                    "$ref": "#/definitions/EventPropertyFilter"
+                    "$ref": "#/definitions/AssistantGenericPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/PersonPropertyFilter"
+                    "$ref": "#/definitions/AssistantGroupPropertyFilter"
+                }
+            ]
+        },
+        "AssistantSetPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantSetPropertyFilterOperator",
+                    "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+                }
+            },
+            "required": ["operator"],
+            "type": "object"
+        },
+        "AssistantSetPropertyFilterOperator": {
+            "enum": ["is_set", "is_not_set"],
+            "type": "string"
+        },
+        "AssistantSingleValuePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                    "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                },
+                "value": {
+                    "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantSingleValuePropertyFilterOperator": {
+            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+            "type": "string"
+        },
+        "AssistantStringNumberOrBooleanPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantSingleValuePropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/SessionPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/GroupPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/FeaturePropertyFilter"
+                    "$ref": "#/definitions/AssistantArrayPropertyFilter"
                 }
             ]
         },
         "AssistantTrendsBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
-                "breakdown_hide_other_aggregation": {
-                    "type": ["boolean", "null"]
-                },
-                "breakdown_histogram_bin_count": {
-                    "type": "integer"
-                },
                 "breakdown_limit": {
+                    "default": 25,
+                    "description": "How many distinct values to show.",
                     "type": "integer"
                 },
                 "breakdowns": {
+                    "description": "Use this field to define breakdowns.",
                     "items": {
-                        "$ref": "#/definitions/Breakdown"
+                        "$ref": "#/definitions/AssistantMultipleBreakdownFilter"
                     },
                     "maxLength": 3,
                     "type": "array"
                 }
             },
+            "required": ["breakdowns"],
             "type": "object"
+        },
+        "AssistantTrendsDisplayType": {
+            "anyOf": [
+                {
+                    "const": "ActionsLineGraph",
+                    "type": "string"
+                },
+                {
+                    "const": "ActionsBar",
+                    "type": "string"
+                },
+                {
+                    "const": "ActionsAreaGraph",
+                    "type": "string"
+                },
+                {
+                    "const": "ActionsLineGraphCumulative",
+                    "type": "string"
+                },
+                {
+                    "const": "BoldNumber",
+                    "type": "string"
+                },
+                {
+                    "const": "ActionsPie",
+                    "type": "string"
+                },
+                {
+                    "const": "ActionsBarValue",
+                    "type": "string"
+                },
+                {
+                    "const": "ActionsTable",
+                    "type": "string"
+                },
+                {
+                    "const": "WorldMap",
+                    "type": "string"
+                },
+                {
+                    "not": {}
+                }
+            ]
         },
         "AssistantTrendsEventsNode": {
             "additionalProperties": false,
@@ -842,6 +1282,70 @@
             "required": ["kind"],
             "type": "object"
         },
+        "AssistantTrendsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregationAxisFormat": {
+                    "$ref": "#/definitions/AggregationAxisFormat",
+                    "default": "numeric",
+                    "description": "Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`."
+                },
+                "aggregationAxisPostfix": {
+                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.",
+                    "type": "string"
+                },
+                "aggregationAxisPrefix": {
+                    "description": "Custom prefix to add to the aggregation axis, e.g., `$` for USD dollars. You may need to add a space after prefix.",
+                    "type": "string"
+                },
+                "decimalPlaces": {
+                    "description": "Number of decimal places to show. Do not add this unless you are sure that values will have a decimal point.",
+                    "type": "number"
+                },
+                "display": {
+                    "default": "ActionsLineGraph",
+                    "description": "Changes the visualization type. `ActionsLineGraph` - if the user wants to see dynamics in time like a line graph. Prefer this option. `ActionsLineGraphCumulative` - if the user wants to see cumulative dynamics across time. `ActionsBarValue` - if the data is categorical and needs to be visualized as a bar chart. `ActionsBar` - if the data is categorical and can be visualized as a stacked bar chart. `ActionsPie` - if the data is easy to understand in a pie chart. `BoldNumber` - if the user asks a question where you can answer with a single number. You can't use this option with breakdowns. `ActionsTable` - if the user wants to see a table. `ActionsAreaGraph` - if the data is better visualized in an area graph. `WorldMap` - if the user has only one series and wants to see data from particular countries. It can only be used with the `$geoip_country_name` breakdown.",
+                    "enum": [
+                        "ActionsLineGraph",
+                        "ActionsBar",
+                        "ActionsAreaGraph",
+                        "ActionsLineGraphCumulative",
+                        "BoldNumber",
+                        "ActionsPie",
+                        "ActionsBarValue",
+                        "ActionsTable",
+                        "WorldMap"
+                    ],
+                    "type": "string"
+                },
+                "formula": {
+                    "description": "If the formula is provided, apply it here.",
+                    "type": "string"
+                },
+                "showLegend": {
+                    "default": false,
+                    "description": "Whether to show the legend describing series and breakdowns.",
+                    "type": "boolean"
+                },
+                "showPercentStackView": {
+                    "default": false,
+                    "description": "Whether to show a percentage of each series. Use only with",
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "default": false,
+                    "description": "Whether to show a value on each data point.",
+                    "type": "boolean"
+                },
+                "yAxisScaleType": {
+                    "default": "linear",
+                    "description": "Whether to scale the y-axis.",
+                    "enum": ["log10", "linear"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "AssistantTrendsMath": {
             "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
@@ -858,7 +1362,7 @@
                     "description": "Compare to date range"
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/InsightDateRange",
+                    "$ref": "#/definitions/AssistantInsightDateRange",
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -884,7 +1388,7 @@
                     "type": "array"
                 },
                 "samplingFactor": {
-                    "description": "Sampling rate",
+                    "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
                     "type": ["number", "null"]
                 },
                 "series": {
@@ -895,7 +1399,7 @@
                     "type": "array"
                 },
                 "trendsFilter": {
-                    "$ref": "#/definitions/TrendsFilter",
+                    "$ref": "#/definitions/AssistantTrendsFilter",
                     "description": "Properties specific to the trends insight"
                 }
             },
@@ -3412,6 +3916,65 @@
             ],
             "type": "string"
         },
+        "CustomChannelCondition": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "key": {
+                    "$ref": "#/definitions/CustomChannelField"
+                },
+                "op": {
+                    "$ref": "#/definitions/CustomChannelOperator"
+                },
+                "value": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["key", "op", "id"],
+            "type": "object"
+        },
+        "CustomChannelField": {
+            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain"],
+            "type": "string"
+        },
+        "CustomChannelOperator": {
+            "enum": ["exact", "is_not", "is_set", "is_not_set", "icontains", "not_icontains", "regex", "not_regex"],
+            "type": "string"
+        },
+        "CustomChannelRule": {
+            "additionalProperties": false,
+            "properties": {
+                "channel_type": {
+                    "type": "string"
+                },
+                "combiner": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "items": {
+                    "items": {
+                        "$ref": "#/definitions/CustomChannelCondition"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["items", "combiner", "channel_type", "id"],
+            "type": "object"
+        },
         "CustomEventConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -4786,6 +5349,29 @@
         "Day": {
             "type": "integer"
         },
+        "DefaultChannelTypes": {
+            "enum": [
+                "Cross Network",
+                "Paid Search",
+                "Paid Social",
+                "Paid Video",
+                "Paid Shopping",
+                "Paid Unknown",
+                "Direct",
+                "Organic Search",
+                "Organic Social",
+                "Organic Video",
+                "Organic Shopping",
+                "Push",
+                "SMS",
+                "Audio",
+                "Email",
+                "Referral",
+                "Affiliate",
+                "Unknown"
+            ],
+            "type": "string"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -5536,11 +6122,14 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
                 }
             },
-            "required": ["experiment_id", "funnels_query", "kind"],
+            "required": ["funnels_query", "kind"],
             "type": "object"
         },
         "ExperimentFunnelsQueryResponse": {
@@ -5631,11 +6220,14 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
                 }
             },
-            "required": ["count_query", "experiment_id", "kind"],
+            "required": ["count_query", "kind"],
             "type": "object"
         },
         "ExperimentTrendsQueryResponse": {
@@ -5743,12 +6335,16 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "const": true,
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["type", "done"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -6867,11 +7463,17 @@
         },
         "HogQLQueryModifiers": {
             "additionalProperties": false,
-            "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
+            "description": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
             "properties": {
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
+                },
+                "customChannelTypeRules": {
+                    "items": {
+                        "$ref": "#/definitions/CustomChannelRule"
+                    },
+                    "type": "array"
                 },
                 "dataWarehouseEventsModifiers": {
                     "items": {
@@ -7059,12 +7661,17 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "const": true,
+                    "description": "Human messages are only appended when done.",
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "human",
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": ["type", "content", "done"],
             "type": "object"
         },
         "InsightActorsQuery": {
@@ -10697,6 +11304,24 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "ReasoningMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "done": {
+                    "const": true,
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "ai/reasoning",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content", "done"],
+            "type": "object"
+        },
         "RecordingOrder": {
             "enum": [
                 "duration",
@@ -11109,6 +11734,9 @@
                     "$ref": "#/definitions/VisualizationMessage"
                 },
                 {
+                    "$ref": "#/definitions/ReasoningMessage"
+                },
+                {
                     "$ref": "#/definitions/AssistantMessage"
                 },
                 {
@@ -11128,12 +11756,17 @@
                 "content": {
                     "type": "string"
                 },
+                "done": {
+                    "const": true,
+                    "description": "Router messages are not streamed, so they can only be done.",
+                    "type": "boolean"
+                },
                 "type": {
                     "const": "ai/router",
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": ["type", "content", "done"],
             "type": "object"
         },
         "SamplingRate": {
@@ -12295,21 +12928,11 @@
                         }
                     ]
                 },
+                "done": {
+                    "type": "boolean"
+                },
                 "plan": {
                     "type": "string"
-                },
-                "reasoning_steps": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
                 },
                 "type": {
                     "const": "ai/viz",
@@ -12757,7 +13380,8 @@
                 "DeviceType",
                 "Country",
                 "Region",
-                "City"
+                "City",
+                "Timezone"
             ],
             "type": "string"
         },

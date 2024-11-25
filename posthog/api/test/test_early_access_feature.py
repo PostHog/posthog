@@ -3,6 +3,7 @@ from unittest.mock import ANY
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
+from unittest.mock import patch
 
 from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.models import FeatureFlag, Person
@@ -519,6 +520,36 @@ class TestEarlyAccessFeature(APIBaseTest):
                 },
             ],
         }
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_creation_context_is_set_to_early_access_features(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "concept",
+            },
+            format="json",
+        )
+        response_data = response.json()
+        ff_instance = FeatureFlag.objects.get(id=response_data["feature_flag"]["id"])
+        mock_capture.assert_called_once_with(
+            ANY,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": False,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": ff_instance.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "creation_context": "early_access_features",
+            },
+        )
 
 
 class TestPreviewList(BaseTest, QueryMatchingTest):
