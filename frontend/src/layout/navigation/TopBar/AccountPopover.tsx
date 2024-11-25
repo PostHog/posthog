@@ -17,7 +17,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -85,27 +84,27 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     const { closeAccountPopover } = useActions(navigationLogic)
 
     return (
-        <Tooltip title="Organization settings" placement="left">
-            <LemonButton
-                data-attr="top-menu-item-org-settings"
-                icon={
-                    <UploadedLogo
-                        name={organization.name}
-                        entityId={organization.id}
-                        mediaId={organization.logo_media_id}
-                    />
-                }
-                sideIcon={<IconGear />}
-                fullWidth
-                to={urls.settings('organization')}
-                onClick={closeAccountPopover}
-            >
-                <div className="grow">
-                    <span className="font-medium">{organization.name}</span>
-                    <AccessLevelIndicator organization={organization} />
-                </div>
-            </LemonButton>
-        </Tooltip>
+        <LemonButton
+            data-attr="top-menu-item-org-settings"
+            icon={
+                <UploadedLogo
+                    name={organization.name}
+                    entityId={organization.id}
+                    mediaId={organization.logo_media_id}
+                />
+            }
+            sideIcon={<IconGear />}
+            fullWidth
+            to={urls.settings('organization')}
+            onClick={closeAccountPopover}
+            tooltip="Organization settings"
+            tooltipPlacement="left"
+        >
+            <div className="grow">
+                <span className="font-medium">{organization.name}</span>
+                <AccessLevelIndicator organization={organization} />
+            </div>
+        </LemonButton>
     )
 }
 
