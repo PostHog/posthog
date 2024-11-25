@@ -55,6 +55,24 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             ),
         },
         {
+            key: 'metadata',
+            label: 'Metadata',
+            content: (
+                <div className="-mt-3">
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Meta}
+                        properties={{
+                            event: event.event,
+                            distinct_id: event.distinct_id,
+                            timestamp: event.timestamp,
+                        }}
+                        sortProperties
+                        tableProps={tableProps}
+                    />
+                </div>
+            ),
+        },
+        {
             key: 'properties',
             label: 'Properties',
             content: (
