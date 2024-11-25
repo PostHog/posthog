@@ -71,11 +71,6 @@ const gaugeLagMilliseconds = new Gauge({
     labelNames: ['partition'],
 })
 
-const gaugePromisesInProgress = new Gauge({
-    name: 'recording_blob_ingestion_promises_in_progress',
-    help: 'A gauge of the number of promises in progress',
-})
-
 // NOTE: This gauge is important! It is used as our primary metric for scaling up / down
 const gaugeLag = new Gauge({
     name: 'recording_blob_ingestion_lag',
@@ -402,8 +397,6 @@ export class SessionRecordingIngester {
 
                 await this.reportPartitionMetrics()
 
-                gaugePromisesInProgress.set(this.promises.size)
-
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.consumeBatch`,
                     func: async () => {
@@ -599,7 +592,6 @@ export class SessionRecordingIngester {
         void this.scheduleWork(this.realtimeManager.unsubscribe())
 
         const promiseResults = await Promise.allSettled(this.promises)
-        gaugePromisesInProgress.remove()
 
         if (this.sharedClusterProducerWrapper) {
             await this.sharedClusterProducerWrapper.disconnect()
