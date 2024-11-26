@@ -490,7 +490,7 @@ async def initialize_and_resume_multipart_upload(
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
-        endpoint_url=inputs.endpoint_url,
+        endpoint_url=inputs.endpoint_url or None,
     )
 
     _, details = await should_resume_from_activity_heartbeat(activity, S3HeartbeatDetails)
@@ -752,7 +752,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
-            endpoint_url=inputs.endpoint_url,
+            endpoint_url=inputs.endpoint_url or None,
             data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
