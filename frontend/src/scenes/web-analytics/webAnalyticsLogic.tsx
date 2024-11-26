@@ -11,6 +11,7 @@ import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } f
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
 
+import { hogqlQuery } from '~/queries/query'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -193,6 +194,10 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeavesScroll: boolean
 }
 
+export enum ConversionGoalWarning {
+    CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
+}
+
 export const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
@@ -268,6 +273,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         openAsNewInsight: (tileId: TileId, tabId?: string) => {
             return { tileId, tabId }
         },
+        setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -452,6 +458,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+            },
+        ],
+        conversionGoalWarning: [
+            null as ConversionGoalWarning | null,
+            {
+                setConversionGoalWarning: (_, { warning }) => warning,
             },
         ],
     }),
@@ -1481,13 +1493,45 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
             }
         }
+
+        const checkCustomEventConversionGoalHasSessionIds = async (
+            { conversionGoal }: { conversionGoal: WebAnalyticsConversionGoal | null },
+            breakpoint: () => void
+        ): Promise<void> => {
+            if (!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION]) {
+                return
+            }
+
+            if (!conversionGoal || !('customEventName' in conversionGoal) || !conversionGoal.customEventName) {
+                actions.setConversionGoalWarning(null)
+                return
+            }
+            const { customEventName } = conversionGoal
+            // check if we have any conversion events from the last week without sessions ids
+
+            const response = await hogqlQuery(
+                `select count() from events where timestamp >= now() - toIntervalHour(24) AND ($sessionId IS NULL OR $sessionId = '') AND event = {event}`,
+                { event: customEventName }
+            )
+            breakpoint()
+            const row = response.results[0]
+            if (row[0]) {
+                actions.setConversionGoalWarning(ConversionGoalWarning.CustomEventWithNoSessionId)
+            } else {
+                actions.setConversionGoalWarning(null)
+            }
+        }
+
         return {
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
             },
-            setConversionGoal: ({ conversionGoal }) => {
-                checkGraphsTabIsCompatibleWithConversionGoal(values.graphsTab, conversionGoal)
-            },
+            setConversionGoal: [
+                ({ conversionGoal }) => {
+                    checkGraphsTabIsCompatibleWithConversionGoal(values.graphsTab, conversionGoal)
+                },
+                checkCustomEventConversionGoalHasSessionIds,
+            ],
         }
     }),
 ])
