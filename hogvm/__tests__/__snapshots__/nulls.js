@@ -1,4 +1,5 @@
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
@@ -26,11 +27,6 @@ function __printHogValue(obj, marked = new Set()) {
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
-function __getProperty(objectOrArray, key, nullish) {
-    if ((nullish && !objectOrArray) || key === 0) { return null }
-    if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
-    else { return objectOrArray[key] }
-}
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
@@ -42,17 +38,16 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-let props = {};
-let email = __getProperty(props, "email", true);
-if ((email == "")) {
-    print("ERROR - Email not found!");
-    print("3");
-}
-print("1");
-if ((email == "")) {
-    print("ERROR - Email not found!");
-    print("3");
-} else {
-    print("else");
-}
-print("1");
+print("-- match --");
+print(match("uu", "u"));
+print(match("uu", "b"));
+print(match(null, "u"));
+print(match(null, "b"));
+print(match("uu", null));
+print(match("null", null));
+print(match("uu", "u"));
+print(match("uu", "b"));
+print(match(null, "u"));
+print(match(null, "b"));
+print(match("uu", null));
+print(match("null", null));
