@@ -237,7 +237,7 @@ WHERE
             right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
         )
 
-    def _unsample(self, n: Optional[int | float], _row: list[int | float]):
+    def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:
             return None
 
