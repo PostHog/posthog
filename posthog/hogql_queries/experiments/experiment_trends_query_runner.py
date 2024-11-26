@@ -137,8 +137,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         prepared_count_query.dateRange = self._get_insight_date_range()
         if self._is_data_warehouse_query(prepared_count_query):
             column_name = self._get_data_warehouse_events_column_name(prepared_count_query)
-            # if not column_name:
-            #     raise ValueError("Data warehouse table is expected to have a lazy join to the events table")
             prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
             prepared_count_query.properties = [
                 DataWarehousePropertyFilter(
@@ -217,8 +215,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
             if self._is_data_warehouse_query(prepared_exposure_query):
                 column_name = self._get_data_warehouse_events_column_name(prepared_exposure_query)
-                if not column_name:
-                    raise ValueError("Data warehouse table is expected to have a lazy join to the events table")
                 prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
                 prepared_exposure_query.properties = [
                     DataWarehousePropertyFilter(
