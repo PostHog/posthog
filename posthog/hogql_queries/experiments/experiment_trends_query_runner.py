@@ -285,6 +285,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                         raise ValueError("Data warehouse table name not found")
                     table = database.get_table(table_name)
                     table.fields["events"] = LazyJoin(
+                        # TODO: "distinct_id" should pull from the data warehouse definition
                         from_field=["distinct_id"],
                         join_table=events_table,
                         join_function=self._join_events_to_data_warehouse_table,
