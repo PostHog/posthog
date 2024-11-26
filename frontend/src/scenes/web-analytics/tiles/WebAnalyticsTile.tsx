@@ -416,6 +416,7 @@ export const WebStatsTableTile = ({
             if (!key || !type) {
                 return
             }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
         [togglePropertyFilter, type, key]
@@ -432,10 +433,16 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
+            if (breakdownBy === WebStatsBreakdown.Language || breakdownBy === WebStatsBreakdown.Timezone) {
+                // Slightly trickier to calculate, make it non-filterable for now
+                return {}
+            }
+
             const breakdownValue = getBreakdownValue(record, breakdownBy)
             if (breakdownValue === undefined) {
                 return {}
             }
+
             return {
                 onClick: key && type ? () => onClick(breakdownValue) : undefined,
             }
