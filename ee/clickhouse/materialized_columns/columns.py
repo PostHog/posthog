@@ -145,36 +145,30 @@ tables = {
 @dataclass
 class CreateColumnOnDataNodesTask:
     table: str
-    column_name: str
-    table_column: str
-    property_name: str
+    column: MaterializedColumn
     create_minmax_index: bool
 
     def execute(self, client):
         client.execute(
             f"""
             ALTER TABLE {self.table}
-                ADD COLUMN IF NOT EXISTS {self.column_name} VARCHAR
-                    MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=self.table_column)},
-                COMMENT COLUMN {self.column_name} %(comment)s
+                ADD COLUMN IF NOT EXISTS {self.column.name} VARCHAR
+                    MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=self.column.details.table_column)},
+                COMMENT COLUMN {self.column.name} %(comment)s
             """,
             {
-                "comment": MaterializedColumnDetails(
-                    self.table_column,
-                    self.property_name,
-                    is_disabled=False,
-                ).as_column_comment(),
-                "property": self.property_name,
+                "comment": self.column.details.as_column_comment(),
+                "property": self.column.details.property_name,
             },
             settings={"alter_sync": 2 if TEST else 1},
         )
 
         if self.create_minmax_index:
-            index_name = f"minmax_{self.column_name}"
+            index_name = f"minmax_{self.column.name}"
             client.execute(
                 f"""
                 ALTER TABLE {self.table}
-                ADD INDEX IF NOT EXISTS {index_name} {self.column_name}
+                ADD INDEX IF NOT EXISTS {index_name} {self.column.name}
                 TYPE minmax GRANULARITY 1
                 """,
                 settings={"alter_sync": 2 if TEST else 1},
@@ -184,24 +178,16 @@ class CreateColumnOnDataNodesTask:
 @dataclass
 class CreateColumnOnQueryNodesTask:
     table: str
-    column_name: str
-    table_column: str
-    property_name: str
+    column: MaterializedColumn
 
     def execute(self, client):
         client.execute(
             f"""
             ALTER TABLE {self.table}
-                ADD COLUMN IF NOT EXISTS {self.column_name} VARCHAR,
-                COMMENT COLUMN {self.column_name} %(comment)s
+                ADD COLUMN IF NOT EXISTS {self.column.name} VARCHAR,
+                COMMENT COLUMN {self.column.name} %(comment)s
             """,
-            {
-                "comment": MaterializedColumnDetails(
-                    self.table_column,
-                    self.property_name,
-                    is_disabled=False,
-                ).as_column_comment(),
-            },
+            {"comment": self.column.details.as_column_comment()},
             settings={"alter_sync": 2 if TEST else 1},
         )
 
@@ -222,14 +208,19 @@ def materialize(
     if table_column not in SHORT_TABLE_COLUMN_NAME:
         raise ValueError(f"Invalid table_column={table_column} for materialisation")
 
-    column_name = column_name or _materialized_column_name(table, property, table_column)
-
     cluster = get_cluster()
     table_info = tables[table]
 
-    create_on_data_nodes = CreateColumnOnDataNodesTask(
-        table_info.data_table, column_name, table_column, property, create_minmax_index
+    column = MaterializedColumn(
+        name=column_name or _materialized_column_name(table, property, table_column),
+        details=MaterializedColumnDetails(
+            table_column=table_column,
+            property_name=property,
+            is_disabled=False,
+        ),
     )
+
+    create_on_data_nodes = CreateColumnOnDataNodesTask(table_info.data_table, column, create_minmax_index)
     for host, future in cluster.map_shards(create_on_data_nodes.execute).as_completed():
         try:
             future.result()
@@ -237,14 +228,14 @@ def materialize(
             raise Exception(f"Failed to run {create_on_data_nodes!r} on {host!r}") from e
 
     if table_info.dist_table is not None:
-        create_on_query_nodes = CreateColumnOnQueryNodesTask(table_info.dist_table, column_name, table_column, property)
+        create_on_query_nodes = CreateColumnOnQueryNodesTask(table_info.dist_table, column)
         for host, future in cluster.map_hosts(create_on_query_nodes.execute).as_completed():
             try:
                 future.result()
             except Exception as e:
                 raise Exception(f"Failed to run {create_on_query_nodes!r} on {host!r}") from e
 
-    return column_name
+    return column.name
 
 
 def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name: str, is_disabled: bool) -> None:
