@@ -10,40 +10,42 @@ const meta: Meta<typeof ErrorDisplay> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/error_tracking/stack_frames/': [
-                    {
-                        id: '123456789',
-                        raw_id: 'rawId',
-                        contents: {},
-                        resolved: true,
-                        context: {
-                            before: [
-                                {
-                                    number: 7,
-                                    line: '    const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)',
-                                },
-                                {
-                                    number: 8,
-                                    line: '',
-                                },
-                                { number: 9, line: '    useEffect(() => {' },
-                            ],
-                            line: { number: 10, line: '        loadFrameContexts({ frames })' },
-                            after: [
-                                { number: 11, line: '    }, [frames, loadFrameContexts])' },
-                                {
-                                    number: 12,
-                                    line: '',
-                                },
-                                {
-                                    number: 13,
-                                    line: '    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0',
-                                },
-                            ],
+                '/api/projects/:team_id/error_tracking/stack_frames/': {
+                    results: [
+                        {
+                            id: '123456789',
+                            raw_id: 'rawId',
+                            contents: {},
+                            resolved: true,
+                            context: {
+                                before: [
+                                    {
+                                        number: 7,
+                                        line: '    const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)',
+                                    },
+                                    {
+                                        number: 8,
+                                        line: '',
+                                    },
+                                    { number: 9, line: '    useEffect(() => {' },
+                                ],
+                                line: { number: 10, line: '        loadFrameContexts({ frames })' },
+                                after: [
+                                    { number: 11, line: '    }, [frames, loadFrameContexts])' },
+                                    {
+                                        number: 12,
+                                        line: '',
+                                    },
+                                    {
+                                        number: 13,
+                                        line: '    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0',
+                                    },
+                                ],
+                            },
+                            symbol_set_ref: 'https://static.posthog.com/chunks.js',
                         },
-                        symbol_set_ref: 'https://static.posthog.com/chunks.js',
-                    },
-                ],
+                    ],
+                },
             },
         }),
     ],

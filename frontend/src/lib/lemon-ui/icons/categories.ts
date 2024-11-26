@@ -54,6 +54,7 @@ export const OBJECTS = {
         'IconSparkles',
         'IconPlug',
         'IconPuzzle',
+        'IconActivity',
     ],
     People: [
         'IconPeople',
@@ -102,6 +103,7 @@ export const TECHNOLOGY = {
         'IconBottomPanel',
         'IconSidePanel',
         'IconMouseScrollDown',
+        'IconDrag',
     ],
 }
 
