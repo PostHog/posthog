@@ -4,6 +4,7 @@ import {
     IconThumbsDownFilled,
     IconThumbsUp,
     IconThumbsUpFilled,
+    IconWarning,
     IconX,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -50,15 +51,13 @@ export function Thread(): JSX.Element | null {
     )
 }
 
-function MessageGroup({
-    messages,
-    isFinal: isGroupFinal,
-    index: messageGroupIndex,
-}: {
+interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
     index: number
-}): JSX.Element {
+}
+
+function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupIndex }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
@@ -120,6 +119,14 @@ function MessageGroup({
                     }
                     return null // We currently skip other types of messages
                 })}
+                {messages.at(-1)?.status === 'error' && (
+                    <MessageTemplate type="ai" className="border-warning">
+                        <div className="flex items-center gap-1.5">
+                            <IconWarning className="text-xl text-warning" />
+                            <i>Max is generating this answer one more time because the previous attempt has failed.</i>
+                        </div>
+                    </MessageTemplate>
+                )}
             </div>
         </div>
     )
@@ -145,15 +152,17 @@ const MessageTemplate = React.forwardRef<
     )
 })
 
-const TextAnswer = React.forwardRef<
-    HTMLDivElement,
-    {
-        message: (AssistantMessage | FailureMessage) & ThreadMessage
-        rateable: boolean
-        retriable: boolean
-        messageGroupIndex: number
-    }
->(function TextAnswer({ message, rateable, retriable, messageGroupIndex }, ref) {
+interface TextAnswerProps {
+    message: (AssistantMessage | FailureMessage) & ThreadMessage
+    rateable: boolean
+    retriable: boolean
+    messageGroupIndex: number
+}
+
+const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
+    { message, rateable, retriable, messageGroupIndex },
+    ref
+) {
     return (
         <MessageTemplate
             type="ai"
@@ -161,10 +170,10 @@ const TextAnswer = React.forwardRef<
             ref={ref}
             action={
                 message.status === 'completed' && message.type === 'ai/failure' && retriable ? (
-                    <RetriableAnswerActions />
+                    <RetriableFailureActions />
                 ) : message.status === 'completed' && message.type === 'ai' && rateable ? (
                     // Show answer actions if the assistant's response is complete at this point
-                    <SuccessfulAnswerActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
+                    <SuccessActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
                 ) : null
             }
         >
@@ -223,7 +232,7 @@ function VisualizationAnswer({
           )
 }
 
-function RetriableAnswerActions(): JSX.Element {
+function RetriableFailureActions(): JSX.Element {
     const { retryLastMessage } = useActions(maxLogic)
 
     return (
@@ -239,7 +248,7 @@ function RetriableAnswerActions(): JSX.Element {
     )
 }
 
-function SuccessfulAnswerActions({
+function SuccessActions({
     messageGroupIndex,
     retriable,
 }: {

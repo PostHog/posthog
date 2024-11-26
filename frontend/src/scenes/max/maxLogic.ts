@@ -48,7 +48,7 @@ export type ThreadMessage = RootAssistantMessage & {
 const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
     content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
-    status: 'error',
+    status: 'completed',
     done: true,
 }
 
@@ -132,8 +132,10 @@ export const maxLogic = kea<maxLogicType>([
         scrollThreadToBottom: () => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
-                const mainEl = document.querySelector('main')!
-                mainEl.scrollTop = mainEl.scrollHeight
+                const mainEl = document.querySelector('main')
+                if (mainEl) {
+                    mainEl.scrollTop = mainEl.scrollHeight
+                }
             })
         },
     }),
@@ -239,10 +241,7 @@ export const maxLogic = kea<maxLogicType>([
                 if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
                     actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
                 } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                    actions.addMessage({
-                        ...relevantErrorMessage,
-                        status: 'completed',
-                    })
+                    actions.addMessage(relevantErrorMessage)
                 }
             }
 
