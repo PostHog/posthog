@@ -4,6 +4,7 @@ import './Exporter.scss'
 import { createRoot } from 'react-dom/client'
 
 import { Exporter } from '~/exporter/Exporter'
+import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportedData } from '~/exporter/types'
 import { initKea } from '~/initKea'
 import { loadPostHogJS } from '~/loadPostHogJS'
@@ -25,7 +26,11 @@ function renderApp(): void {
     if (root) {
         createRoot(root).render(
             <ErrorBoundary>
-                <Exporter {...exportedData} />
+                {exportedData.type === 'login' ? (
+                    <ExporterLogin whitelabel={exportedData.whitelabel} />
+                ) : (
+                    <Exporter {...exportedData} />
+                )}
             </ErrorBoundary>
         )
     } else {

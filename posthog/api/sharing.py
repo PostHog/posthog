@@ -17,6 +17,7 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.constants import AvailableFeature
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
@@ -75,7 +76,7 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token"]
+        fields = ["created_at", "enabled", "access_token", "password", "password_required"]
         read_only_fields = ["created_at", "access_token"]
 
 
@@ -158,6 +159,12 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, instance)
 
+        if request.data.get("password_required", False):
+            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+                return response.Response(
+                    {"error": "Sharing with password requires the Advanced Permissions feature"}, status=403
+                )
+
         if context.get("recording"):
             recording = cast(SessionRecording, context.get("recording"))
             # Special case where we need to save the instance for recordings so that the actual record gets created
@@ -233,6 +240,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
         return None
 
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Any:
+        return self.retrieve(request, *args, **kwargs)
+
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         resource = self.get_object()
@@ -249,6 +259,25 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "get_team": lambda: resource.team,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
+
+        if "whitelabel" in request.GET and "white_labelling" in [
+            feature["key"] for feature in resource.team.organization.available_product_features
+        ]:
+            exported_data.update({"whitelabel": True})
+
+        if isinstance(resource, SharingConfiguration) and resource.password_required:
+            if request.method == "GET":
+                exported_data["type"] = "login"
+                return render_template(
+                    "exporter.html",
+                    request=request,
+                    context={
+                        "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+                        "add_og_tags": None,
+                    },
+                )
+            if "password" not in request.data or request.data["password"] != resource.password:
+                return response.Response({"error": "Incorrect password"}, status=401)
 
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token
@@ -292,10 +321,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and "white_labelling" in [
-            feature["key"] for feature in resource.team.organization.available_product_features
-        ]:
-            exported_data.update({"whitelabel": True})
         if "noHeader" in request.GET:
             exported_data.update({"noHeader": True})
         if "showInspector" in request.GET:
@@ -305,22 +330,24 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if "detailed" in request.GET:
             exported_data.update({"detailed": True})
 
-        if request.path.endswith(f".json"):
+        if request.path.endswith(f".json") or request.method == "POST":
             return response.Response(exported_data)
 
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
 
+        context = {
+            "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+            "asset_title": asset_title,
+            "asset_description": asset_description,
+            "add_og_tags": add_og_tags,
+            "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
+        }
+
         return render_template(
             "exporter.html",
             request=request,
-            context={
-                "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
-                "asset_title": asset_title,
-                "asset_description": asset_description,
-                "add_og_tags": add_og_tags,
-                "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
-            },
+            context=context,
             team_for_public_context=resource.team,
         )
 

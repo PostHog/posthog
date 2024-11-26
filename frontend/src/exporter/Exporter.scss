@@ -1,5 +1,9 @@
 @import '../styles/mixins';
 
+body {
+    @include light-mode-3000-variables;
+}
+
 body.ExporterBody {
     overflow: initial;
 }

@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.sharing import shared_url_as_png
+from posthog.constants import AvailableFeature
 from posthog.models import ExportedAsset, ActivityLog
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
@@ -14,6 +15,7 @@ from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
+from posthog.utils import render_template
 
 
 @parameterized.expand(
@@ -74,6 +76,8 @@ class TestSharing(APIBaseTest):
             "access_token": data["access_token"],
             "created_at": None,
             "enabled": False,
+            "password": None,
+            "password_required": False,
         }
 
     @freeze_time("2022-01-01")
@@ -91,6 +95,8 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": True,
+            "password": None,
+            "password_required": False,
         }
 
         response = self.client.patch(
@@ -101,6 +107,8 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": False,
+            "password": None,
+            "password_required": False,
         }
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
@@ -117,6 +125,48 @@ class TestSharing(APIBaseTest):
 
         assert response.json()["is_shared"]
         assert ActivityLog.objects.count() == 0
+
+    @patch("posthog.api.sharing.render_template", wraps=render_template)
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_can_edit_password(self, patched_exporter_task: Mock, mock_render: Mock):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+        ]
+        self.organization.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "password": "this is my password", "password_required": True},
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert data["enabled"]
+        assert "this is my password" == data["password"]
+        assert data["password_required"]
+
+        response = self.client.get(f"/shared_dashboard/{data['access_token']}")
+        assert response.status_code == 200
+        mock_render.assert_called_once()
+        assert '{"type": "login"}' == mock_render.call_args[1]["context"]["exported_data"]
+
+        response = self.client.post(f"/shared_dashboard/{data['access_token']}", {"password": "this is not it"})
+        assert response.status_code == 401
+
+        response = self.client.post(f"/shared_dashboard/{data['access_token']}", {"password": "this is my password"})
+        assert response.status_code == 200
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_password_required_is_premium(self, patched_exporter_task: Mock):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "password": "this is my password", "password_required": True},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "password": "this is my password", "password_required": False},
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):

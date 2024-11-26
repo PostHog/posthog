@@ -72,6 +72,14 @@ export const sharingLogic = kea<sharingLogicType>([
                 setIsEnabled: async (enabled: boolean) => {
                     return await api.sharing.update(await propsToApiParams(props), { enabled })
                 },
+                setPasswordRequired: async (password_required: boolean) => {
+                    return await api.sharing.update(await propsToApiParams(props), {
+                        password_required,
+                    })
+                },
+                setPassword: async (password: string) => {
+                    return await api.sharing.update(await propsToApiParams(props), { password })
+                },
             },
         ],
     })),
@@ -99,7 +107,10 @@ export const sharingLogic = kea<sharingLogicType>([
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
-
+        advancedPermissionsAvailable: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS),
+        ],
         params: [
             (s) => [s.embedConfig, (_, props) => props.additionalParams],
             (embedConfig, additionalParams = {}) => {

@@ -117,7 +117,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         allowClear = allowClear ?? true
         prefix = prefix ?? <IconSearch />
     } else if (type === 'password') {
-        suffix = suffix ?? (
+        const showPasswordButton = (
             <LemonButton
                 size="small"
                 noPadding
@@ -130,6 +130,16 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                 }}
             />
         )
+        if (suffix) {
+            suffix = (
+                <>
+                    {showPasswordButton}
+                    {suffix}
+                </>
+            )
+        } else {
+            suffix = showPasswordButton
+        }
     }
     // allowClear button takes precedence if set
     if (allowClear && value) {
