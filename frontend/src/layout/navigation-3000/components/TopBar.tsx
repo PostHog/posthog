@@ -10,6 +10,7 @@ import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -26,6 +27,7 @@ export function TopBar(): JSX.Element | null {
     const { showNavOnMobile } = useActions(navigation3000Logic)
     const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [compactionRate, setCompactionRate] = useState(0)
 
@@ -102,9 +104,11 @@ export function TopBar(): JSX.Element | null {
                     )}
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} isOnboarding={isOnboarding} />
                 </div>
-                <div className="shrink-1">
-                    <MetalyticsSummary />
-                </div>
+                {featureFlags['METALYTICS'] && (
+                    <div className="shrink-1">
+                        <MetalyticsSummary />
+                    </div>
+                )}
                 <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
             </div>
         </div>

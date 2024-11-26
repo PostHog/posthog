@@ -144,10 +144,14 @@ export const SidePanelActivity = (): JSX.Element => {
                                     key: SidePanelActivityTab.All,
                                     label: 'All activity',
                                 },
-                                {
-                                    key: SidePanelActivityTab.Metalytics,
-                                    label: 'Analytics',
-                                },
+                                ...(featureFlags[FEATURE_FLAGS.METALYTICS]
+                                    ? [
+                                          {
+                                              key: SidePanelActivityTab.Metalytics,
+                                              label: 'Analytics',
+                                          },
+                                      ]
+                                    : []),
                             ]}
                         />
                     </div>
