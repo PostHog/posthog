@@ -7,6 +7,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -104,7 +105,7 @@ export function TopBar(): JSX.Element | null {
                     )}
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} isOnboarding={isOnboarding} />
                 </div>
-                {featureFlags['METALYTICS'] && (
+                {featureFlags[FEATURE_FLAGS.METALYTICS] && (
                     <div className="shrink-1">
                         <MetalyticsSummary />
                     </div>
