@@ -172,3 +172,20 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
 
     return <Template sessionId={SESSION_ID} />
 }
+
+export const ThreadWithRateLimit: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/chat/': (_, res, ctx) =>
+                res(ctx.text(chatResponseChunk), ctx.status(429)),
+        },
+    })
+
+    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
+
+    useEffect(() => {
+        askMax('Is Bielefeld real?')
+    }, [])
+
+    return <Template sessionId={SESSION_ID} />
+}

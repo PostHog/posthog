@@ -233,7 +233,7 @@ export const maxLogic = kea<maxLogicType>([
             } catch (e) {
                 const relevantErrorMessage = { ...FAILURE_MESSAGE } // Generic message by default
                 if (e instanceof ApiError && e.status === 429) {
-                    relevantErrorMessage.content = "You've reached my limit for now. Please try again later."
+                    relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
                 } else {
                     captureException(e) // Unhandled error, log to Sentry
                 }

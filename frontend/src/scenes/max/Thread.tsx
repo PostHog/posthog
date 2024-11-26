@@ -169,7 +169,10 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             className={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
             ref={ref}
             action={
-                message.status === 'completed' && message.type === 'ai/failure' && retriable ? (
+                message.status === 'completed' &&
+                message.type === 'ai/failure' &&
+                !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
+                retriable ? (
                     <RetriableFailureActions />
                 ) : message.status === 'completed' && message.type === 'ai' && rateable ? (
                     // Show answer actions if the assistant's response is complete at this point
