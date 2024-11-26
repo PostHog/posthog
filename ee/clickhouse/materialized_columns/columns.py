@@ -11,7 +11,7 @@ from clickhouse_driver import Client
 from django.utils.timezone import now
 
 from posthog.clickhouse.client.connection import default_client
-from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo, FuturesMap
+from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo, FuturesMap, HostInfo
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 from posthog.client import sync_execute
@@ -21,7 +21,6 @@ from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
 
 T = TypeVar("T")
-K = TypeVar("K")
 
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
 
@@ -145,7 +144,7 @@ class TableInfo(NamedTuple):
         else:
             return self.data_table
 
-    def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[K, T]:
+    def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         if self.is_sharded:
             return cluster.map_one_host_per_shard(fn)
         else:

@@ -88,7 +88,7 @@ class ClickhouseCluster:
             )
         self.__pools: dict[HostInfo, ChPool] = {}
 
-    def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[Client], T]:
+    def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
             pool = self.__pools[host] = make_ch_pool(host=host.connection_info.address, port=host.connection_info.port)
