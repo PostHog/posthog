@@ -122,7 +122,7 @@ impl FlagRequest {
         };
 
         inc(
-            &TEAM_CACHE_HIT_COUNTER,
+            TEAM_CACHE_HIT_COUNTER,
             &[
                 ("token".to_string(), token.clone()),
                 ("cache_hit".to_string(), cache_hit.to_string()),
@@ -169,7 +169,7 @@ impl FlagRequest {
             };
 
         inc(
-            &TEAM_CACHE_HIT_COUNTER,
+            TEAM_CACHE_HIT_COUNTER,
             &[
                 ("token".to_string(), token.to_string()),
                 ("cache_hit".to_string(), cache_hit.to_string()),
