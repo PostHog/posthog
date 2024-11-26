@@ -255,6 +255,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
             try:
+                # Create a new database instance where we can attach our
+                # custom join to the events table. It will be passed through
+                # and used by the query runner.
                 database = create_hogql_database(team_id=self.team.pk)
                 if self._is_data_warehouse_query(query_runner.query):
                     series_node = cast(DataWarehouseNode, query_runner.query.series[0])
