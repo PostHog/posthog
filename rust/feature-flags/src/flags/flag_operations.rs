@@ -1082,9 +1082,7 @@ mod tests {
                 let redis_flags = FeatureFlagList::from_redis(redis_client, team_id)
                     .await
                     .unwrap();
-                let pg_flags = FeatureFlagList::from_pg(reader, team_id)
-                    .await
-                    .unwrap();
+                let pg_flags = FeatureFlagList::from_pg(reader, team_id).await.unwrap();
                 (redis_flags, pg_flags)
             });
 

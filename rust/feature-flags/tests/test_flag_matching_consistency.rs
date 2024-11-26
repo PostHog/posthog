@@ -118,18 +118,11 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
 
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match = FeatureFlagMatcher::new(
-            distinct_id,
-            1,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        )
-        .get_match(&flags[0], None, None)
-        .await
-        .unwrap();
+        let feature_flag_match =
+            FeatureFlagMatcher::new(distinct_id, 1, reader, writer, cohort_cache, None, None)
+                .get_match(&flags[0], None, None)
+                .await
+                .unwrap();
 
         if *result {
             assert_eq!(
@@ -1217,18 +1210,11 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match = FeatureFlagMatcher::new(
-            distinct_id,
-            1,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        )
-        .get_match(&flags[0], None, None)
-        .await
-        .unwrap();
+        let feature_flag_match =
+            FeatureFlagMatcher::new(distinct_id, 1, reader, writer, cohort_cache, None, None)
+                .get_match(&flags[0], None, None)
+                .await
+                .unwrap();
 
         if let Some(variant) = &result {
             assert_eq!(
