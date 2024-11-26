@@ -43,7 +43,7 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
                     }
                 }}
             />
-            times per interval
+            time(s) per interval
         </div>
     )
 }
