@@ -46,7 +46,7 @@ impl Cohort {
 
         let mut props = cohort_property.properties.to_inner();
         props.retain(|f| !(f.key == "id" && f.prop_type == "cohort"));
-        return Ok(props);
+        Ok(props)
     }
 
     /// Extracts dependent CohortIds from the cohort's filters
