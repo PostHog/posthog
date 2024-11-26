@@ -4,5 +4,3 @@ from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_UPDATE_SQL
 operations = [
     run_sql_with_exceptions(RAW_SESSION_TABLE_UPDATE_SQL),
 ]
-
-# just adding a comment to trigger tests
