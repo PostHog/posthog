@@ -285,6 +285,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                                     expr=ast.And(
                                         exprs=[
                                             ast.CompareOperation(
+                                                left=ast.Field(chain=[join_to_add.to_table, "event"]),
+                                                op=ast.CompareOperationOp.Eq,
+                                                right=ast.Constant(value="$feature_flag_called"),
+                                            ),
+                                            ast.CompareOperation(
                                                 left=ast.Field(
                                                     chain=[
                                                         join_to_add.from_table,
