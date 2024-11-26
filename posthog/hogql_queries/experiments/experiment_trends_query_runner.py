@@ -279,6 +279,21 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                                     ],
                                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                                 ),
+                                # ASOF JOIN finds the most recent matching event that occurred at or before each data warehouse timestamp.
+                                #
+                                # Why this matters:
+                                # When a user performs an action (recorded in data warehouse), we want to know which
+                                # experiment variant they were assigned at that moment. The most recent $feature_flag_called
+                                # event before their action represents their active variant assignment.
+                                #
+                                # Example:
+                                #   Data Warehouse: timestamp=2024-01-03 12:00, distinct_id=user1
+                                #   Events:
+                                #     2024-01-02: (user1, variant='control')   <- This event will be joined
+                                #     2024-01-03: (user1, variant='test')      <- Ignored (occurs after data warehouse timestamp)
+                                #
+                                # This ensures we capture the correct causal relationship: which experiment variant
+                                # was the user assigned to when they performed the action?
                                 join_type="ASOF LEFT JOIN",
                                 alias=join_to_add.to_table,
                                 constraint=ast.JoinConstraint(
