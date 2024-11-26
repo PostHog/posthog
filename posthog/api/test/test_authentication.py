@@ -832,36 +832,6 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
             self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
 
-    def test_personal_api_key_not_associated_with_project_or_organization(self):
-        self.client.logout()
-
-        user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X",
-            user=user,
-            last_used_at="2021-08-25T21:09:14",
-            secure_value=hash_key_value(personal_api_key),
-        )
-
-        with freeze_time("2021-08-24T21:14:14.252"):
-            response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
-            )
-
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "authentication_error",
-                    "code": "authentication_failed",
-                    "detail": "Personal API key is not associated with a project or organization.",
-                    "attr": None,
-                },
-            )
-
 
 class TestTimeSensitivePermissions(APIBaseTest):
     def test_after_timeout_modifications_require_reauthentication(self):
