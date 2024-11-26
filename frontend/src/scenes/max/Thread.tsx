@@ -14,7 +14,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -68,7 +68,7 @@ function MessageGroup({ messages }: { messages: ThreadMessage[] }): JSX.Element 
                     className="mt-1 border"
                 />
             </Tooltip>
-            <div className="flex flex-col gap-2 min-w-0">
+            <div className={clsx('flex flex-col gap-2', groupType === 'human' ? 'min-w-0' : 'w-full')}>
                 {messages.map((message, index) => {
                     if (isHumanMessage(message)) {
                         return (
@@ -86,7 +86,7 @@ function MessageGroup({ messages }: { messages: ThreadMessage[] }): JSX.Element 
                         return <VisualizationAnswer key={index} message={message} status={message.status} />
                     } else if (isReasoningMessage(message)) {
                         return (
-                            <MessageTemplate key={index} type="ai">
+                            <MessageTemplate key={index} type="ai" className="w-fit">
                                 <div className="flex items-center gap-2">
                                     <span>{message.content}…</span>
                                     <Spinner className="text-xl" />
@@ -106,7 +106,7 @@ const MessageTemplate = React.forwardRef<
     { type: 'human' | 'ai'; className?: string; action?: React.ReactNode; children: React.ReactNode }
 >(function MessageTemplate({ type, children, className, action }, ref) {
     return (
-        <div className={clsx('flex flex-col gap-1', type === 'human' ? 'items-end' : 'items-start')} ref={ref}>
+        <div className={clsx('flex flex-col gap-1', type === 'human' ? 'items-end' : undefined)} ref={ref}>
             <div
                 className={clsx(
                     'border py-2 px-3 rounded-[20px] bg-bg-light',
@@ -174,7 +174,7 @@ function VisualizationAnswer({
         : query && (
               <>
                   <MessageTemplate type="ai">
-                      <div className="h-96 flex">
+                      <div className="min-h-96 flex">
                           <Query query={query} readOnly embedded />
                       </div>
                       <div className="relative mb-1">
@@ -221,7 +221,6 @@ function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JS
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
-    const hasScrolledFeedbackInputIntoView = useRef<boolean>(false)
 
     const [relevantHumanMessage, relevantVisualizationMessage] = useMemo(() => {
         // We need to find the relevant visualization message (which might be a message earlier if the most recent one
@@ -291,16 +290,7 @@ function SuccessfulAnswerActions({ messageIndex }: { messageIndex: number }): JS
                 )}
             </div>
             {feedbackInputStatus !== 'hidden' && (
-                <MessageTemplate
-                    type="ai"
-                    ref={(el) => {
-                        if (el && !hasScrolledFeedbackInputIntoView.current) {
-                            // When the feedback input is first rendered, scroll it into view
-                            el.scrollIntoView({ behavior: 'smooth' })
-                            hasScrolledFeedbackInputIntoView.current = true
-                        }
-                    }}
-                >
+                <MessageTemplate type="ai">
                     <div className="flex items-center">
                         <h4 className="m-0 text-sm grow">
                             {feedbackInputStatus === 'pending'
