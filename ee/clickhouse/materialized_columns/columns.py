@@ -134,7 +134,7 @@ class TableInfo:
     data_table: str
 
     @property
-    def read_table(self):
+    def read_table(self) -> str:
         return self.data_table
 
     def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
@@ -146,7 +146,7 @@ class ShardedTableInfo(TableInfo):
     dist_table: str
 
     @property
-    def read_table(self):
+    def read_table(self) -> str:
         return self.dist_table
 
     def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
@@ -167,7 +167,7 @@ class CreateColumnOnDataNodesTask:
     create_minmax_index: bool
     add_column_comment: bool
 
-    def execute(self, client):
+    def execute(self, client: Client) -> None:
         actions = [
             f"""
             ADD COLUMN IF NOT EXISTS {self.column.name} VARCHAR
@@ -196,7 +196,7 @@ class CreateColumnOnQueryNodesTask:
     table: str
     column: MaterializedColumn
 
-    def execute(self, client):
+    def execute(self, client: Client) -> None:
         client.execute(
             f"""
             ALTER TABLE {self.table}
@@ -262,7 +262,7 @@ class UpdateColumnCommentTask:
     table: str
     column: MaterializedColumn
 
-    def execute(self, client):
+    def execute(self, client: Client) -> None:
         client.execute(
             f"ALTER TABLE {self.table} COMMENT COLUMN {self.column.name} %(comment)s",
             {"comment": self.column.details.as_column_comment()},
@@ -294,7 +294,7 @@ class DropColumnTask:
     column_name: str
     try_drop_index: bool
 
-    def execute(self, client):
+    def execute(self, client: Client) -> None:
         # XXX: copy/pasted from create task
         if self.try_drop_index:
             index_name = f"minmax_{self.column_name}"
@@ -339,7 +339,7 @@ class BackfillColumnTask:
     backfill_period: timedelta | None
     test_settings: dict[str, Any] | None
 
-    def execute(self, client):
+    def execute(self, client: Client) -> None:
         # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
         # Note that for this to work all inserts should list columns explicitly
         # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
