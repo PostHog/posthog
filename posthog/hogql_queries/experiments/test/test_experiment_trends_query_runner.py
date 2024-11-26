@@ -124,10 +124,18 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
 
-        id = pa.array(["1", "2", "3", "4"])
-        timestamp = pa.array([datetime(2023, 1, 1), datetime(2023, 1, 2), datetime(2023, 1, 3), datetime(2023, 1, 6)])
-        distinct_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3"])
-        amount = pa.array([100, 50, 75, 80])
+        id = pa.array(["1", "2", "3", "4", "5"])
+        timestamp = pa.array(
+            [
+                datetime(2023, 1, 1),
+                datetime(2023, 1, 2),
+                datetime(2023, 1, 3),
+                datetime(2023, 1, 6),
+                datetime(2023, 1, 7),
+            ]
+        )
+        distinct_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3", "user_extra"])
+        amount = pa.array([100, 50, 75, 80, 90])
         names = ["id", "timestamp", "distinct_id", "amount"]
 
         pq.write_to_dataset(
