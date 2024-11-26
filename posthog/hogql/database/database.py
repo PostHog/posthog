@@ -410,7 +410,7 @@ def create_hogql_database(
                 to_field=to_field,
                 join_table=joining_table,
                 join_function=join.join_function_for_experiments()
-                if join.configuration.get("optimize_for_experiments")
+                if join.configuration.get("experiments_optimized")
                 else join.join_function(),
             )
 

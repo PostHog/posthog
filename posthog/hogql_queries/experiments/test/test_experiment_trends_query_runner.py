@@ -178,7 +178,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             joining_table_name="events",
             joining_table_key="distinct_id",
             field_name="events",
-            configuration={"optimize_for_experiments": True},
+            configuration={"experiments_optimized": True},
         )
         return table_name
 
