@@ -52,11 +52,11 @@ function PlayPauseButton(): JSX.Element {
             }
         >
             {showPause ? (
-                <IconPause className="text-3xl" />
+                <IconPause className="text-2xl" />
             ) : endReached ? (
-                <IconSync className="text-3xl" />
+                <IconSync className="text-2xl" />
             ) : (
-                <IconPlay className="text-3xl" />
+                <IconPlay className="text-2xl" />
             )}
         </LemonButton>
     )
