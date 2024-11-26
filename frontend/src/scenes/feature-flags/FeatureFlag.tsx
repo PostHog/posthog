@@ -70,6 +70,7 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
+import { FeatureFlagStatusBanner } from './FeatureFlagStatusBanner'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
 export const scene: SceneExport = {
@@ -88,8 +89,16 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, newCohortLoading, activeTab } =
-        useValues(featureFlagLogic)
+    const {
+        props,
+        featureFlag,
+        featureFlagLoading,
+        featureFlagMissing,
+        isEditingFlag,
+        newCohortLoading,
+        activeTab,
+        flagStatus,
+    } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -600,6 +609,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </>
                             }
                         />
+                        <FeatureFlagStatusBanner flagStatus={flagStatus} />
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(tab) => tab !== activeTab && setActiveTab(tab)}

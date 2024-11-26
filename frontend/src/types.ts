@@ -2990,6 +2990,19 @@ export interface FeatureFlagRollbackConditions {
     operator?: string
 }
 
+export enum FeatureFlagStatus {
+    ACTIVE = 'active',
+    INACTIVE = 'inactive',
+    STALE = 'stale',
+    DELETED = 'deleted',
+    UNKNOWN = 'unknown',
+}
+
+export interface FeatureFlagStatusResponse {
+    status: FeatureFlagStatus
+    reason: string
+}
+
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string

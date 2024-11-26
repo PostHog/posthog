@@ -56,6 +56,7 @@ import {
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
     FeatureFlagAssociatedRoleType,
+    FeatureFlagStatusResponse,
     FeatureFlagType,
     Group,
     GroupListParams,
@@ -655,14 +656,14 @@ class ApiRequest {
     }
 
     public featureFlagScheduledChanges(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('scheduled_changes').addPathComponent(featureFlagId)
+    }
+
+    public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
         return this.projectsDetail(teamId)
-            .addPathComponent('scheduled_changes')
-            .withQueryString(
-                toParams({
-                    model_name: 'FeatureFlag',
-                    record_id: featureFlagId,
-                })
-            )
+            .addPathComponent('feature_flags')
+            .addPathComponent(String(featureFlagId))
+            .addPathComponent('status')
     }
 
     public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
@@ -1041,6 +1042,12 @@ const api = {
             scheduledChangeId: ScheduledChangeType['id']
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
             return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+        },
+        async getStatus(
+            teamId: TeamType['id'],
+            featureFlagId: FeatureFlagType['id']
+        ): Promise<FeatureFlagStatusResponse> {
+            return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
     },
 

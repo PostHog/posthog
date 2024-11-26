@@ -33,6 +33,7 @@ import {
     EarlyAccessFeatureType,
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
+    FeatureFlagStatusResponse,
     FeatureFlagType,
     FilterLogicalOperator,
     FilterType,
@@ -747,6 +748,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        flagStatus: [
+            null as FeatureFlagStatusResponse | null,
+            {
+                loadFeatureFlagStatus: () => {
+                    const { currentTeamId } = values
+                    if (currentTeamId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        return api.featureFlags.getStatus(currentTeamId, props.id)
+                    }
+                    return null
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -1032,8 +1045,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloadsWithFlag)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadFeatureFlagStatus()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
+            actions.loadFeatureFlagStatus()
         }
     }),
 ])
