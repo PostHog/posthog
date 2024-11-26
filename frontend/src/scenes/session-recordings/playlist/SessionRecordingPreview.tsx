@@ -11,6 +11,8 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
+import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { RecordingsQuery } from '~/queries/schema'
@@ -176,9 +178,11 @@ export function SessionRecordingPreview({
     onClick,
     pinned,
 }: SessionRecordingPreviewProps): JSX.Element {
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
+    const { timestampFormat } = useValues(playerSettingsLogic)
 
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
+
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
     const iconProperties = gatherIconProperties(recordingProperties, recording)
@@ -201,11 +205,17 @@ export function SessionRecordingPreview({
                             <span className="truncate">{asDisplay(recording.person)}</span>
                         </div>
 
-                        <TZLabel
-                            className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
-                            time={recording.start_time}
-                            placement="right"
-                        />
+                        {timestampFormat === TimestampFormat.Relative ? (
+                            <TZLabel
+                                className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
+                                time={recording.start_time}
+                                placement="right"
+                            />
+                        ) : timestampFormat === TimestampFormat.UTC ? (
+                            <SimpleTimeLabel startTime={recording.start_time} isUTC={true} />
+                        ) : (
+                            <SimpleTimeLabel startTime={recording.start_time} isUTC={false} />
+                        )}
                     </div>
 
                     <div className="flex justify-between items-center gap-2">

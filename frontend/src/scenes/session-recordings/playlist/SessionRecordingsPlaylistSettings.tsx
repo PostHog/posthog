@@ -1,11 +1,12 @@
 import { IconEllipsis } from '@posthog/icons'
-import { IconSort } from '@posthog/icons'
+import { IconClock, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 
 import { RecordingUniversalFilters } from '~/types'
 
-import { PlaybackMode, playerSettingsLogic } from '../player/playerSettingsLogic'
+import { PlaybackMode, playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -93,8 +94,8 @@ function SortedBy({
 }
 
 export function SessionRecordingPlaylistBottomSettings(): JSX.Element {
-    const { hideViewedRecordings } = useValues(playerSettingsLogic)
-    const { setHideViewedRecordings } = useActions(playerSettingsLogic)
+    const { hideViewedRecordings, playlistTimestampFormat } = useValues(playerSettingsLogic)
+    const { setHideViewedRecordings, setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
     return (
         <div className="flex">
             <SettingsToggle
@@ -102,6 +103,28 @@ export function SessionRecordingPlaylistBottomSettings(): JSX.Element {
                 title="Hide viewed recordings"
                 label="Hide viewed recordings"
                 onClick={() => setHideViewedRecordings(!hideViewedRecordings)}
+            />
+            <SettingsMenu
+                highlightWhenActive={false}
+                items={[
+                    {
+                        label: 'UTC',
+                        onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
+                        active: playlistTimestampFormat === TimestampFormat.UTC,
+                    },
+                    {
+                        label: 'Device',
+                        onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
+                        active: playlistTimestampFormat === TimestampFormat.Device,
+                    },
+                    {
+                        label: 'Relative',
+                        onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
+                        active: playlistTimestampFormat === TimestampFormat.Relative,
+                    },
+                ]}
+                icon={<IconClock />}
+                label={capitalizeFirstLetter(playlistTimestampFormat)}
             />
         </div>
     )
