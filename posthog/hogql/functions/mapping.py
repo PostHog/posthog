@@ -421,13 +421,15 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toString": HogQLFunctionMeta(
         "toString",
         1,
-        1,
+        2,
         signatures=[
             ((IntegerType(),), StringType()),
             ((StringType(),), StringType()),
             ((FloatType(),), StringType()),
             ((DateType(),), StringType()),
+            ((DateType(), StringType()), StringType()),
             ((DateTimeType(),), StringType()),
+            ((DateTimeType(), StringType()), StringType()),
         ],
     ),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
