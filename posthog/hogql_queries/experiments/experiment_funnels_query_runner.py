@@ -16,6 +16,7 @@ from posthog.schema import (
     ExperimentFunnelsQueryResponse,
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
+    FunnelLayout,
     FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -113,9 +114,10 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             breakdown_type="event",
         )
 
-        prepared_funnels_query.funnelsFilter = FunnelsFilter(
-            funnelVizType="steps",
-        )
+        # Set the layout to vertical
+        if prepared_funnels_query.funnelsFilter is None:
+            prepared_funnels_query.funnelsFilter = FunnelsFilter()
+        prepared_funnels_query.funnelsFilter.layout = FunnelLayout.VERTICAL
 
         return prepared_funnels_query
 
