@@ -13,7 +13,10 @@ describe('Persons', () => {
     it('Deleting person from list', () => {
         cy.get('[data-attr=persons-search]').type('hodge').type('{enter}')
         cy.contains('tr', 'hodge.espinoza@cubix.io').find('[data-attr=delete-person]').click()
-        cy.get('h3').should('have.text', 'Are you sure you want to delete "hodge.espinoza@cubix.io"?')
+        cy.get('.LemonModal__header h3').should(
+            'have.text',
+            'Are you sure you want to delete "hodge.espinoza@cubix.io"?'
+        )
         cy.get('label').contains('I understand').click() // Acknowledge deletion
         cy.get('.LemonButton--secondary').contains('Delete person').click()
         cy.get('.Toastify__toast-body').contains('hodge.espinoza@cubix.io was removed from the project')

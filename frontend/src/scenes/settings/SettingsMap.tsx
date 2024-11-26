@@ -1,5 +1,5 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
-import { ChannelType } from 'scenes/settings/environment/ChannelType'
+import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
@@ -81,7 +81,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
                 component: <ProjectProductDescription />,
-                flag: '!ENVIRONMENTS',
+                flag: ['ARTIFICIAL_HOG', '!ENVIRONMENTS'],
             },
             {
                 id: 'snippet',
@@ -215,8 +215,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'channel-type',
-                title: 'Channel type',
-                component: <ChannelType />,
+                title: 'Custom channel type',
+                component: <CustomChannelTypes />,
             },
         ],
         flag: 'CUSTOM_CHANNEL_TYPE_RULES',

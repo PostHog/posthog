@@ -12,7 +12,7 @@ import pyarrow as pa
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
-from snowflake.connector.errors import OperationalError
+from snowflake.connector.errors import OperationalError, InterfaceError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -51,10 +51,10 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from posthog.temporal.common.utils import (
-    BatchExportHeartbeatDetails,
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
     HeartbeatParseError,
-    NotEnoughHeartbeatValuesError,
     should_resume_from_activity_heartbeat,
 )
 
@@ -90,28 +90,38 @@ class SnowflakeRetryableConnectionError(Exception):
 
 
 @dataclasses.dataclass
-class SnowflakeHeartbeatDetails(BatchExportHeartbeatDetails):
+class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat.
 
     Attributes:
         file_no: The file number of the last file we managed to upload.
     """
 
-    file_no: int
+    file_no: int = 0
 
     @classmethod
-    def from_activity(cls, activity):
-        details = BatchExportHeartbeatDetails.from_activity(activity)
+    def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        file_no = 0
+        remaining = super().deserialize_details(details)
 
-        if details.total_details < 2:
-            raise NotEnoughHeartbeatValuesError(details.total_details, 2)
+        if len(remaining["_remaining"]) == 0:
+            return {"file_no": 0, **remaining}
+
+        first_detail = remaining["_remaining"][0]
+        remaining["_remaining"] = remaining["_remaining"][1:]
 
         try:
-            file_no = int(details._remaining[0])
+            file_no = int(first_detail)
         except (TypeError, ValueError) as e:
             raise HeartbeatParseError("file_no") from e
 
-        return cls(last_inserted_at=details.last_inserted_at, file_no=file_no, _remaining=details._remaining[2:])
+        return {"file_no": file_no, **remaining}
+
+    def serialize_details(self) -> tuple[typing.Any, ...]:
+        """Attempt to initialize HeartbeatDetails from an activity's details."""
+        serialized_parent_details = super().serialize_details()
+        return (*serialized_parent_details[:-1], self.file_no, self._remaining)
 
 
 @dataclasses.dataclass
@@ -205,6 +215,9 @@ class SnowflakeClient:
                 ) from err
             else:
                 raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
+
+        except InterfaceError as err:
+            raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
 
         self._connection = connection
 
@@ -576,16 +589,17 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        should_resume, details = await should_resume_from_activity_heartbeat(
-            activity, SnowflakeHeartbeatDetails, logger
-        )
+        _, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails)
+        if details is None:
+            details = SnowflakeHeartbeatDetails()
 
-        if should_resume is True and details is not None:
-            data_interval_start: str | None = details.last_inserted_at.isoformat()
-            current_flush_counter = details.file_no
+        done_ranges: list[DateRange] = details.done_ranges
+        if done_ranges:
+            data_interval_start: str | None = done_ranges[-1][1].isoformat()
         else:
             data_interval_start = inputs.data_interval_start
-            current_flush_counter = 0
+
+        current_flush_counter = details.file_no
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
@@ -667,7 +681,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     records_since_last_flush,
                     bytes_since_last_flush,
                     flush_counter: int,
-                    last_inserted_at,
+                    last_date_range: DateRange,
                     last: bool,
                     error: Exception | None,
                 ):
@@ -687,7 +701,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    heartbeater.details = (str(last_inserted_at), flush_counter)
+                    details.track_done_range(last_date_range, data_interval_start)
+                    details.file_no = flush_counter
+                    heartbeater.set_from_heartbeat_details(details)
 
                 writer = JSONLBatchExportWriter(
                     max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
@@ -699,6 +715,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                         record_batch = cast_record_batch_json_columns(record_batch, json_columns=known_variant_columns)
 
                         await writer.write_record_batch(record_batch)
+
+                details.complete_done_ranges(inputs.data_interval_end)
+                heartbeater.set_from_heartbeat_details(details)
 
                 await snow_client.copy_loaded_files_to_snowflake_table(
                     snow_stage_table if requires_merge else snow_table, data_interval_end_str

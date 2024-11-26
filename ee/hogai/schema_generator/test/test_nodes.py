@@ -41,9 +41,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_runs(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            generator_model_mock.return_value = RunnableLambda(
-                lambda _: TestSchema(reasoning_steps=["step"], answer=self.schema).model_dump()
-            )
+            generator_model_mock.return_value = RunnableLambda(lambda _: TestSchema(query=self.schema).model_dump())
             new_state = node.run(
                 {
                     "messages": [HumanMessage(content="Text")],
@@ -54,9 +52,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 new_state,
                 {
-                    "messages": [
-                        VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"], done=True)
-                    ],
+                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", done=True)],
                     "intermediate_steps": None,
                 },
             )
@@ -176,9 +172,9 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def test_failover_with_incorrect_schema(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            schema = TestSchema(reasoning_steps=[], answer=None).model_dump()
+            schema = TestSchema(query=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
-            schema["answer"] = []
+            schema["query"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
             new_state = node.run({"messages": [HumanMessage(content="Text")]}, {})
@@ -200,7 +196,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         with patch.object(
             DummyGeneratorNode,
             "_model",
-            return_value=RunnableLambda(lambda _: TestSchema(reasoning_steps=[], answer=self.schema).model_dump()),
+            return_value=RunnableLambda(lambda _: TestSchema(query=self.schema).model_dump()),
         ):
             new_state = node.run(
                 {
@@ -226,9 +222,9 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            schema = TestSchema(reasoning_steps=[], answer=None).model_dump()
+            schema = TestSchema(query=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
-            schema["answer"] = []
+            schema["query"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
             new_state = node.run(
