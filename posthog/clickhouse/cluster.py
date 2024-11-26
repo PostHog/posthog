@@ -1,5 +1,7 @@
-from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import NamedTuple, TypeVar
 
 from clickhouse_driver import Client
@@ -7,6 +9,22 @@ from clickhouse_pool import ChPool
 from django.conf import settings
 
 from posthog.clickhouse.client.connection import make_ch_pool
+
+
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+class FuturesMap(dict[K, Future[V]]):
+    def wait(self, *args, **kwargs) -> tuple[FuturesMap[K, V], FuturesMap[K, V]]:
+        reverse_map = {v: k for k, v in self.items()}
+        assert len(reverse_map) == len(self)
+
+        done_futures, not_done_futures = wait(self.values(), *args, **kwargs)
+        return (
+            FuturesMap({reverse_map[f]: f for f in done_futures}),
+            FuturesMap({reverse_map[f]: f for f in not_done_futures}),
+        )
 
 
 class ConnectionInfo(NamedTuple):
@@ -49,15 +67,15 @@ class ClickhouseCluster:
             pool = self.__pools[host] = make_ch_pool(host=host.connection_info.address, port=host.connection_info.port)
         return pool
 
-    def map_hosts(self, fn: Callable[[Client], T]) -> Mapping[HostInfo, Future[T]]:
+    def map_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         def task(pool):
             with pool.get_client() as client:
                 return fn(client)
 
         with ThreadPoolExecutor() as executor:
-            return {host: executor.submit(task, self.__get_pool(host)) for host in self.hosts}
+            return FuturesMap({host: executor.submit(task, self.__get_pool(host)) for host in self.hosts})
 
-    def map_shards(self, fn: Callable[[Client], T]) -> Mapping[int, Future[T]]:
+    def map_shards(self, fn: Callable[[Client], T]) -> FuturesMap[int, T]:
         def task(pool):
             with pool.get_client() as client:
                 return fn(client)
@@ -68,4 +86,6 @@ class ClickhouseCluster:
                 shard_hosts[host.shard_num] = host
 
         with ThreadPoolExecutor() as executor:
-            return {shard_num: executor.submit(task, self.__get_pool(host)) for shard_num, host in shard_hosts.items()}
+            return FuturesMap(
+                {shard_num: executor.submit(task, self.__get_pool(host)) for shard_num, host in shard_hosts.items()}
+            )
