@@ -186,16 +186,16 @@ class JavaScriptCompiler(Visitor):
             self.stl_functions.add("ilike")
             return f"!ilike({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.Regex:
-            self.inlined_stl.add("match")
+            self.stl_functions.add("match")
             return f"match({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.IRegex:
-            self.inlined_stl.add("__imatch")
+            self.stl_functions.add("__imatch")
             return f"__imatch({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.NotRegex:
-            self.inlined_stl.add("match")
+            self.stl_functions.add("match")
             return f"!match({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.NotIRegex:
-            self.inlined_stl.add("__imatch")
+            self.stl_functions.add("__imatch")
             return f"!__imatch({left_code}, {right_code})"
         elif op == ast.CompareOperationOp.InCohort or op == ast.CompareOperationOp.NotInCohort:
             cohort_name = ""
