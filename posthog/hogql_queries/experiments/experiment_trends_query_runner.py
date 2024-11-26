@@ -6,7 +6,6 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd
-from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
@@ -38,7 +37,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
 )
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 import threading
 
 
@@ -102,7 +101,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             breakdown_type="event",
         )
 
-    def _get_data_warehouse_breakdown_filter(self, column_name: str) -> BreakdownFilter:
+    def _get_data_warehouse_breakdown_filter(self) -> BreakdownFilter:
         return BreakdownFilter(
             breakdown=f"events.properties.{self.breakdown_key}",
             breakdown_type="data_warehouse",
@@ -136,8 +135,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_insight_date_range()
         if self._is_data_warehouse_query(prepared_count_query):
-            column_name = self._get_data_warehouse_events_column_name(prepared_count_query)
-            prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
+            prepared_count_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
             prepared_count_query.properties = [
                 DataWarehousePropertyFilter(
                     key="events.event",
@@ -214,8 +212,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_exposure_query.dateRange = self._get_insight_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
             if self._is_data_warehouse_query(prepared_exposure_query):
-                column_name = self._get_data_warehouse_events_column_name(prepared_exposure_query)
-                prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter(column_name)
+                prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
                 prepared_exposure_query.properties = [
                     DataWarehousePropertyFilter(
                         key=f"events.properties.{self.breakdown_key}",
@@ -430,46 +427,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _get_data_warehouse_table_name(self, query: TrendsQuery) -> str | None:
         return getattr(query.series[0], "table_name", None)
-
-    def _get_data_warehouse_events_column_name(self, query: TrendsQuery) -> str | Literal[False] | None:
-        data_warehouse_events_column_name: str | Literal[False] | None = getattr(
-            self, "data_warehouse_events_column_name", None
-        )
-        if data_warehouse_events_column_name is not None:
-            return data_warehouse_events_column_name
-
-        self.data_warehouse_events_column_name = False
-
-        try:
-            if not query.series or not isinstance(query.series[0], DataWarehouseNode):
-                raise ValueError("Query series is empty or does not contain a DataWarehouseNode")
-
-            database = create_hogql_database(self.team.pk)
-            if not database:
-                raise ValueError("Failed to create HogQL database")
-
-            if not database.model_extra:
-                raise ValueError("Database model_extra is None")
-
-            table_name = self._get_data_warehouse_table_name(query)
-            if table_name not in database.model_extra:
-                raise ValueError(f"Table '{table_name}' not found in database model")
-
-            table_model = database.model_extra.get(table_name)
-            if not table_model:
-                raise ValueError(f"Table model for '{table_name}' is None")
-
-            table_fields = table_model.fields
-            for field_name, field in table_fields.items():
-                if isinstance(field, LazyJoin) and isinstance(field.join_table, EventsTable):
-                    self.data_warehouse_events_column_name = field_name
-                    break
-
-            return str(self.data_warehouse_events_column_name) if self.data_warehouse_events_column_name else False
-
-        except Exception as e:
-            # You might want to log the error here
-            raise ValueError(f"Failed to get data warehouse events column name: {str(e)}") from e
 
     @staticmethod
     def _join_events_to_data_warehouse_table(
