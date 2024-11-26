@@ -14,6 +14,7 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
     update_column_is_disabled,
 )
+from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
@@ -248,13 +249,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
         self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
 
-        try:
-            from ee.tasks.materialized_columns import mark_all_materialized
-        except ImportError:
-            pass
-        else:
-            mark_all_materialized()
-            self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        mark_all_materialized()
+        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
     def _count_materialized_rows(self, column):
         return sync_execute(
@@ -310,6 +306,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=False),
+            is_nullable=False,
         )
 
         # disable it and ensure updates apply as needed
@@ -319,6 +316,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=True),
+            is_nullable=False,
         )
 
         # re-enable it and ensure updates apply as needed
@@ -328,6 +326,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=False),
+            is_nullable=False,
         )
 
         # drop it and ensure updates apply as needed

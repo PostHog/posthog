@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 from copy import copy
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any, Literal, NamedTuple, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 from clickhouse_driver import Client
 from django.utils.timezone import now
@@ -26,8 +26,6 @@ T = TypeVar("T")
 
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
 
-TRIM_AND_EXTRACT_PROPERTY = trim_quotes_expr("JSONExtractRaw({table_column}, %(property)s)")
-
 SHORT_TABLE_COLUMN_NAME = {
     "properties": "p",
     "group_properties": "gp",
@@ -40,15 +38,36 @@ SHORT_TABLE_COLUMN_NAME = {
 }
 
 
-class MaterializedColumn(NamedTuple):
+@dataclass
+class MaterializedColumn:
     name: ColumnName
     details: MaterializedColumnDetails
+    is_nullable: bool
+
+    @property
+    def type(self) -> str:
+        if self.is_nullable:
+            return "Nullable(String)"
+        else:
+            return "String"
+
+    def get_expression_and_parameters(self) -> tuple[str, dict[str, Any]]:
+        if self.is_nullable:
+            return (
+                f"JSONExtract({self.details.table_column}, %(property_name)s, %(property_type)s)",
+                {"property_name": self.details.property_name, "property_type": self.type},
+            )
+        else:
+            return (
+                trim_quotes_expr(f"JSONExtractRaw({self.details.table_column}, %(property)s)"),
+                {"property": self.details.property_name},
+            )
 
     @staticmethod
     def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
         rows = sync_execute(
             """
-            SELECT name, comment
+            SELECT name, comment, type like 'Nullable(%%)' as is_nullable
             FROM system.columns
             WHERE database = %(database)s
                 AND table = %(table)s
@@ -58,8 +77,8 @@ class MaterializedColumn(NamedTuple):
             {"database": CLICKHOUSE_DATABASE, "table": table},
         )
 
-        for name, comment in rows:
-            yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment))
+        for name, comment, is_nullable in rows:
+            yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
 
     @staticmethod
     def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn:
@@ -169,13 +188,10 @@ class CreateColumnOnDataNodesTask:
     add_column_comment: bool
 
     def execute(self, client: Client) -> None:
+        expression, parameters = self.column.get_expression_and_parameters()
         actions = [
-            f"""
-            ADD COLUMN IF NOT EXISTS {self.column.name} VARCHAR
-                MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=self.column.details.table_column)}
-            """,
+            f"ADD COLUMN IF NOT EXISTS {self.column.name} {self.column.type} MATERIALIZED {expression}",
         ]
-        parameters = {"property": self.column.details.property_name}
 
         if self.add_column_comment:
             actions.append(f"COMMENT COLUMN {self.column.name} %(comment)s")
@@ -201,7 +217,7 @@ class CreateColumnOnQueryNodesTask:
         client.execute(
             f"""
             ALTER TABLE {self.table}
-                ADD COLUMN IF NOT EXISTS {self.column.name} VARCHAR,
+                ADD COLUMN IF NOT EXISTS {self.column.name} {self.column.type},
                 COMMENT COLUMN {self.column.name} %(comment)s
             """,
             {"comment": self.column.details.as_column_comment()},
@@ -235,6 +251,7 @@ def materialize(
             property_name=property,
             is_disabled=False,
         ),
+        is_nullable=False,  # TODO
     )
 
     table_info.map_data_nodes(
@@ -275,16 +292,12 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     cluster = get_cluster()
     table_info = tables[table]
 
+    column = MaterializedColumn.get(table, column_name)
+
     cluster.map_all_hosts(
         UpdateColumnCommentTask(
             table_info.read_table,
-            MaterializedColumn(
-                name=column_name,
-                details=replace(
-                    MaterializedColumn.get(table, column_name).details,
-                    is_disabled=is_disabled,
-                ),
-            ),
+            replace(column, details=replace(column.details, is_disabled=is_disabled)),
         ).execute
     ).result()
 
@@ -345,12 +358,13 @@ class BackfillColumnTask:
         # Note that for this to work all inserts should list columns explicitly
         # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
         for column in self.columns:
+            expression, parameters = column.get_expression_and_parameters()
             client.execute(
                 f"""
                 ALTER TABLE {self.table}
-                MODIFY COLUMN {column.name} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY.format(table_column=column.details.table_column)}
+                MODIFY COLUMN {column.name} {column.type} DEFAULT {expression}
                 """,
-                {"property": column.details.property_name},
+                parameters,
                 settings=self.test_settings,
             )
 
