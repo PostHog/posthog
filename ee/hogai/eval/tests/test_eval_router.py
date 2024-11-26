@@ -57,3 +57,8 @@ class TestEvalRouter(EvalBaseTest):
         query = "how many users upgraded their plan to personal pro?"
         res = self._call_node(query)
         self.assertEqual(res, "trends")
+
+    def test_classifies_funnel_with_single_series(self):
+        query = "What's our sign-up funnel?"
+        res = self._call_node(query)
+        self.assertEqual(res, "funnel")
