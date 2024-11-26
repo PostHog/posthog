@@ -42,7 +42,7 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                     tooltip={
                         <div className="text-center">
                             Autoplay next recording
-                            <br />({!autoplayDirection ? 'off' : autoplayDirection})
+                            <br />({autoplayDirection ? autoplayDirection : 'off'})
                         </div>
                     }
                     value={autoplayDirection}
