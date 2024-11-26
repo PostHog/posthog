@@ -1,4 +1,6 @@
+from django.core.files.uploadedfile import UploadedFile
 import structlog
+import hashlib
 
 from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
@@ -15,6 +17,9 @@ from posthog.storage import object_storage
 
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
+JS_DATA_MAGIC = b"posthog_error_tracking"
+JS_DATA_VERSION = 1
+JS_DATA_TYPE_SOURCE_AND_MAP = 2
 
 logger = structlog.get_logger(__name__)
 
@@ -81,7 +86,7 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
-class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
@@ -97,26 +102,32 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMod
 
     def update(self, request, *args, **kwargs) -> Response:
         symbol_set = self.get_object()
-        symbol_set.delete()
         # TODO: delete file from s3
-        storage_ptr = upload_symbol_set(request.FILES["source_map"], self.team_id)
+        minified = request.FILES["minified"]
+        source_map = request.FILES["sourcemap"]
+        (storage_ptr, content_hash) = upload_symbol_set(minified, source_map, self.team_id)
         symbol_set.storage_ptr = storage_ptr
+        symbol_set.content_hash = content_hash
         symbol_set.save()
+        ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
 
-def upload_symbol_set(minified, source_map, team_id) -> str:
-
-    source_map_cache = generate_source_map_cache(minified, source_map)
+def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile, team_id) -> tuple[str, str]:
+    js_data = construct_js_data_object(minified.read(), source_map.read())
+    content_hash = hashlib.sha512(js_data).hexdigest()
 
     try:
         if settings.OBJECT_STORAGE_ENABLED:
-            if source_map_cache.size > ONE_GIGABYTE:
-                raise ValidationError(code="file_too_large", detail="Source maps must be less than 50MB")
+            # TODO - maybe a gigabyte is too much?
+            if len(js_data) > ONE_GIGABYTE:
+                raise ValidationError(
+                    code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
+                )
 
             upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
-            object_storage.write(upload_path, file)
-            return upload_path
+            object_storage.write(upload_path, bytes(js_data))
+            return (upload_path, content_hash)
         else:
             raise ObjectStorageUnavailable()
     except ObjectStorageUnavailable:
@@ -126,7 +137,17 @@ def upload_symbol_set(minified, source_map, team_id) -> str:
         )
 
 
-def generate_source_map_cache(minified: bytes, source_map: bytes) -> bytes:
-    from symbolic.sourcemapcache import SourceMapCache
-    cache = SourceMapCache.from_bytes(minified, source_map)
-    cache.generate()
+def construct_js_data_object(minified: bytes, source_map: bytes) -> bytearray:
+    # See rust/cymbal/hacks/js_data.rs
+    data = bytearray()
+    data.extend(JS_DATA_MAGIC)
+    data.extend(JS_DATA_VERSION.to_bytes(4, "little"))
+    data.extend((JS_DATA_TYPE_SOURCE_AND_MAP).to_bytes(4, "little"))
+    # TODO - this doesn't seem right?
+    s_bytes = minified.decode("utf-8").encode("utf-8")
+    data.extend(len(s_bytes).to_bytes(8, "little"))
+    data.extend(s_bytes)
+    sm_bytes = source_map.decode("utf-8").encode("utf-8")
+    data.extend(len(sm_bytes).to_bytes(8, "little"))
+    data.extend(sm_bytes)
+    return data

@@ -98,6 +98,7 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
                 await api.errorTracking.updateSymbolSet(id, formData)
                 actions.setUploadSymbolSetId(null)
                 actions.loadSymbolSets()
+                actions.resetUploadSymbolSet()
                 lemonToast.success('Source map uploaded')
             },
         },

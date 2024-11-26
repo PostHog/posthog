@@ -21,7 +21,7 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                 <LemonModal.Content className="space-y-2">
                     <LemonField name="minified">
                         <LemonFileInput
-                            accept="text/plain"
+                            accept="text/*"
                             multiple={false}
                             callToAction={
                                 <div className="flex flex-col items-center justify-center space-y-2 border border-dashed rounded p-4 w-full">
@@ -37,7 +37,7 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                     </LemonField>
                     <LemonField name="sourcemap">
                         <LemonFileInput
-                            accept="text/plain"
+                            accept="text/*"
                             multiple={false}
                             callToAction={
                                 <div className="flex flex-col items-center justify-center space-y-2 border border-dashed rounded p-4 w-full">
