@@ -23,7 +23,7 @@ pub struct State {
     pub redis: Arc<dyn RedisClient + Send + Sync>,
     pub reader: Arc<dyn DatabaseClient + Send + Sync>,
     pub writer: Arc<dyn DatabaseClient + Send + Sync>,
-    pub cohort_cache: Arc<CohortCacheManager>, // TODO does this need a better name than just `cohort_cache`?
+    pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
 }
@@ -45,7 +45,7 @@ where
         redis,
         reader,
         writer,
-        cohort_cache,
+        cohort_cache_manager: cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
     };

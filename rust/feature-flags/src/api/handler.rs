@@ -121,7 +121,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .feature_flags(feature_flags_from_cache_or_pg)
         .reader(state.reader.clone())
         .writer(state.writer.clone())
-        .cohort_cache(state.cohort_cache.clone())
+        .cohort_cache(state.cohort_cache_manager.clone())
         .person_property_overrides(person_property_overrides)
         .group_property_overrides(group_property_overrides)
         .groups(groups)

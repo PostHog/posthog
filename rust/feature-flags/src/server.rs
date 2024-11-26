@@ -54,7 +54,11 @@ where
         }
     };
 
-    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        reader.clone(),
+        Some(config.cache_max_capacity),
+        Some(config.cache_ttl_seconds),
+    ));
 
     let health = HealthRegistry::new("liveness");
 
