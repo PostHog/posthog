@@ -13,6 +13,11 @@ export const outputPaneLogic = kea<outputPaneLogicType>([
         setActiveTab: (tab: OutputTab) => ({ tab }),
     }),
     reducers({
-        activeTab: [OutputTab.Results, { setActiveTab: (_, { tab }) => tab }],
+        activeTab: [
+            OutputTab.Results as OutputTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
     }),
 ])
