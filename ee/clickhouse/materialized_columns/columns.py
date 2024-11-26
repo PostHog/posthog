@@ -15,7 +15,9 @@ from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo, Future
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 from posthog.client import sync_execute
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
@@ -154,8 +156,8 @@ class ShardedTableInfo(TableInfo):
 
 
 tables: dict[str, TableInfo | ShardedTableInfo] = {
-    "person": TableInfo("person"),
-    "events": ShardedTableInfo("sharded_events", "events"),
+    PERSONS_TABLE: TableInfo(PERSONS_TABLE),
+    "events": ShardedTableInfo(EVENTS_DATA_TABLE, "events"),
 }
 
 
