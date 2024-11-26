@@ -6,7 +6,11 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         ["__STLToString"],
     ],
     "match": [
-        "function match (str, pattern) { return new RegExp(pattern).test(str) }",
+        "function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }",
+        [],
+    ],
+    "__imatch": [
+        "function __imatch (str, pattern) { return !str || !pattern ? false : new RegExp(pattern, 'i').test(str) }",
         [],
     ],
     "like": [
