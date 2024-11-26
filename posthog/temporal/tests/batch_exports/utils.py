@@ -16,7 +16,6 @@ async def mocked_start_batch_export_run(inputs: StartBatchExportRunInputs) -> st
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         status=BatchExportRun.Status.STARTING,
-        records_total_count=1,
     )
 
     return str(run.id)

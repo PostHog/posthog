@@ -16,7 +16,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             criteria="You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a funnel insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about funnel insights.",
             evaluation_steps=[
                 "A plan must define at least two series in the sequence, but it is not required to define any filters, exclusion steps, or a breakdown.",
-                "Compare events, properties, math types, and property values of 'expected output' and 'actual output'.",
+                "Compare events, properties, math types, and property values of 'expected output' and 'actual output'. Do not penalize if the actual output does not include a timeframe.",
                 "Check if the combination of events, properties, and property values in 'actual output' can answer the user's question according to the 'expected output'.",
                 # The criteria for aggregations must be more specific because there isn't a way to bypass them.
                 "Check if the math types in 'actual output' match those in 'expected output.' If the aggregation type is specified by a property, user, or group in 'expected output', the same property, user, or group must be used in 'actual output'.",
@@ -143,7 +143,7 @@ class TestEvalFunnelPlanner(EvalBaseTest):
         assert_test(test_case, [self._get_plan_correctness_metric()])
 
     def test_breakdown(self):
-        query = "Show a conversion from uploading a file to downloading it segmented by a user's email"
+        query = "Show a conversion from uploading a file to downloading it segmented by a browser"
         test_case = LLMTestCase(
             input=query,
             expected_output="""
@@ -152,8 +152,8 @@ class TestEvalFunnelPlanner(EvalBaseTest):
             2. downloaded_file
 
             Breakdown by:
-            - entity: person
-            - property name: email
+            - entity: event
+            - property name: $browser
             """,
             actual_output=self._call_node(query),
         )
@@ -173,6 +173,32 @@ class TestEvalFunnelPlanner(EvalBaseTest):
                     - property type: String
                     - operator: equals
                     - property value: personal/pro
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [self._get_plan_correctness_metric()])
+
+    def test_planner_outputs_multiple_series_from_a_single_series_question(self):
+        query = "What's our sign-up funnel?"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Sequence:
+            1. $pageview
+            2. signed_up
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [self._get_plan_correctness_metric()])
+
+    def test_funnel_does_not_include_timeframe(self):
+        query = "what was the conversion from a page view to sign up for event time before 2024-01-01?"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Sequence:
+            1. $pageview
+            2. signed_up
             """,
             actual_output=self._call_node(query),
         )

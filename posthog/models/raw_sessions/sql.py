@@ -409,10 +409,12 @@ AS
 
 RAW_SESSION_TABLE_UPDATE_SQL = (
     lambda: """
-ALTER TABLE {table_name} MODIFY QUERY
+ALTER TABLE {table_name} ON CLUSTER '{cluster}'
+MODIFY QUERY
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
+        cluster=settings.CLICKHOUSE_CLUSTER,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
 )
