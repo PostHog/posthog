@@ -430,7 +430,11 @@ STL: dict[str, STLFunction] = {
         maxArgs=None,
     ),
     "match": STLFunction(
-        fn=lambda args, team, stdout, timeout: bool(re.search(re.compile(args[1]), args[0])), minArgs=2, maxArgs=2
+        fn=lambda args, team, stdout, timeout: False
+        if args[1] is None or args[0] is None
+        else bool(re.search(re.compile(args[1]), args[0])),
+        minArgs=2,
+        maxArgs=2,
     ),
     "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
     "ilike": STLFunction(
