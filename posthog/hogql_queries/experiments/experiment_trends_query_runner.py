@@ -5,7 +5,7 @@ from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd
+from posthog.hogql.database.models import LazyJoin
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
@@ -273,15 +273,55 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 database = create_hogql_database(team_id=self.team.pk)
                 events_table = database.get_table("events")
                 if self._is_data_warehouse_query(query_runner.query):
-                    table_name = self._get_data_warehouse_table_name(query_runner.query)
-                    if not table_name:
-                        raise ValueError("Data warehouse table name not found")
-                    table = database.get_table(table_name)
+                    table = database.get_table(query_runner.query.series[0].table_name)
                     table.fields["events"] = LazyJoin(
-                        # TODO: "distinct_id" should pull from the data warehouse definition
-                        from_field=["distinct_id"],
+                        from_field=[query_runner.query.series[0].distinct_id_field],
                         join_table=events_table,
-                        join_function=self._join_events_to_data_warehouse_table,
+                        join_function=lambda join_to_add, context, node: (
+                            ast.JoinExpr(
+                                table=ast.SelectQuery(
+                                    select=[
+                                        ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain]))
+                                        for name, chain in {
+                                            **join_to_add.fields_accessed,
+                                            "timestamp": ["timestamp"],
+                                            "distinct_id": ["distinct_id"],
+                                            "properties": ["properties"],
+                                        }.items()
+                                    ],
+                                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                                ),
+                                join_type="ASOF LEFT JOIN",
+                                alias=join_to_add.to_table,
+                                constraint=ast.JoinConstraint(
+                                    expr=ast.And(
+                                        exprs=[
+                                            ast.CompareOperation(
+                                                left=ast.Field(
+                                                    chain=[
+                                                        join_to_add.from_table,
+                                                        query_runner.query.series[0].distinct_id_field,
+                                                    ]
+                                                ),
+                                                op=ast.CompareOperationOp.Eq,
+                                                right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
+                                            ),
+                                            ast.CompareOperation(
+                                                left=ast.Field(
+                                                    chain=[
+                                                        join_to_add.from_table,
+                                                        query_runner.query.series[0].timestamp_field,
+                                                    ]
+                                                ),
+                                                op=ast.CompareOperationOp.GtEq,
+                                                right=ast.Field(chain=[join_to_add.to_table, "timestamp"]),
+                                            ),
+                                        ]
+                                    ),
+                                    constraint_type="ON",
+                                ),
+                            )
+                        ),
                     )
 
                 context = HogQLContext(team_id=self.team.pk, database=database)
@@ -423,58 +463,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             raise ValidationError(detail=json.dumps(errors))
 
     def _is_data_warehouse_query(self, query: TrendsQuery) -> bool:
-        return any(isinstance(series, DataWarehouseNode) for series in query.series)
-
-    def _get_data_warehouse_table_name(self, query: TrendsQuery) -> str | None:
-        return getattr(query.series[0], "table_name", None)
-
-    @staticmethod
-    def _join_events_to_data_warehouse_table(
-        join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
-    ) -> ast.JoinExpr:
-        from posthog.hogql import ast
-
-        def select_from_events_table(requested_fields: dict[str, list[str | int]]):
-            fields_to_select = []
-            for name, chain in requested_fields.items():
-                fields_to_select.append(ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain])))
-            select = ast.SelectQuery(
-                select=fields_to_select,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            )
-            return select
-
-        join_expr = ast.JoinExpr(
-            table=select_from_events_table(
-                {
-                    **join_to_add.fields_accessed,
-                    "timestamp": ["timestamp"],
-                    "distinct_id": ["distinct_id"],
-                    "properties": ["properties"],
-                }
-            ),
-            join_type="ASOF LEFT JOIN",
-            alias=join_to_add.to_table,
-            constraint=ast.JoinConstraint(
-                expr=ast.And(
-                    exprs=[
-                        ast.CompareOperation(
-                            left=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
-                        ),
-                        ast.CompareOperation(
-                            left=ast.Field(chain=[join_to_add.from_table, "timestamp"]),
-                            op=ast.CompareOperationOp.GtEq,
-                            right=ast.Field(chain=[join_to_add.to_table, "timestamp"]),
-                        ),
-                    ]
-                ),
-                constraint_type="ON",
-            ),
-        )
-
-        return join_expr
+        return isinstance(query.series[0], DataWarehouseNode)
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")
