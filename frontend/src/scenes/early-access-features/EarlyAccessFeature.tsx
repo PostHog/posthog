@@ -62,7 +62,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
-    const isFeatureManagementUiEnabled = useFeatureFlag('FEATURE_MANAGEMENT_UI')
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -108,10 +107,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             editFeature(false)
                                             loadEarlyAccessFeature()
                                         } else {
-                                            if (isFeatureManagementUiEnabled) {
-                                                router.actions.replace(urls.featureManagement('features'))
-                                                return
-                                            }
                                             router.actions.push(urls.earlyAccessFeatures())
                                         }
                                     }}

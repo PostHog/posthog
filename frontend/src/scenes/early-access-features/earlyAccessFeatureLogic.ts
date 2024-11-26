@@ -4,8 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -39,14 +37,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            earlyAccessFeaturesLogic,
-            ['earlyAccessFeatures'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
         actions: [earlyAccessFeaturesLogic, ['loadEarlyAccessFeatures', 'loadEarlyAccessFeaturesSuccess']],
     })),
     actions({
@@ -130,19 +121,13 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     selectors({
         mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
         breadcrumbs: [
-            (s) => [s.earlyAccessFeature, s.featureFlags],
-            (earlyAccessFeature: EarlyAccessFeatureType, featureFlags): Breadcrumb[] => [
-                featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]
-                    ? {
-                          key: Scene.FeatureManagement,
-                          name: 'Feature management',
-                          path: urls.featureManagement('features'),
-                      }
-                    : {
-                          key: Scene.EarlyAccessFeatures,
-                          name: 'Early Access Management',
-                          path: urls.earlyAccessFeatures(),
-                      },
+            (s) => [s.earlyAccessFeature],
+            (earlyAccessFeature: EarlyAccessFeatureType): Breadcrumb[] => [
+                {
+                    key: Scene.EarlyAccessFeatures,
+                    name: 'Early Access Management',
+                    path: urls.earlyAccessFeatures(),
+                },
                 {
                     key: [Scene.EarlyAccessFeature, earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
