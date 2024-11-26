@@ -131,8 +131,12 @@ class TableInfo(NamedTuple):
     dist_table: str | None
 
     @property
+    def is_sharded(self) -> bool:
+        return self.dist_table is not None
+
+    @property
     def read_table(self) -> str:
-        if self.dist_table is not None:
+        if self.is_sharded:
             return self.dist_table
         else:
             return self.data_table
@@ -221,7 +225,8 @@ def materialize(
         ),
     )
 
-    cluster.map_shards(
+    map_data_nodes = cluster.map_shards if table_info.is_sharded else cluster.map_hosts
+    map_data_nodes(
         CreateColumnOnDataNodesTask(
             table_info.data_table,
             column,
@@ -258,8 +263,7 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     cluster = get_cluster()
     table_info = tables[table]
 
-    method = cluster.map_hosts if table_info.dist_table is not None else cluster.map_shards
-    method(
+    cluster.map_hosts(
         UpdateColumnCommentTask(
             table_info.dist_table if table_info.dist_table is not None else table_info.data_table,
             MaterializedColumn(
@@ -307,7 +311,8 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
             ).execute
         ).result()
 
-    cluster.map_shards(
+    map_data_nodes = cluster.map_shards if table_info.is_sharded else cluster.map_hosts
+    map_data_nodes(
         DropColumnTask(
             table_info.data_table,
             column_name,
@@ -379,9 +384,8 @@ def backfill_materialized_columns(
     }
     columns = [materialized_columns[property] for property in properties]
 
-    # TODO: this reads confusingly, should try to clarify
-    method = cluster.map_shards if table_info.dist_table is not None else cluster.map_hosts
-    method(
+    map_data_nodes = cluster.map_shards if table_info.is_sharded else cluster.map_hosts
+    map_data_nodes(
         BackfillColumnTask(
             table_info.data_table,
             columns,
