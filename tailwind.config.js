@@ -53,8 +53,8 @@ const config = {
         borderRadius: {
             none: '0',
             sm: '0.25rem', // Originally 0.125rem, but we're rounder
-            DEFAULT: '0.375rem', // Originally 0.25rem, but we're rounder - aligned with var(--radius)
-            lg: '0.625rem', // Originally 0.5rem, but we're rounder
+            DEFAULT: 'var(--radius)',
+            lg: '0.5rem',
             full: '9999px',
         },
         extend: {
