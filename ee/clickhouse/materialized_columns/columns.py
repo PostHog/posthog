@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from copy import copy
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Literal, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, cast
 
 from django.utils.timezone import now
 
@@ -265,7 +265,7 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     method = cluster.map_hosts if table_info.dist_table is not None else cluster.map_shards
     method(
         UpdateColumnCommentTask(
-            table,
+            table_info.dist_table if table_info.dist_table is not None else table_info.data_table,
             MaterializedColumn(
                 name=column_name,
                 details=replace(
@@ -320,6 +320,44 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
     ).result()
 
 
+@dataclass
+class BackfillColumnTask:
+    table: str
+    columns: list[MaterializedColumn]
+    backfill_period: timedelta | None
+    test_settings: dict[str, Any] | None
+
+    def execute(self, client):
+        # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
+        # Note that for this to work all inserts should list columns explicitly
+        # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
+        for column in self.columns:
+            client.execute(
+                f"""
+                ALTER TABLE {self.table}
+                MODIFY COLUMN {column.name} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY.format(table_column=column.details.table_column)}
+                """,
+                {"property": column.details.property_name},
+                settings=self.test_settings,
+            )
+
+        # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
+        assignments = ", ".join(f"{column.name} = {column.name}" for column in self.columns)
+
+        if self.backfill_period is not None:
+            where_clause = "timestamp > %(cutoff)s"
+            parameters = {"cutoff": (now() - self.backfill_period).strftime("%Y-%m-%d")}
+        else:
+            where_clause = "1 = 1"
+            parameters = {}
+
+        client.execute(
+            f"ALTER TABLE {self.table} UPDATE {assignments} WHERE {where_clause}",
+            parameters,
+            settings=self.test_settings,
+        )
+
+
 def backfill_materialized_columns(
     table: TableWithProperties,
     properties: list[tuple[PropertyName, TableColumn]],
@@ -335,40 +373,26 @@ def backfill_materialized_columns(
     if len(properties) == 0:
         return
 
-    updated_table = "sharded_events" if table == "events" else table
-    on_cluster = get_on_cluster_clause_for_table(table)
+    cluster = get_cluster()
+    table_info = tables[table]
 
-    materialized_columns = get_materialized_columns(table)
+    # TODO: this will eventually need to handle duplicates
+    materialized_columns = {
+        (column.details.property_name, column.details.table_column): column
+        for column in MaterializedColumn.get_all(table)
+    }
+    columns = [materialized_columns[property] for property in properties]
 
-    # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
-    # Note that for this to work all inserts should list columns explicitly
-    # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
-    for property, table_column in properties:
-        sync_execute(
-            f"""
-            ALTER TABLE {updated_table} {on_cluster}
-            MODIFY COLUMN
-            {materialized_columns[(property, table_column)]} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
-            """,
-            {"property": property},
-            settings=test_settings,
-        )
-
-    # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
-    assignments = ", ".join(
-        f"{materialized_columns[property_and_column]} = {materialized_columns[property_and_column]}"
-        for property_and_column in properties
-    )
-
-    sync_execute(
-        f"""
-        ALTER TABLE {updated_table} {on_cluster}
-        UPDATE {assignments}
-        WHERE {"timestamp > %(cutoff)s" if table == "events" else "1 = 1"}
-        """,
-        {"cutoff": (now() - backfill_period).strftime("%Y-%m-%d")},
-        settings=test_settings,
-    )
+    # TODO: this reads confusingly, should try to clarify
+    method = cluster.map_shards if table_info.dist_table is not None else cluster.map_hosts
+    method(
+        BackfillColumnTask(
+            table_info.data_table,
+            columns,
+            backfill_period if table == "events" else None,  # XXX
+            test_settings,
+        ).execute
+    ).result()
 
 
 def _materialized_column_name(
