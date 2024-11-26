@@ -1724,6 +1724,7 @@ class WebStatsBreakdown(StrEnum):
     REGION = "Region"
     CITY = "City"
     TIMEZONE = "Timezone"
+    LANGUAGE = "Language"
 
 
 class Scale(StrEnum):

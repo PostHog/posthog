@@ -1005,6 +1005,78 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results == [["/path1", 1, 1]]
 
+    def test_language_filter(self):
+        d1, s1 = "d1", str(uuid7("2024-07-30"))
+        d2, s2 = "d2", str(uuid7("2024-07-30"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={"name": d1, "email": "test@example.com"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path1", "$browser_language": "en-US"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path2", "$browser_language": "en-US"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path3", "$browser_language": "en-GB"},
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={"name": d2, "email": "d2@hedgebox.net"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path2", "$browser_language": "pt-BR"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path3", "$browser_language": "pt-BR"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path4", "$browser_language": "nl"},
+        )
+
+        flush_persons_and_events()
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.LANGUAGE,
+            filter_test_accounts=True,
+        ).results
+
+        assert results == [["en-US", 1.0, 3.0], ["pt-BR", 1.0, 2.0], ["nl-", 1.0, 1.0]]
+
     def test_timezone_filter(self):
         date = "2024-07-30"
 

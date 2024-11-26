@@ -9,6 +9,7 @@ import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
+import { languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -91,6 +92,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>City</>
         case WebStatsBreakdown.Timezone:
             return <>Timezone</>
+        case WebStatsBreakdown.Language:
+            return <>Language</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
         default:
@@ -143,6 +146,21 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return <>{toUtcOffsetFormat(value)}</>
             }
             break
+        case WebStatsBreakdown.Language:
+            if (typeof value === 'string') {
+                const [language, countryCode] = value.split('-')
+
+                // Locales are complicated, the country code might be hidden in the second part
+                // of the locale
+                const parsedCountryCode = countryCode?.match(/([A-Z]{2})/)?.[0] ?? ''
+                return (
+                    <>
+                        {countryCodeToFlag(parsedCountryCode)}&nbsp;
+                        {languageCodeToName[language] || language}
+                    </>
+                )
+            }
+            break
     }
 
     if (typeof value === 'string') {
@@ -193,6 +211,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$geoip_city_name', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Timezone:
             return { key: '$timezone', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Language:
+            return { key: '$geoip_language', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
         default:
