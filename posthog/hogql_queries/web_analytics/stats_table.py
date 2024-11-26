@@ -499,24 +499,24 @@ ORDER BY "context.columns.visitors" DESC,
                 )
             case WebStatsBreakdown.CITY:
                 return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
+            case WebStatsBreakdown.TIMEZONE:
+                # Timezone offsets would be slightly more useful, but that's not easily achievable
+                # with Clickhouse, we might attempt to change this in the future
+                return ast.Field(chain=["properties", "$timezone"])
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
     def where_breakdown(self):
         match self.query.breakdownBy:
-            case WebStatsBreakdown.REGION:
+            case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.CITY:
-                return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.INITIAL_UTM_SOURCE:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_MEDIUM:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_TERM:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_CONTENT:
+            case (
+                WebStatsBreakdown.INITIAL_UTM_SOURCE
+                | WebStatsBreakdown.INITIAL_UTM_CAMPAIGN
+                | WebStatsBreakdown.INITIAL_UTM_MEDIUM
+                | WebStatsBreakdown.INITIAL_UTM_TERM
+                | WebStatsBreakdown.INITIAL_UTM_CONTENT
+            ):
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr(

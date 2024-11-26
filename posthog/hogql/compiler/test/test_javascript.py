@@ -194,19 +194,19 @@ return fibonacci(6);"""
 
     def test_regex(self):
         code = to_js_expr("'hello' =~ 'h.*o'")
-        self.assertEqual(code, 'new RegExp("h.*o").test("hello")')
+        self.assertEqual(code, 'match("hello", "h.*o")')
 
     def test_not_regex(self):
         code = to_js_expr("'hello' !~ 'h.*o'")
-        self.assertEqual(code, '!(new RegExp("h.*o").test("hello"))')
+        self.assertEqual(code, '!match("hello", "h.*o")')
 
     def test_i_regex(self):
         code = to_js_expr("'hello' =~* 'H.*O'")
-        self.assertEqual(code, 'new RegExp("H.*O", "i").test("hello")')
+        self.assertEqual(code, '__imatch("hello", "H.*O")')
 
     def test_not_i_regex(self):
         code = to_js_expr("'hello' !~* 'H.*O'")
-        self.assertEqual(code, '!(new RegExp("H.*O", "i").test("hello"))')
+        self.assertEqual(code, '!__imatch("hello", "H.*O")')
 
     def test_array_access(self):
         code = to_js_expr("array[2]")

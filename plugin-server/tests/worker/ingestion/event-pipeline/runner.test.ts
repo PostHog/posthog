@@ -397,7 +397,7 @@ describe('EventPipelineRunner', () => {
                     'prepareEventStep',
                     'extractHeatmapDataStep',
                     'createEventStep',
-                    'emitEventStep',
+                    'produceExceptionSymbolificationEventStep',
                 ])
             })
         })
