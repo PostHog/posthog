@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
@@ -35,21 +36,35 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
             },
         ],
     }),
-    forms(({ values }) => ({
+    forms(() => ({
         theme: {
-            // defaults: {},
+            defaults: {},
             submit: async ({ id, name, colors }, breakpoint) => {
                 const payload: DataColorThemeModel = {
                     name,
                     colors,
                 }
 
-                const updatedTheme = id
-                    ? await api.dataColorThemes.update(id, payload)
-                    : await api.dataColorThemes.create(payload)
-
                 breakpoint()
+
+                try {
+                    const updatedTheme = id
+                        ? await api.dataColorThemes.update(id, payload)
+                        : await api.dataColorThemes.create(payload)
+
+                    return updatedTheme
+                } catch (error: any) {
+                    if (error.data?.attr && error.data?.detail) {
+                        const field = error.data?.attr?.replace(/_/g, ' ')
+                        lemonToast.error(`Error saving data color theme: ${field}: ${error.data.detail}`)
+                    } else {
+                        lemonToast.error(`Error saving data color theme`)
+                    }
+                }
             },
+            errors: ({ name }) => ({
+                name: !name ? 'This field is required' : undefined,
+            }),
         },
     })),
 ])
