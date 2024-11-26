@@ -1,4 +1,5 @@
 from django.test import override_settings
+from posthog.hogql.errors import QueryError
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -554,6 +555,48 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.count, 3)
         self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 9)
+
+    def test_query_runner_with_invalid_data_warehouse_table_name(self):
+        table_name = "invalid_table_name"
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2023, 1, 1),
+            end_date=datetime(2023, 1, 10),
+        )
+
+        count_query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    distinct_id_field="distinct_id",
+                    id_field="distinct_id",
+                    table_name=table_name,
+                    timestamp_field="timestamp",
+                )
+            ]
+        )
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        with freeze_time("2023-01-07"):
+            with self.assertRaises(QueryError) as context:
+                query_runner.calculate()
+
+        self.assertEqual(str(context.exception), 'Unknown table "invalid_table_name".')
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_avg_math(self):
