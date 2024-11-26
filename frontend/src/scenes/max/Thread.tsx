@@ -228,7 +228,7 @@ function VisualizationAnswer({
         : query && (
               <>
                   <MessageTemplate type="ai" className="w-full" boxClassName="w-full">
-                      <div className="min-h-96 flex">
+                      <div className="min-h-80 flex">
                           <Query query={query} readOnly embedded />
                       </div>
                       <div className="relative mb-1">
