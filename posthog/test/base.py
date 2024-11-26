@@ -576,19 +576,20 @@ def cleanup_materialized_columns():
     def optionally_drop(table, filter=None):
         drops = ",".join(
             [
-                f"DROP COLUMN {column_name}"
-                for column_name in get_materialized_columns(table).values()
-                if filter is None or filter(column_name)
+                f"DROP COLUMN {column.name}"
+                for column in get_materialized_columns(table).values()
+                if filter is None or filter(column.name)
             ]
         )
         if drops:
             sync_execute(f"ALTER TABLE {table} {drops} SETTINGS mutations_sync = 2")
 
-    default_columns = [
-        get_materialized_columns("events")[(prop, "properties")] for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
-    ]
+    default_column_names = {
+        get_materialized_columns("events")[(prop, "properties")].name
+        for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+    }
 
-    optionally_drop("events", lambda name: name not in default_columns)
+    optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
 

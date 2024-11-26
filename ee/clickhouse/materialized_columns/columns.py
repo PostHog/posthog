@@ -131,9 +131,9 @@ class MaterializedColumnDetails:
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
     exclude_disabled_columns: bool = False,
-) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
     return {
-        (column.details.property_name, column.details.table_column): column.name
+        (column.details.property_name, column.details.table_column): column
         for column in MaterializedColumn.get_all(table)
         if not (exclude_disabled_columns and column.details.is_disabled)
     }
@@ -438,10 +438,10 @@ def _materialized_column_name(
         prefix += f"{SHORT_TABLE_COLUMN_NAME[table_column]}_"
     property_str = re.sub("[^0-9a-zA-Z$]", "_", property)
 
-    existing_materialized_columns = set(get_materialized_columns(table).values())
+    existing_materialized_column_names = {column.name for column in get_materialized_columns(table).values()}
     suffix = ""
 
-    while f"{prefix}{property_str}{suffix}" in existing_materialized_columns:
+    while f"{prefix}{property_str}{suffix}" in existing_materialized_column_names:
         suffix = "_" + generate_random_short_suffix()
 
     return f"{prefix}{property_str}{suffix}"

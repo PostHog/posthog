@@ -144,11 +144,11 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_YYYY",
                 ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_ZZZZ",
             },
-            get_materialized_columns("events"),
+            {k: column.name for k, column in get_materialized_columns("events").items()},
         )
 
         self.assertEqual(
-            get_materialized_columns("person"),
+            {k: column.name for k, column in get_materialized_columns("person").items()},
             {("SoMePrOp", "properties"): "pmat_SoMePrOp"},
         )
 
@@ -303,7 +303,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         # ensure it exists everywhere
         key = (property, source_column)
-        assert get_materialized_columns(table)[key] == destination_column
+        assert get_materialized_columns(table)[key].name == destination_column
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=False),
@@ -312,7 +312,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         # disable it and ensure updates apply as needed
         update_column_is_disabled(table, destination_column, is_disabled=True)
-        assert get_materialized_columns(table)[key] == destination_column
+        assert get_materialized_columns(table)[key].name == destination_column
         assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
@@ -322,8 +322,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         # re-enable it and ensure updates apply as needed
         update_column_is_disabled(table, destination_column, is_disabled=False)
-        assert get_materialized_columns(table, exclude_disabled_columns=False)[key] == destination_column
-        assert get_materialized_columns(table, exclude_disabled_columns=True)[key] == destination_column
+        assert get_materialized_columns(table, exclude_disabled_columns=False)[key].name == destination_column
+        assert get_materialized_columns(table, exclude_disabled_columns=True)[key].name == destination_column
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=False),
