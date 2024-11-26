@@ -9,11 +9,15 @@ from django.conf import settings
 from posthog.clickhouse.client.connection import make_ch_pool
 
 
-class HostInfo(NamedTuple):
-    shard_num: int
-    replica_num: int
-    host_address: str
+class ConnectionInfo(NamedTuple):
+    address: str
     port: int
+
+
+class HostInfo(NamedTuple):
+    connection_info: ConnectionInfo
+    shard_num: int | None
+    replica_num: int | None
 
 
 T = TypeVar("T")
@@ -22,10 +26,10 @@ T = TypeVar("T")
 class ClickhouseCluster:
     def __init__(self, bootstrap_client: Client) -> None:
         self.hosts = [
-            HostInfo(shard_num, replica_num, host_address, port)
-            for (shard_num, replica_num, host_address, port) in bootstrap_client.execute(
+            HostInfo(ConnectionInfo(host_address, port), shard_num, replica_num)
+            for (host_address, port, shard_num, replica_num) in bootstrap_client.execute(
                 """
-                SELECT shard_num, replica_num, host_address, port
+                SELECT host_address, port, shard_num, replica_num
                 FROM system.clusters
                 WHERE name = %(name)s
                 ORDER BY shard_num, replica_num
@@ -38,7 +42,7 @@ class ClickhouseCluster:
     def __get_pool(self, host: HostInfo) -> ChPool:
         pool = self.__pools.get(host)
         if pool is None:
-            pool = self.__pools[host] = make_ch_pool(host=host.host_address, port=host.port)
+            pool = self.__pools[host] = make_ch_pool(host=host.connection_info.address, port=host.connection_info.port)
         return pool
 
     def map_hosts(self, fn: Callable[[Client], T]) -> Mapping[HostInfo, Future[T]]:
