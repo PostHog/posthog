@@ -156,7 +156,6 @@ class ShardedTableInfo(TableInfo):
 tables: dict[str, TableInfo | ShardedTableInfo] = {
     "person": TableInfo("person"),
     "events": ShardedTableInfo("sharded_events", "events"),
-    # TODO ...
 }
 
 
