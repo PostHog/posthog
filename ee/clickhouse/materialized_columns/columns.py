@@ -238,18 +238,40 @@ def materialize(
     return column.name
 
 
+@dataclass
+class UpdateColumnCommentTask:
+    table: str
+    column: MaterializedColumn
+
+    def execute(self, client):
+        client.execute(
+            f"ALTER TABLE {self.table} COMMENT COLUMN {self.column.name} %(comment)s",
+            {"comment": self.column.details.as_column_comment()},
+            settings={"alter_sync": 2 if TEST else 1},
+        )
+
+
 def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name: str, is_disabled: bool) -> None:
-    details = replace(
-        MaterializedColumn.get(table, column_name).details,
-        is_disabled=is_disabled,
+    cluster = get_cluster()
+    table_info = tables[table]
+
+    task = UpdateColumnCommentTask(
+        table,
+        MaterializedColumn(
+            name=column_name,
+            details=replace(
+                MaterializedColumn.get(table, column_name).details,
+                is_disabled=is_disabled,
+            ),
+        ),
     )
 
-    on_cluster = get_on_cluster_clause_for_table(table)
-    sync_execute(
-        f"ALTER TABLE {table} {on_cluster} COMMENT COLUMN {column_name} %(comment)s",
-        {"comment": details.as_column_comment()},
-        settings={"alter_sync": 2 if TEST else 1},
-    )
+    method = cluster.map_hosts if table_info.dist_table is not None else cluster.map_shards
+    for host, future in method(task.execute).as_completed():
+        try:
+            future.result()
+        except Exception as e:
+            raise Exception(f"Failed to run {task!r} on {host!r}") from e
 
 
 @dataclass
