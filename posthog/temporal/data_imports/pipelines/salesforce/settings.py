@@ -12,6 +12,7 @@ INCREMENTAL_ENDPOINTS = (
     "Pricebook2",
     "PricebookEntry",
     "Order",
+    "Opportunity",
 )
 
 ENDPOINTS = [
