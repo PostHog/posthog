@@ -33,6 +33,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelConversionWindowTimeUnit, StickinessQuery, StickinessFilter, StickinessCriteria, StickinessActorsQuery,
+    PersonPropertyFilter, PropertyOperator,
 )
 from posthog.queries.cohort_query import CohortQuery
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -346,39 +347,15 @@ class HogQLCohortQuery:
             dateRange=InsightDateRange(date_from=date_from),
             stickinessFilter=StickinessFilter(stickinessCriteria=StickinessCriteria(operator=prop.operator, value=prop.operator_value)),
         )
-        # this might be off by one for min_periods
         return self._actors_query_from_source(StickinessActorsQuery(source=stickiness_query, day=prop.min_periods - 1, operator=prop.operator))
 
-        series = self._get_series(prop)
-        first_time_series = self._get_series(prop, math=BaseMathType.FIRST_TIME_FOR_USER)
-
-        select_for_first_range = self._actors_query_from_source(TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
-            trendsFilter=TrendsFilter(display="ActionsBarValue"),
-            series=series,
-        ))
-
-        # want people in here who were not "for the first time" who were not in the prior one
-        select_for_second_range = self._actors_query_from_source(TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_to),
-            trendsFilter=TrendsFilter(display="ActionsBarValue"),
-            series=series,
-        ))
-
-        select_for_second_range_first_time = self._actors_query_from_source(TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_to),
-            trendsFilter=TrendsFilter(display="ActionsBarValue"),
-            series=first_time_series,
-        ))
-
-        # People who did the event in the recent window, who had done it previously, who did not do it in the previous window
-        return ast.SelectSetQuery(
-            initial_select_query=select_for_second_range,
-            subsequent_select_queries=[
-                SelectSetNode(set_operator="EXCEPT", select_query=select_for_second_range_first_time),
-                SelectSetNode(set_operator="EXCEPT", select_query=select_for_first_range)
-            ],
-        )
+    def get_person_condition(self, prop: Property) -> ast.SelectQuery:
+        # key = $sample_field
+        # type = "person"
+        # value = test@posthog.com
+        actors_query = ActorsQuery(properties=[PersonPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT)], select=["id"])
+        query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
+        return query_runner.to_query()
 
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         res: str = ""
@@ -403,7 +380,7 @@ class HogQLCohortQuery:
             elif prop.value == "performed_event_regularly":
                 return self.get_performed_event_regularly(prop)
         elif prop.type == "person":
-            res, params = self.get_person_condition(prop, prepend, idx)
+            return self.get_person_condition(prop)
         elif (
             prop.type == "static-cohort"
         ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
