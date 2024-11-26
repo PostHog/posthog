@@ -23,7 +23,7 @@ class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         node = TrendsGeneratorNode(self.team)
         with patch.object(TrendsGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
-                lambda _: TrendsSchemaGeneratorOutput(reasoning_steps=["step"], answer=self.schema).model_dump()
+                lambda _: TrendsSchemaGeneratorOutput(query=self.schema).model_dump()
             )
             new_state = node.run(
                 {
@@ -35,9 +35,7 @@ class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 new_state,
                 {
-                    "messages": [
-                        VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"], done=True)
-                    ],
+                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", done=True)],
                     "intermediate_steps": None,
                 },
             )
