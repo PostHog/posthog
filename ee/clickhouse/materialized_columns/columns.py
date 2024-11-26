@@ -275,30 +275,20 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
 
 
 @dataclass
-class DropColumnOnDataNodesTask:
+class DropColumnTask:
     table: str
     column_name: str
+    try_drop_index: bool
 
     def execute(self, client):
         # XXX: copy/pasted from create task
-        index_name = f"minmax_{self.column_name}"
-        client.execute(
-            f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
-            settings={"alter_sync": 2 if TEST else 1},
-        )
+        if self.try_drop_index:
+            index_name = f"minmax_{self.column_name}"
+            client.execute(
+                f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
+                settings={"alter_sync": 2 if TEST else 1},
+            )
 
-        client.execute(
-            f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
-            settings={"alter_sync": 2 if TEST else 1},
-        )
-
-
-@dataclass
-class DropColumnOnQueryNodesTask:
-    table: str
-    column_name: str
-
-    def execute(self, client):
         client.execute(
             f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
             settings={"alter_sync": 2 if TEST else 1},
@@ -310,14 +300,18 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
     table_info = tables[table]
 
     if table_info.dist_table is not None:
-        drop_on_query_nodes = DropColumnOnQueryNodesTask(table_info.dist_table, column_name)
+        drop_on_query_nodes = DropColumnTask(
+            table_info.dist_table,
+            column_name,
+            try_drop_index=False,  # no indexes on distributed tables
+        )
         for host, future in cluster.map_hosts(drop_on_query_nodes.execute).as_completed():
             try:
                 future.result()
             except Exception as e:
                 raise Exception(f"Failed to run {drop_on_query_nodes!r} on {host!r}") from e
 
-    drop_on_data_nodes = DropColumnOnDataNodesTask(table_info.data_table, column_name)
+    drop_on_data_nodes = DropColumnTask(table_info.data_table, column_name, try_drop_index=True)
     for host, future in cluster.map_shards(drop_on_data_nodes.execute).as_completed():
         try:
             future.result()
