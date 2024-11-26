@@ -59,7 +59,7 @@ class OrganizationInviteManager:
     def _get_invites_for_user_org(
         organization_id: UUID | str, target_email: str, include_expired: bool = False
     ) -> QuerySet:
-        filters = {
+        filters: dict[str, Any] = {
             "organization_id": organization_id,
             "target_email": target_email,
         }
