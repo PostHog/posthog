@@ -524,11 +524,19 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     timestamp=datetime(2023, 1, i + 1),
                 )
 
-        # "user_test_3" exposure (feature_flag_property="test") is on 2023-01-04
+        # "user_test_3" first exposure (feature_flag_property="control") is on 2023-01-03
+        # "user_test_3" relevant exposure (feature_flag_property="test") is on 2023-01-04
         # "user_test_3" other event (feature_flag_property="control" is on 2023-01-05
         # "user_test_3" purchase is on 2023-01-06
         # "user_test_3" second exposure (feature_flag_property="control") is on 2023-01-09
         # "user_test_3" should fall into the "test" variant, not the "control" variant
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test_3",
+            properties={feature_flag_property: "control"},
+            timestamp=datetime(2023, 1, 3),
+        )
         _create_event(
             team=self.team,
             event="Some other event",
@@ -561,7 +569,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.count, 1)
         self.assertEqual(test_result.count, 3)
-        self.assertEqual(control_result.absolute_exposure, 8)
+        self.assertEqual(control_result.absolute_exposure, 9)
         self.assertEqual(test_result.absolute_exposure, 9)
 
     def test_query_runner_with_invalid_data_warehouse_table_name(self):
