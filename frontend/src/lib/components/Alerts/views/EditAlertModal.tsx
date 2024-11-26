@@ -94,7 +94,7 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid } = useValues(trendsLogic)
+    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid, formula } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
 
@@ -163,13 +163,17 @@ export function EditAlertModal({
                                                     options={alertSeries?.map(({ event }, index) => ({
                                                         label: isBreakdownValid
                                                             ? 'any breakdown value'
+                                                            : formula
+                                                            ? `Formula (${formula})`
                                                             : `${alphabet[index]} - ${event}`,
-                                                        value: index,
+                                                        value: isBreakdownValid || formula ? 0 : index,
                                                     }))}
                                                     disabledReason={
-                                                        isBreakdownValid &&
-                                                        `For trends with breakdown, the alert will fire if any of the breakdown
-                                            values breaches the threshold.`
+                                                        (isBreakdownValid &&
+                                                            `For trends with breakdown, the alert will fire if any of the breakdown
+                                            values breaches the threshold.`) ||
+                                                        (formula &&
+                                                            `When using formula mode, can only alert on formula value`)
                                                     }
                                                 />
                                             </LemonField>
