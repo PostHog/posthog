@@ -110,7 +110,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
         return holdout
 
-    def create_parquet_file(self):
+    def create_data_warehouse_table_with_payments(self):
         if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
             raise Exception("Missing vars")
 
@@ -479,7 +479,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(holdout_result.absolute_exposure, 4)
 
     def test_query_runner_with_data_warehouse_series(self):
-        table_name = self.create_parquet_file()
+        table_name = self.create_data_warehouse_table_with_payments()
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
