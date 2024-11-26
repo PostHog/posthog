@@ -6,8 +6,7 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -259,23 +258,15 @@ export const WebTabs = ({
                     )}
                 </h2>
 
-                {tabs.length > 4 ? (
-                    <LemonSelect
-                        size="small"
-                        disabled={false}
-                        value={activeTabId}
-                        dropdownMatchSelectWidth={false}
-                        onChange={setActiveTabId}
-                        options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
-                    />
-                ) : (
-                    <LemonSegmentedButton
-                        size="small"
-                        options={tabs.map(({ id, linkText }) => ({ label: linkText, value: id }))}
-                        onChange={(value) => setActiveTabId(value)}
-                        value={activeTabId}
-                    />
-                )}
+                <LemonSegmentedSelect
+                    shrinkOn={7}
+                    size="small"
+                    disabled={false}
+                    value={activeTabId}
+                    dropdownMatchSelectWidth={false}
+                    onChange={setActiveTabId}
+                    options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
+                />
             </div>
             <div className="flex-1 flex flex-col">{activeTab?.content}</div>
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
