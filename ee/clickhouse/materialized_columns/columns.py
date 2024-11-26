@@ -147,9 +147,9 @@ class TableInfo(NamedTuple):
 
     def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[K, T]:
         if self.is_sharded:
-            return cluster.map_shards(fn)
+            return cluster.map_one_host_per_shard(fn)
         else:
-            return cluster.map_hosts(fn)
+            return cluster.map_all_hosts(fn)
 
 
 tables = {
@@ -246,7 +246,7 @@ def materialize(
     ).result()
 
     if table_info.dist_table is not None:
-        cluster.map_hosts(
+        cluster.map_all_hosts(
             CreateColumnOnQueryNodesTask(
                 table_info.dist_table,
                 column,
@@ -273,7 +273,7 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     cluster = get_cluster()
     table_info = tables[table]
 
-    cluster.map_hosts(
+    cluster.map_all_hosts(
         UpdateColumnCommentTask(
             table_info.dist_table if table_info.dist_table is not None else table_info.data_table,
             MaterializedColumn(
@@ -313,7 +313,7 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
     table_info = tables[table]
 
     if table_info.dist_table is not None:
-        cluster.map_hosts(
+        cluster.map_all_hosts(
             DropColumnTask(
                 table_info.dist_table,
                 column_name,

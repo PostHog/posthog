@@ -99,14 +99,14 @@ class ClickhouseCluster:
 
         return task
 
-    def map_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+    def map_all_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster.
         """
         with ThreadPoolExecutor() as executor:
             return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in self.__hosts})
 
-    def map_shards(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+    def map_one_host_per_shard(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each shard in the cluster.
         """
