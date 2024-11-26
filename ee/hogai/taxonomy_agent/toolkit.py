@@ -259,11 +259,17 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._generate_properties_xml(props)
 
+    def _normalize_event_name(self, event_name: str) -> str:
+        # It's safe to replace "All Events" with "$pageview".
+        if event_name.lower() == "all events":
+            return "$pageview"
+        return event_name
+
     def retrieve_event_properties(self, event_name: str) -> str:
         """
         Retrieve properties for an event.
         """
-        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
+        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=self._normalize_event_name(event_name)), self._team)
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
@@ -325,7 +331,7 @@ class TaxonomyAgentToolkit(ABC):
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
 
-        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
+        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=self._normalize_event_name(event_name)), self._team)
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
