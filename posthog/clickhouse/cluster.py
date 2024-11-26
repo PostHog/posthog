@@ -88,37 +88,34 @@ class ClickhouseCluster:
             )
         self.__pools: dict[HostInfo, ChPool] = {}
 
-    def __get_pool(self, host: HostInfo) -> ChPool:
+    def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[Client], T]:
         pool = self.__pools.get(host)
         if pool is None:
             pool = self.__pools[host] = make_ch_pool(host=host.connection_info.address, port=host.connection_info.port)
-        return pool
+
+        def task():
+            with pool.get_client() as client:
+                return fn(client)
+
+        return task
 
     def map_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster.
         """
-
-        def task(pool):
-            with pool.get_client() as client:
-                return fn(client)
-
         with ThreadPoolExecutor() as executor:
-            return FuturesMap({host: executor.submit(task, self.__get_pool(host)) for host in self.__hosts})
+            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in self.__hosts})
 
     def map_shards(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each shard in the cluster.
         """
-
-        def task(pool):
-            with pool.get_client() as client:
-                return fn(client)
-
         shard_hosts: dict[int, HostInfo] = {}
         for host in self.__hosts:
             if host.shard_num is not None and host.shard_num not in shard_hosts:
                 shard_hosts[host.shard_num] = host
 
         with ThreadPoolExecutor() as executor:
-            return FuturesMap({host: executor.submit(task, self.__get_pool(host)) for host in shard_hosts.values()})
+            return FuturesMap(
+                {host: executor.submit(self.__get_task_function(host, fn)) for host in shard_hosts.values()}
+            )
