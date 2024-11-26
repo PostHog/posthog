@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from copy import copy
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any, Literal, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, TypeVar, cast
 
+from clickhouse_driver import Client
 from django.utils.timezone import now
 
 from posthog.clickhouse.client.connection import default_client
-from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo
+from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo, FuturesMap
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 from posthog.client import sync_execute
@@ -18,6 +19,9 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
+
+T = TypeVar("T")
+K = TypeVar("K")
 
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
 
@@ -141,6 +145,12 @@ class TableInfo(NamedTuple):
         else:
             return self.data_table
 
+    def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[K, T]:
+        if self.is_sharded:
+            return cluster.map_shards(fn)
+        else:
+            return cluster.map_hosts(fn)
+
 
 tables = {
     "events": TableInfo("sharded_events", "events"),
@@ -225,14 +235,14 @@ def materialize(
         ),
     )
 
-    map_data_nodes = cluster.map_shards if table_info.is_sharded else cluster.map_hosts
-    map_data_nodes(
+    table_info.map_data_nodes(
+        cluster,
         CreateColumnOnDataNodesTask(
             table_info.data_table,
             column,
             create_minmax_index,
             add_column_comment=table_info.read_table == table_info.data_table,
-        ).execute
+        ).execute,
     ).result()
 
     if table_info.dist_table is not None:
@@ -311,13 +321,13 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
             ).execute
         ).result()
 
-    map_data_nodes = cluster.map_shards if table_info.is_sharded else cluster.map_hosts
-    map_data_nodes(
+    table_info.map_data_nodes(
+        cluster,
         DropColumnTask(
             table_info.data_table,
             column_name,
             try_drop_index=True,
-        ).execute
+        ).execute,
     ).result()
 
 
@@ -384,14 +394,14 @@ def backfill_materialized_columns(
     }
     columns = [materialized_columns[property] for property in properties]
 
-    map_data_nodes = cluster.map_shards if table_info.is_sharded else cluster.map_hosts
-    map_data_nodes(
+    table_info.map_data_nodes(
+        cluster,
         BackfillColumnTask(
             table_info.data_table,
             columns,
             backfill_period if table == "events" else None,  # XXX
             test_settings,
-        ).execute
+        ).execute,
     ).result()
 
 
