@@ -36,7 +36,7 @@ from posthog.schema import (
     CompareFilter,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin
 
 
 @dataclass
@@ -72,7 +72,7 @@ StickinessProperties = Union[
 ]
 
 
-class TestStickinessQueryRunner(APIBaseTest):
+class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-11"
     default_date_to = "2020-01-20"
 
