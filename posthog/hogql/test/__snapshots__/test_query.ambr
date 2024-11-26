@@ -895,25 +895,25 @@
   '''
   -- ClickHouse
   
-  SELECT count AS count, event AS event 
+  SELECT cnt AS cnt, event AS event 
   FROM (
-  SELECT count() AS count, events.event AS event 
+  SELECT count() AS cnt, events.event AS event 
   FROM events 
   WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
   GROUP BY events.event) 
-  GROUP BY count, event 
+  GROUP BY cnt, event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
   -- HogQL
   
-  SELECT count, event 
+  SELECT cnt, event 
   FROM (
-  SELECT count() AS count, event 
+  SELECT count() AS cnt, event 
   FROM events 
   WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
   GROUP BY event) 
-  GROUP BY count, event 
+  GROUP BY cnt, event 
   LIMIT 100
   '''
 # ---
@@ -921,25 +921,25 @@
   '''
   -- ClickHouse
   
-  SELECT c.count AS count, c.event AS event 
+  SELECT c.cnt AS cnt, c.event AS event 
   FROM (
-  SELECT count(*) AS count, events.event AS event 
+  SELECT count(*) AS cnt, events.event AS event 
   FROM events 
   WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
   GROUP BY events.event) AS c 
-  GROUP BY c.count, c.event 
+  GROUP BY c.cnt, c.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
   -- HogQL
   
-  SELECT count, event 
+  SELECT cnt, event 
   FROM (
-  SELECT count(*) AS count, event 
+  SELECT count(*) AS cnt, event 
   FROM events 
   WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
   GROUP BY event) AS c 
-  GROUP BY count, event 
+  GROUP BY cnt, event 
   LIMIT 100
   '''
 # ---

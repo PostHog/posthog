@@ -152,11 +152,12 @@ class PersonQuery:
             WHERE team_id = %(team_id)s
             {prefiltering_lookup}
             {multiple_cohorts_condition}
+            {email_condition}
             GROUP BY id
             HAVING max(is_deleted) = 0
             {filter_future_persons_condition} {updated_after_condition}
             {person_filters_finalization_condition} {search_finalization_condition}
-            {distinct_id_condition} {email_condition}
+            {distinct_id_condition}
             {order}
             {limit_offset}
             SETTINGS optimize_aggregation_in_order = 1

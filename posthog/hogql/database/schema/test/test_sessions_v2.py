@@ -705,9 +705,9 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_custom_channel_types(self):
         self.team.modifiers = {
             "customChannelTypeRules": [
-                {"conditions": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type"},
-                {"conditions": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Paid Social"},
-                {"conditions": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type"},
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type", "id": "1"},
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Paid Social", "id": "2"},
+                {"items": [], "combiner": FilterLogicalOperator.AND_, "channel_type": "Test Channel Type", "id": "3"},
             ]
         }
         self.team.save()
