@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from typing import NamedTuple, TypeVar
 
 from clickhouse_driver import Client
@@ -16,6 +16,13 @@ V = TypeVar("V")
 
 
 class FuturesMap(dict[K, Future[V]]):
+    def as_completed(self, *args, **kwargs) -> Iterator[tuple[K, Future[V]]]:
+        reverse_map = {v: k for k, v in self.items()}
+        assert len(reverse_map) == len(self)
+
+        for f in as_completed(self.values()):
+            yield reverse_map[f], f
+
     def wait(self, *args, **kwargs) -> tuple[FuturesMap[K, V], FuturesMap[K, V]]:
         reverse_map = {v: k for k, v in self.items()}
         assert len(reverse_map) == len(self)
@@ -43,7 +50,7 @@ T = TypeVar("T")
 
 class ClickhouseCluster:
     def __init__(self, bootstrap_client: Client, extra_hosts: Sequence[ConnectionInfo] | None = None) -> None:
-        self.hosts = [
+        self.__hosts = [
             HostInfo(ConnectionInfo(host_address, port), shard_num, replica_num)
             for (host_address, port, shard_num, replica_num) in bootstrap_client.execute(
                 """
@@ -56,7 +63,7 @@ class ClickhouseCluster:
             )
         ]
         if extra_hosts is not None:
-            self.hosts.extend(
+            self.__hosts.extend(
                 [HostInfo(connection_info, shard_num=None, replica_num=None) for connection_info in extra_hosts]
             )
         self.__pools: dict[HostInfo, ChPool] = {}
@@ -68,20 +75,28 @@ class ClickhouseCluster:
         return pool
 
     def map_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the cluster.
+        """
+
         def task(pool):
             with pool.get_client() as client:
                 return fn(client)
 
         with ThreadPoolExecutor() as executor:
-            return FuturesMap({host: executor.submit(task, self.__get_pool(host)) for host in self.hosts})
+            return FuturesMap({host: executor.submit(task, self.__get_pool(host)) for host in self.__hosts})
 
     def map_shards(self, fn: Callable[[Client], T]) -> FuturesMap[int, T]:
+        """
+        Execute the callable once for each shard in the cluster.
+        """
+
         def task(pool):
             with pool.get_client() as client:
                 return fn(client)
 
         shard_hosts: dict[int, HostInfo] = {}
-        for host in self.hosts:
+        for host in self.__hosts:
             if host.shard_num is not None and host.shard_num not in shard_hosts:
                 shard_hosts[host.shard_num] = host
 
