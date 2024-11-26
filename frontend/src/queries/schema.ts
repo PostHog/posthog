@@ -2508,6 +2508,7 @@ export interface AssistantMessage {
 export interface ReasoningMessage {
     type: AssistantMessageType.Reasoning
     content: string
+    substeps?: string[]
     done: true
 }
 
