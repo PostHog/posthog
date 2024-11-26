@@ -112,6 +112,13 @@ def get_s3_key(inputs) -> str:
     return key
 
 
+class InvalidS3Key(Exception):
+    """Exception raised when an invalid S3 key is provided."""
+
+    def __init__(self, err):
+        super().__init__(f"An invalid S3 key was provided: {err}")
+
+
 class UploadAlreadyInProgressError(Exception):
     """Exception raised when an S3MultiPartUpload is already in progress."""
 
@@ -469,7 +476,11 @@ async def initialize_and_resume_multipart_upload(
 ) -> tuple[S3MultiPartUpload, S3HeartbeatDetails]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
-    key = get_s3_key(inputs)
+
+    try:
+        key = get_s3_key(inputs)
+    except Exception as e:
+        raise InvalidS3Key(e) from e
 
     s3_upload = S3MultiPartUpload(
         bucket_name=inputs.bucket_name,
@@ -772,6 +783,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "EndpointConnectionError",
                 # Input contained an empty S3 endpoint URL
                 "EmptyS3EndpointURLError",
+                # User provided an invalid S3 key
+                "InvalidS3Key",
             ],
             finish_inputs=finish_inputs,
         )
