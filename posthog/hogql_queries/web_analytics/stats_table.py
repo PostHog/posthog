@@ -142,7 +142,7 @@ ORDER BY "context.columns.visitors" DESC,
         assert isinstance(query, ast.SelectQuery)
 
         if self.query.breakdownBy == WebStatsBreakdown.LANGUAGE:
-            query.select.push(self._extra_aggregation_value())
+            query.select.append(self._extra_aggregation_value())
 
         return query
 
@@ -462,7 +462,11 @@ ORDER BY "context.columns.visitors" DESC,
             results_mapped = [[column for idx, column in enumerate(row) if idx < 3] for row in results_mapped]
 
             # Remove this before returning it to the frontend
-            columns = [column for column in response.columns if column != "context.columns.aggregation_value"]
+            columns = (
+                [column for column in response.columns if column != "context.columns.aggregation_value"]
+                if response.columns is not None
+                else response.columns
+            )
 
         return WebStatsTableQueryResponse(
             columns=columns,
