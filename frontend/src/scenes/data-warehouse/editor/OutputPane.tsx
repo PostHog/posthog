@@ -11,6 +11,8 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useCallback, useMemo } from 'react'
 import DataGrid from 'react-data-grid'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
@@ -36,6 +38,7 @@ import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { DataVisualizationNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema'
 import { ChartDisplayType, ExporterFormat, ItemMode } from '~/types'
 
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
@@ -78,6 +81,19 @@ export function OutputPane({
     )
     const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+
+    const { insightProps } = useValues(
+        insightLogic({
+            dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+            cachedInsight: null,
+            doNotLoad: true,
+        })
+    )
+    const { setQuery } = useActions(
+        insightDataLogic({
+            ...insightProps,
+        })
+    )
 
     const columns = useMemo(() => {
         return (
@@ -135,7 +151,7 @@ export function OutputPane({
                                 query,
                             },
                         }}
-                        setQuery={() => {}}
+                        setQuery={setQuery}
                     />
                 </div>
             )
@@ -161,7 +177,7 @@ export function OutputPane({
                         },
                     ]}
                 />
-                <div className="flex gap-1">
+                <div className="flex gap-4">
                     {editingView ? (
                         <>
                             <LemonButton
@@ -182,7 +198,7 @@ export function OutputPane({
                         </>
                     ) : (
                         <LemonButton type="secondary" onClick={() => onSave()} disabledReason={saveDisabledReason}>
-                            Save
+                            Save query
                         </LemonButton>
                     )}
                     <LemonButton loading={responseLoading} type="primary" onClick={() => onQueryInputChange()}>
@@ -251,6 +267,12 @@ function DataTableVisualizationContent({
 }
 
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
+    const logic = insightLogic({
+        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+        cachedInsight: null,
+    })
+    const { saveAs } = useActions(logic)
+
     const {
         query,
         visualizationType,
@@ -303,9 +325,39 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     return (
         <div className="h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
+                <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
+                    {isChartSettingsPanelOpen && (
+                        <div>
+                            <SideBar />
+                        </div>
+                    )}
+                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>
+                        {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
+                            <div
+                                className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+                                    border: showEditingUI,
+                                })}
+                            >
+                                <InsightErrorState
+                                    query={props.query}
+                                    excludeDetail
+                                    title={
+                                        queryCancelled
+                                            ? 'The query was cancelled'
+                                            : response && 'error' in response
+                                            ? (response as any).error
+                                            : responseError
+                                    }
+                                />
+                            </div>
+                        ) : (
+                            component
+                        )}
+                    </div>
+                </div>
                 {showResultControls && (
                     <>
-                        <div className="flex gap-4 justify-between flex-wrap px-px">
+                        <div className="flex gap-4 justify-between flex-wrap px-px py-2">
                             <div className="flex gap-4 items-center" />
                             <div className="flex gap-4 items-center">
                                 <div className="flex gap-4 items-center flex-wrap">
@@ -352,6 +404,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                             ]}
                                         />
                                     )}
+
+                                    <LemonButton type="primary" onClick={() => saveAs(true, false)}>
+                                        Create insight
+                                    </LemonButton>
                                 </div>
                             </div>
                         </div>
@@ -359,37 +415,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 )}
 
                 <VariablesForInsight />
-
-                <div className="flex flex-1 flex-row gap-4 overflow-scroll">
-                    {isChartSettingsPanelOpen && (
-                        <div className="h-full">
-                            <SideBar />
-                        </div>
-                    )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>
-                        {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
-                            <div
-                                className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
-                                    border: showEditingUI,
-                                })}
-                            >
-                                <InsightErrorState
-                                    query={props.query}
-                                    excludeDetail
-                                    title={
-                                        queryCancelled
-                                            ? 'The query was cancelled'
-                                            : response && 'error' in response
-                                            ? (response as any).error
-                                            : responseError
-                                    }
-                                />
-                            </div>
-                        ) : (
-                            component
-                        )}
-                    </div>
-                </div>
             </div>
         </div>
     )
