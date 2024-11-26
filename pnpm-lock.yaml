@@ -46,6 +46,9 @@ dependencies:
   '@microlink/react-json-view':
     specifier: ^1.21.3
     version: 1.22.2(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
+  '@microsoft/fetch-event-source':
+    specifier: ^2.0.1
+    version: 2.0.1
   '@monaco-editor/react':
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
@@ -5297,6 +5300,10 @@ packages:
     transitivePeerDependencies:
       - '@types/react'
       - encoding
+    dev: false
+
+  /@microsoft/fetch-event-source@2.0.1:
+    resolution: {integrity: sha512-W6CLUJ2eBMw3Rec70qrsEW0jOm/3twwJv21mrmj2yORiaVmVYGS4sSS5yUwvQc1ZlDLYGPnClVWmUUMagKNsfA==}
     dev: false
 
   /@monaco-editor/loader@1.4.0(monaco-editor@0.49.0):
