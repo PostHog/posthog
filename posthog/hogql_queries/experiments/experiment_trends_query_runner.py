@@ -211,26 +211,15 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
             prepared_exposure_query.dateRange = self._get_insight_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
-            if self._is_data_warehouse_query(prepared_exposure_query):
-                prepared_exposure_query.breakdownFilter = self._get_data_warehouse_breakdown_filter()
-                prepared_exposure_query.properties = [
-                    DataWarehousePropertyFilter(
-                        key=f"events.properties.{self.breakdown_key}",
-                        value=self.variants,
-                        operator=PropertyOperator.EXACT,
-                        type="data_warehouse",
-                    )
-                ]
-            else:
-                prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
-                prepared_exposure_query.properties = [
-                    EventPropertyFilter(
-                        key=self.breakdown_key,
-                        value=self.variants,
-                        operator=PropertyOperator.EXACT,
-                        type="event",
-                    )
-                ]
+            prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()
+            prepared_exposure_query.properties = [
+                EventPropertyFilter(
+                    key=self.breakdown_key,
+                    value=self.variants,
+                    operator=PropertyOperator.EXACT,
+                    type="event",
+                )
+            ]
         # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
             prepared_exposure_query = TrendsQuery(
