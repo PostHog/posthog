@@ -147,32 +147,30 @@ class CreateColumnOnDataNodesTask:
     table: str
     column: MaterializedColumn
     create_minmax_index: bool
+    is_sharded: bool
 
     def execute(self, client):
-        client.execute(
+        actions = [
             f"""
-            ALTER TABLE {self.table}
-                ADD COLUMN IF NOT EXISTS {self.column.name} VARCHAR
-                    MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=self.column.details.table_column)},
-                COMMENT COLUMN {self.column.name} %(comment)s
+            ADD COLUMN IF NOT EXISTS {self.column.name} VARCHAR
+                MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=self.column.details.table_column)}
             """,
-            {
-                "comment": self.column.details.as_column_comment(),
-                "property": self.column.details.property_name,
-            },
-            settings={"alter_sync": 2 if TEST else 1},
-        )
+        ]
+        parameters = {"property": self.column.details.property_name}
+
+        if not self.is_sharded:
+            actions.append(f"COMMENT COLUMN {self.column.name} %(comment)s")
+            parameters["comment"] = self.column.details.as_column_comment()
 
         if self.create_minmax_index:
             index_name = f"minmax_{self.column.name}"
-            client.execute(
-                f"""
-                ALTER TABLE {self.table}
-                ADD INDEX IF NOT EXISTS {index_name} {self.column.name}
-                TYPE minmax GRANULARITY 1
-                """,
-                settings={"alter_sync": 2 if TEST else 1},
-            )
+            actions.append(f"ADD INDEX IF NOT EXISTS {index_name} {self.column.name} TYPE minmax GRANULARITY 1")
+
+        client.execute(
+            f"ALTER TABLE {self.table} " + ", ".join(actions),
+            parameters,
+            settings={"alter_sync": 2 if TEST else 1},
+        )
 
 
 @dataclass
@@ -220,7 +218,9 @@ def materialize(
         ),
     )
 
-    create_on_data_nodes = CreateColumnOnDataNodesTask(table_info.data_table, column, create_minmax_index)
+    create_on_data_nodes = CreateColumnOnDataNodesTask(
+        table_info.data_table, column, create_minmax_index, is_sharded=table_info.dist_table is not None
+    )
     for host, future in cluster.map_shards(create_on_data_nodes.execute).as_completed():
         try:
             future.result()
