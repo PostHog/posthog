@@ -183,6 +183,22 @@ class DataImportPipelineSync:
 
         prepare_s3_files_for_querying(job.folder_path(), schema.name, file_uris)
 
+    def _get_delta_table(self, resouce_name: str) -> DeltaTable | None:
+        normalized_schema_name = NamingConvention().normalize_identifier(resouce_name)
+        delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{normalized_schema_name}"
+        storage_options = self._get_credentials()
+
+        self.logger.debug(f"delta_uri={delta_uri}")
+
+        is_delta_table = DeltaTable.is_deltatable(delta_uri, storage_options)
+
+        self.logger.debug(f"is_delta_table={is_delta_table}")
+
+        if is_delta_table:
+            return DeltaTable(delta_uri, storage_options=storage_options)
+
+        return None
+
     def _run(self) -> dict[str, int]:
         if self.refresh_dlt:
             self.logger.info("Pipeline getting a full refresh due to reset_pipeline being set")
@@ -192,18 +208,9 @@ class DataImportPipelineSync:
         # Workaround for full refresh schemas while we wait for Rust to fix memory issue
         for name, resource in self.source._resources.items():
             if resource.write_disposition == "replace":
-                normalized_schema_name = NamingConvention().normalize_identifier(name)
-                delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{normalized_schema_name}"
-                storage_options = self._get_credentials()
+                delta_table = self._get_delta_table(name)
 
-                self.logger.debug(f"delta_uri={delta_uri}")
-
-                is_delta_table = DeltaTable.is_deltatable(delta_uri, storage_options)
-
-                self.logger.debug(f"is_delta_table={is_delta_table}")
-
-                if is_delta_table:
-                    delta_table = DeltaTable(delta_uri, storage_options=storage_options)
+                if delta_table is not None:
                     self.logger.debug("Deleting existing delta table")
                     delta_table.delete()
 
@@ -248,7 +255,17 @@ class DataImportPipelineSync:
                 total_counts = counts + total_counts
 
                 if total_counts.total() > 0:
-                    delta_tables = get_delta_tables(pipeline)
+                    # Fix to upgrade all tables to DeltaS3Wrapper
+                    resouce_names = list(self.source._resources.keys())
+                    if len(resouce_names) > 0:
+                        name = resouce_names[0]
+                        table = self._get_delta_table(name)
+                        if table is not None:
+                            delta_tables = {name: table}
+                        else:
+                            delta_tables = get_delta_tables(pipeline)
+                    else:
+                        delta_tables = get_delta_tables(pipeline)
 
                     table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
 
@@ -309,7 +326,17 @@ class DataImportPipelineSync:
             total_counts = total_counts + counts
 
             if total_counts.total() > 0:
-                delta_tables = get_delta_tables(pipeline)
+                # Fix to upgrade all tables to DeltaS3Wrapper
+                resouce_names = list(self.source._resources.keys())
+                if len(resouce_names) > 0:
+                    name = resouce_names[0]
+                    table = self._get_delta_table(name)
+                    if table is not None:
+                        delta_tables = {name: table}
+                    else:
+                        delta_tables = get_delta_tables(pipeline)
+                else:
+                    delta_tables = get_delta_tables(pipeline)
 
                 table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
 

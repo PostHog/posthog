@@ -1234,6 +1234,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Surveys Activated',
             description: 'The surveys that were activated for this event.',
         },
+        $process_person_profile: {
+            label: 'Person Profile processing flag',
+            description: 'The setting from an SDK to control whether an event has person processing enabled',
+        },
+        $dead_clicks_enabled_server_side: {
+            label: 'Dead clicks enabled server side',
+            description: 'Whether dead clicks were enabled in remote config',
+        },
         $dead_click_scroll_delay_ms: {
             label: 'Dead click scroll delay in milliseconds',
             description: 'The delay between a click and the next scroll event',
