@@ -544,6 +544,7 @@ export const KNOWN_LIB_VALUES = new Set([
     'posthog-python',
     '',
     'js',
+    'posthog-js-lite',
     'posthog-node',
     'posthog-react-native',
     'posthog-ruby',

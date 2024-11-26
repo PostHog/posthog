@@ -424,6 +424,10 @@ body {
         overflow: auto;
     }
 
+    dialog {
+        background-color: var(--bg-3000);
+    }
+
     .LemonButton,
     .Link {
         .text-link {

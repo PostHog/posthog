@@ -185,6 +185,7 @@ export enum GeographyTab {
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
+    TIMEZONES = 'TIMEZONES',
 }
 
 export interface WebAnalyticsStatusCheck {
@@ -980,6 +981,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       'Cities',
                                       'Cities',
                                       WebStatsBreakdown.City
+                                  ),
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.TIMEZONES,
+                                      'Timezones',
+                                      'Timezones',
+                                      WebStatsBreakdown.Timezone
                                   ),
                               ],
                           }

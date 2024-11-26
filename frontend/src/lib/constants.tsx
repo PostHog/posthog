@@ -222,7 +222,6 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
-    EXPERIMENTS_HOLDOUTS: 'experiments-holdouts', // owner: @jurajmajerik #team-experiments
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
     SESSION_REPLAY_URL_BLOCKLIST: 'session-replay-url-blocklist', // owner: @richard-better #team-replay
     BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
@@ -232,6 +231,7 @@ export const FEATURE_FLAGS = {
     CUSTOM_CHANNEL_TYPE_RULES: 'custom-channel-type-rules', // owner: @robbie-c #team-web-analytics
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     EXPERIMENTS_MIGRATION_DISABLE_UI: 'experiments-migration-disable-ui', // owner: @jurajmajerik #team-experiments
+    CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
