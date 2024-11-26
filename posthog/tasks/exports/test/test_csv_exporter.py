@@ -744,6 +744,6 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
-            content = object_storage.read(exported_asset.content_location)
+            content = object_storage.read(exported_asset.content_location)  # type: ignore
             lines = (content or "").strip().split("\r\n")
             self.assertEqual(lines, ["series,22-Mar-2024", "$pageview - current,1", "$pageview - previous,2"])
