@@ -34,6 +34,7 @@ import json
 from boto3 import resource
 from botocore.config import Config
 from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.models.table import DataWarehouseTable
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
@@ -168,6 +169,16 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "amount": "Int64",
             },
             credential=credential,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=table_name,
+            source_table_key="distinct_id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events",
+            configuration={"optimize_for_experiments": True},
         )
         return table_name
 
