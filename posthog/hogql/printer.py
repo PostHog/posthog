@@ -1320,7 +1320,7 @@ class _Printer(Visitor):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
+            materialized_column = self._get_materialized_column_name(table_name, property_name, field_name)
             if materialized_column:
                 yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
@@ -1349,9 +1349,9 @@ class _Printer(Visitor):
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
+                materialized_column = self._get_materialized_column_name("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
+                materialized_column = self._get_materialized_column_name("person", property_name, "properties")
             if materialized_column:
                 yield PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
 
@@ -1509,12 +1509,16 @@ class _Printer(Visitor):
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
-    def _get_materialized_column(
+    def _get_materialized_column_name(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
-        return get_materialized_column_for_property(
+        materialized_column = get_materialized_column_for_property(
             cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )
+        if materialized_column is not None and not materialized_column.is_nullable:
+            return materialized_column.name
+        else:
+            return None
 
     def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"

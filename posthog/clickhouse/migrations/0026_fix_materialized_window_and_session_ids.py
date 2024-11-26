@@ -45,9 +45,9 @@ def materialize_session_and_window_id(database):
 
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
-        current_materialized_column_name = get_materialized_column_for_property("events", "properties", property_name)
+        current_materialized_column = get_materialized_column_for_property("events", "properties", property_name)
         # If the column is not materialized, materialize it
-        if current_materialized_column_name is None:
+        if current_materialized_column is None:
             materialize("events", property_name, property_name)
 
         # Now, we need to clean up any potentail inconsistencies with existing column names
@@ -71,8 +71,8 @@ def materialize_session_and_window_id(database):
         # materialized the column or renamed the column, and then ran the 0004_...  async migration
         # before this migration runs.
         possible_old_column_names = {"mat_" + property_name}
-        if current_materialized_column_name is not None and current_materialized_column_name != property_name:
-            possible_old_column_names.add(current_materialized_column_name)
+        if current_materialized_column is not None and current_materialized_column.name != property_name:
+            possible_old_column_names.add(current_materialized_column.name)
 
         for possible_old_column_name in possible_old_column_names:
             ensure_only_new_column_exists(database, "sharded_events", possible_old_column_name, property_name)

@@ -166,8 +166,8 @@ class FunnelCorrelation:
                     possible_mat_col = get_materialized_column_for_property(
                         "events", "person_properties", property_name
                     )
-                    if possible_mat_col is not None:
-                        props_to_include.append(possible_mat_col)
+                    if possible_mat_col is not None and not possible_mat_col.is_nullable:
+                        props_to_include.append(possible_mat_col.name)
                     else:
                         props_to_include.append(f"person_properties")
 

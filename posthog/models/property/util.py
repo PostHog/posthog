@@ -715,10 +715,11 @@ def get_property_string_expr(
         and (
             materialized_column := get_materialized_column_for_property(table, materialised_table_column, property_name)
         )
+        and not materialized_column.is_nullable
         and "group" not in materialised_table_column
     ):
         return (
-            f'{table_string}"{materialized_column}"',
+            f'{table_string}"{materialized_column.name}"',
             True,
         )
 

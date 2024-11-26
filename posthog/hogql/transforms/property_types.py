@@ -240,16 +240,16 @@ class PropertySwapper(CloningVisitor):
         property_name = str(node.chain[-1])
         if property_type == "person":
             if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
+                materialized_column = self._get_materialized_column_name("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
+                materialized_column = self._get_materialized_column_name("person", property_name, "properties")
         elif property_type == "group":
             name_parts = property_name.split("_")
             name_parts.pop(0)
             property_name = "_".join(name_parts)
-            materialized_column = self._get_materialized_column("groups", property_name, "properties")
+            materialized_column = self._get_materialized_column_name("groups", property_name, "properties")
         else:
-            materialized_column = self._get_materialized_column("events", property_name, "properties")
+            materialized_column = self._get_materialized_column_name("events", property_name, "properties")
 
         message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'."
         if self.context.debug:
@@ -270,9 +270,13 @@ class PropertySwapper(CloningVisitor):
             message=message,
         )
 
-    def _get_materialized_column(
+    def _get_materialized_column_name(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
-        return get_materialized_column_for_property(
+        materialized_column = get_materialized_column_for_property(
             cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )
+        if materialized_column is not None and not materialized_column.is_nullable:
+            return materialized_column.name
+        else:
+            return None

@@ -72,11 +72,12 @@ class FOSSColumnOptimizer:
         table_column: str = "properties",
     ) -> set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
-
-        return {
-            get_materialized_column_for_property(table, table_column, property_name)
-            for property_name, _, _ in used_properties
-        }
+        column_names = set()
+        for property_name, _, _ in used_properties:
+            column = get_materialized_column_for_property(table, table_column, property_name)
+            if column is not None and not column.is_nullable:
+                column_names.add(column.name)
+        return column_names
 
     @cached_property
     def is_using_person_properties(self) -> bool:
