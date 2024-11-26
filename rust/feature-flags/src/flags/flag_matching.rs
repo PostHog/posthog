@@ -308,9 +308,25 @@ impl FeatureFlagMatcher {
             error_while_computing_flags: initial_error
                 || flags_response.error_while_computing_flags,
             feature_flags: flags_response.feature_flags,
+            feature_flag_payloads: flags_response.feature_flag_payloads,
         }
     }
 
+    /// Processes hash key overrides for feature flags with experience continuity enabled.
+    ///
+    /// This method handles the logic for managing hash key overrides, which are used to ensure
+    /// consistent feature flag experiences across different distinct IDs (e.g., when a user logs in).
+    /// It performs the following steps:
+    ///
+    /// 1. Checks if a hash key override needs to be written by comparing the current distinct ID
+    ///    with the provided hash key
+    /// 2. If needed, writes the hash key override to the database using the writer connection
+    /// 3. Increments metrics to track successful/failed hash key override writes
+    /// 4. Retrieves and returns the current hash key overrides for the target distinct IDs
+    ///
+    /// Returns a tuple containing:
+    /// - Option<HashMap<String, String>>: The hash key overrides if successfully retrieved, None if there was an error
+    /// - bool: Whether there was an error during processing (true = error occurred)
     async fn process_hash_key_override(
         &self,
         hash_key: String,
@@ -397,15 +413,22 @@ impl FeatureFlagMatcher {
         }
     }
 
-    async fn evaluate_flags_with_overrides(
+    /// Evaluates feature flags with property and hash key overrides.
+    ///
+    /// This function evaluates feature flags in two steps:
+    /// 1. First, it evaluates flags that can be computed using only the provided property overrides
+    /// 2. Then, for remaining flags that need database properties, it fetches and caches those properties
+    ///    before evaluating those flags
+    pub async fn evaluate_flags_with_overrides(
         &mut self,
         feature_flags: FeatureFlagList,
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
-        let mut result = HashMap::new();
         let mut error_while_computing_flags = false;
+        let mut feature_flags_map = HashMap::new();
+        let mut feature_flag_payloads_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
         // Step 1: Evaluate flags with locally computable property overrides first
@@ -425,7 +448,11 @@ impl FeatureFlagMatcher {
             {
                 Ok(Some(flag_match)) => {
                     let flag_value = self.flag_match_to_value(&flag_match);
-                    result.insert(flag.key.clone(), flag_value);
+                    feature_flags_map.insert(flag.key.clone(), flag_value);
+
+                    if let Some(payload) = flag_match.payload {
+                        feature_flag_payloads_map.insert(flag.key.clone(), payload);
+                    }
                 }
                 Ok(None) => {
                     flags_needing_db_properties.push(flag.clone());
@@ -446,7 +473,7 @@ impl FeatureFlagMatcher {
             }
         }
 
-        // Step 2: Fetch and cache properties for remaining flags (just one DB lookup for all of relevant properties)
+        // Step 2: Fetch and cache properties for remaining flags
         if !flags_needing_db_properties.is_empty() {
             let group_type_indexes: HashSet<GroupTypeIndex> = flags_needing_db_properties
                 .iter()
@@ -475,7 +502,6 @@ impl FeatureFlagMatcher {
                 }
                 Err(e) => {
                     error_while_computing_flags = true;
-                    // TODO add sentry exception tracking
                     error!("Error fetching properties: {:?}", e);
                     let reason = parse_exception_for_prometheus_label(&e);
                     inc(
@@ -487,9 +513,6 @@ impl FeatureFlagMatcher {
             }
 
             // Step 3: Evaluate remaining flags with cached properties
-            // At this point we've already done a round of flag evaluations with locally computable property overrides
-            // This step is for flags that couldn't be evaluated locally due to missing property values,
-            // so we do a single query to fetch all of the remaining properties, and then proceed with flag evaluations
             for flag in flags_needing_db_properties {
                 match self
                     .get_match(&flag, None, hash_key_overrides.clone())
@@ -497,11 +520,14 @@ impl FeatureFlagMatcher {
                 {
                     Ok(flag_match) => {
                         let flag_value = self.flag_match_to_value(&flag_match);
-                        result.insert(flag.key.clone(), flag_value);
+                        feature_flags_map.insert(flag.key.clone(), flag_value);
+
+                        if let Some(payload) = flag_match.payload {
+                            feature_flag_payloads_map.insert(flag.key.clone(), payload);
+                        }
                     }
                     Err(e) => {
                         error_while_computing_flags = true;
-                        // TODO add sentry exception tracking
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
@@ -519,7 +545,8 @@ impl FeatureFlagMatcher {
 
         FlagsResponse {
             error_while_computing_flags,
-            feature_flags: result,
+            feature_flags: feature_flags_map,
+            feature_flag_payloads: feature_flag_payloads_map,
         }
     }
 
