@@ -16,7 +16,7 @@ class TestEvalTrendsPlanner(EvalBaseTest):
             criteria="You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a trends insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about trends insights.",
             evaluation_steps=[
                 "A plan must define at least one event and a math type, but it is not required to define any filters, breakdowns, or formulas.",
-                "Compare events, properties, math types, and property values of 'expected output' and 'actual output'.",
+                "Compare events, properties, math types, and property values of 'expected output' and 'actual output'. Do not penalize if the actual output does not include a timeframe.",
                 "Check if the combination of events, properties, and property values in 'actual output' can answer the user's question according to the 'expected output'.",
                 # The criteria for aggregations must be more specific because there isn't a way to bypass them.
                 "Check if the math types in 'actual output' match those in 'expected output'. Math types sometimes are interchangeable, so use your judgement. If the aggregation type is specified by a property, user, or group in 'expected output', the same property, user, or group must be used in 'actual output'.",
@@ -157,6 +157,19 @@ class TestEvalTrendsPlanner(EvalBaseTest):
                     - property type: String
                     - operator: contains
                     - property value: personal/pro
+            """,
+            actual_output=self._call_node(query),
+        )
+        assert_test(test_case, [self._get_plan_correctness_metric()])
+
+    def test_funnel_does_not_include_timeframe(self):
+        query = "what is the pageview trend for event time before 2024-01-01?"
+        test_case = LLMTestCase(
+            input=query,
+            expected_output="""
+            Events:
+            - $pageview
+                - math operation: total count
             """,
             actual_output=self._call_node(query),
         )

@@ -28,8 +28,6 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
 export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element {
     return (
         <div className="w-full font-light" data-attr="item-console-log">
-            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
-
             <div className="px-2 py-1 text-xs border-t">
                 {(item.data.count || 1) > 1 ? (
                     <>

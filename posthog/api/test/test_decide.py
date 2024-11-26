@@ -3784,6 +3784,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             email=f"test-{random.randint(1, 100000)}@posthog.com",
             password="password",
             first_name="first_name",
+            current_team_id=team.id,
         )
         OrganizationMembership.objects.db_manager(dbname).create(
             user=user,
