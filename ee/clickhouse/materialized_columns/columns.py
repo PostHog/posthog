@@ -17,7 +17,7 @@ from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
+from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
 
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
 
@@ -116,10 +116,6 @@ def get_materialized_columns(
         for column in MaterializedColumn.get_all(table)
         if not (exclude_disabled_columns and column.details.is_disabled)
     }
-
-
-def get_on_cluster_clause_for_table(table: TableWithProperties) -> str:
-    return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
 
 def get_cluster() -> ClickhouseCluster:
