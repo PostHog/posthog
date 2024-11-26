@@ -147,8 +147,8 @@ class Assistant:
             case (
                 AssistantNodeName.TRENDS_PLANNER
                 | AssistantNodeName.TRENDS_PLANNER_TOOLS
-                | AssistantNodeName.FUNNEL_GENERATOR
                 | AssistantNodeName.FUNNEL_PLANNER
+                | AssistantNodeName.FUNNEL_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
                 if input:
@@ -160,10 +160,12 @@ class Assistant:
                                 case "retrieve_entity_properties":
                                     substeps.append(f"Analyzing {action.tool_input} properties")
                                 case "retrieve_event_property_values":
+                                    assert isinstance(action.tool_input, dict)
                                     substeps.append(
                                         f"Exploring values of event property `{action.tool_input['property_name']}` for `{action.tool_input['event_name']}`"
                                     )
                                 case "retrieve_entity_property_values":
+                                    assert isinstance(action.tool_input, dict)
                                     substeps.append(
                                         f"Exploring values of {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
