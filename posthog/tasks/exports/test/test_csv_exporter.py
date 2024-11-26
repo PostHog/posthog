@@ -698,3 +698,52 @@ class TestCSVExporter(APIBaseTest):
                 lines,
                 ["series,22-Mar-2024", "Formula ((B/A)*100),100.0"],
             )
+
+    def test_csv_exporter_trends_query_with_compare_previous_option(self) -> None:
+        _create_person(distinct_ids=[f"user_1"], team=self.team)
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 21, 13, 46),
+                },
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 21, 13, 46),
+                },
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 22, 13, 47),
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        },
+                    ],
+                    "interval": "day",
+                    "compareFilter": {"compare": True},
+                }
+            },
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(lines, ["series,22-Mar-2024", "$pageview - current,1", "$pageview - previous,2"])
