@@ -1,4 +1,4 @@
-export const letterToRegionalIndicator: Record<string, string> = {
+const letterToRegionalIndicator: Record<string, string> = {
     A: '🇦',
     B: '🇧',
     C: '🇨',
@@ -47,6 +47,16 @@ export function countryCodeToFlag(countryCode: string): string {
     }
 
     return `${letterToRegionalIndicator[countryCode[0]]}${letterToRegionalIndicator[countryCode[1]]}`
+}
+
+/**
+ * Returns country flag emoji for a given ISO 639 language code.
+ * This isn't needed often because the locales usually come in the nl-NL format (for dutch, for example)
+ * but there are cases where we only see the first part in case the language isn't shared by more than
+ * one country - such as the Netherlands.
+ */
+export function languageCodeToFlag(languageCode: string): string {
+    return countryCodeToFlag(languageCodeToCountryCode[languageCode])
 }
 
 export const countryCodeToName: Record<string, string> = {
@@ -303,6 +313,8 @@ export const countryCodeToName: Record<string, string> = {
 }
 
 export const languageCodeToName: Record<string, string> = {
+    // Base ones came from https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes
+    // Code used to generate the list: Object.fromEntries([...window.Table[1].children[1].children].map(row => [row.children[1].textContent, row.children[0].textContent]))
     ab: 'Abkhazian',
     aa: 'Afar',
     af: 'Afrikaans',
@@ -486,4 +498,19 @@ export const languageCodeToName: Record<string, string> = {
     yo: 'Yoruba',
     za: 'Zhuang',
     zu: 'Zulu',
+
+    // Some browsers use one-long or three-long codes so we're adding here as fallback
+    h: 'Croatian',
+    chr: 'Cherokee',
+    cmn: 'Chinese Mandarin',
+    fil: 'Filipino',
+    não: 'Norwegian',
+    yue: 'Chinese Cantonese',
+}
+
+// This is only used as a fallback for some languages that don't usually
+// come in the locale-country format (such as nl-NL usually being presented simply as nl)
+// We'll fill this as we see fit based on the values seen in the wild
+const languageCodeToCountryCode: Record<string, string> = {
+    nl: 'NL',
 }

@@ -9,7 +9,7 @@ import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
-import { languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
+import { languageCodeToFlag, languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -148,15 +148,15 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             break
         case WebStatsBreakdown.Language:
             if (typeof value === 'string') {
-                const [language, countryCode] = value.split('-')
+                const [languageCode, countryCode] = value.split('-')
 
                 // Locales are complicated, the country code might be hidden in the second part
                 // of the locale
                 const parsedCountryCode = countryCode?.match(/([A-Z]{2})/)?.[0] ?? ''
                 return (
                     <>
-                        {countryCodeToFlag(parsedCountryCode)}&nbsp;
-                        {languageCodeToName[language] || language}
+                        {countryCodeToFlag(parsedCountryCode) ?? languageCodeToFlag(languageCode)}&nbsp;
+                        {languageCodeToName[languageCode] || languageCode}
                     </>
                 )
             }
