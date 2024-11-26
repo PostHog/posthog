@@ -256,13 +256,12 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
             try:
                 database = create_hogql_database(team_id=self.team.pk)
-                events_table = database.get_table("events")
                 if self._is_data_warehouse_query(query_runner.query):
                     series_node = cast(DataWarehouseNode, query_runner.query.series[0])
                     table = database.get_table(series_node.table_name)
                     table.fields["events"] = LazyJoin(
                         from_field=[series_node.distinct_id_field],
-                        join_table=events_table,
+                        join_table=database.get_table("events"),
                         join_function=lambda join_to_add, context, node: (
                             ast.JoinExpr(
                                 table=ast.SelectQuery(
