@@ -29,7 +29,7 @@ class FeatureFlagStatusChecker:
     def __init__(
         self,
         feature_flag_id: str,
-        # The amount of time considered "recent" for the purposes of determining staleness .
+        # The amount of time considered "recent" for the purposes of determining staleness.
         stale_window: str = "-30d",
     ):
         self.feature_flag_id = feature_flag_id
