@@ -134,6 +134,13 @@ class TableInfo(NamedTuple):
     data_table: str
     dist_table: str | None
 
+    @property
+    def read_table(self) -> str:
+        if self.dist_table is not None:
+            return self.dist_table
+        else:
+            return self.data_table
+
 
 tables = {
     "events": TableInfo("sharded_events", "events"),
@@ -147,7 +154,7 @@ class CreateColumnOnDataNodesTask:
     table: str
     column: MaterializedColumn
     create_minmax_index: bool
-    is_sharded: bool
+    add_column_comment: bool
 
     def execute(self, client):
         actions = [
@@ -158,7 +165,7 @@ class CreateColumnOnDataNodesTask:
         ]
         parameters = {"property": self.column.details.property_name}
 
-        if not self.is_sharded:
+        if self.add_column_comment:
             actions.append(f"COMMENT COLUMN {self.column.name} %(comment)s")
             parameters["comment"] = self.column.details.as_column_comment()
 
@@ -219,7 +226,10 @@ def materialize(
     )
 
     create_on_data_nodes = CreateColumnOnDataNodesTask(
-        table_info.data_table, column, create_minmax_index, is_sharded=table_info.dist_table is not None
+        table_info.data_table,
+        column,
+        create_minmax_index,
+        add_column_comment=table_info.read_table == table_info.data_table,
     )
     for host, future in cluster.map_shards(create_on_data_nodes.execute).as_completed():
         try:
