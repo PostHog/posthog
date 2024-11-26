@@ -46,6 +46,33 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
 
     const tabs = [
         {
+            key: 'raw',
+            label: 'Raw',
+            content: (
+                <div className="-mt-3 px-4 py-2">
+                    <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                </div>
+            ),
+        },
+        {
+            key: 'metadata',
+            label: 'Metadata',
+            content: (
+                <div className="-mt-3">
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Meta}
+                        properties={{
+                            event: event.event,
+                            distinct_id: event.distinct_id,
+                            timestamp: event.timestamp,
+                        }}
+                        sortProperties
+                        tableProps={tableProps}
+                    />
+                </div>
+            ),
+        },
+        {
             key: 'properties',
             label: 'Properties',
             content: (
@@ -69,15 +96,6 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                             {pluralize(systemPropsCount, 'system property', 'system properties')}
                         </LemonButton>
                     )}
-                </div>
-            ),
-        },
-        {
-            key: 'json',
-            label: 'JSON',
-            content: (
-                <div className="px-4 py-4">
-                    <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 </div>
             ),
         },

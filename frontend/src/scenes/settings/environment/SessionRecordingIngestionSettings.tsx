@@ -252,6 +252,8 @@ function UrlConfigSection({
             </div>
             <p>{description}</p>
 
+            <p>{title} is only available for JavaScript Web.</p>
+
             {props.isAddFormVisible && (
                 <UrlConfigForm type={type} onCancel={props.onCancel} isSubmitting={props.isSubmitting} />
             )}
@@ -335,6 +337,7 @@ function EventTriggerOptions(): JSX.Element | null {
                 Session recording will be started immediately before PostHog queues any of these events to be sent to
                 the backend.
             </p>
+            <p>Event emitted is only available for JavaScript Web.</p>
             <EventSelect
                 filterGroupTypes={[TaxonomicFilterGroupType.Events]}
                 onChange={(includedEvents) => {
@@ -482,6 +485,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                             useful if you want to reduce the amount of data you collect. 100% means all sessions will be
                             collected. 50% means roughly half of sessions will be collected.
                         </p>
+                        <p>Sampling is only available for JavaScript Web.</p>
                     </>
                 )}
                 {recordingDurationMinimumFeatureEnabled && (
@@ -502,6 +506,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                             value are collected. This helps you avoid collecting sessions that are too short to be
                             useful.
                         </p>
+                        <p>Minimum session duration is only available for JavaScript Web.</p>
                     </>
                 )}
                 <LinkedFlagSelector />

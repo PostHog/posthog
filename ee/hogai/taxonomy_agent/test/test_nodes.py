@@ -12,11 +12,13 @@ from ee.hogai.taxonomy_agent.nodes import (
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 from ee.hogai.utils import AssistantState
+from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
+    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -115,6 +117,36 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Text", history[0].content)
         self.assertNotIn("{{question}}", history[0].content)
 
+    def test_agent_reconstructs_typical_conversation(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            {
+                "messages": [
+                    HumanMessage(content="Question 1"),
+                    RouterMessage(content="trends"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
+                    AssistantMessage(content="Summary 1"),
+                    HumanMessage(content="Question 2"),
+                    RouterMessage(content="funnel"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
+                    AssistantMessage(content="Summary 2"),
+                    HumanMessage(content="Question 3"),
+                    RouterMessage(content="funnel"),
+                ]
+            }
+        )
+        self.assertEqual(len(history), 5)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Question 1", history[0].content)
+        self.assertEqual(history[1].type, "ai")
+        self.assertEqual(history[1].content, "Plan 1")
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Question 2", history[2].content)
+        self.assertEqual(history[3].type, "ai")
+        self.assertEqual(history[3].content, "Plan 2")
+        self.assertEqual(history[4].type, "human")
+        self.assertIn("Question 3", history[4].content)
+
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
         for i in range(26):
@@ -187,6 +219,13 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(
             "retrieve_event_properties(event_name: str)", node._get_react_format_prompt(DummyToolkit(self.team))
         )
+
+    def test_property_filters_prompt(self):
+        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="account", group_type_index=1)
+        node = self._get_node()
+        prompt = node._get_react_property_filters_prompt()
+        self.assertIn("org, account.", prompt)
 
 
 @override_settings(IN_UNIT_TESTING=True)

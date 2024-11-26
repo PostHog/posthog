@@ -267,8 +267,9 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-grpcio==1.57.0
+grpcio==1.63.2
     # via
+    #   -r requirements.in
     #   google-api-core
     #   grpcio-status
     #   sqlalchemy-bigquery
@@ -458,7 +459,7 @@ pluggy==1.5.0
     # via dlt
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.6.6
+posthoganalytics==3.7.2
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -702,8 +703,9 @@ structlog==23.2.0
     #   django-structlog
 temporalio==1.7.1
     # via -r requirements.in
-tenacity==8.2.3
+tenacity==8.4.2
     # via
+    #   -r requirements.in
     #   celery-redbeat
     #   dlt
     #   langchain

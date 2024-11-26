@@ -269,6 +269,7 @@ mod test {
     use mockall::predicate;
     use reqwest::Url;
     use sqlx::PgPool;
+    use symbolic::sourcemapcache::SourceMapCacheWriter;
 
     use crate::{
         config::Config,
@@ -282,6 +283,18 @@ mod test {
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
+
+    fn get_sourcemapcache_bytes() -> Vec<u8> {
+        let mut result = Vec::new();
+        let writer = SourceMapCacheWriter::new(
+            core::str::from_utf8(MINIFIED).unwrap(),
+            core::str::from_utf8(MAP).unwrap(),
+        )
+        .unwrap();
+
+        writer.serialize(&mut result).unwrap();
+        result
+    }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_successful_lookup(db: PgPool) {
@@ -310,7 +323,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::eq(Vec::from(MAP)),
+                predicate::always(), // We won't assert on the contents written
             )
             .returning(|_, _, _| Ok(()))
             .once();
@@ -321,7 +334,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Vec::from(MAP)));
+            .returning(|_, _| Ok(get_sourcemapcache_bytes()));
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(

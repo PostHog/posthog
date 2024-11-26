@@ -19,6 +19,23 @@ import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { ChartDisplayType, GraphPointPayload, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
+const toUtcOffsetFormat = (value: number): string => {
+    if (value === 0) {
+        return 'UTC'
+    }
+
+    const integerPart = Math.floor(value)
+    const sign = integerPart > 0 ? '+' : '-'
+
+    // India has half-hour offsets, and Australia has 45-minute offsets, why?
+    const decimalPart = value - integerPart
+    const decimalPartAsMinutes = decimalPart * 60
+    const formattedMinutes = decimalPartAsMinutes > 0 ? `:${decimalPartAsMinutes}` : ''
+
+    // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
+    return `UTC${sign}${integerPart}${formattedMinutes}`
+}
+
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
         return <span>{`${(value * 100).toFixed(1)}%`}</span>
@@ -72,6 +89,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Region</>
         case WebStatsBreakdown.City:
             return <>City</>
+        case WebStatsBreakdown.Timezone:
+            return <>Timezone</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
         default:
@@ -117,6 +136,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                         {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} - {cityName}
                     </>
                 )
+            }
+            break
+        case WebStatsBreakdown.Timezone:
+            if (typeof value === 'number') {
+                return <>{toUtcOffsetFormat(value)}</>
             }
             break
     }
@@ -167,6 +191,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
         case WebStatsBreakdown.City:
             return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Timezone:
+            return { key: '$timezone', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
         default:

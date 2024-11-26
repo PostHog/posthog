@@ -162,6 +162,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentVariantScreenshotUploaded',
                 'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
+                'reportExperimentHoldoutAssigned',
             ],
         ],
     })),
@@ -652,7 +653,8 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperiment: async ({ experiment }) => {
             const experimentEntitiesChanged =
                 (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
+                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
 
             if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
                 return
@@ -667,7 +669,9 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (name === 'filters') {
                 const experimentEntitiesChanged =
-                    (value?.events && value.events.length > 0) || (value?.actions && value.actions.length > 0)
+                    (value?.events && value.events.length > 0) ||
+                    (value?.actions && value.actions.length > 0) ||
+                    (value?.data_warehouse && value.data_warehouse.length > 0)
 
                 if (!value || Object.keys(value).length === 0) {
                     return
@@ -685,7 +689,8 @@ export const experimentLogic = kea<experimentLogicType>([
 
             const experimentEntitiesChanged =
                 (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
+                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
 
             if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
                 return
@@ -699,7 +704,8 @@ export const experimentLogic = kea<experimentLogicType>([
             const experiment = values.experiment
             const experimentEntitiesChanged =
                 (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
+                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
 
             if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
                 return
@@ -1045,7 +1051,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (!filters) {
                         return undefined
                     }
-                    entities = [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
+                    entities = [
+                        ...(filters?.events || []),
+                        ...(filters?.actions || []),
+                        ...(filters?.data_warehouse || []),
+                    ] as ActionFilterType[]
                 }
 
                 // Find out if we're using count per actor math aggregates averages per user

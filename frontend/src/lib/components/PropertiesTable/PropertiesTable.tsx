@@ -241,6 +241,7 @@ export function PropertiesTable({
                     [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
                     [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+                    [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties

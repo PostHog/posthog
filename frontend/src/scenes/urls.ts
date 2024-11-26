@@ -163,12 +163,14 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     errorTracking: (): string => '/error_tracking',
+    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     errorTrackingGroup: (fingerprint: string): string =>
         `/error_tracking/${fingerprint === ':fingerprint' ? fingerprint : encodeURIComponent(fingerprint)}`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    customCss: (): string => '/themes/custom-css',
     dataModel: (): string => '/data-model',
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})

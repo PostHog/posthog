@@ -249,13 +249,11 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.All, label: 'All experiments' },
                     { key: ExperimentsTabs.Yours, label: 'Your experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
-                    ...(featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS]
-                        ? [{ key: ExperimentsTabs.Holdouts, label: 'Holdout groups' }]
-                        : []),
+                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups' },
                 ]}
             />
 
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && tab === ExperimentsTabs.Holdouts ? (
+            {tab === ExperimentsTabs.Holdouts ? (
                 <Holdouts />
             ) : (
                 <>

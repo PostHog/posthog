@@ -35,7 +35,7 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
             onClick={() => push(urls.insightAlerts(insight.short_id!))}
             disabledReason={
                 !areAlertsSupportedForInsight(insight.query)
-                    ? 'Alerts are only available for trends without breakdowns. Change the insight representation to add alerts.'
+                    ? 'Alerts are only available for trends. Change the insight representation to add alerts.'
                     : undefined
             }
             {...props}

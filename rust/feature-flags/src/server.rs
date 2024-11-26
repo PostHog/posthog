@@ -6,11 +6,11 @@ use std::time::Duration;
 use health::{HealthHandle, HealthRegistry};
 use tokio::net::TcpListener;
 
-use crate::cohort_cache::CohortCacheManager;
+use crate::client::database::get_pool;
+use crate::client::geoip::GeoIpClient;
+use crate::client::redis::RedisClient;
+use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
-use crate::database::get_pool;
-use crate::geoip::GeoIpClient;
-use crate::redis::RedisClient;
 use crate::router;
 
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
