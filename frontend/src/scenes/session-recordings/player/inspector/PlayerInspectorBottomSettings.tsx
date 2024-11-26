@@ -100,7 +100,7 @@ function ShowOnlyMatching(): JSX.Element {
 
 export function PlayerInspectorBottomSettings(): JSX.Element {
     return (
-        <div className="flex flex-row bg-bg-3000 w-full overflow-hidden border-t px-2 py-1 font-light text-small">
+        <div className="flex flex-row bg-bg-3000 w-full overflow-hidden border-t font-light text-small">
             <SyncScrolling />
             <ShowOnlyMatching />
             <HideProperties />

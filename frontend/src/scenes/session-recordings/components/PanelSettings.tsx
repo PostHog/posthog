@@ -10,11 +10,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
  */
 
 interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
-    label: string
+    label?: string
     items: LemonMenuItem[]
     icon?: JSX.Element
     isAvailable?: boolean
     whenUnavailable?: LemonMenuItem
+    highlightWhenActive?: boolean
 }
 
 export function SettingsMenu({
@@ -22,6 +23,7 @@ export function SettingsMenu({
     items,
     icon,
     isAvailable = true,
+    highlightWhenActive = true,
     whenUnavailable,
     ...props
 }: SettingsMenuProps): JSX.Element {
@@ -33,7 +35,7 @@ export function SettingsMenu({
             items={isAvailable ? items : whenUnavailable ? [whenUnavailable] : []}
             {...props}
         >
-            <LemonButton status={active ? 'danger' : 'default'} size="xsmall" icon={icon}>
+            <LemonButton status={highlightWhenActive && active ? 'danger' : 'default'} size="xsmall" icon={icon}>
                 {label}
             </LemonButton>
         </LemonMenu>
