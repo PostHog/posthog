@@ -14,17 +14,6 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
     const currentOperator = stickinessCriteria?.operator ?? PropertyOperator.GreaterThanOrEqual
     const currentValue = stickinessCriteria?.value ?? 1
 
-    /*
-    const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
-    const toggleLifecycle= (name: LifecycleToggle): void => {
-        if (toggledLifecycles.includes(name)) {
-            updateInsightFilter({ toggledLifecycles: toggledLifecycles.filter((n) => n !== name) })
-        } else {
-            updateInsightFilter({ toggledLifecycles: [...toggledLifecycles, name] })
-        }
-    }
-     */
-
     const operators: StickinessOperator[] = [
         PropertyOperator.LessThanOrEqual,
         PropertyOperator.GreaterThanOrEqual,
@@ -33,7 +22,6 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
 
     return (
         <div className="flex items-center gap-2">
-            At least once and also
             <OperatorSelect
                 className="flex-1"
                 operator={currentOperator}

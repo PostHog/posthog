@@ -239,7 +239,7 @@ export const cohortOperatorMap: Record<string, string> = {
 export const stickinessOperatorMap: Record<string, string> = {
     exact: '= equals',
     gte: '≥ greater than or equals',
-    lte: '≤ less than or equals',
+    lte: '≤ less than or equals (but at least once)',
 }
 
 export const allOperatorsMapping: Record<string, string> = {
