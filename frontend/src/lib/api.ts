@@ -656,7 +656,14 @@ class ApiRequest {
     }
 
     public featureFlagScheduledChanges(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('scheduled_changes').addPathComponent(featureFlagId)
+        return this.projectsDetail(teamId)
+            .addPathComponent('scheduled_changes')
+            .withQueryString(
+                toParams({
+                    model_name: 'FeatureFlag',
+                    record_id: featureFlagId,
+                })
+            )
     }
 
     public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
