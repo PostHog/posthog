@@ -147,6 +147,21 @@ def get_count_operator(count_operator: Optional[str]) -> str:
         raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
+def get_count_operator_ast(count_operator: Optional[str]) -> ast.CompareOperationOp:
+    if count_operator == "gte":
+        return ast.CompareOperationOp.GtEq
+    elif count_operator == "lte":
+        return ast.CompareOperationOp.LtEq
+    elif count_operator == "gt":
+        return ast.CompareOperationOp.Gt
+    elif count_operator == "lt":
+        return ast.CompareOperationOp.Lt
+    elif count_operator == "eq" or count_operator == "exact" or count_operator is None:
+        return ast.CompareOperationOp.Eq
+    else:
+        raise ValidationError("count_operator must be gte, lte, eq, or None")
+
+
 def get_entity_query(
     event_id: Optional[str],
     action_id: Optional[int],
