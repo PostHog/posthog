@@ -19,6 +19,7 @@ class WebJsSource:
 class WebJsUrl:
     id: int
     url: str
+    type: str
 
 
 def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
@@ -73,7 +74,7 @@ def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[
         hash = md5(f"{source[2]}-{source[3]}-{source[4]}".encode()).hexdigest()
         return f"/site_app/{source[0]}/{source[1]}/{hash}/"
 
-    return [asdict(WebJsUrl(source[0], site_app_url(source))) for source in sources]
+    return [asdict(WebJsUrl(source[0], site_app_url(source), "site_app")) for source in sources]
 
 
 # TODO: is this too much per /decide ?
@@ -91,6 +92,7 @@ def get_decide_site_functions(team: "Team", using_database: str = "default") -> 
         .values_list(
             "id",
             "updated_at",
+            "type",
         )
         .all()
     )
@@ -99,7 +101,7 @@ def get_decide_site_functions(team: "Team", using_database: str = "default") -> 
         hash = md5(str(source[1]).encode()).hexdigest()
         return f"/site_function/{source[0]}/{hash}/"
 
-    return [asdict(WebJsUrl(source[0], site_function_url(source))) for source in sources]
+    return [asdict(WebJsUrl(source[0], site_function_url(source), source[2])) for source in sources]
 
 
 def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Optional[dict]):
