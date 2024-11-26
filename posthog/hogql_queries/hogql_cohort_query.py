@@ -33,7 +33,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelConversionWindowTimeUnit, StickinessQuery, StickinessFilter, StickinessCriteria, StickinessActorsQuery,
-    PersonPropertyFilter, PropertyOperator,
+    PersonPropertyFilter, PropertyOperator, PropertyGroupFilterValue,
 )
 from posthog.queries.cohort_query import CohortQuery
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -47,6 +47,15 @@ class TestWrapperCohortQuery(CohortQuery):
         self.result = execute_hogql_query(hogql_cohort_query.get_query(), team)
         super().__init__(filter=filter, team=team)
 
+def convert_property(prop: Property) -> PersonPropertyFilter:
+    return PersonPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT)
+
+def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
+    r = PropertyGroupFilterValue(
+        type = prop.type,
+        values = [convert(x) if isinstance(x, PropertyGroup) else convert_property(x) for x in prop.values]
+    )
+    return r
 
 class HogQLCohortQuery:
     def __init__(self, cohort_query: CohortQuery, cohort: Cohort = None):
@@ -82,7 +91,8 @@ class HogQLCohortQuery:
             # Need to figure out how to turn these cohort properties into a set of person properties
             # actors_query = ActorsQuery(properties=self.cohort.properties.to_dict())
             # query_runner = ActorsQueryRunner(team=self.cohort.team, query=actors_query)
-            actors_query = ActorsQuery(properties=self.properties, select=["id"])
+            pgfv = convert(self._inner_property_groups)
+            actors_query = ActorsQuery(properties=pgfv, select=["id"])
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
             return query_runner.to_query()
 
