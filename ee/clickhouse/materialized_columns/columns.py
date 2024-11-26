@@ -140,8 +140,8 @@ def get_materialized_columns(
 @cache_for(timedelta(minutes=15))
 def get_enabled_materialized_columns(
     table: TablesWithMaterializedColumns,
-) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
-    return {k: column.name for k, column in get_materialized_columns(table).items() if not column.details.is_disabled}
+) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
+    return {k: column for k, column in get_materialized_columns(table).items() if not column.details.is_disabled}
 
 
 def get_cluster() -> ClickhouseCluster:
