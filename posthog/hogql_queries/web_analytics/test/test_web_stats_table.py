@@ -1099,3 +1099,49 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 None,
                 breakdown_by=WebStatsBreakdown.TIMEZONE,
             )
+
+    def test_timezone_filter_with_empty_timezone(self):
+        did = "id"
+        sid = str(uuid7("2019-02-17"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[did],
+            properties={"name": sid, "email": f"test@example.com"},
+        )
+
+        # Key not exists
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1"},
+        )
+
+        # Key exists, it's null
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": None},
+        )
+
+        # Key exists, it's empty string
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": ""},
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Don't crash, treat all of them null
+        assert results == []
