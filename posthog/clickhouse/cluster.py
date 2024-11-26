@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed, wait
 from typing import NamedTuple, TypeVar
 
 from clickhouse_driver import Client
@@ -32,6 +32,26 @@ class FuturesMap(dict[K, Future[V]]):
             FuturesMap({reverse_map[f]: f for f in done_futures}),
             FuturesMap({reverse_map[f]: f for f in not_done_futures}),
         )
+
+    def result(
+        self, timeout: float | int | None = None, return_when: FIRST_EXCEPTION | ALL_COMPLETED = ALL_COMPLETED
+    ) -> dict[K, V]:
+        results = {}
+        errors = {}
+        for k, future in self.as_completed(timeout=timeout):
+            try:
+                results[k] = future.result()
+            except Exception as e:
+                if return_when is FIRST_EXCEPTION:
+                    raise
+                else:
+                    errors[k] = e
+
+        if errors:
+            # TODO: messaging could be improved here
+            raise ExceptionGroup("not all futures returned a result", [*errors.values()])
+
+        return results
 
 
 class ConnectionInfo(NamedTuple):

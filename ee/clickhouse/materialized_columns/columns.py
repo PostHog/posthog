@@ -225,25 +225,22 @@ def materialize(
         ),
     )
 
-    create_on_data_nodes = CreateColumnOnDataNodesTask(
-        table_info.data_table,
-        column,
-        create_minmax_index,
-        add_column_comment=table_info.read_table == table_info.data_table,
-    )
-    for host, future in cluster.map_shards(create_on_data_nodes.execute).as_completed():
-        try:
-            future.result()
-        except Exception as e:
-            raise Exception(f"Failed to run {create_on_data_nodes!r} on {host!r}") from e
+    cluster.map_shards(
+        CreateColumnOnDataNodesTask(
+            table_info.data_table,
+            column,
+            create_minmax_index,
+            add_column_comment=table_info.read_table == table_info.data_table,
+        ).execute
+    ).result()
 
     if table_info.dist_table is not None:
-        create_on_query_nodes = CreateColumnOnQueryNodesTask(table_info.dist_table, column)
-        for host, future in cluster.map_hosts(create_on_query_nodes.execute).as_completed():
-            try:
-                future.result()
-            except Exception as e:
-                raise Exception(f"Failed to run {create_on_query_nodes!r} on {host!r}") from e
+        cluster.map_hosts(
+            CreateColumnOnQueryNodesTask(
+                table_info.dist_table,
+                column,
+            ).execute
+        ).result()
 
     return column.name
 
@@ -265,23 +262,19 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     cluster = get_cluster()
     table_info = tables[table]
 
-    task = UpdateColumnCommentTask(
-        table,
-        MaterializedColumn(
-            name=column_name,
-            details=replace(
-                MaterializedColumn.get(table, column_name).details,
-                is_disabled=is_disabled,
-            ),
-        ),
-    )
-
     method = cluster.map_hosts if table_info.dist_table is not None else cluster.map_shards
-    for host, future in method(task.execute).as_completed():
-        try:
-            future.result()
-        except Exception as e:
-            raise Exception(f"Failed to run {task!r} on {host!r}") from e
+    method(
+        UpdateColumnCommentTask(
+            table,
+            MaterializedColumn(
+                name=column_name,
+                details=replace(
+                    MaterializedColumn.get(table, column_name).details,
+                    is_disabled=is_disabled,
+                ),
+            ),
+        ).execute
+    ).result()
 
 
 @dataclass
@@ -310,23 +303,21 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
     table_info = tables[table]
 
     if table_info.dist_table is not None:
-        drop_on_query_nodes = DropColumnTask(
-            table_info.dist_table,
-            column_name,
-            try_drop_index=False,  # no indexes on distributed tables
-        )
-        for host, future in cluster.map_hosts(drop_on_query_nodes.execute).as_completed():
-            try:
-                future.result()
-            except Exception as e:
-                raise Exception(f"Failed to run {drop_on_query_nodes!r} on {host!r}") from e
+        cluster.map_hosts(
+            DropColumnTask(
+                table_info.dist_table,
+                column_name,
+                try_drop_index=False,  # no indexes on distributed tables
+            ).execute
+        ).result()
 
-    drop_on_data_nodes = DropColumnTask(table_info.data_table, column_name, try_drop_index=True)
-    for host, future in cluster.map_shards(drop_on_data_nodes.execute).as_completed():
-        try:
-            future.result()
-        except Exception as e:
-            raise Exception(f"Failed to run {drop_on_data_nodes!r} on {host!r}") from e
+    cluster.map_shards(
+        DropColumnTask(
+            table_info.data_table,
+            column_name,
+            try_drop_index=True,
+        ).execute
+    ).result()
 
 
 def backfill_materialized_columns(
