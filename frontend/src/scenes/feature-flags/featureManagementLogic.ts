@@ -35,8 +35,8 @@ export const featureManagementLogic = kea<featureManagementLogicType>([
             (activeScene, scenes): Breadcrumb[] => [
                 {
                     key: Scene.FeatureManagement,
-                    name: 'Feature management',
-                    path: urls.featureManagement('features'),
+                    name: 'Features',
+                    path: urls.features(),
                 },
                 {
                     key: [Scene.FeatureManagement, activeScene.id],

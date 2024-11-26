@@ -6,12 +6,8 @@ const EarlyAccessFeatures = lazy(() =>
         default: module.EarlyAccessFeatures,
     }))
 )
-const Experiments = lazy(() =>
-    import('scenes/experiments/Experiments').then((module) => ({ default: module.Experiments }))
-)
-const FeatureFlags = lazy(() => import('./FeatureFlags').then((module) => ({ default: module.FeatureFlags })))
 
-export const FEATURE_MANAGEMENT_SCENE_IDS = ['features', 'flags', 'experiments'] as const
+export const FEATURE_MANAGEMENT_SCENE_IDS = ['new'] as const
 export type FeatureManagementSceneId = (typeof FEATURE_MANAGEMENT_SCENE_IDS)[number]
 
 export type FeatureManagementScene = {
@@ -28,29 +24,11 @@ const LoadingSpinner = (): JSX.Element => (
 
 export const FEATURE_MANAGEMENT_SCENES: FeatureManagementScene[] = [
     {
-        id: 'features',
+        id: 'new',
         title: 'Features',
         component: (
             <Suspense fallback={<LoadingSpinner />}>
                 <EarlyAccessFeatures />
-            </Suspense>
-        ),
-    },
-    {
-        id: 'flags',
-        title: 'Flags',
-        component: (
-            <Suspense fallback={<LoadingSpinner />}>
-                <FeatureFlags />
-            </Suspense>
-        ),
-    },
-    {
-        id: 'experiments',
-        title: 'Experiments',
-        component: (
-            <Suspense fallback={<LoadingSpinner />}>
-                <Experiments />
             </Suspense>
         ),
     },
