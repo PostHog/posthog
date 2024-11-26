@@ -86,7 +86,7 @@ class ClickhouseCluster:
         with ThreadPoolExecutor() as executor:
             return FuturesMap({host: executor.submit(task, self.__get_pool(host)) for host in self.__hosts})
 
-    def map_shards(self, fn: Callable[[Client], T]) -> FuturesMap[int, T]:
+    def map_shards(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each shard in the cluster.
         """
@@ -101,6 +101,4 @@ class ClickhouseCluster:
                 shard_hosts[host.shard_num] = host
 
         with ThreadPoolExecutor() as executor:
-            return FuturesMap(
-                {shard_num: executor.submit(task, self.__get_pool(host)) for shard_num, host in shard_hosts.items()}
-            )
+            return FuturesMap({host: executor.submit(task, self.__get_pool(host)) for host in shard_hosts.values()})
