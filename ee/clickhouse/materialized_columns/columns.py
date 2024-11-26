@@ -252,34 +252,55 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
     )
 
 
-def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
-    drop_minmax_index(table, column_name)
+@dataclass
+class DropColumnOnDataNodesTask:
+    table: str
+    column_name: str
 
-    on_cluster = get_on_cluster_clause_for_table(table)
-    sync_execute(
-        f"ALTER TABLE {table} {on_cluster} DROP COLUMN IF EXISTS {column_name}",
-        settings={"alter_sync": 2 if TEST else 1},
-    )
+    def execute(self, client):
+        # XXX: copy/pasted from create task
+        index_name = f"minmax_{self.column_name}"
+        client.execute(
+            f"ALTER TABLE {self.table} DROP INDEX IF EXISTS {index_name}",
+            settings={"alter_sync": 2 if TEST else 1},
+        )
 
-    if table == "events":
-        sync_execute(
-            f"ALTER TABLE sharded_{table} {on_cluster} DROP COLUMN IF EXISTS {column_name}",
-            {"property": property},
+        client.execute(
+            f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
             settings={"alter_sync": 2 if TEST else 1},
         )
 
 
-def drop_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName) -> None:
-    on_cluster = get_on_cluster_clause_for_table(table)
+@dataclass
+class DropColumnOnQueryNodesTask:
+    table: str
+    column_name: str
 
-    # XXX: copy/pasted from `add_minmax_index`
-    updated_table = "sharded_events" if table == "events" else table
-    index_name = f"minmax_{column_name}"
+    def execute(self, client):
+        client.execute(
+            f"ALTER TABLE {self.table} DROP COLUMN IF EXISTS {self.column_name}",
+            settings={"alter_sync": 2 if TEST else 1},
+        )
 
-    sync_execute(
-        f"ALTER TABLE {updated_table} {on_cluster} DROP INDEX IF EXISTS {index_name}",
-        settings={"alter_sync": 2 if TEST else 1},
-    )
+
+def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
+    cluster = get_cluster()
+    table_info = tables[table]
+
+    if table_info.dist_table is not None:
+        drop_on_query_nodes = DropColumnOnQueryNodesTask(table_info.dist_table, column_name)
+        for host, future in cluster.map_hosts(drop_on_query_nodes.execute).as_completed():
+            try:
+                future.result()
+            except Exception as e:
+                raise Exception(f"Failed to run {drop_on_query_nodes!r} on {host!r}") from e
+
+    drop_on_data_nodes = DropColumnOnDataNodesTask(table_info.data_table, column_name)
+    for host, future in cluster.map_shards(drop_on_data_nodes.execute).as_completed():
+        try:
+            future.result()
+        except Exception as e:
+            raise Exception(f"Failed to run {drop_on_data_nodes!r} on {host!r}") from e
 
 
 def backfill_materialized_columns(
