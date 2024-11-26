@@ -1,6 +1,10 @@
 use crate::api::errors::FlagError;
 use crate::cohort::cohort_models::Cohort;
 use crate::flags::flag_matching::{PostgresReader, TeamId};
+use crate::metrics::metrics_consts::{
+    COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER, DB_COHORT_ERRORS_COUNTER,
+    DB_COHORT_READS_COUNTER,
+};
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,22 +67,56 @@ impl CohortCacheManager {
     /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
     /// caches the result upon successful retrieval, and then returns it.
     pub async fn get_cohorts(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
+        // First check cache before acquiring lock
         if let Some(cached_cohorts) = self.cache.get(&team_id).await {
+            common_metrics::inc(
+                COHORT_CACHE_HIT_COUNTER,
+                &[("team_id".to_string(), team_id.to_string())],
+                1,
+            );
             return Ok(cached_cohorts.clone());
         }
 
         // Acquire the lock before fetching
         let _lock = self.fetch_lock.lock().await;
 
-        // Double-check the cache after acquiring the lock
+        // Double-check the cache after acquiring lock
         if let Some(cached_cohorts) = self.cache.get(&team_id).await {
+            common_metrics::inc(
+                COHORT_CACHE_HIT_COUNTER,
+                &[("team_id".to_string(), team_id.to_string())],
+                1,
+            );
             return Ok(cached_cohorts.clone());
         }
 
-        let fetched_cohorts = Cohort::list_from_pg(self.reader.clone(), team_id).await?;
-        self.cache.insert(team_id, fetched_cohorts.clone()).await;
+        // If we get here, we have a cache miss
+        common_metrics::inc(
+            COHORT_CACHE_MISS_COUNTER,
+            &[("team_id".to_string(), team_id.to_string())],
+            1,
+        );
 
-        Ok(fetched_cohorts)
+        // Attempt to fetch from DB
+        match Cohort::list_from_pg(self.reader.clone(), team_id).await {
+            Ok(fetched_cohorts) => {
+                common_metrics::inc(
+                    DB_COHORT_READS_COUNTER,
+                    &[("team_id".to_string(), team_id.to_string())],
+                    1,
+                );
+                self.cache.insert(team_id, fetched_cohorts.clone()).await;
+                Ok(fetched_cohorts)
+            }
+            Err(e) => {
+                common_metrics::inc(
+                    DB_COHORT_ERRORS_COUNTER,
+                    &[("team_id".to_string(), team_id.to_string())],
+                    1,
+                );
+                Err(e)
+            }
+        }
     }
 }
 

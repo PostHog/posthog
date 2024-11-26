@@ -5,7 +5,11 @@ use crate::cohort::cohort_cache_manager::CohortCacheManager;
 use crate::cohort::cohort_models::{Cohort, CohortId};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
-use crate::metrics::metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER};
+use crate::metrics::metrics_consts::{
+    DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
+    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_EVALUATION_ERROR_COUNTER,
+    FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
+};
 use crate::metrics::metrics_utils::parse_exception_for_prometheus_label;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::{OperatorType, PropertyFilter};
@@ -107,11 +111,22 @@ impl GroupTypeMappingCache {
             Ok(mapping) if !mapping.is_empty() => mapping,
             Ok(_) => {
                 self.failed_to_fetch_flags = true;
-                // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
+                let reason = "no_group_type_mappings";
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
                 return Err(FlagError::NoGroupTypeMappings);
             }
             Err(e) => {
                 self.failed_to_fetch_flags = true;
+                let reason = parse_exception_for_prometheus_label(&e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
                 return Err(e);
             }
         };
@@ -135,7 +150,12 @@ impl GroupTypeMappingCache {
             self.group_indexes_to_types.clone_from(&result);
             Ok(result)
         } else {
-            // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
+            let reason = "no_group_type_mappings";
+            inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
             Err(FlagError::NoGroupTypeMappings)
         }
     }
@@ -164,7 +184,12 @@ impl GroupTypeMappingCache {
             .collect();
 
         if mapping.is_empty() {
-            // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
+            let reason = "no_group_type_mappings";
+            inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
             Err(FlagError::NoGroupTypeMappings)
         } else {
             Ok(mapping)
@@ -328,7 +353,6 @@ impl FeatureFlagMatcher {
             .await
             {
                 error!("Failed to set feature flag hash key overrides: {:?}", e);
-                // Increment the counter for failed write
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -340,7 +364,6 @@ impl FeatureFlagMatcher {
             writing_hash_key_override = true;
         }
 
-        // TODO I'm not sure if this is the right place to increment this counter
         inc(
             FLAG_HASH_KEY_WRITES_COUNTER,
             &[
@@ -443,7 +466,13 @@ impl FeatureFlagMatcher {
             )
             .await
             {
-                Ok(_) => {}
+                Ok(_) => {
+                    inc(
+                        DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
+                        &[("team_id".to_string(), team_id.to_string())],
+                        1,
+                    );
+                }
                 Err(e) => {
                     error_while_computing_flags = true;
                     // TODO add sentry exception tracking
@@ -806,7 +835,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Get group properties from cache or database.
+    /// Get group properties from overrides, cache or database.
     ///
     /// This function attempts to retrieve group properties either from a cache or directly from the database.
     /// It first checks if there are any locally computable property overrides. If so, it returns those.
@@ -832,9 +861,26 @@ impl FeatureFlagMatcher {
     /// and updates the cache accordingly.
     async fn get_person_id(&mut self) -> Result<PersonId, FlagError> {
         match self.properties_cache.person_id {
-            Some(id) => Ok(id),
+            Some(id) => {
+                inc(
+                    PROPERTY_CACHE_HITS_COUNTER,
+                    &[("type".to_string(), "person_id".to_string())],
+                    1,
+                );
+                Ok(id)
+            }
             None => {
+                inc(
+                    PROPERTY_CACHE_MISSES_COUNTER,
+                    &[("type".to_string(), "person_id".to_string())],
+                    1,
+                );
                 let id = self.get_person_id_from_db().await?;
+                inc(
+                    DB_PERSON_PROPERTIES_READS_COUNTER,
+                    &[("team_id".to_string(), self.team_id.to_string())],
+                    1,
+                );
                 self.properties_cache.person_id = Some(id);
                 Ok(id)
             }
@@ -852,7 +898,7 @@ impl FeatureFlagMatcher {
             .map(|(_, person_id)| person_id)
     }
 
-    /// Get person properties from cache or database.
+    /// Get person properties from overrides, cache or database.
     ///
     /// This function attempts to retrieve person properties either from a cache or directly from the database.
     /// It first checks if there are any locally computable property overrides. If so, it returns those.
@@ -997,15 +1043,32 @@ impl FeatureFlagMatcher {
             .group_properties
             .get(&group_type_index)
         {
+            inc(
+                PROPERTY_CACHE_HITS_COUNTER,
+                &[("type".to_string(), "group_properties".to_string())],
+                1,
+            );
             let mut result = HashMap::new();
             result.clone_from(properties);
             return Ok(result);
         }
 
+        inc(
+            PROPERTY_CACHE_MISSES_COUNTER,
+            &[("type".to_string(), "group_properties".to_string())],
+            1,
+        );
+
         let reader = self.reader.clone();
         let team_id = self.team_id;
         let db_properties =
             fetch_group_properties_from_db(reader, team_id, group_type_index).await?;
+
+        inc(
+            DB_GROUP_PROPERTIES_READS_COUNTER,
+            &[("team_id".to_string(), team_id.to_string())],
+            1,
+        );
 
         // once the properties are fetched, cache them so we don't need to fetch again in a given request
         self.properties_cache
@@ -1025,16 +1088,33 @@ impl FeatureFlagMatcher {
     ) -> Result<HashMap<String, Value>, FlagError> {
         // check if the properties are already cached, if so return them
         if let Some(properties) = &self.properties_cache.person_properties {
+            inc(
+                PROPERTY_CACHE_HITS_COUNTER,
+                &[("type".to_string(), "person_properties".to_string())],
+                1,
+            );
             let mut result = HashMap::new();
             result.clone_from(properties);
             return Ok(result);
         }
+
+        inc(
+            PROPERTY_CACHE_MISSES_COUNTER,
+            &[("type".to_string(), "person_properties".to_string())],
+            1,
+        );
 
         let reader = self.reader.clone();
         let distinct_id = self.distinct_id.clone();
         let team_id = self.team_id;
         let (db_properties, person_id) =
             fetch_person_properties_from_db(reader, distinct_id, team_id).await?;
+
+        inc(
+            DB_PERSON_PROPERTIES_READS_COUNTER,
+            &[("team_id".to_string(), team_id.to_string())],
+            1,
+        );
 
         // once the properties and person ID are fetched, cache them so we don't need to fetch again in a given request
         self.properties_cache.person_properties = Some(db_properties.clone());
@@ -1555,9 +1635,6 @@ fn locally_computable_property_overrides(
     property_filters: &[PropertyFilter],
 ) -> Option<HashMap<String, Value>> {
     property_overrides.as_ref().and_then(|overrides| {
-        // TODO handle note from Neil: https://github.com/PostHog/posthog/pull/24589#discussion_r1735828561
-        // TL;DR – we'll need to handle cohort properties at the DB level, i.e. we'll need to adjust the cohort query
-        // to account for if a given person is an element of the cohort X, Y, Z, etc
         let should_prefer_overrides = property_filters
             .iter()
             .all(|prop| overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
