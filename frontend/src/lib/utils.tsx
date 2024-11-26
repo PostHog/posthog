@@ -243,6 +243,7 @@ export const stickinessOperatorMap: Record<string, string> = {
 }
 
 export const allOperatorsMapping: Record<string, string> = {
+    ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
@@ -251,7 +252,6 @@ export const allOperatorsMapping: Record<string, string> = {
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
-    ...stickinessOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
