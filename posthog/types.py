@@ -31,7 +31,7 @@ from posthog.schema import (
     RetentionQuery,
     PathsQuery,
     StickinessQuery,
-    LifecycleQuery,
+    LifecycleQuery, StickinessActorsQuery,
 )
 
 FilterType: TypeAlias = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
@@ -46,7 +46,7 @@ InsightQueryNode: TypeAlias = Union[
     LifecycleQuery,
 ]
 
-InsightActorsQueryNode: TypeAlias = Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery]
+InsightActorsQueryNode: TypeAlias = Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery]
 
 AnyPropertyFilter: TypeAlias = Union[
     EventPropertyFilter,

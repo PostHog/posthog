@@ -32,7 +32,7 @@ from posthog.schema import (
     FunnelsQuery,
     FunnelsActorsQuery,
     FunnelsFilter,
-    FunnelConversionWindowTimeUnit, StickinessQuery, StickinessFilter, StickinessCriteria,
+    FunnelConversionWindowTimeUnit, StickinessQuery, StickinessFilter, StickinessCriteria, StickinessActorsQuery,
 )
 from posthog.queries.cohort_query import CohortQuery
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -125,9 +125,9 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 
-    def _actors_query_from_insight_query(self, query: Union[TrendsQuery, FunnelsQuery, StickinessQuery], **kwargs) -> ast.SelectQuery:
+    def _actors_query_from_source(self, source: Union[InsightActorsQuery, FunnelsActorsQuery]) -> ast.SelectQuery:
         actors_query = ActorsQuery(
-            source=InsightActorsQuery(source=query, **kwargs),
+            source=source,
             select=["id"],
         )
         return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
@@ -166,7 +166,7 @@ class HogQLCohortQuery:
             series=series,
         )
 
-        return self._actors_query_from_insight_query(trends_query)
+        return self._actors_query_from_source(InsightActorsQuery(source=trends_query))
 
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
@@ -225,7 +225,7 @@ class HogQLCohortQuery:
                 funnelWindowInterval=12 * 50, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MONTH
             ),
         )
-        return self._actors_query_from_insight_query(funnel_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps)
+        return self._actors_query_from_source(FunnelsActorsQuery(source=funnel_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps))
 
     def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:
         # either an action or an event
@@ -269,7 +269,7 @@ class HogQLCohortQuery:
                 funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.SECOND,
             ),
         )
-        return self._actors_query_from_insight_query(funnel_query, funnelStep=2)
+        return self._actors_query_from_source(FunnelsActorsQuery(source=funnel_query, funnelStep=2))
 
     def get_stopped_performing_event(self, prop: Property) -> ast.SelectSetQuery:
         # time_value / time_value_interval is the furthest back
@@ -299,24 +299,24 @@ class HogQLCohortQuery:
         date_interval = validate_interval(prop.seq_time_interval)
         date_to = f"-{date_value}{date_interval[:1]}"
 
-        select_for_first_range = self._actors_query_from_insight_query(TrendsQuery(
+        select_for_first_range = self._actors_query_from_source(InsightActorsQuery(source=TrendsQuery(
             dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=series,
-        ))
+        )))
 
         # want people in here who were not "for the first time" who were not in the prior one
-        select_for_second_range = self._actors_query_from_insight_query(TrendsQuery(
+        select_for_second_range = self._actors_query_from_source(InsightActorsQuery(source=TrendsQuery(
             dateRange=InsightDateRange(date_from=date_to),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=series,
-        ))
+        )))
 
-        select_for_second_range_first_time = self._actors_query_from_insight_query(TrendsQuery(
+        select_for_second_range_first_time = self._actors_query_from_source(InsightActorsQuery(source=TrendsQuery(
             dateRange=InsightDateRange(date_from=date_to),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=first_time_series,
-        ))
+        )))
 
         # People who did the event in the recent window, who had done it previously, who did not do it in the previous window
         return ast.SelectSetQuery(
@@ -335,33 +335,37 @@ class HogQLCohortQuery:
         # time_value
         # total periods
 
+        series = self._get_series(prop)
+
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         date_interval = validate_interval(prop.time_interval)
         date_from = f"-{date_value}{date_interval[:1]}"
 
         stickiness_query = StickinessQuery(
+            series=series,
             dateRange=InsightDateRange(date_from=date_from),
             stickinessFilter=StickinessFilter(stickinessCriteria=StickinessCriteria(operator=prop.operator, value=prop.operator_value)),
         )
-        return self._actors_query_from_insight_query(stickiness_query)
+        # this might be off by one for min_periods
+        return self._actors_query_from_source(StickinessActorsQuery(source=stickiness_query, day=prop.min_periods - 1, operator=prop.operator))
 
-    series = self._get_series(prop)
+        series = self._get_series(prop)
         first_time_series = self._get_series(prop, math=BaseMathType.FIRST_TIME_FOR_USER)
 
-        select_for_first_range = self._actors_query_from_insight_query(TrendsQuery(
+        select_for_first_range = self._actors_query_from_source(TrendsQuery(
             dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=series,
         ))
 
         # want people in here who were not "for the first time" who were not in the prior one
-        select_for_second_range = self._actors_query_from_insight_query(TrendsQuery(
+        select_for_second_range = self._actors_query_from_source(TrendsQuery(
             dateRange=InsightDateRange(date_from=date_to),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=series,
         ))
 
-        select_for_second_range_first_time = self._actors_query_from_insight_query(TrendsQuery(
+        select_for_second_range_first_time = self._actors_query_from_source(TrendsQuery(
             dateRange=InsightDateRange(date_from=date_to),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=first_time_series,
