@@ -96,9 +96,9 @@ class FeatureFlagStatusChecker:
         #
         # Alternatively, if there is a release condition set to 100% and it has a
         # variant override, the flag is fully enabled.
-        fully_enabled_variant_key = None
+        fully_enabled_variant_key: str | None = None
         some_release_condition_fully_enabled = False
-        fully_enabled_release_condition_variant_override = None
+        fully_enabled_release_condition_variant_override: str | None = None
 
         multivariate = flag.filters.get("multivariate", None)
         variants = multivariate.get("variants", [])
@@ -114,7 +114,7 @@ class FeatureFlagStatusChecker:
                     fully_enabled_release_condition_variant_override or release_condition.get("variant", None)
                 )
 
-        fully_enabled_variant = fully_enabled_release_condition_variant_override or fully_enabled_variant_key
+        fully_enabled_variant = fully_enabled_release_condition_variant_override or fully_enabled_variant_key or ""
         return some_release_condition_fully_enabled and (
             fully_enabled_release_condition_variant_override is not None or fully_enabled_variant_key is not None
         ), fully_enabled_variant
