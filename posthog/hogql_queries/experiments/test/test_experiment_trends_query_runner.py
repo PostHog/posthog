@@ -557,6 +557,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.absolute_exposure, 9)
 
     def test_query_runner_with_invalid_data_warehouse_table_name(self):
+        # parquet file isn't created, so we'll get an error
         table_name = "invalid_table_name"
 
         feature_flag = self.create_feature_flag()
