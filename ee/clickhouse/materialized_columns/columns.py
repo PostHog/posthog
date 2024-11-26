@@ -10,13 +10,13 @@ from typing import Any, Literal, TypeVar, cast
 from clickhouse_driver import Client
 from django.utils.timezone import now
 
+from posthog.cache_utils import cache_for
 from posthog.clickhouse.client.connection import default_client
 from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo, FuturesMap, HostInfo
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
@@ -132,14 +132,18 @@ def get_materialized_columns(
     table: TablesWithMaterializedColumns,
     exclude_disabled_columns: bool = False,
 ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
-    if not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
-        return {}
-
     return {
         (column.details.property_name, column.details.table_column): column.name
         for column in MaterializedColumn.get_all(table)
         if not (exclude_disabled_columns and column.details.is_disabled)
     }
+
+
+@cache_for(timedelta(minutes=15))
+def get_enabled_materialized_columns(
+    table: TablesWithMaterializedColumns,
+) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+    return get_materialized_columns(table, exclude_disabled_columns=True)
 
 
 def get_cluster() -> ClickhouseCluster:

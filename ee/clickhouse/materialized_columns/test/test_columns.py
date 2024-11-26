@@ -10,12 +10,13 @@ from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumnDetails,
     backfill_materialized_columns,
     drop_column,
+    get_enabled_materialized_columns,
     get_materialized_columns,
     materialize,
     update_column_is_disabled,
 )
 from ee.tasks.materialized_columns import mark_all_materialized
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
