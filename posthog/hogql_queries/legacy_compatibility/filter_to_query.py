@@ -2,7 +2,9 @@ import copy
 import json
 import re
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Optional
+
+from pydantic import Field
 
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
@@ -25,6 +27,7 @@ from posthog.schema import (
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
+    RetentionEntity,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
@@ -187,7 +190,12 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
 
 
 # TODO: remove this method that returns legacy entities
-def to_base_entity_dict(entity: dict):
+def to_base_entity_dict(entity: dict | str):
+    if isinstance(entity, str):
+        if entity.startswith("{") and entity.endswith("}"):
+            return entity
+        raise ValueError("Expecting valid entity or template variable")
+
     return {
         "type": entity.get("type"),
         "id": entity.get("id"),
@@ -201,6 +209,27 @@ insight_to_query_type = {
     "TRENDS": TrendsQuery,
     "FUNNELS": FunnelsQuery,
     "RETENTION": RetentionQuery,
+    "PATHS": PathsQuery,
+    "LIFECYCLE": LifecycleQuery,
+    "STICKINESS": StickinessQuery,
+}
+
+
+class RetentionFilterWithTemplateVariables(RetentionFilter):
+    returningEntity: Optional[RetentionEntity | str] = None
+    targetEntity: Optional[RetentionEntity | str] = None
+
+
+class RetentionQueryWithTemplateVariables(RetentionQuery):
+    retentionFilter: RetentionFilterWithTemplateVariables = Field(
+        ..., description="Properties specific to the retention insight"
+    )
+
+
+insight_to_query_type_with_variables = {
+    "TRENDS": TrendsQuery,
+    "FUNNELS": FunnelsQuery,
+    "RETENTION": RetentionQueryWithTemplateVariables,
     "PATHS": PathsQuery,
     "LIFECYCLE": LifecycleQuery,
     "STICKINESS": StickinessQuery,
@@ -394,7 +423,7 @@ def _group_aggregation_filter(filter: dict):
     return {"aggregation_group_type_index": filter.get("aggregation_group_type_index")}
 
 
-def _insight_filter(filter: dict):
+def _insight_filter(filter: dict, allow_variables: bool = False):
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
             "trendsFilter": TrendsFilter(
@@ -440,8 +469,9 @@ def _insight_filter(filter: dict):
             ),
         }
     elif _insight_type(filter) == "RETENTION":
+        RetentionFilterClass = RetentionFilterWithTemplateVariables if allow_variables else RetentionFilter
         insight_filter = {
-            "retentionFilter": RetentionFilter(
+            "retentionFilter": RetentionFilterClass(
                 retentionType=filter.get("retention_type"),
                 retentionReference=filter.get("retention_reference"),
                 totalIntervals=filter.get("total_intervals"),
@@ -526,10 +556,14 @@ def _insight_type(filter: dict) -> INSIGHT_TYPE:
     return filter.get("insight", "TRENDS")
 
 
-def filter_to_query(filter: dict) -> InsightQueryNode:
+def filter_to_query(filter: dict, allow_variables: bool = False) -> InsightQueryNode:
     filter = copy.deepcopy(filter)  # duplicate to prevent accidental filter alterations
 
-    Query = insight_to_query_type[_insight_type(filter)]
+    Query = (
+        insight_to_query_type_with_variables[_insight_type(filter)]
+        if allow_variables
+        else insight_to_query_type[_insight_type(filter)]
+    )
 
     data = {
         **_date_range(filter),
@@ -541,7 +575,7 @@ def filter_to_query(filter: dict) -> InsightQueryNode:
         **_breakdown_filter(filter),
         **_compare_filter(filter),
         **_group_aggregation_filter(filter),
-        **_insight_filter(filter),
+        **_insight_filter(filter, allow_variables),
     }
 
     # :KLUDGE: We do this dance to have default values instead of None, when setting
