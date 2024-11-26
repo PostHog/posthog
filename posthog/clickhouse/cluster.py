@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from typing import Literal, NamedTuple, TypeVar
@@ -9,6 +10,9 @@ from clickhouse_pool import ChPool
 from django.conf import settings
 
 from posthog.clickhouse.client.connection import make_ch_pool
+
+
+logger = logging.getLogger(__name__)
 
 
 K = TypeVar("K")
@@ -87,7 +91,15 @@ class ClickhouseCluster:
 
         def task():
             with pool.get_client() as client:
-                return fn(client)
+                logger.debug("Executing %r on %r...", fn, host)
+                try:
+                    result = fn(client)
+                except Exception:
+                    logger.exception("Failed to execute %r on %r!", fn, host)
+                    raise
+                else:
+                    logger.debug("Successfully executed %r on %r.", fn, host)
+                return result
 
         return task
 
