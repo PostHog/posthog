@@ -77,6 +77,7 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -118,6 +119,7 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -162,6 +164,7 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -269,6 +272,7 @@ LEFT JOIN (
 ) AS scroll
 ON counts.breakdown_value = scroll.breakdown_value
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -346,6 +350,7 @@ LEFT JOIN (
 ) as bounce
 ON counts.breakdown_value = bounce.breakdown_value
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -499,24 +504,26 @@ ORDER BY "context.columns.visitors" DESC,
                 )
             case WebStatsBreakdown.CITY:
                 return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
+            case WebStatsBreakdown.TIMEZONE:
+                # Get the difference between the UNIX timestamp at UTC and the UNIX timestamp at the event's timezone
+                # Value is in milliseconds, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
+                return parse_expr(
+                    "if(or(isNull(properties.$timezone), empty(properties.$timezone)), NULL, (toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, properties.$timezone)))) - toUnixTimestamp64Milli(timestamp)) / 3600000)"
+                )
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
     def where_breakdown(self):
         match self.query.breakdownBy:
-            case WebStatsBreakdown.REGION:
+            case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.CITY:
-                return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.INITIAL_UTM_SOURCE:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_MEDIUM:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_TERM:
-                return parse_expr("TRUE")  # actually show null values
-            case WebStatsBreakdown.INITIAL_UTM_CONTENT:
+            case (
+                WebStatsBreakdown.INITIAL_UTM_SOURCE
+                | WebStatsBreakdown.INITIAL_UTM_CAMPAIGN
+                | WebStatsBreakdown.INITIAL_UTM_MEDIUM
+                | WebStatsBreakdown.INITIAL_UTM_TERM
+                | WebStatsBreakdown.INITIAL_UTM_CONTENT
+            ):
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr(

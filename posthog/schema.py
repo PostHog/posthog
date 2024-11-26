@@ -676,6 +676,27 @@ class Day(RootModel[int]):
     root: int
 
 
+class DefaultChannelTypes(StrEnum):
+    CROSS_NETWORK = "Cross Network"
+    PAID_SEARCH = "Paid Search"
+    PAID_SOCIAL = "Paid Social"
+    PAID_VIDEO = "Paid Video"
+    PAID_SHOPPING = "Paid Shopping"
+    PAID_UNKNOWN = "Paid Unknown"
+    DIRECT = "Direct"
+    ORGANIC_SEARCH = "Organic Search"
+    ORGANIC_SOCIAL = "Organic Social"
+    ORGANIC_VIDEO = "Organic Video"
+    ORGANIC_SHOPPING = "Organic Shopping"
+    PUSH = "Push"
+    SMS = "SMS"
+    AUDIO = "Audio"
+    EMAIL = "Email"
+    REFERRAL = "Referral"
+    AFFILIATE = "Affiliate"
+    UNKNOWN = "Unknown"
+
+
 class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
@@ -1402,6 +1423,7 @@ class ReasoningMessage(BaseModel):
     )
     content: str
     done: Literal[True] = True
+    substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
 
 
@@ -1513,16 +1535,6 @@ class StepOrderValue(StrEnum):
     ORDERED = "ordered"
 
 
-class StickinessFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    display: Optional[ChartDisplayType] = None
-    hiddenLegendIndexes: Optional[list[int]] = None
-    showLegend: Optional[bool] = None
-    showValuesOnSeries: Optional[bool] = None
-
-
 class StickinessFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1533,6 +1545,12 @@ class StickinessFilterLegacy(BaseModel):
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
+
+
+class StickinessOperator(StrEnum):
+    GTE = "gte"
+    LTE = "lte"
+    EXACT = "exact"
 
 
 class SuggestedQuestionsQueryResponse(BaseModel):
@@ -1702,6 +1720,7 @@ class WebStatsBreakdown(StrEnum):
     COUNTRY = "Country"
     REGION = "Region"
     CITY = "City"
+    TIMEZONE = "Timezone"
 
 
 class Scale(StrEnum):
@@ -2095,6 +2114,7 @@ class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    id: str
     key: CustomChannelField
     op: CustomChannelOperator
     value: Optional[Union[str, list[str]]] = None
@@ -2106,7 +2126,8 @@ class CustomChannelRule(BaseModel):
     )
     channel_type: str
     combiner: FilterLogicalOperator
-    conditions: list[CustomChannelCondition]
+    id: str
+    items: list[CustomChannelCondition]
 
 
 class DataWarehousePersonPropertyFilter(BaseModel):
@@ -3267,6 +3288,25 @@ class SessionsTimelineQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class StickinessCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: StickinessOperator
+    value: int
+
+
+class StickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: Optional[ChartDisplayType] = None
+    hiddenLegendIndexes: Optional[list[int]] = None
+    showLegend: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
+    stickinessCriteria: Optional[StickinessCriteria] = None
 
 
 class StickinessQueryResponse(BaseModel):

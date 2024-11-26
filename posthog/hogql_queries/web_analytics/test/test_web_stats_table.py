@@ -1004,3 +1004,144 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         assert results == [["/path1", 1, 1]]
+
+    def test_timezone_filter(self):
+        date = "2024-07-30"
+
+        for idx, (distinct_id, session_id) in enumerate(
+            [
+                ("UTC", str(uuid7(date))),
+                ("Asia/Calcutta", str(uuid7(date))),
+                ("America/New_York", str(uuid7(date))),
+                ("America/Sao_Paulo", str(uuid7(date))),
+            ]
+        ):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={"name": session_id, "email": f"{distinct_id}@example.com"},
+            )
+
+            for i in range(idx + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=date,
+                    properties={"$session_id": session_id, "$pathname": f"/path{i}", "$timezone": distinct_id},
+                )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Brasilia UTC-3, New York UTC-4, Calcutta UTC+5:30, UTC
+        assert results == [[-3.0, 1.0, 4.0], [-4.0, 1.0, 3.0], [5.5, 1.0, 2.0], [0.0, 1.0, 1.0]]
+
+    def test_timezone_filter_dst_change(self):
+        did = "id"
+        sid = str(uuid7("2019-02-17"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[did],
+            properties={"name": sid, "email": f"test@example.com"},
+        )
+
+        # Cross daylight savings time change in Brazil
+        for i in range(6):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=did,
+                timestamp=f"2019-02-17 0{i}:00:00",
+                properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": "America/Sao_Paulo"},
+            )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Change from UTC-2 to UTC-3 in the middle of the night
+        assert results == [[-3.0, 1.0, 4.0], [-2.0, 1.0, 2.0]]
+
+    def test_timezone_filter_with_invalid_timezone(self):
+        date = "2024-07-30"
+
+        for idx, (distinct_id, session_id) in enumerate(
+            [
+                ("UTC", str(uuid7(date))),
+                ("Timezone_not_exists", str(uuid7(date))),
+            ]
+        ):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={"name": session_id, "email": f"{distinct_id}@example.com"},
+            )
+
+            for i in range(idx + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=date,
+                    properties={"$session_id": session_id, "$pathname": f"/path{i}", "$timezone": distinct_id},
+                )
+
+        with self.assertRaisesRegex(Exception, "Cannot load time zone"):
+            self._run_web_stats_table_query(
+                "all",
+                None,
+                breakdown_by=WebStatsBreakdown.TIMEZONE,
+            )
+
+    def test_timezone_filter_with_empty_timezone(self):
+        did = "id"
+        sid = str(uuid7("2019-02-17"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[did],
+            properties={"name": sid, "email": f"test@example.com"},
+        )
+
+        # Key not exists
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1"},
+        )
+
+        # Key exists, it's null
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": None},
+        )
+
+        # Key exists, it's empty string
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": ""},
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Don't crash, treat all of them null
+        assert results == []

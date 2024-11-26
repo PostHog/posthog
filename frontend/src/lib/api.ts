@@ -1888,11 +1888,15 @@ const api = {
             return await new ApiRequest().errorTrackingSymbolSets().get()
         },
 
-        async symbolSetStackFrames(id: ErrorTrackingSymbolSet['id']): Promise<ErrorTrackingStackFrameRecord[]> {
+        async symbolSetStackFrames(
+            id: ErrorTrackingSymbolSet['id']
+        ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
         },
 
-        async stackFrames(raw_ids: ErrorTrackingStackFrame['raw_id'][]): Promise<ErrorTrackingStackFrameRecord[]> {
+        async stackFrames(
+            raw_ids: ErrorTrackingStackFrame['raw_id'][]
+        ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
         },
     },
