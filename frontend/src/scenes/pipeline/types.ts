@@ -89,6 +89,10 @@ export interface SiteApp extends PluginBasedNode {
     stage: PipelineStage.SiteApp
 }
 
+export interface SiteAppOld extends PluginBasedNode {
+    stage: PipelineStage.SiteAppOld
+}
+
 // Legacy: Import apps
 export interface ImportApp extends PluginBasedNode {
     stage: PipelineStage.ImportApp
@@ -100,7 +104,7 @@ export interface Source extends PluginBasedNode {
 
 // Final
 
-export type PipelineNode = Transformation | Destination | SiteApp | ImportApp | Source
+export type PipelineNode = Transformation | Destination | SiteApp | SiteAppOld | ImportApp | Source
 
 // Utils
 
@@ -119,6 +123,8 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? Destination
     : S extends PipelineStage.SiteApp
     ? SiteApp
+    : S extends PipelineStage.SiteAppOld
+    ? SiteAppOld
     : S extends PipelineStage.ImportApp
     ? ImportApp
     : S extends PipelineStage.Source
@@ -146,7 +152,7 @@ export function convertToPipelineNode<S extends PipelineStage>(
         }
     } else if (isPluginConfig(candidate)) {
         const almostNode: Omit<
-            Transformation | WebhookDestination | SiteApp | ImportApp | Source,
+            Transformation | WebhookDestination | SiteApp | SiteAppOld | ImportApp | Source,
             'frequency' | 'order'
         > = {
             stage: stage,
