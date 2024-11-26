@@ -29,7 +29,7 @@ class FeatureFlagStatusChecker:
     def __init__(
         self,
         feature_flag_id: str,
-        # The amount of time considered "recent" for the purposes of determining staleness .
+        # The amount of time considered "recent" for the purposes of determining staleness.
         stale_window: str = "-30d",
     ):
         self.feature_flag_id = feature_flag_id
@@ -53,7 +53,7 @@ class FeatureFlagStatusChecker:
         if self.is_flag_unevaluated_recently(flag):
             return FeatureFlagStatus.INACTIVE, "Flag has not been evaluated recently"
 
-        return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be actively called"
+        return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be active"
 
     def is_flag_fully_enabled(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
         # If flag is not active, it is not enabled. This flag may still be stale,
