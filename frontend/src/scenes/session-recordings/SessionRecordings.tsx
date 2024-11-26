@@ -167,7 +167,8 @@ function Warnings(): JSX.Element {
                     action={{
                         type: 'secondary',
                         icon: <IconGear />,
-                        onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
+                        onClick: () =>
+                            openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-authorized-domains' }),
                         children: 'Configure',
                     }}
                     dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}

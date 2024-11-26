@@ -1423,6 +1423,7 @@ class ReasoningMessage(BaseModel):
     )
     content: str
     done: Literal[True] = True
+    substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
 
 
