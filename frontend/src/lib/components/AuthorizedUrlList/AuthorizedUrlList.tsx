@@ -1,4 +1,4 @@
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -159,7 +159,11 @@ export function AuthorizedUrlList({
                             <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
                                 {keyedURL.type === 'suggestion' && (
                                     <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
-                                        <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">
+                                        <LemonTag
+                                            type="highlight"
+                                            className="mr-4 uppercase cursor-pointer"
+                                            icon={<IconInfo />}
+                                        >
                                             Suggestion
                                         </LemonTag>
                                     </Tooltip>
