@@ -481,8 +481,25 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     ) -> ast.JoinExpr:
         from posthog.hogql import ast
 
+        def select_from_events_table(requested_fields: dict[str, list[str | int]]):
+            fields_to_select = []
+            for name, chain in requested_fields.items():
+                fields_to_select.append(ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain])))
+            select = ast.SelectQuery(
+                select=fields_to_select,
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            )
+            return select
+
         join_expr = ast.JoinExpr(
-            table=ast.Field(chain=["events"]),
+            table=select_from_events_table(
+                {
+                    **join_to_add.fields_accessed,
+                    "timestamp": ["timestamp"],
+                    "distinct_id": ["distinct_id"],
+                    "properties": ["properties"],
+                }
+            ),
             join_type="ASOF LEFT JOIN",
             alias=join_to_add.to_table,
             constraint=ast.JoinConstraint(
