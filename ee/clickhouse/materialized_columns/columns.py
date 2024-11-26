@@ -2,20 +2,22 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from copy import copy
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Literal, NamedTuple, cast
 
-from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
 
+from posthog.clickhouse.client.connection import default_client
+from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
 
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
 
@@ -120,6 +122,90 @@ def get_on_cluster_clause_for_table(table: TableWithProperties) -> str:
     return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
 
+def get_cluster() -> ClickhouseCluster:
+    extra_hosts = []
+    for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
+        extra_hosts.append(ConnectionInfo(host_config.pop("host"), host_config.pop("port", None)))
+        assert len(host_config) == 0, f"unexpected values: {host_config!r}"
+    return ClickhouseCluster(default_client(), extra_hosts=extra_hosts)
+
+
+class TableInfo(NamedTuple):
+    data_table: str
+    dist_table: str | None
+
+
+tables = {
+    "events": TableInfo("sharded_events", "events"),
+    "person": TableInfo("person", None),
+    # TODO ...
+}
+
+
+@dataclass
+class CreateColumnOnDataNodesTask:
+    table: str
+    column_name: str
+    table_column: str
+    property_name: str
+    create_minmax_index: bool
+
+    def execute(self, client):
+        client.execute(
+            f"""
+            ALTER TABLE {self.table}
+                ADD COLUMN IF NOT EXISTS {self.column_name} VARCHAR
+                    MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=self.table_column)},
+                COMMENT COLUMN {self.column_name} %(comment)s
+            """,
+            {
+                "comment": MaterializedColumnDetails(
+                    self.table_column,
+                    self.property_name,
+                    is_disabled=False,
+                ).as_column_comment(),
+                "property": self.property_name,
+            },
+            settings={"alter_sync": 2 if TEST else 1},
+        )
+
+        if self.create_minmax_index:
+            index_name = f"minmax_{self.column_name}"
+            client.execute(
+                f"""
+                ALTER TABLE {self.table}
+                ADD INDEX IF NOT EXISTS {index_name} {self.column_name}
+                TYPE minmax GRANULARITY 1
+                """,
+                settings={"alter_sync": 2 if TEST else 1},
+            )
+
+
+@dataclass
+class CreateColumnOnQueryNodesTask:
+    table: str
+    column_name: str
+    table_column: str
+    property_name: str
+
+    def execute(self, client):
+        client.execute(
+            f"""
+            ALTER TABLE {self.table}
+                ADD COLUMN IF NOT EXISTS {self.column_name} VARCHAR,
+                COMMENT COLUMN {self.column_name} %(comment)s
+            """,
+            {
+                "comment": MaterializedColumnDetails(
+                    self.table_column,
+                    self.property_name,
+                    is_disabled=False,
+                ).as_column_comment(),
+            },
+            settings={"alter_sync": 2 if TEST else 1},
+        )
+
+
 def materialize(
     table: TableWithProperties,
     property: PropertyName,
@@ -137,45 +223,26 @@ def materialize(
         raise ValueError(f"Invalid table_column={table_column} for materialisation")
 
     column_name = column_name or _materialized_column_name(table, property, table_column)
-    on_cluster = get_on_cluster_clause_for_table(table)
 
-    if table == "events":
-        sync_execute(
-            f"""
-            ALTER TABLE sharded_{table} {on_cluster}
-            ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
-        """,
-            {"property": property},
-            settings={"alter_sync": 2 if TEST else 1},
-        )
-        sync_execute(
-            f"""
-            ALTER TABLE {table} {on_cluster}
-            ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR
-        """,
-            settings={"alter_sync": 2 if TEST else 1},
-        )
-    else:
-        sync_execute(
-            f"""
-            ALTER TABLE {table} {on_cluster}
-            ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
-        """,
-            {"property": property},
-            settings={"alter_sync": 2 if TEST else 1},
-        )
+    cluster = get_cluster()
+    table_info = tables[table]
 
-    sync_execute(
-        f"ALTER TABLE {table} {on_cluster} COMMENT COLUMN {column_name} %(comment)s",
-        {"comment": MaterializedColumnDetails(table_column, property, is_disabled=False).as_column_comment()},
-        settings={"alter_sync": 2 if TEST else 1},
+    create_on_data_nodes = CreateColumnOnDataNodesTask(
+        table_info.data_table, column_name, table_column, property, create_minmax_index
     )
+    for host, future in cluster.map_shards(create_on_data_nodes.execute).as_completed():
+        try:
+            future.result()
+        except Exception as e:
+            raise Exception(f"Failed to run {create_on_data_nodes!r} on {host!r}") from e
 
-    if create_minmax_index:
-        add_minmax_index(table, column_name)
+    if table_info.dist_table is not None:
+        create_on_query_nodes = CreateColumnOnQueryNodesTask(table_info.dist_table, column_name, table_column, property)
+        for host, future in cluster.map_hosts(create_on_query_nodes.execute).as_completed():
+            try:
+                future.result()
+            except Exception as e:
+                raise Exception(f"Failed to run {create_on_query_nodes!r} on {host!r}") from e
 
     return column_name
 
@@ -209,28 +276,6 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
             {"property": property},
             settings={"alter_sync": 2 if TEST else 1},
         )
-
-
-def add_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName):
-    # Note: This will be populated on backfill
-    on_cluster = get_on_cluster_clause_for_table(table)
-    updated_table = "sharded_events" if table == "events" else table
-    index_name = f"minmax_{column_name}"
-
-    try:
-        sync_execute(
-            f"""
-            ALTER TABLE {updated_table} {on_cluster}
-            ADD INDEX {index_name} {column_name}
-            TYPE minmax GRANULARITY 1
-            """,
-            settings={"alter_sync": 2 if TEST else 1},
-        )
-    except ServerException as err:
-        if "index with this name already exists" not in str(err):
-            raise
-
-    return index_name
 
 
 def drop_minmax_index(table: TablesWithMaterializedColumns, column_name: ColumnName) -> None:
