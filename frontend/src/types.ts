@@ -4053,6 +4053,9 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
+    configuration?: {
+        experiments_optimized: boolean
+    }
 }
 
 export enum DataWarehouseSettingsTab {

@@ -41,6 +41,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         deleteViewLink: (table, column) => ({ table, column }),
         setError: (error: string) => ({ error }),
         setFieldName: (fieldName: string) => ({ fieldName }),
+        setExperimentsOptimized: (experimentsOptimized: boolean) => ({ experimentsOptimized }),
         clearModalFields: true,
     })),
     reducers({
@@ -101,6 +102,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 clearModalFields: () => '',
             },
         ],
+        experimentsOptimized: [
+            false as boolean,
+            {
+                setExperimentsOptimized: (_, { experimentsOptimized }) => experimentsOptimized,
+            },
+        ],
         isJoinTableModalOpen: [
             false,
             {
@@ -136,6 +143,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             joining_table_name,
                             joining_table_key: values.selectedJoiningKey ?? undefined,
                             field_name: values.fieldName,
+                            configuration: {
+                                experiments_optimized: values.experimentsOptimized,
+                            },
                         })
 
                         actions.toggleJoinTableModal()
@@ -156,6 +166,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             joining_table_name,
                             joining_table_key: values.selectedJoiningKey ?? undefined,
                             field_name: values.fieldName,
+                            configuration: {
+                                experiments_optimized: values.experimentsOptimized,
+                            },
                         })
 
                         actions.toggleJoinTableModal()

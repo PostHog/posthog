@@ -3,6 +3,7 @@ import './ViewLinkModal.scss'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonDivider,
     LemonDropdown,
     LemonInput,
@@ -58,6 +59,7 @@ export function ViewLinkForm(): JSX.Element {
         sourceIsUsingHogQLExpression,
         joiningIsUsingHogQLExpression,
         isViewLinkSubmitting,
+        experimentsOptimized,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -66,6 +68,7 @@ export function ViewLinkForm(): JSX.Element {
         setFieldName,
         selectSourceKey,
         selectJoiningKey,
+        setExperimentsOptimized,
     } = useActions(viewLinkLogic)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -151,6 +154,22 @@ export function ViewLinkForm(): JSX.Element {
                         </Field>
                     </div>
                 </div>
+                {'events' === selectedJoiningTableName && (
+                    <div className="w-full mt-2">
+                        <LemonDivider className="mt-4 mb-4" />
+                        <div>
+                            <h3 className="l4 mt-2">Experiment optimizations</h3>
+                            <Field name="experiments_optimized">
+                                <LemonCheckbox
+                                    checked={experimentsOptimized}
+                                    onChange={(checked) => setExperimentsOptimized(checked)}
+                                    fullWidth
+                                    label="Optimize table join for use with experiments"
+                                />
+                            </Field>
+                        </div>
+                    </div>
+                )}
                 {sqlCodeSnippet && (
                     <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />
