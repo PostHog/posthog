@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
-from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from typing import NamedTuple, TypeVar
 
 from clickhouse_driver import Client
@@ -22,16 +22,6 @@ class FuturesMap(dict[K, Future[V]]):
 
         for f in as_completed(self.values()):
             yield reverse_map[f], f
-
-    def wait(self, *args, **kwargs) -> tuple[FuturesMap[K, V], FuturesMap[K, V]]:
-        reverse_map = {v: k for k, v in self.items()}
-        assert len(reverse_map) == len(self)
-
-        done_futures, not_done_futures = wait(self.values(), *args, **kwargs)
-        return (
-            FuturesMap({reverse_map[f]: f for f in done_futures}),
-            FuturesMap({reverse_map[f]: f for f in not_done_futures}),
-        )
 
     def result(
         self, timeout: float | int | None = None, return_when: FIRST_EXCEPTION | ALL_COMPLETED = ALL_COMPLETED
