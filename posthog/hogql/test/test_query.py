@@ -79,7 +79,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
-                "select count, event from (select count() as count, event from events where properties.random_uuid = {random_uuid} group by event) group by count, event",
+                "select cnt, event from (select count() as cnt, event from events where properties.random_uuid = {random_uuid} group by event) group by cnt, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
                 pretty=False,
@@ -93,7 +93,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
-                "select count, event from (select count(*) as count, event from events where properties.random_uuid = {random_uuid} group by event) as c group by count, event",
+                "select cnt, event from (select count(*) as cnt, event from events where properties.random_uuid = {random_uuid} group by event) as c group by cnt, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
                 pretty=False,

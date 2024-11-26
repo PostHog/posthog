@@ -74,7 +74,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
                             {addon.inclusion_only ? (
                                 <div className="flex gap-x-2">
-                                    <Tooltip title="Automatically included with your plan. Used based on your posthog-js config options.">
+                                    <Tooltip title="Automatically included with your plan. Used based on whether you capture person profiles with your events.">
                                         <LemonTag type="muted">Config option</LemonTag>
                                     </Tooltip>
                                 </div>

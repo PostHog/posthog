@@ -86,7 +86,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                     return response.results[0]
                 },
                 updateGroup: async ({ group }) => {
-                    const response = await api.errorTracking.update(props.fingerprint, group)
+                    const response = await api.errorTracking.updateIssue(props.fingerprint, group)
                     return { ...values.group, ...response }
                 },
             },

@@ -2,7 +2,7 @@ import pytest
 
 from django.db import connection
 
-from posthog.api.search import process_query
+from posthog.helpers.full_text_search import process_query
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
