@@ -38,7 +38,6 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                             plan="Plan",
-                            reasoning_steps=["step"],
                             done=True,
                         ),
                     ],
@@ -73,7 +72,6 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                             plan="Plan",
-                            reasoning_steps=["step"],
                             done=True,
                         ),
                     ],
@@ -110,7 +108,6 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                             plan="Plan",
-                            reasoning_steps=["step"],
                             done=True,
                         ),
                     ],
@@ -159,7 +156,6 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                         VisualizationMessage(
                             answer=None,
                             plan="Plan",
-                            reasoning_steps=["step"],
                             done=True,
                         ),
                     ],
@@ -180,7 +176,6 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                     VisualizationMessage(
                         answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                         plan="Plan",
-                        reasoning_steps=["step"],
                         done=True,
                     ),
                 ]

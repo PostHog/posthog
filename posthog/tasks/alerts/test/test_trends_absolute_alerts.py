@@ -88,6 +88,34 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         return insight
 
+    def create_aggregate_trend_insight(self, breakdown: Optional[BreakdownFilter] = None) -> dict[str, Any]:
+        query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="signed_up",
+                    math=BaseMathType.TOTAL,
+                ),
+                EventsNode(
+                    event="$pageview",
+                    name="Pageview",
+                    math=BaseMathType.TOTAL,
+                ),
+            ],
+            breakdownFilter=breakdown,
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
+            interval=IntervalType.WEEK,
+            dateRange=InsightDateRange(date_from="-8w"),
+        ).model_dump()
+
+        insight = self.dashboard_api.create_insight(
+            data={
+                "name": "insight",
+                "query": query_dict,
+            }
+        )[1]
+
+        return insight
+
     def test_alert_lower_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, lower=1)
@@ -295,3 +323,87 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_not_called()
+
+    def test_aggregate_trend_high_threshold_breached(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        insight = self.create_aggregate_trend_insight()
+        alert = self.create_alert(insight, series_index=0, upper=1)
+
+        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4)):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="3",
+                properties={"$browser": "Firefox"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="2",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        check_alert(alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
+        assert updated_alert.state == AlertState.FIRING
+        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 3
+        assert alert_check.state == AlertState.FIRING
+        assert alert_check.error is None
+
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value (signed_up) for previous interval (3) is more than upper threshold (1.0)"]
+        )
+
+    def test_aggregate_trend_with_breakdown_high_threshold_breached(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        insight = self.create_aggregate_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
+        alert = self.create_alert(insight, series_index=0, upper=1)
+
+        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4)):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="3",
+                properties={"$browser": "Firefox"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="1",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="2",
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+        check_alert(alert["id"])
+
+        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
+        assert updated_alert.state == AlertState.FIRING
+        assert updated_alert.next_check_at == FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 2
+        assert alert_check.state == AlertState.FIRING
+        assert alert_check.error is None
+
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value (signed_up - Chrome) for previous interval (2) is more than upper threshold (1.0)"]
+        )
