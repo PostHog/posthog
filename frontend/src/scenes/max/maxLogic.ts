@@ -16,7 +16,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { isHumanMessage } from 'scenes/max/utils'
+import { isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -68,6 +68,7 @@ export const maxLogic = kea<maxLogicType>([
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
         retryLastMessage: true,
+        scrollThreadToBottom: true,
     }),
     reducers({
         question: [
@@ -132,7 +133,10 @@ export const maxLogic = kea<maxLogicType>([
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
                 const mainEl = document.querySelector('main')!
-                mainEl.scrollTop = mainEl.scrollHeight
+                mainEl.scrollTo({
+                    top: mainEl.scrollHeight,
+                    behavior: 'smooth',
+                })
             })
         },
     }),
@@ -248,8 +252,17 @@ export const maxLogic = kea<maxLogicType>([
                 actions.askMax(lastMessage.content)
             }
         },
-        addMessage: sharedListeners.scrollThreadToBottom,
-        replaceMessage: sharedListeners.scrollThreadToBottom,
+        addMessage: (payload) => {
+            if (payload.message.type === AssistantMessageType.Human || isVisualizationMessage(payload.message)) {
+                actions.scrollThreadToBottom()
+            }
+        },
+        replaceMessage: (payload) => {
+            if (isVisualizationMessage(payload.message)) {
+                actions.scrollThreadToBottom()
+            }
+        },
+        scrollThreadToBottom: sharedListeners.scrollThreadToBottom,
     })),
     selectors({
         sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
