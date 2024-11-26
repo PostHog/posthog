@@ -130,12 +130,10 @@ class MaterializedColumnDetails:
 
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
-    exclude_disabled_columns: bool = False,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
     return {
         (column.details.property_name, column.details.table_column): column
         for column in MaterializedColumn.get_all(table)
-        if not (exclude_disabled_columns and column.details.is_disabled)
     }
 
 
@@ -143,7 +141,7 @@ def get_materialized_columns(
 def get_enabled_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
-    return get_materialized_columns(table, exclude_disabled_columns=True)
+    return {k: column.name for k, column in get_materialized_columns(table).items() if not column.details.is_disabled}
 
 
 def get_cluster() -> ClickhouseCluster:

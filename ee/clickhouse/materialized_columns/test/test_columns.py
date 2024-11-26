@@ -313,7 +313,6 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         # disable it and ensure updates apply as needed
         update_column_is_disabled(table, destination_column, is_disabled=True)
         assert get_materialized_columns(table)[key].name == destination_column
-        assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=True),
@@ -322,8 +321,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         # re-enable it and ensure updates apply as needed
         update_column_is_disabled(table, destination_column, is_disabled=False)
-        assert get_materialized_columns(table, exclude_disabled_columns=False)[key].name == destination_column
-        assert get_materialized_columns(table, exclude_disabled_columns=True)[key].name == destination_column
+        assert get_materialized_columns(table)[key].name == destination_column
         assert MaterializedColumn.get(table, destination_column) == MaterializedColumn(
             destination_column,
             MaterializedColumnDetails(source_column, property, is_disabled=False),
@@ -332,7 +330,6 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         # drop it and ensure updates apply as needed
         drop_column(table, destination_column)
-        assert key not in get_materialized_columns(table, exclude_disabled_columns=False)
-        assert key not in get_materialized_columns(table, exclude_disabled_columns=True)
+        assert key not in get_materialized_columns(table)
         with self.assertRaises(ValueError):
             MaterializedColumn.get(table, destination_column)
