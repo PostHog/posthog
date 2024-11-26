@@ -37,7 +37,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
 )
-from typing import Any, Optional
+from typing import Any, Optional, cast
 import threading
 
 
@@ -262,9 +262,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 database = create_hogql_database(team_id=self.team.pk)
                 events_table = database.get_table("events")
                 if self._is_data_warehouse_query(query_runner.query):
-                    table = database.get_table(query_runner.query.series[0].table_name)
+                    series_node = cast(DataWarehouseNode, query_runner.query.series[0])
+                    table = database.get_table(series_node.table_name)
                     table.fields["events"] = LazyJoin(
-                        from_field=[query_runner.query.series[0].distinct_id_field],
+                        from_field=[series_node.distinct_id_field],
                         join_table=events_table,
                         join_function=lambda join_to_add, context, node: (
                             ast.JoinExpr(
@@ -289,7 +290,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                                                 left=ast.Field(
                                                     chain=[
                                                         join_to_add.from_table,
-                                                        query_runner.query.series[0].distinct_id_field,
+                                                        series_node.distinct_id_field,
                                                     ]
                                                 ),
                                                 op=ast.CompareOperationOp.Eq,
@@ -299,7 +300,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                                                 left=ast.Field(
                                                     chain=[
                                                         join_to_add.from_table,
-                                                        query_runner.query.series[0].timestamp_field,
+                                                        series_node.timestamp_field,
                                                     ]
                                                 ),
                                                 op=ast.CompareOperationOp.GtEq,
