@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { percentage } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
+import { PlayerMetaLinks } from 'scenes/session-recordings/player/PlayerMetaLinks'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { urls } from 'scenes/urls'
 
@@ -78,7 +79,7 @@ function PlayerWarningsRow(): JSX.Element | null {
     ) : null
 }
 
-export function PlayerMeta(): JSX.Element {
+export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -207,6 +208,7 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
+                    <PlayerMetaLinks iconsOnly={iconsOnly} />
                     {resolutionView}
                 </div>
                 <PlayerWarningsRow />

@@ -12,7 +12,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     label: string
     items: LemonMenuItem[]
-    icon: JSX.Element
+    icon?: JSX.Element
     isAvailable?: boolean
     whenUnavailable?: LemonMenuItem
 }
