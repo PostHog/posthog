@@ -27,7 +27,7 @@ fn setup_tracing() {
 }
 
 pub async fn index() -> &'static str {
-    "error tracking service"
+    "cymbal - an error tracking service"
 }
 
 fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
