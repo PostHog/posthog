@@ -53,7 +53,7 @@ class FeatureFlagStatusChecker:
         if self.is_flag_unevaluated_recently(flag):
             return FeatureFlagStatus.INACTIVE, "Flag has not been evaluated recently"
 
-        return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be actively called"
+        return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be active"
 
     def is_flag_fully_enabled(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
         # If flag is not active, it is not enabled. This flag may still be stale,
