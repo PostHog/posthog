@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import NamedTuple, TypeVar
 
@@ -24,7 +24,7 @@ T = TypeVar("T")
 
 
 class ClickhouseCluster:
-    def __init__(self, bootstrap_client: Client) -> None:
+    def __init__(self, bootstrap_client: Client, extra_hosts: Sequence[ConnectionInfo] | None = None) -> None:
         self.hosts = [
             HostInfo(ConnectionInfo(host_address, port), shard_num, replica_num)
             for (host_address, port, shard_num, replica_num) in bootstrap_client.execute(
@@ -37,6 +37,10 @@ class ClickhouseCluster:
                 {"name": settings.CLICKHOUSE_CLUSTER},
             )
         ]
+        if extra_hosts is not None:
+            self.hosts.extend(
+                [HostInfo(connection_info, shard_num=None, replica_num=None) for connection_info in extra_hosts]
+            )
         self.__pools: dict[HostInfo, ChPool] = {}
 
     def __get_pool(self, host: HostInfo) -> ChPool:
@@ -60,7 +64,7 @@ class ClickhouseCluster:
 
         shard_hosts: dict[int, HostInfo] = {}
         for host in self.hosts:
-            if host.shard_num not in shard_hosts:
+            if host.shard_num is not None and host.shard_num not in shard_hosts:
                 shard_hosts[host.shard_num] = host
 
         with ThreadPoolExecutor() as executor:
