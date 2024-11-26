@@ -1109,7 +1109,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "ai", "ai/viz", "ai/failure", "ai/router"],
+            "enum": ["human", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -3926,6 +3926,9 @@
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
+                "id": {
+                    "type": "string"
+                },
                 "key": {
                     "$ref": "#/definitions/CustomChannelField"
                 },
@@ -3946,7 +3949,7 @@
                     ]
                 }
             },
-            "required": ["key", "op"],
+            "required": ["key", "op", "id"],
             "type": "object"
         },
         "CustomChannelField": {
@@ -3966,14 +3969,17 @@
                 "combiner": {
                     "$ref": "#/definitions/FilterLogicalOperator"
                 },
-                "conditions": {
+                "id": {
+                    "type": "string"
+                },
+                "items": {
                     "items": {
                         "$ref": "#/definitions/CustomChannelCondition"
                     },
                     "type": "array"
                 }
             },
-            "required": ["conditions", "combiner", "channel_type"],
+            "required": ["items", "combiner", "channel_type", "id"],
             "type": "object"
         },
         "CustomEventConversionGoal": {
@@ -5349,6 +5355,29 @@
         },
         "Day": {
             "type": "integer"
+        },
+        "DefaultChannelTypes": {
+            "enum": [
+                "Cross Network",
+                "Paid Search",
+                "Paid Social",
+                "Paid Video",
+                "Paid Shopping",
+                "Paid Unknown",
+                "Direct",
+                "Organic Search",
+                "Organic Social",
+                "Organic Video",
+                "Organic Shopping",
+                "Push",
+                "SMS",
+                "Audio",
+                "Email",
+                "Referral",
+                "Affiliate",
+                "Unknown"
+            ],
+            "type": "string"
         },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
@@ -11282,6 +11311,24 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "ReasoningMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "done": {
+                    "const": true,
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "ai/reasoning",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content", "done"],
+            "type": "object"
+        },
         "RecordingOrder": {
             "enum": [
                 "duration",
@@ -11692,6 +11739,9 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/VisualizationMessage"
+                },
+                {
+                    "$ref": "#/definitions/ReasoningMessage"
                 },
                 {
                     "$ref": "#/definitions/AssistantMessage"
@@ -12177,6 +12227,19 @@
                 },
                 "showValuesOnSeries": {
                     "type": "boolean"
+                },
+                "stickinessCriteria": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/StickinessOperator"
+                        },
+                        "value": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": ["operator", "value"],
+                    "type": "object"
                 }
             },
             "type": "object"
@@ -12215,6 +12278,10 @@
                 }
             },
             "type": "object"
+        },
+        "StickinessOperator": {
+            "enum": ["gte", "lte", "exact"],
+            "type": "string"
         },
         "StickinessQuery": {
             "additionalProperties": false,
@@ -12874,19 +12941,6 @@
                 "plan": {
                     "type": "string"
                 },
-                "reasoning_steps": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
@@ -13333,7 +13387,8 @@
                 "DeviceType",
                 "Country",
                 "Region",
-                "City"
+                "City",
+                "Timezone"
             ],
             "type": "string"
         },
