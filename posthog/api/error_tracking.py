@@ -14,7 +14,7 @@ from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 
 
-FIFTY_MEGABYTES = 50 * 1024 * 1024
+ONE_GIGABYTE = 1024 * 1024 * 1024
 
 logger = structlog.get_logger(__name__)
 
@@ -105,10 +105,13 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMod
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
 
-def upload_symbol_set(file, team_id) -> str:
+def upload_symbol_set(minified, source_map, team_id) -> str:
+
+    source_map_cache = generate_source_map_cache(minified, source_map)
+
     try:
         if settings.OBJECT_STORAGE_ENABLED:
-            if file.size > FIFTY_MEGABYTES:
+            if source_map_cache.size > ONE_GIGABYTE:
                 raise ValidationError(code="file_too_large", detail="Source maps must be less than 50MB")
 
             upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
@@ -121,3 +124,9 @@ def upload_symbol_set(file, team_id) -> str:
             code="object_storage_required",
             detail="Object storage must be available to allow source map uploads.",
         )
+
+
+def generate_source_map_cache(minified: bytes, source_map: bytes) -> bytes:
+    from symbolic.sourcemapcache import SourceMapCache
+    cache = SourceMapCache.from_bytes(minified, source_map)
+    cache.generate()

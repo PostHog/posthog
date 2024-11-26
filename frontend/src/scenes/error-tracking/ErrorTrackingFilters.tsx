@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -140,17 +140,26 @@ export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element
                     </div>
                 )}
             </div>
-            {hasGroupActions && !isGroup && (
-                <div className="flex items-center gap-1">
-                    <span>Assigned to:</span>
-                    <MemberSelect
-                        value={assignee}
-                        onChange={(user) => {
-                            setAssignee(user?.id || null)
-                        }}
-                    />
-                </div>
-            )}
+            <div className="flex items-center gap-1">
+                <LemonButton
+                    onClick={() => {
+                        throw Error('Oh my!')
+                    }}
+                >
+                    Send exception
+                </LemonButton>
+                {hasGroupActions && !isGroup && (
+                    <>
+                        <span>Assigned to:</span>
+                        <MemberSelect
+                            value={assignee}
+                            onChange={(user) => {
+                                setAssignee(user?.id || null)
+                            }}
+                        />
+                    </>
+                )}
+            </div>
         </div>
     )
 }
