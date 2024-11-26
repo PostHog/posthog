@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
-from typing import NamedTuple, TypeVar
+from typing import Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
@@ -16,15 +16,17 @@ V = TypeVar("V")
 
 
 class FuturesMap(dict[K, Future[V]]):
-    def as_completed(self, *args, **kwargs) -> Iterator[tuple[K, Future[V]]]:
+    def as_completed(self, timeout: float | int | None = None) -> Iterator[tuple[K, Future[V]]]:
         reverse_map = {v: k for k, v in self.items()}
         assert len(reverse_map) == len(self)
 
-        for f in as_completed(self.values()):
+        for f in as_completed(self.values(), timeout=timeout):
             yield reverse_map[f], f
 
     def result(
-        self, timeout: float | int | None = None, return_when: FIRST_EXCEPTION | ALL_COMPLETED = ALL_COMPLETED
+        self,
+        timeout: float | int | None = None,
+        return_when: Literal["FIRST_EXCEPTION", "ALL_COMPLETED"] = ALL_COMPLETED,
     ) -> dict[K, V]:
         results = {}
         errors = {}
