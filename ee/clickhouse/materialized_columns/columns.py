@@ -129,31 +129,33 @@ def get_cluster() -> ClickhouseCluster:
     return ClickhouseCluster(default_client(), extra_hosts=extra_hosts)
 
 
-class TableInfo(NamedTuple):
+@dataclass
+class TableInfo:
     data_table: str
-    dist_table: str | None
 
     @property
-    def is_sharded(self) -> bool:
-        return self.dist_table is not None
-
-    @property
-    def read_table(self) -> str:
-        if self.is_sharded:
-            return self.dist_table
-        else:
-            return self.data_table
+    def read_table(self):
+        return self.data_table
 
     def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
-        if self.is_sharded:
-            return cluster.map_one_host_per_shard(fn)
-        else:
-            return cluster.map_all_hosts(fn)
+        return cluster.map_all_hosts(fn)
 
 
-tables = {
-    "events": TableInfo("sharded_events", "events"),
-    "person": TableInfo("person", None),
+@dataclass
+class ShardedTableInfo(TableInfo):
+    dist_table: str
+
+    @property
+    def read_table(self):
+        return self.dist_table
+
+    def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+        return cluster.map_one_host_per_shard(fn)
+
+
+tables: dict[str, TableInfo | ShardedTableInfo] = {
+    "person": TableInfo("person"),
+    "events": ShardedTableInfo("sharded_events", "events"),
     # TODO ...
 }
 
@@ -244,7 +246,7 @@ def materialize(
         ).execute,
     ).result()
 
-    if table_info.dist_table is not None:
+    if isinstance(table_info, ShardedTableInfo):
         cluster.map_all_hosts(
             CreateColumnOnQueryNodesTask(
                 table_info.dist_table,
@@ -274,7 +276,7 @@ def update_column_is_disabled(table: TablesWithMaterializedColumns, column_name:
 
     cluster.map_all_hosts(
         UpdateColumnCommentTask(
-            table_info.dist_table if table_info.dist_table is not None else table_info.data_table,
+            table_info.read_table,
             MaterializedColumn(
                 name=column_name,
                 details=replace(
@@ -311,7 +313,7 @@ def drop_column(table: TablesWithMaterializedColumns, column_name: str) -> None:
     cluster = get_cluster()
     table_info = tables[table]
 
-    if table_info.dist_table is not None:
+    if isinstance(table_info, ShardedTableInfo):
         cluster.map_all_hosts(
             DropColumnTask(
                 table_info.dist_table,
