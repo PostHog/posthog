@@ -400,7 +400,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         </div>
                         <LemonDivider />
-                        <FeatureFlagRollout />
+                        <FeatureFlagRollout id={id} />
                         <LemonDivider />
                         <FeatureFlagReleaseConditions
                             id={`${featureFlag.id}`}
@@ -728,7 +728,7 @@ function variantConcatWithPunctuation(phrases: string[]): string {
     return `${phrases[0]} and ${phrases.length - 1} more sets`
 }
 
-function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
+function FeatureFlagRollout({ readOnly, id }: { readOnly?: boolean; id?: string }): JSX.Element {
     const {
         multivariateEnabled,
         variants,
@@ -993,23 +993,25 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <div>
-                        <h3 className="l3">Recordings</h3>
-                        <p>Watch recordings of people who have been exposed to the feature flag.</p>
-                        <div className="inline-block">
-                            <LemonButton
-                                onClick={() => {
-                                    reportViewRecordingsClicked()
-                                    router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
-                                }}
-                                icon={<IconRewindPlay />}
-                                type="secondary"
-                                size="small"
-                            >
-                                View recordings
-                            </LemonButton>
+                    {id !== 'new' && (
+                        <div>
+                            <h3 className="l3">Recordings</h3>
+                            <p>Watch recordings of people who have been exposed to the feature flag.</p>
+                            <div className="inline-block">
+                                <LemonButton
+                                    onClick={() => {
+                                        reportViewRecordingsClicked()
+                                        router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
+                                    }}
+                                    icon={<IconRewindPlay />}
+                                    type="secondary"
+                                    size="small"
+                                >
+                                    View recordings
+                                </LemonButton>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             )}
             {!readOnly && multivariateEnabled && (
