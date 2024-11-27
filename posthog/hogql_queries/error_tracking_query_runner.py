@@ -33,7 +33,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self.where(),
             order_by=self.order_by,
-            group_by=self.group_by(),
+            group_by=[ast.Field(chain=["properties", "$exception_issue_id"])],
         )
 
     def select(self):
@@ -49,6 +49,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="id", expr=ast.Field(chain=["properties", "$exception_issue_id"])),
         ]
 
         if self.query.select:
@@ -68,10 +69,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         if self.query.issueId:
             exprs.append(
-                ast.Call(
-                    name="eq",
-                    args=[ast.Field(chain=["properties.$exception_issue_id"]), self.query.issueId],
-                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["properties", "$exception_issue_id"]),
+                    right=ast.Constant(value=self.query.issueId),
+                )
             )
 
         if self.query.searchQuery:
@@ -122,9 +124,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return ast.And(exprs=exprs)
 
-    def group_by(self):
-        return None if self.query.issueId else [ast.Field(chain=["properties", "$exception_issue_id"])]
-
     def calculate(self):
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
@@ -153,14 +152,15 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
 
     def results(self, columns: list[str], query_results: list):
-        mapped_results = [dict(zip(columns, value)) for value in query_results]
         results = []
+        mapped_results = [dict(zip(columns, value)) for value in query_results]
+
         issue_ids = [result["id"] for result in mapped_results]
         issues = self.error_tracking_issues(issue_ids)
+
         for result_dict in mapped_results:
-            id = self.query.issueId if self.query.issueId else result_dict["id"]
-            issue = issues.get(id)
-            results.append(result_dict | issue)
+            issue = issues.get(result_dict["id"])
+            results.append(issue | result_dict | {"assignee": self.query.assignee})
 
         return results
 
@@ -188,8 +188,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             if self.query.issueId
             else queryset.filter(status__in=[ErrorTrackingIssue.Status.ACTIVE])
         )
-        queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
-        issues = queryset.values("id", "status", "assignee", "name", "description")
+        queryset = (
+            queryset.filter(errortrackingissueassignment__user_id=self.query.assignee)
+            if self.query.assignee
+            else queryset
+        )
+        issues = queryset.values("id", "status", "name", "description")
         return {str(item["id"]): item for item in issues}
 
 
