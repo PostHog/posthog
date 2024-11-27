@@ -77,6 +77,8 @@ class FOSSColumnOptimizer:
             column = get_materialized_column_for_property(table, table_column, property_name)
             if column is not None and not column.is_nullable:
                 column_names.add(column.name)
+            else:
+                column_names.add(table_column)
         return column_names
 
     @cached_property
