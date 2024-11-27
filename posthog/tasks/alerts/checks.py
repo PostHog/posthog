@@ -77,9 +77,9 @@ ALERT_COMPUTED_COUNTER = Counter(
 ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
 
-def _capture_ph_event(ph_client: Posthog | None, *args) -> None:
+def _capture_ph_event(ph_client: Posthog | None, *args, **kwargs) -> None:
     if ph_client:
-        ph_client.capture(*args)
+        ph_client.capture(*args, **kwargs)
 
     return None
 
