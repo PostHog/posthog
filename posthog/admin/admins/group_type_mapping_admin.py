@@ -18,8 +18,6 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
 
     @admin.display(description="Team")
     def team_link(self, group_type_mapping: GroupTypeMapping):
-        if group_type_mapping.team is None:
-            return None
         return format_html(
             '<a href="/admin/posthog/team/{}/change/">{}</a>',
             group_type_mapping.team.pk,
