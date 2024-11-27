@@ -75,6 +75,14 @@ pub struct Config {
     #[envconfig(default = "600")]
     pub frame_cache_ttl_seconds: u64,
 
+    // When we resolve a frame, we put it in PG, so other instance of cymbal can
+    // use it, or so we can re-use it after a restart. This is the TTL for that,
+    // after this many minutes we'll discard saved resolution results and re-resolve
+    // TODO - 5 minutes is too short for production use, it's only twice as long as
+    // our in-memory caching. We should do something like 1 hour once we release
+    #[envconfig(default = "10")]
+    pub frame_result_ttl_minutes: u32,
+
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
     pub context_line_count: usize,
