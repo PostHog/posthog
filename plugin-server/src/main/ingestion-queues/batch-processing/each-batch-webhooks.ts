@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/node'
-import { storeOffsetsForMessages } from 'kafka/consumer'
 import { KafkaConsumer, Message } from 'node-rdkafka'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
@@ -7,6 +6,7 @@ import { ActionMatcher } from 'worker/ingestion/action-matcher'
 import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
 import { OrganizationManager } from 'worker/ingestion/organization-manager'
 
+import { storeOffsetsForMessages } from '../../../kafka/consumer'
 import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
