@@ -231,9 +231,9 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
 
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">
-            <h1 className="mb-0">{$exception_message}</h1>
+            <h1 className="mb-0">{$exception_type || $level}</h1>
             <div className="flex flex-row gap-2 flex-wrap">
-                <LemonTag type="danger">{$exception_type || $level}</LemonTag>
+                <LemonTag type="danger">{$exception_message}</LemonTag>
                 <TitledSnack
                     type="success"
                     title="captured by"
