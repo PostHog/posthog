@@ -28,6 +28,7 @@ DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON 
 DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
+INSERTED_AT_NOT_NULLABLE_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -245,14 +246,14 @@ EVENTS_RECENT_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toStartOfHour(inserted_at)
 ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-TTL inserted_at + INTERVAL 7 DAY
+TTL toDateTime(inserted_at) + INTERVAL 7 DAY
 {storage_policy}
 """
 ).format(
     table_name=EVENTS_RECENT_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
     materialized_columns="",
     indexes="",
     storage_policy=STORAGE_POLICY(),
