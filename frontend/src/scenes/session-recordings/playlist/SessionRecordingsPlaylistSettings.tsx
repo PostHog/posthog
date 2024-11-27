@@ -1,7 +1,6 @@
 import { IconEllipsis } from '@posthog/icons'
 import { IconClock, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 
 import { RecordingUniversalFilters } from '~/types'
@@ -18,6 +17,12 @@ const SortingKeyToLabel = {
     click_count: 'Clicks',
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
+}
+
+const TimestampFormatToLabel = {
+    relative: 'Relative',
+    utc: 'UTC',
+    device: 'Device',
 }
 
 function SortedBy({
@@ -124,7 +129,7 @@ export function SessionRecordingPlaylistBottomSettings(): JSX.Element {
                     },
                 ]}
                 icon={<IconClock />}
-                label={capitalizeFirstLetter(playlistTimestampFormat)}
+                label={TimestampFormatToLabel[playlistTimestampFormat]}
             />
         </div>
     )

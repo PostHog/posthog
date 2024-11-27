@@ -35,7 +35,12 @@ export function SettingsMenu({
             items={isAvailable ? items : whenUnavailable ? [whenUnavailable] : []}
             {...props}
         >
-            <LemonButton status={highlightWhenActive && active ? 'danger' : 'default'} size="xsmall" icon={icon}>
+            <LemonButton
+                className="rounded-[0px]"
+                status={highlightWhenActive && active ? 'danger' : 'default'}
+                size="xsmall"
+                icon={icon}
+            >
                 {label}
             </LemonButton>
         </LemonMenu>
@@ -48,14 +53,20 @@ export function SettingsToggle({
     label,
     active,
     ...props
-}: Omit<LemonButtonProps, 'status' | 'sideAction'> & {
+}: Omit<LemonButtonProps, 'status' | 'sideAction' | 'className'> & {
     active: boolean
     title: string
     icon?: JSX.Element | null
     label: JSX.Element | string
 }): JSX.Element {
     const button = (
-        <LemonButton icon={icon} size="xsmall" status={active ? 'danger' : 'default'} {...props}>
+        <LemonButton
+            className="rounded-[0px]"
+            icon={icon}
+            size="xsmall"
+            status={active ? 'danger' : 'default'}
+            {...props}
+        >
             {label}
         </LemonButton>
     )

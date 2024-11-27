@@ -158,10 +158,7 @@ function TitleWithCount({
     onClickCollapse: () => void
 }): JSX.Element {
     return (
-        <div
-            className="flex items-center gap-0.5
-    "
-        >
+        <div className="flex items-center gap-0.5">
             <LemonButton size="xsmall" icon={<IconCollapse className="rotate-90" />} onClick={onClickCollapse} />
             <span className="flex flex-1 gap-1 items-center">
                 {title ? <span className="font-bold uppercase text-xxs tracking-wide">{title}</span> : null}
