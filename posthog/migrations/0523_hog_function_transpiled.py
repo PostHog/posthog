@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0521_alter_errortrackingstackframe_context")]
+    dependencies = [("posthog", "0522_datawarehouse_salesforce_opportunity")]
 
     operations = [
         migrations.AddField(
