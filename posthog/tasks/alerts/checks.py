@@ -2,7 +2,7 @@ import time
 import traceback
 
 from datetime import datetime, timedelta, UTC
-from typing import cast
+from typing import Any, cast
 from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
@@ -77,7 +77,7 @@ ALERT_COMPUTED_COUNTER = Counter(
 ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
 
-def _capture_ph_event(ph_client: Posthog | None, *args, **kwargs) -> None:
+def _capture_ph_event(ph_client: Posthog | None, *args: Any, **kwargs: Any) -> None:
     if ph_client:
         ph_client.capture(*args, **kwargs)
 
