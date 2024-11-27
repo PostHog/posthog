@@ -75,7 +75,7 @@
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
         "kafkajs": "^2.2.0",
-        "kafkajs-lz4": "2.0.0-beta.0",
+        "lz4-kafkajs": "1.0.0",
         "kafkajs-snappy": "^1.1.0",
         "lru-cache": "^6.0.0",
         "luxon": "^3.4.4",
