@@ -821,7 +821,7 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
 
-SetOperator = Literal["UNION ALL", "INTERSECT", "EXCEPT"]
+SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
 
 
 @dataclass(kw_only=True)
