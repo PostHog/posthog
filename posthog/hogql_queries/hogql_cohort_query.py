@@ -142,9 +142,7 @@ class HogQLCohortQuery:
                 else:
                     select_query = SelectSetQuery(
                         initial_select_query=select_query,
-                        subsequent_select_queries=[
-                            SelectSetNode(select_query=actors_query, set_operator=SetOperator.INTERSECT)
-                        ],
+                        subsequent_select_queries=[SelectSetNode(select_query=actors_query, set_operator="INTERSECT")],
                     )
             else:
                 pass
