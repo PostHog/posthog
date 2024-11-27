@@ -17,6 +17,11 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {
     const { missingSymbolSets, validSymbolSets } = useValues(errorTrackingSymbolSetLogic)
+    const { loadSymbolSets } = useActions(errorTrackingSymbolSetLogic)
+
+    useEffect(() => {
+        loadSymbolSets()
+    }, [loadSymbolSets])
 
     return (
         <div className="space-y-4">
@@ -26,18 +31,22 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
                 automatically retrieves source maps where possible. Cases where it was not possible are listed below.
                 Source maps can be uploaded retroactively but changes will only apply to all future exceptions ingested.
             </p>
-            {missingSymbolSets.length > 0 && <SymbolSetTable dataSource={missingSymbolSets} pageSize={5} missing />}
-            {validSymbolSets.length > 0 && <SymbolSetTable dataSource={validSymbolSets} pageSize={10} />}
+            {missingSymbolSets.length > 0 && (
+                <SymbolSetTable id="missing" dataSource={missingSymbolSets} pageSize={5} missing />
+            )}
+            {validSymbolSets.length > 0 && <SymbolSetTable id="valid" dataSource={validSymbolSets} pageSize={10} />}
             <SymbolSetUploadModal />
         </div>
     )
 }
 
 const SymbolSetTable = ({
+    id,
     dataSource,
     pageSize,
     missing,
 }: {
+    id: string
     dataSource: ErrorTrackingSymbolSet[]
     pageSize: number
     missing?: boolean
@@ -74,6 +83,7 @@ const SymbolSetTable = ({
 
     return (
         <LemonTable
+            id={id}
             showHeader={missing}
             pagination={{ pageSize }}
             columns={columns}
