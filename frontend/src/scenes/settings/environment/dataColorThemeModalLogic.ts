@@ -36,9 +36,8 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
             },
         ],
     }),
-    forms(() => ({
+    forms(({ actions }) => ({
         theme: {
-            defaults: {},
             submit: async ({ id, name, colors }, breakpoint) => {
                 const payload: DataColorThemeModel = {
                     name,
@@ -52,6 +51,8 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
                         ? await api.dataColorThemes.update(id, payload)
                         : await api.dataColorThemes.create(payload)
 
+                    actions.closeModal()
+
                     return updatedTheme
                 } catch (error: any) {
                     if (error.data?.attr && error.data?.detail) {
@@ -62,8 +63,8 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
                     }
                 }
             },
-            errors: ({ name }) => ({
-                name: !name ? 'This field is required' : undefined,
+            errors: (theme) => ({
+                name: !theme?.name ? 'This field is required' : undefined,
             }),
         },
     })),
