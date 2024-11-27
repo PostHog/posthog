@@ -3,13 +3,10 @@ import { shortTimeZone } from 'lib/utils'
 
 function formatStringFor(d: Dayjs): string {
     const today = dayjs()
-    if (d.isSame(today, 'day')) {
-        return 'HH:mm:ss'
-    }
     if (d.isSame(today, 'year')) {
-        return 'MM-DD, HH:mm:ss'
+        return 'MMM/DD, HH:mm:ss'
     }
-    return 'YYYY-MM-DD HH:mm:ss'
+    return 'YYYY/MM/DD HH:mm:ss'
 }
 
 export function SimpleTimeLabel({ startTime, isUTC }: { startTime: string | number; isUTC: boolean }): JSX.Element {
