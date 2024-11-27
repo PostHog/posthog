@@ -49,7 +49,7 @@ export type QueryContextColumnComponent = ComponentType<{
 }>
 
 interface QueryContextColumn {
-    title?: string
+    title?: React.ReactNode
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left

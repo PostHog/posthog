@@ -1,11 +1,13 @@
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconTrending } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { UnexpectedNeverError } from 'lib/utils'
+import { percentage, UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -37,15 +39,52 @@ const toUtcOffsetFormat = (value: number): string => {
     return `UTC${sign}${integerPart}${formattedMinutes}`
 }
 
-const PercentageCell: QueryContextColumnComponent = ({ value }) => {
-    if (typeof value === 'number') {
-        return <span>{`${(value * 100).toFixed(1)}%`}</span>
-    }
-    return null
-}
+type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
+const VariationCell = (
+    { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
+): QueryContextColumnComponent => {
+    const formatNumber = (value: number): string =>
+        isPercentage ? `${(value * 100).toFixed(1)}%` : value.toLocaleString()
 
-const NumericCell: QueryContextColumnComponent = ({ value }) => {
-    return <span>{typeof value === 'number' ? value.toLocaleString() : String(value)}</span>
+    return function Cell({ value }) {
+        if (!Array.isArray(value)) {
+            return <span>{String(value)}</span>
+        }
+
+        const [current, previous] = value as [number, number]
+        const pctChangeFromPrevious = previous === 0 && current === 0 ? 0 : previous === 0 ? 1 : current / previous - 1
+
+        const trend =
+            pctChangeFromPrevious === 0
+                ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
+                : pctChangeFromPrevious > 0
+                ? {
+                      Icon: IconTrending,
+                      color: reverseColors ? getColorVar('danger') : getColorVar('success'),
+                  }
+                : {
+                      Icon: IconTrendingDown,
+                      color: reverseColors ? getColorVar('success') : getColorVar('danger'),
+                  }
+
+        // If current === previous, say "increased by 0%"
+        const tooltip = `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
+            pctChangeFromPrevious,
+            0
+        )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+
+        return (
+            <Tooltip title={tooltip}>
+                <div>
+                    {formatNumber(current)}&nbsp;
+                    {/* eslint-disable-next-line react/forbid-dom-props */}
+                    <span style={{ color: trend.color }}>
+                        <trend.Icon color={trend.color} />
+                    </span>
+                </div>
+            </Tooltip>
+        )
+    }
 }
 
 const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
@@ -227,48 +266,48 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: BreakdownValueCell,
         },
         bounce_rate: {
-            title: 'Bounce Rate',
-            render: PercentageCell,
+            title: <span className="pr-4">Bounce Rate</span>,
+            render: VariationCell({ isPercentage: true, reverseColors: true }),
             align: 'right',
         },
         views: {
-            title: 'Views',
-            render: NumericCell,
+            title: <span className="pr-4">Views</span>,
+            render: VariationCell(),
             align: 'right',
         },
         clicks: {
-            title: 'Clicks',
-            render: NumericCell,
+            title: <span className="pr-4">Clicks</span>,
+            render: VariationCell(),
             align: 'right',
         },
         visitors: {
-            title: 'Visitors',
-            render: NumericCell,
+            title: <span className="pr-4">Visitors</span>,
+            render: VariationCell(),
             align: 'right',
         },
         average_scroll_percentage: {
-            title: 'Average Scroll',
-            render: PercentageCell,
+            title: <span className="pr-4">Average Scroll</span>,
+            render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         scroll_gt80_percentage: {
-            title: 'Deep Scroll Rate',
-            render: PercentageCell,
+            title: <span className="pr-4">Deep Scroll Rate</span>,
+            render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         total_conversions: {
-            title: 'Total Conversions',
-            render: NumericCell,
+            title: <span className="pr-4">Total Conversions</span>,
+            render: VariationCell(),
             align: 'right',
         },
         conversion_rate: {
-            title: 'Conversion Rate',
-            render: PercentageCell,
+            title: <span className="pr-4">Conversion Rate</span>,
+            render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         converting_users: {
-            title: 'Converting Users',
-            render: NumericCell,
+            title: <span className="pr-4">Converting Users</span>,
+            render: VariationCell(),
             align: 'right',
         },
         action_name: {
