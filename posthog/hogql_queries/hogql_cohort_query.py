@@ -4,7 +4,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
-from posthog.hogql.ast import SelectQuery, SelectSetNode
+from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery, SetOperator
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -32,8 +32,15 @@ from posthog.schema import (
     FunnelsQuery,
     FunnelsActorsQuery,
     FunnelsFilter,
-    FunnelConversionWindowTimeUnit, StickinessQuery, StickinessFilter, StickinessCriteria, StickinessActorsQuery,
-    PersonPropertyFilter, PropertyOperator, PropertyGroupFilterValue,
+    FunnelConversionWindowTimeUnit,
+    StickinessQuery,
+    StickinessFilter,
+    StickinessCriteria,
+    StickinessActorsQuery,
+    PersonPropertyFilter,
+    PropertyOperator,
+    PropertyGroupFilterValue,
+    PersonsOnEventsMode,
 )
 from posthog.queries.cohort_query import CohortQuery
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -47,15 +54,18 @@ class TestWrapperCohortQuery(CohortQuery):
         self.result = execute_hogql_query(hogql_cohort_query.get_query(), team)
         super().__init__(filter=filter, team=team)
 
+
 def convert_property(prop: Property) -> PersonPropertyFilter:
     return PersonPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT)
 
+
 def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
     r = PropertyGroupFilterValue(
-        type = prop.type,
-        values = [convert(x) if isinstance(x, PropertyGroup) else convert_property(x) for x in prop.values]
+        type=prop.type,
+        values=[convert(x) if isinstance(x, PropertyGroup) else convert_property(x) for x in prop.values],
     )
     return r
+
 
 class HogQLCohortQuery:
     def __init__(self, cohort_query: CohortQuery, cohort: Cohort = None):
@@ -79,6 +89,12 @@ class HogQLCohortQuery:
         self._outer_property_groups = self.cohort_query._outer_property_groups
         self.team = self.cohort_query._team
 
+    def _actors_query(self):
+        pgfv = convert(self._inner_property_groups)
+        actors_query = ActorsQuery(properties=pgfv, select=["id"])
+        query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
+        return query_runner.to_query()
+
     def get_query(self) -> SelectQuery:
         if not self.cohort_query._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
@@ -91,10 +107,7 @@ class HogQLCohortQuery:
             # Need to figure out how to turn these cohort properties into a set of person properties
             # actors_query = ActorsQuery(properties=self.cohort.properties.to_dict())
             # query_runner = ActorsQueryRunner(team=self.cohort.team, query=actors_query)
-            pgfv = convert(self._inner_property_groups)
-            actors_query = ActorsQuery(properties=pgfv, select=["id"])
-            query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-            return query_runner.to_query()
+            return self._actors_query()
 
         # self._get_conditions()
         # self.get_performed_event_condition()
@@ -110,12 +123,40 @@ class HogQLCohortQuery:
 
         select_query = self._get_conditions()
 
-        ch = print_ast(
-            select_query,
-            HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
-            dialect="clickhouse",
-            pretty=True,
-        )
+        if self.cohort_query._should_join_persons:
+            actors_query = self._actors_query()
+            hogql_actors = print_ast(
+                actors_query,
+                HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
+                dialect="hogql",
+                pretty=True,
+            )
+            if self.cohort_query.should_pushdown_persons:
+                if (
+                    self.cohort_query._person_on_events_mode
+                    == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                ):
+                    # when using person-on-events, instead of inner join, we filter inside
+                    # the event query itself
+                    pass
+                else:
+                    select_query = SelectSetQuery(
+                        initial_select_query=select_query,
+                        subsequent_select_queries=[
+                            SelectSetNode(select_query=actors_query, set_operator=SetOperator.INTERSECT)
+                        ],
+                    )
+            else:
+                pass
+                # not sure what this is for
+                """
+                q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+                    fields = if_condition(
+                        f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
+                        f"{subq_alias}.person_id",
+                        f"{fields}",
+                    )"""
+
         hogql = print_ast(
             select_query,
             HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
@@ -132,7 +173,7 @@ class HogQLCohortQuery:
         if prop.event_type == "events":
             return [EventsNode(event=prop.key, math=math)]
         elif prop.event_type == "actions":
-            return[ActionsNode(id=int(prop.key), math=math)]
+            return [ActionsNode(id=int(prop.key), math=math)]
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 
@@ -236,7 +277,9 @@ class HogQLCohortQuery:
                 funnelWindowInterval=12 * 50, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MONTH
             ),
         )
-        return self._actors_query_from_source(FunnelsActorsQuery(source=funnel_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps))
+        return self._actors_query_from_source(
+            FunnelsActorsQuery(source=funnel_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps)
+        )
 
     def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:
         # either an action or an event
@@ -292,9 +335,7 @@ class HogQLCohortQuery:
         select_for_recent_range = self.get_performed_event_condition(Property(**new_props))
         return ast.SelectSetQuery(
             initial_select_query=select_for_full_range,
-            subsequent_select_queries=[
-                SelectSetNode(set_operator="EXCEPT", select_query=select_for_recent_range)
-            ],
+            subsequent_select_queries=[SelectSetNode(set_operator="EXCEPT", select_query=select_for_recent_range)],
         )
 
     def get_restarted_performing_event(self, prop: Property) -> ast.SelectSetQuery:
@@ -310,31 +351,43 @@ class HogQLCohortQuery:
         date_interval = validate_interval(prop.seq_time_interval)
         date_to = f"-{date_value}{date_interval[:1]}"
 
-        select_for_first_range = self._actors_query_from_source(InsightActorsQuery(source=TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
-            trendsFilter=TrendsFilter(display="ActionsBarValue"),
-            series=series,
-        )))
+        select_for_first_range = self._actors_query_from_source(
+            InsightActorsQuery(
+                source=TrendsQuery(
+                    dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
+                    trendsFilter=TrendsFilter(display="ActionsBarValue"),
+                    series=series,
+                )
+            )
+        )
 
         # want people in here who were not "for the first time" who were not in the prior one
-        select_for_second_range = self._actors_query_from_source(InsightActorsQuery(source=TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_to),
-            trendsFilter=TrendsFilter(display="ActionsBarValue"),
-            series=series,
-        )))
+        select_for_second_range = self._actors_query_from_source(
+            InsightActorsQuery(
+                source=TrendsQuery(
+                    dateRange=InsightDateRange(date_from=date_to),
+                    trendsFilter=TrendsFilter(display="ActionsBarValue"),
+                    series=series,
+                )
+            )
+        )
 
-        select_for_second_range_first_time = self._actors_query_from_source(InsightActorsQuery(source=TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_to),
-            trendsFilter=TrendsFilter(display="ActionsBarValue"),
-            series=first_time_series,
-        )))
+        select_for_second_range_first_time = self._actors_query_from_source(
+            InsightActorsQuery(
+                source=TrendsQuery(
+                    dateRange=InsightDateRange(date_from=date_to),
+                    trendsFilter=TrendsFilter(display="ActionsBarValue"),
+                    series=first_time_series,
+                )
+            )
+        )
 
         # People who did the event in the recent window, who had done it previously, who did not do it in the previous window
         return ast.SelectSetQuery(
             initial_select_query=select_for_second_range,
             subsequent_select_queries=[
                 SelectSetNode(set_operator="EXCEPT", select_query=select_for_second_range_first_time),
-                SelectSetNode(set_operator="EXCEPT", select_query=select_for_first_range)
+                SelectSetNode(set_operator="EXCEPT", select_query=select_for_first_range),
             ],
         )
 
@@ -355,15 +408,24 @@ class HogQLCohortQuery:
         stickiness_query = StickinessQuery(
             series=series,
             dateRange=InsightDateRange(date_from=date_from),
-            stickinessFilter=StickinessFilter(stickinessCriteria=StickinessCriteria(operator=prop.operator, value=prop.operator_value)),
+            stickinessFilter=StickinessFilter(
+                stickinessCriteria=StickinessCriteria(operator=prop.operator, value=prop.operator_value)
+            ),
         )
-        return self._actors_query_from_source(StickinessActorsQuery(source=stickiness_query, day=prop.min_periods - 1, operator=prop.operator))
+        return self._actors_query_from_source(
+            StickinessActorsQuery(source=stickiness_query, day=prop.min_periods - 1, operator=prop.operator)
+        )
 
     def get_person_condition(self, prop: Property) -> ast.SelectQuery:
         # key = $sample_field
         # type = "person"
         # value = test@posthog.com
-        actors_query = ActorsQuery(properties=[PersonPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT)], select=["id"])
+        actors_query = ActorsQuery(
+            properties=[
+                PersonPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT)
+            ],
+            select=["id"],
+        )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
         return query_runner.to_query()
 
