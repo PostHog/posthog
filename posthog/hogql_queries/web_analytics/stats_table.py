@@ -45,29 +45,38 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 return self.to_path_scroll_bounce_query()
             elif self.query.includeBounceRate:
                 return self.to_path_bounce_query()
+
         if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             if self.query.includeBounceRate:
                 return self.to_entry_bounce_query()
+
         if self._has_session_properties():
             return self._to_main_query_with_session_properties()
+
         return self.to_main_query()
 
     def to_main_query(self) -> ast.SelectQuery:
         with self.timings.measure("stats_table_query"):
             query = parse_select(
                 """
+WITH
+    start_timestamp >= {date_from} AND start_timestamp < {date_to} AS current_period_segment,
+    start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    uniq(filtered_person_id) AS "context.columns.visitors",
-    sum(filtered_pageview_count) AS "context.columns.views"
+    uniqIf(filtered_person_id, current_period_segment) AS "context.columns.visitors",
+    uniqIf(filtered_person_id, previous_period_segment) AS "context.columns.previous_visitors",
+    sumIf(filtered_pageview_count, current_period_segment) AS "context.columns.views",
+    sumIf(filtered_pageview_count, previous_period_segment) AS "context.columns.previous_views"
 FROM (
     SELECT
         any(person_id) AS filtered_person_id,
         count() AS filtered_pageview_count,
-        {breakdown_value} AS breakdown_value
+        {breakdown_value} AS breakdown_value,
+        min(session.$start_timestamp) as start_timestamp
     FROM events
     WHERE and(
-        timestamp >= {date_from},
+        timestamp >= {date_from_previous_period},
         timestamp < {date_to},
         events.event == '$pageview',
         {all_properties},
@@ -85,10 +94,12 @@ ORDER BY "context.columns.visitors" DESC,
                     "breakdown_value": self._counts_breakdown_value(),
                     "where_breakdown": self.where_breakdown(),
                     "all_properties": self._all_properties(),
+                    "date_from_previous_period": self._date_from_previous_period(),
                     "date_from": self._date_from(),
                     "date_to": self._date_to(),
                 },
             )
+
         assert isinstance(query, ast.SelectQuery)
         return query
 
@@ -96,19 +107,25 @@ ORDER BY "context.columns.visitors" DESC,
         with self.timings.measure("stats_table_query"):
             query = parse_select(
                 """
+WITH
+    start_timestamp >= {date_from} AND start_timestamp < {date_to} AS current_period_segment,
+    start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    uniq(filtered_person_id) AS "context.columns.visitors",
-    sum(filtered_pageview_count) AS "context.columns.views"
+    uniqIf(filtered_person_id, current_period_segment) AS "context.columns.visitors",
+    uniqIf(filtered_person_id, previous_period_segment) AS "context.columns.previous_visitors",
+    sumIf(filtered_pageview_count, current_period_segment) AS "context.columns.views",
+    sumIf(filtered_pageview_count, previous_period_segment) AS "context.columns.previous_views"
 FROM (
     SELECT
         any(person_id) AS filtered_person_id,
         count() AS filtered_pageview_count,
         {breakdown_value} AS breakdown_value,
-        session.session_id AS session_id
+        session.session_id AS session_id,
+        min(session.$start_timestamp) as start_timestamp
     FROM events
     WHERE and(
-        timestamp >= {date_from},
+        timestamp >= {date_from_previous_period},
         timestamp < {date_to},
         events.event == '$pageview',
         {event_properties},
@@ -128,6 +145,7 @@ ORDER BY "context.columns.visitors" DESC,
                     "where_breakdown": self.where_breakdown(),
                     "event_properties": self._event_properties(),
                     "session_properties": self._session_properties(),
+                    "date_from_previous_period": self._date_from_previous_period(),
                     "date_from": self._date_from(),
                     "date_to": self._date_to(),
                 },
@@ -139,21 +157,28 @@ ORDER BY "context.columns.visitors" DESC,
         with self.timings.measure("stats_table_query"):
             query = parse_select(
                 """
+WITH
+    start_timestamp >= {date_from} AND start_timestamp < {date_to} AS current_period_segment,
+    start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    uniq(filtered_person_id) AS "context.columns.visitors",
-    sum(filtered_pageview_count) AS "context.columns.views",
-    avg(is_bounce) AS "context.columns.bounce_rate"
+    uniqIf(filtered_person_id, current_period_segment) AS "context.columns.visitors",
+    uniqIf(filtered_person_id, previous_period_segment) AS "context.columns.previous_visitors",
+    sumIf(filtered_pageview_count, current_period_segment) AS "context.columns.views",
+    sumIf(filtered_pageview_count, previous_period_segment) AS "context.columns.previous_views",
+    coalesce(avgIf(is_bounce, current_period_segment), 0) AS "context.columns.bounce_rate",
+    coalesce(avgIf(is_bounce, previous_period_segment), 0) AS "context.columns.previous_bounce_rate"
 FROM (
     SELECT
+        {bounce_breakdown} AS breakdown_value,
         any(person_id) AS filtered_person_id,
         count() AS filtered_pageview_count,
-        {bounce_breakdown} AS breakdown_value,
         any(session.$is_bounce) AS is_bounce,
-        session.session_id AS session_id
+        session.session_id AS session_id,
+        min(session.$start_timestamp) as start_timestamp
     FROM events
     WHERE and(
-        timestamp >= {date_from},
+        timestamp >= {date_from_previous_period},
         timestamp < {date_to},
         events.event == '$pageview',
         {event_properties},
@@ -173,6 +198,7 @@ ORDER BY "context.columns.visitors" DESC,
                     "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
+                    "date_from_previous_period": self._date_from_previous_period(),
                     "date_from": self._date_from(),
                     "date_to": self._date_to(),
                 },
@@ -180,6 +206,8 @@ ORDER BY "context.columns.visitors" DESC,
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    # TODO: Adding previous count to this one is slightly more complicated
+    # because we don't follow the same approach of grouping stuff on the external query
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
         if self.query.breakdownBy != WebStatsBreakdown.PAGE:
             raise NotImplementedError("Scroll depth is only supported for page breakdowns")
@@ -187,27 +215,38 @@ ORDER BY "context.columns.visitors" DESC,
         with self.timings.measure("stats_table_bounce_query"):
             query = parse_select(
                 """
+WITH
+    start_timestamp >= {date_from} AND start_timestamp < {date_to} AS current_period_segment,
+    start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
     counts.visitors AS "context.columns.visitors",
+    counts.previous_visitors AS "context.columns.previous_visitors",
     counts.views AS "context.columns.views",
+    counts.previous_views AS "context.columns.previous_views",
     bounce.bounce_rate AS "context.columns.bounce_rate",
+    bounce.previous_bounce_rate AS "context.columns.previous_bounce_rate",
     scroll.average_scroll_percentage AS "context.columns.average_scroll_percentage",
-    scroll.scroll_gt80_percentage AS "context.columns.scroll_gt80_percentage"
+    scroll.previous_average_scroll_percentage AS "context.columns.previous_average_scroll_percentage",
+    scroll.scroll_gt80_percentage AS "context.columns.scroll_gt80_percentage",
+    scroll.previous_scroll_gt80_percentage AS "context.columns.previous_scroll_gt80_percentage"
 FROM (
     SELECT
         breakdown_value,
-        uniq(filtered_person_id) AS visitors,
-        sum(filtered_pageview_count) AS views
+        uniqIf(filtered_person_id, current_period_segment) AS visitors,
+        uniqIf(filtered_person_id, previous_period_segment) AS previous_visitors,
+        sumIf(filtered_pageview_count, current_period_segment) AS views,
+        sumIf(filtered_pageview_count, previous_period_segment) AS previous_views
     FROM (
         SELECT
             any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             {breakdown_value} AS breakdown_value,
-            session.session_id AS session_id
+            session.session_id AS session_id,
+            min(session.$start_timestamp ) AS start_timestamp
         FROM events
         WHERE and(
-            timestamp >= {date_from},
+            timestamp >= {date_from_previous_period},
             timestamp < {date_to},
             events.event == '$pageview',
             {event_properties},
@@ -221,15 +260,17 @@ FROM (
 LEFT JOIN (
     SELECT
         breakdown_value,
-        avg(is_bounce) AS bounce_rate
+        coalesce(avgIf(is_bounce, current_period_segment), 0) AS bounce_rate,
+        coalesce(avgIf(is_bounce, previous_period_segment), 0) AS previous_bounce_rate
     FROM (
         SELECT
             {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname
             any(session.`$is_bounce`) AS is_bounce,
-            session.session_id AS session_id
+            session.session_id AS session_id,
+            min(session.$start_timestamp) as start_timestamp
         FROM events
         WHERE and(
-            timestamp >= {date_from},
+            timestamp >= {date_from_previous_period},
             timestamp < {date_to},
             events.event == '$pageview',
             {event_properties},
@@ -244,8 +285,10 @@ ON counts.breakdown_value = bounce.breakdown_value
 LEFT JOIN (
     SELECT
         breakdown_value,
-        avgMerge(average_scroll_percentage_state) AS average_scroll_percentage,
-        avgMerge(scroll_gt80_percentage_state) AS scroll_gt80_percentage
+        coalesce(avgMergeIf(average_scroll_percentage_state, current_period_segment), 0) AS average_scroll_percentage,
+        coalesce(avgMergeIf(average_scroll_percentage_state, previous_period_segment), 0) AS previous_average_scroll_percentage,
+        coalesce(avgMergeIf(scroll_gt80_percentage_state, current_period_segment), 0) AS scroll_gt80_percentage,
+        coalesce(avgMergeIf(scroll_gt80_percentage_state, previous_period_segment), 0) AS previous_scroll_gt80_percentage
     FROM (
         SELECT
             {scroll_breakdown_value} AS breakdown_value, -- use $prev_pageview_pathname to find the scroll depth when leaving this pathname
@@ -256,10 +299,11 @@ LEFT JOIN (
                 END
             ) AS scroll_gt80_percentage_state,
             avgState(toFloat(events.properties.`$prev_pageview_max_scroll_percentage`)) as average_scroll_percentage_state,
-            session.session_id AS session_id
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            timestamp >= {date_from},
+            timestamp >= {date_from_previous_period},
             timestamp < {date_to},
             or(events.event == '$pageview', events.event == '$pageleave'),
             {event_properties_for_scroll},
@@ -280,6 +324,7 @@ ORDER BY "context.columns.visitors" DESC,
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
                     "event_properties_for_scroll": self._event_properties_for_scroll(),
+                    "date_from_previous_period": self._date_from_previous_period(),
                     "date_from": self._date_from(),
                     "date_to": self._date_to(),
                     "breakdown_value": self._counts_breakdown_value(),
@@ -297,25 +342,34 @@ ORDER BY "context.columns.visitors" DESC,
         with self.timings.measure("stats_table_scroll_query"):
             query = parse_select(
                 """
+WITH
+    start_timestamp >= {date_from} AND start_timestamp < {date_to} AS current_period_segment,
+    start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
     counts.visitors AS "context.columns.visitors",
+    counts.previous_visitors AS "context.columns.previous_visitors",
     counts.views AS "context.columns.views",
-    bounce.bounce_rate AS "context.columns.bounce_rate"
+    counts.previous_views AS "context.columns.previous_views",
+    bounce.bounce_rate AS "context.columns.bounce_rate",
+    bounce.previous_bounce_rate AS "context.columns.previous_bounce_rate"
 FROM (
     SELECT
         breakdown_value,
-        uniq(filtered_person_id) AS visitors,
-        sum(filtered_pageview_count) AS views
+        uniqIf(filtered_person_id, current_period_segment) AS visitors,
+        uniqIf(filtered_person_id, previous_period_segment) AS previous_visitors,
+        sumIf(filtered_pageview_count, current_period_segment) AS views,
+        sumIf(filtered_pageview_count, previous_period_segment) AS previous_views
     FROM (
         SELECT
             any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             {breakdown_value} AS breakdown_value,
-            session.session_id AS session_id
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            timestamp >= {date_from},
+            timestamp >= {date_from_previous_period},
             timestamp < {date_to},
             events.event == '$pageview',
             {event_properties},
@@ -329,15 +383,17 @@ FROM (
 LEFT JOIN (
     SELECT
         breakdown_value,
-        avg(is_bounce) AS bounce_rate
+        coalesce(avgIf(is_bounce, current_period_segment), 0) AS bounce_rate,
+        coalesce(avgIf(is_bounce, previous_period_segment), 0) AS previous_bounce_rate
     FROM (
         SELECT
             {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname
             any(session.`$is_bounce`) AS is_bounce,
-            session.session_id AS session_id
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp
         FROM events
         WHERE and(
-            timestamp >= {date_from},
+            timestamp >= {date_from_previous_period},
             timestamp < {date_to},
             events.event == '$pageview',
             {event_properties},
@@ -359,6 +415,7 @@ ORDER BY "context.columns.visitors" DESC,
                     "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
+                    "date_from_previous_period": self._date_from_previous_period(),
                     "date_from": self._date_from(),
                     "date_to": self._date_to(),
                     "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
@@ -422,6 +479,9 @@ ORDER BY "context.columns.visitors" DESC,
     def _date_from(self) -> ast.Expr:
         return self.query_date_range.date_from_as_hogql()
 
+    def _date_from_previous_period(self) -> ast.Expr:
+        return self.query_date_range.previous_period_date_from_as_hogql()
+
     def calculate(self):
         query = self.to_query()
         response = self.paginator.execute_hogql_query(
@@ -439,7 +499,9 @@ ORDER BY "context.columns.visitors" DESC,
             results,
             {
                 1: self._unsample,  # views
-                2: self._unsample,  # visitors
+                2: self._unsample,  # previous views
+                3: self._unsample,  # visitors
+                4: self._unsample,  # previous visitors
             },
         )
 
