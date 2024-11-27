@@ -56,7 +56,7 @@ where
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
         reader.clone(),
-        Some(config.cache_max_entries),
+        Some(config.cache_max_cohort_entries),
         Some(config.cache_ttl_seconds),
     ));
 

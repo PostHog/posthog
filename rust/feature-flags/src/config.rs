@@ -99,8 +99,8 @@ pub struct Config {
     #[envconfig(from = "TEAM_IDS_TO_TRACK", default = "all")]
     pub team_ids_to_track: TeamIdsToTrack,
 
-    #[envconfig(from = "CACHE_MAX_ENTRIES", default = "100000")]
-    pub cache_max_entries: u64,
+    #[envconfig(from = "CACHE_MAX_COHORT_ENTRIES", default = "100000")]
+    pub cache_max_cohort_entries: u64,
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
@@ -120,7 +120,7 @@ impl Config {
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdsToTrack::All,
-            cache_max_entries: 100_000,
+            cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
         }
     }
