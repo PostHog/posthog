@@ -15,7 +15,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.models import AlertConfiguration
+from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
 from posthog.schema import (
@@ -36,6 +36,7 @@ from posthog.tasks.alerts.utils import (
     alert_calculation_interval_to_relativedelta,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
+import posthoganalytics
 
 
 logger = structlog.get_logger(__name__)
@@ -72,6 +73,8 @@ ALERT_COMPUTED_COUNTER = Counter(
     "Number of alerts we calculated",
 )
 
+ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
+
 
 @shared_task(ignore_result=True)
 def checks_cleanup_task() -> None:
@@ -100,6 +103,15 @@ def alerts_backlog_task() -> None:
 
     HOURLY_ALERTS_BACKLOG_GAUGE.set(hourly_alerts_breaching_sla)
 
+    posthoganalytics.capture(
+        ANIRUDH_DISTINCT_ID,
+        "alert check backlog",
+        properties={
+            "alert_check_frequency": AlertCalculationInterval.HOURLY,
+            "backlog": hourly_alerts_breaching_sla,
+        },
+    )
+
     now = datetime.now(UTC)
 
     daily_alerts_breaching_sla = AlertConfiguration.objects.filter(
@@ -111,6 +123,15 @@ def alerts_backlog_task() -> None:
     ).count()
 
     DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
+
+    posthoganalytics.capture(
+        ANIRUDH_DISTINCT_ID,
+        "alert check backlog",
+        properties={
+            "alert_check_frequency": AlertCalculationInterval.DAILY,
+            "backlog": daily_alerts_breaching_sla,
+        },
+    )
 
     # sleeping 30s for prometheus to pick up the metrics sent during task
     time.sleep(30)
@@ -243,6 +264,17 @@ def check_alert(alert_id: str) -> None:
         check_alert_and_notify_atomically(alert)
     except Exception as err:
         ALERT_CHECK_ERROR_COUNTER.inc()
+        user = cast(User, alert.created_by)
+
+        posthoganalytics.capture(
+            cast(str, user.distinct_id),
+            "alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": f"AlertCheckError: {err}",
+                "traceback": traceback.format_exc(),
+            },
+        )
 
         logger.exception(AlertCheckException(err))
         capture_exception(
@@ -276,6 +308,18 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     set_tag("alert_config_id", alert.id)
 
     ALERT_COMPUTED_COUNTER.inc()
+
+    user = cast(User, alert.created_by)
+
+    # Event to count alert checks
+    posthoganalytics.capture(
+        cast(str, user.distinct_id),
+        "alert check",
+        properties={
+            "alert_id": alert.id,
+        },
+    )
+
     value = breaches = error = None
 
     # 1. Evaluate insight and get alert value
@@ -288,8 +332,19 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         # as celery task can be retried according to config
         raise
     except Exception as err:
-        logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
-        set_tag("evaluation_error_message", traceback.format_exc())
+        error_message = f"Alert id = {alert.id}, failed to evaluate"
+
+        posthoganalytics.capture(
+            cast(str, user.distinct_id),
+            "alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": error_message,
+                "traceback": traceback.format_exc(),
+            },
+        )
+
+        logger.exception(error_message, exc_info=err)
         capture_exception(AlertCheckException(err))
 
         # error can be on user side (incorrectly configured insight/alert)
@@ -316,9 +371,18 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
                 send_notifications_for_breaches(alert, breaches)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
-        logger.exception(error_message, exc_info=err)
 
-        set_tag("evaluation_error_message", traceback.format_exc())
+        posthoganalytics.capture(
+            cast(str, user.distinct_id),
+            "alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": error_message,
+                "traceback": traceback.format_exc(),
+            },
+        )
+
+        logger.exception(error_message, exc_info=err)
         capture_exception(Exception(error_message))
 
         # don't want alert state to be updated (so that it's retried as next_check_at won't be updated)

@@ -11314,6 +11314,12 @@
                     "const": true,
                     "type": "boolean"
                 },
+                "substeps": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "const": "ai/reasoning",
                     "type": "string"
@@ -12220,6 +12226,19 @@
                 },
                 "showValuesOnSeries": {
                     "type": "boolean"
+                },
+                "stickinessCriteria": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/StickinessOperator"
+                        },
+                        "value": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": ["operator", "value"],
+                    "type": "object"
                 }
             },
             "type": "object"
@@ -12258,6 +12277,10 @@
                 }
             },
             "type": "object"
+        },
+        "StickinessOperator": {
+            "enum": ["gte", "lte", "exact"],
+            "type": "string"
         },
         "StickinessQuery": {
             "additionalProperties": false,
@@ -13364,7 +13387,8 @@
                 "Country",
                 "Region",
                 "City",
-                "Timezone"
+                "Timezone",
+                "Language"
             ],
             "type": "string"
         },
