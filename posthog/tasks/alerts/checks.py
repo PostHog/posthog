@@ -146,7 +146,8 @@ def alerts_backlog_task() -> None:
 
     # sleeping 30s for prometheus to pick up the metrics sent during task
     time.sleep(30)
-    ph_client.shutdown()
+    if ph_client:
+        ph_client.shutdown()
 
 
 @shared_task(
@@ -311,7 +312,8 @@ def check_alert(alert_id: str) -> None:
         alert.is_calculating = False
         alert.save()
 
-        ph_client.shutdown()
+        if ph_client:
+            ph_client.shutdown()
 
 
 @transaction.atomic
