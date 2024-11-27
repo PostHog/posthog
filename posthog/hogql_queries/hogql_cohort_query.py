@@ -461,37 +461,49 @@ class HogQLCohortQuery:
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]]
-        ) -> None | ast.SelectQuery | ast.SelectSetQuery:
+        ) -> (None | ast.SelectQuery | ast.SelectSetQuery, bool):
             if not prop:
                 # What do we do here?
-                return None
+                return (None, False)
 
             if isinstance(prop, PropertyGroup):
                 queries = []
                 for idx, property in enumerate(prop.values):
-                    query = build_conditions(property)  # type: ignore
+                    query, negation = build_conditions(property)  # type: ignore
                     if query is not None:
-                        queries.append((query, getattr(property, "negation", False)))
+                        queries.append((query, negation))
 
                 if prop.type == PropertyOperatorType.OR:
-                    return ast.SelectSetQuery(
-                        initial_select_query=queries[0][0],
-                        subsequent_select_queries=[
-                            SelectSetNode(select_query=query, set_operator="UNION DISTINCT")
-                            for (query, negation) in queries[1:]
-                        ],
+                    return (
+                        ast.SelectSetQuery(
+                            initial_select_query=queries[0][0],
+                            subsequent_select_queries=[
+                                SelectSetNode(select_query=query, set_operator="UNION DISTINCT")
+                                for (query, negation) in queries[1:]
+                            ],
+                        ),
+                        False,
                     )
                 # Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.
+                all_negated = all(x[1] for x in queries)
                 queries.sort(key=lambda query: query[1])  # False before True
-                return ast.SelectSetQuery(
-                    initial_select_query=queries[0][0],
-                    subsequent_select_queries=[
-                        SelectSetNode(select_query=query, set_operator="EXCEPT" if negation else "INTERSECT")
-                        for (query, negation) in queries[1:]
-                    ],
+                return (
+                    ast.SelectSetQuery(
+                        initial_select_query=queries[0][0],
+                        subsequent_select_queries=[
+                            SelectSetNode(
+                                select_query=query,
+                                set_operator="UNION DISTINCT"
+                                if all_negated
+                                else ("EXCEPT" if negation else "INTERSECT"),
+                            )
+                            for (query, negation) in queries[1:]
+                        ],
+                    ),
+                    all_negated,
                 )
             else:
-                return self._get_condition_for_property(prop)
+                return (self._get_condition_for_property(prop), prop.negation)
 
-        conditions = build_conditions(self._outer_property_groups)
+        conditions, _ = build_conditions(self._outer_property_groups)
         return conditions
