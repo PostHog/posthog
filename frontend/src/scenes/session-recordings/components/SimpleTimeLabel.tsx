@@ -4,9 +4,9 @@ import { shortTimeZone } from 'lib/utils'
 function formatStringFor(d: Dayjs): string {
     const today = dayjs()
     if (d.isSame(today, 'year')) {
-        return 'MMM/DD, HH:mm:ss'
+        return 'DD/MMM, HH:mm:ss'
     }
-    return 'YYYY/MM/DD HH:mm:ss'
+    return 'DD/MM/YYYY HH:mm:ss'
 }
 
 export function SimpleTimeLabel({ startTime, isUTC }: { startTime: string | number; isUTC: boolean }): JSX.Element {
