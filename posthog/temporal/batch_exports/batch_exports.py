@@ -1105,3 +1105,16 @@ async def execute_batch_export_insert_activity(
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
+
+
+async def wait_for_delta_past_data_interval_end(
+    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=60)
+) -> None:
+    """Wait for some time after `data_interval_end` before querying ClickHouse."""
+    target = data_interval_end.astimezone(dt.UTC)
+    now = dt.datetime.now(dt.UTC)
+
+    while target + delta < now:
+        remaining = (target + delta) - now
+        # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
+        await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))
