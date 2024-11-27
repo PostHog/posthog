@@ -704,10 +704,6 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_compare_previous_option(
         self,
     ) -> None:
-        # self.team.timezone = "US/Pacific"  # GMT -8
-        # self.team.save()
-
-        # with timezone.override(pytz.timezone("US/Pacific")):
         _create_person(distinct_ids=[f"user_1"], team=self.team)
         events_by_person = {
             "user_1": [
@@ -748,17 +744,10 @@ class TestCSVExporter(APIBaseTest):
                 }
             },
         )
-        # mocked_uuidt.return_value = "a-guid-xxxx"
-        # mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
         exported_asset.save()
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)  # type: ignore
-            # self.assertEqual(
-            #     exported_asset.content,
-            #     b"series,22-Mar-2024\\r\\n$pageview - current,1\\r\\n$pageview - previous,2\\r\\n",
-            # )
-            # # content = str(exported_asset.content)
             lines = (content or "").strip().split("\r\n")
             self.assertEqual(lines, ["series,22-Mar-2023", "$pageview - current,1", "$pageview - previous,2"])
