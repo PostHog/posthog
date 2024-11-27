@@ -482,7 +482,7 @@ class HogQLCohortQuery:
                     return ast.SelectSetQuery(
                         initial_select_query=queries[0],
                         subsequent_select_queries=[
-                            SelectSetNode(select_query=query, set_operator="UNION ALL") for query in queries[1:]
+                            SelectSetNode(select_query=query, set_operator="UNION DISTINCT") for query in queries[1:]
                         ],
                     )
                 return ast.SelectSetQuery(
