@@ -155,7 +155,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const mergedReferenceRef = useMergeRefs([
         referenceRef,
         extraReferenceRef || null,
-        children?.ref,
+        (children as any)?.ref,
     ]) as React.RefCallback<HTMLElement>
 
     const arrowStyle = middlewareData.arrow
