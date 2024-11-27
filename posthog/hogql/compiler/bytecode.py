@@ -422,7 +422,7 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_return_statement(self, node: ast.ReturnStatement):
-        if node.expr:
+        if node.expr is not None:
             response = self.visit(node.expr)
         else:
             response = [Operation.NULL]
@@ -671,7 +671,7 @@ class BytecodeCompiler(Visitor):
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):
         self._declare_local(node.name)
-        if node.expr:
+        if node.expr is not None:
             return self.visit(node.expr)
         return [Operation.NULL]
 
