@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
-import { EachBatchPayload, KafkaMessage } from 'kafkajs'
+import { storeOffsetsForMessages } from 'kafka/consumer'
+import { KafkaConsumer, Message } from 'node-rdkafka'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
 import { ActionMatcher } from 'worker/ingestion/action-matcher'
@@ -15,7 +16,7 @@ import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
-import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter } from '../metrics'
 import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -27,16 +28,16 @@ export const silentFailuresAsyncHandlers = new Counter({
 })
 // exporting only for testing
 export function groupIntoBatchesByUsage(
-    array: KafkaMessage[],
+    array: Message[],
     batchSize: number,
     shouldProcess: (teamId: number) => boolean
-): { eventBatch: RawKafkaEvent[]; lastOffset: string; lastTimestamp: string }[] {
+): { eventBatch: RawKafkaEvent[] }[] {
     // Most events will not trigger a webhook call, so we want to filter them out as soon as possible
     // to achieve the highest effective concurrency when executing the actual HTTP calls.
     // actionMatcher holds an in-memory set of all teams with enabled webhooks, that we use to
     // drop events based on that signal. To use it we must parse the message, as there aren't that many
     // webhooks, we can keep batches of the parsed messages in memory with the offsets of the last message
-    const result: { eventBatch: RawKafkaEvent[]; lastOffset: string; lastTimestamp: string }[] = []
+    const result: { eventBatch: RawKafkaEvent[] }[] = []
     let currentBatch: RawKafkaEvent[] = []
     let currentCount = 0
     array.forEach((message, index) => {
@@ -53,7 +54,7 @@ export function groupIntoBatchesByUsage(
                 .inc()
         }
         if (currentCount === batchSize || index === array.length - 1) {
-            result.push({ eventBatch: currentBatch, lastOffset: message.offset, lastTimestamp: message.timestamp })
+            result.push({ eventBatch: currentBatch })
             currentBatch = []
             currentCount = 0
         }
@@ -62,7 +63,8 @@ export function groupIntoBatchesByUsage(
 }
 
 export async function eachBatchWebhooksHandlers(
-    payload: EachBatchPayload,
+    payload: Message[],
+    consumer: KafkaConsumer,
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander,
     concurrency: number,
@@ -72,6 +74,7 @@ export async function eachBatchWebhooksHandlers(
 ): Promise<void> {
     await eachBatchHandlerHelper(
         payload,
+        consumer,
         (teamId) => actionMatcher.hasWebhooks(teamId),
         (event) =>
             eachMessageWebhooksHandlers(
@@ -88,7 +91,8 @@ export async function eachBatchWebhooksHandlers(
 }
 
 export async function eachBatchHandlerHelper(
-    payload: EachBatchPayload,
+    messages: Message[],
+    consumer: KafkaConsumer,
     shouldProcess: (teamId: number) => boolean,
     eachMessageHandler: (event: RawKafkaEvent) => Promise<void>,
     concurrency: number,
@@ -99,50 +103,25 @@ export async function eachBatchHandlerHelper(
     const key = `async_handlers_${stats_key}`
     const batchStartTimer = new Date()
     const loggingKey = `each_batch_${key}`
-    const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
 
     const transaction = Sentry.startTransaction({ name: `eachBatch${stats_key}` })
 
     try {
-        const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
+        const batches = groupIntoBatchesByUsage(messages, concurrency, shouldProcess)
 
-        ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
-        ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
+        ingestEventBatchingInputLengthSummary.observe(messages.length)
+        ingestEventBatchingBatchCountSummary.observe(batches.length)
 
-        for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
+        for (const { eventBatch } of batches) {
             const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: eventBatch.length } })
 
-            if (!isRunning() || isStale()) {
-                status.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
-                    isRunning: isRunning(),
-                    isStale: isStale(),
-                    msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                })
-                await heartbeat()
-                return
-            }
-
-            await Promise.all(
-                eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
-            )
-
-            resolveOffset(lastOffset)
-            await commitOffsetsIfNecessary()
-
-            // Record that latest messages timestamp, such that we can then, for
-            // instance, alert on if this value is too old.
-            latestOffsetTimestampGauge
-                .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
-                .set(Number.parseInt(lastTimestamp))
-
-            await heartbeat()
-
+            await Promise.all(eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event)))
             batchSpan.finish()
         }
-
+        storeOffsetsForMessages(messages, consumer)
         status.debug(
             '🧩',
-            `Kafka batch of ${batch.messages.length} events completed in ${
+            `Kafka batch of ${messages.length} events completed in ${
                 new Date().valueOf() - batchStartTimer.valueOf()
             }ms (${loggingKey})`
         )

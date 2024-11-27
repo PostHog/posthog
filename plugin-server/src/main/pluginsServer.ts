@@ -18,7 +18,7 @@ import {
 } from '../cdp/cdp-consumers'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
-import { closeHub, createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
+import { closeHub, createHub } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
@@ -26,14 +26,7 @@ import { posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
-import { ActionManager } from '../worker/ingestion/action-manager'
-import { ActionMatcher } from '../worker/ingestion/action-matcher'
-import { AppMetrics } from '../worker/ingestion/app-metrics'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
-import { RustyHook } from '../worker/rusty-hook'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
@@ -326,39 +319,11 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
-            const hub = serverInstance.hub
-            // If we have a hub, then reuse some of it's attributes, otherwise
-            // we need to create them. We only initialize the ones we need.
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
-            const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-            const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
-            const appMetrics =
-                hub?.appMetrics ??
-                new AppMetrics(
-                    KafkaProducerWrapper,
-                    serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-                    serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-                )
-
-            const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
-            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
-            const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
+            const hub = await setupHub()
 
             services.push(
                 await startAsyncWebhooksHandlerConsumer({
-                    postgres,
-                    kafka,
-                    teamManager,
-                    organizationManager,
-                    serverConfig,
-                    rustyHook,
-                    appMetrics,
-                    actionMatcher,
-                    actionManager,
-                    groupTypeManager,
+                    hub,
                 })
             )
         }

@@ -1,22 +1,22 @@
-import { EachBatchPayload } from 'kafkajs'
+import { Message } from 'node-rdkafka'
 
-import { PostIngestionEvent, RawKafkaEvent } from '../../../types'
+import { Hub, PostIngestionEvent, RawKafkaEvent } from '../../../types'
 import { convertToPostIngestionEvent } from '../../../utils/event'
 import {
     processComposeWebhookStep,
     processOnEventStep,
 } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { runInstrumentedFunction } from '../../utils'
-import { KafkaJSIngestionConsumer } from '../kafka-queue'
+import { IngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter } from '../metrics'
 import { eachBatchHandlerHelper } from './each-batch-webhooks'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-export async function handleOnEventPlugins(event: PostIngestionEvent, queue: KafkaJSIngestionConsumer): Promise<void> {
+export async function handleOnEventPlugins(event: PostIngestionEvent, hub: Hub): Promise<void> {
     await runInstrumentedFunction({
-        func: () => processOnEventStep(queue.pluginsServer, event),
+        func: () => processOnEventStep(hub, event),
         statsKey: `kafka_queue.process_async_handlers_on_event`,
         timeoutMessage: 'After 30 seconds still running runAppsOnEventPipeline',
         timeoutContext: () => ({
@@ -26,12 +26,9 @@ export async function handleOnEventPlugins(event: PostIngestionEvent, queue: Kaf
     })
 }
 
-export async function handleComposeWebhookPlugins(
-    event: PostIngestionEvent,
-    queue: KafkaJSIngestionConsumer
-): Promise<void> {
+export async function handleComposeWebhookPlugins(event: PostIngestionEvent, hub: Hub): Promise<void> {
     await runInstrumentedFunction({
-        func: () => processComposeWebhookStep(queue.pluginsServer, event),
+        func: () => processComposeWebhookStep(hub, event),
         statsKey: `kafka_queue.process_async_handlers_on_event`,
         timeoutMessage: 'After 30 seconds still running runAppsOnEventPipeline',
         timeoutContext: () => ({
@@ -41,14 +38,11 @@ export async function handleComposeWebhookPlugins(
     })
 }
 
-export async function eachMessageAppsOnEventHandlers(
-    clickHouseEvent: RawKafkaEvent,
-    queue: KafkaJSIngestionConsumer
-): Promise<void> {
-    const pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
+export async function eachMessageAppsOnEventHandlers(clickHouseEvent: RawKafkaEvent, hub: Hub): Promise<void> {
+    const pluginConfigs = hub.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
     if (pluginConfigs) {
         const event = convertToPostIngestionEvent(clickHouseEvent)
-        await Promise.all([handleOnEventPlugins(event, queue), handleComposeWebhookPlugins(event, queue)])
+        await Promise.all([handleOnEventPlugins(event, hub), handleComposeWebhookPlugins(event, hub)])
     } else {
         eventDroppedCounter
             .labels({
@@ -59,15 +53,17 @@ export async function eachMessageAppsOnEventHandlers(
     }
 }
 
-export async function eachBatchAppsOnEventHandlers(
-    payload: EachBatchPayload,
-    queue: KafkaJSIngestionConsumer
-): Promise<void> {
+export async function eachBatchAppsOnEventHandlers(payload: Message[], consumer: IngestionConsumer): Promise<void> {
+    const hub = consumer.pluginsServer
+    if (!consumer.consumer?.consumer) {
+        return // Consumer was closed
+    }
     await eachBatchHandlerHelper(
         payload,
-        (teamId) => queue.pluginsServer.pluginConfigsPerTeam.has(teamId),
-        (event) => eachMessageAppsOnEventHandlers(event, queue),
-        queue.pluginsServer.WORKER_CONCURRENCY * queue.pluginsServer.TASKS_PER_WORKER,
+        consumer.consumer?.consumer,
+        (teamId) => hub.pluginConfigsPerTeam.has(teamId),
+        (event) => eachMessageAppsOnEventHandlers(event, hub),
+        hub.WORKER_CONCURRENCY * hub.TASKS_PER_WORKER,
         'on_event'
     )
 }
