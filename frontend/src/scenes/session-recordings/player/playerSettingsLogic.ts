@@ -28,6 +28,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
+        setPlaylistTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
         setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
         setSidebarOpen: (open: boolean) => ({ open }),
@@ -74,6 +75,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setTimestampFormat: (_, { format }) => format,
+            },
+        ],
+        playlistTimestampFormat: [
+            TimestampFormat.Relative as TimestampFormat,
+            { persist: true },
+            {
+                setPlaylistTimestampFormat: (_, { format }) => format,
             },
         ],
         skipInactivitySetting: [
