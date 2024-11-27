@@ -1,4 +1,5 @@
-import { IconAIText, IconCheckCircle, IconCode, IconMessage } from '@posthog/icons'
+import { IconAIText, IconCheckCircle, IconCode, IconMessage, IconPencil } from '@posthog/icons'
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -26,8 +27,9 @@ export function WebExperimentTransformField({
     const [transformSelected, setTransformSelected] = useState(
         transform.html && transform.html.length > 0 ? 'html' : 'text'
     )
-    const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
-    const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
+    const { experimentForm, inspectingElement, selectedVariant, selectedElementType, editSelectorShowing } =
+        useValues(experimentsTabLogic)
+    const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex, showEditSelector } =
         useActions(experimentsTabLogic)
 
     return (
@@ -67,6 +69,18 @@ export function WebExperimentTransformField({
                                             </LemonButton>
                                         )
                                     })}
+                                    <LemonDivider className="my-1" />
+                                    <LemonButton
+                                        fullWidth
+                                        type="tertiary"
+                                        icon={<IconPencil />}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            showEditSelector()
+                                        }}
+                                    >
+                                        Edit selector
+                                    </LemonButton>
                                 </>
                             ),
                             placement: 'bottom',
@@ -77,6 +91,21 @@ export function WebExperimentTransformField({
                     {transform.selector ? 'Change element' : 'Select element'}
                 </LemonButton>
             </div>
+            {editSelectorShowing && (
+                <div className="mb-2">
+                    <LemonInput
+                        value={transform.selector}
+                        onChange={(value) => {
+                            if (experimentForm.variants) {
+                                const variants = { ...experimentForm.variants }
+                                variants[variant].transforms[tIndex].selector = value
+                                setExperimentFormValue('variants', variants)
+                            }
+                        }}
+                        placeholder="HTML element selector"
+                    />
+                </div>
+            )}
             <LemonSegmentedButton
                 fullWidth
                 options={[
