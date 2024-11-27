@@ -36,7 +36,8 @@ from posthog.tasks.alerts.utils import (
     alert_calculation_interval_to_relativedelta,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
-import posthoganalytics
+from posthog.ph_client import get_ph_client
+from posthoganalytics import Posthog
 
 
 logger = structlog.get_logger(__name__)
@@ -76,6 +77,13 @@ ALERT_COMPUTED_COUNTER = Counter(
 ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
 
+def _capture_ph_event(ph_client: Posthog | None, *args) -> None:
+    if ph_client:
+        ph_client.capture(*args)
+
+    return None
+
+
 @shared_task(ignore_result=True)
 def checks_cleanup_task() -> None:
     AlertCheck.clean_up_old_checks()
@@ -91,6 +99,7 @@ def alerts_backlog_task() -> None:
     - hourly alerts - alerts that haven't been checked in the last hour + 5min
     - daily alerts - alerts that haven't been checked in the last hour + 15min
     """
+    ph_client = get_ph_client()
     now = datetime.now(UTC)
 
     hourly_alerts_breaching_sla = AlertConfiguration.objects.filter(
@@ -103,7 +112,8 @@ def alerts_backlog_task() -> None:
 
     HOURLY_ALERTS_BACKLOG_GAUGE.set(hourly_alerts_breaching_sla)
 
-    posthoganalytics.capture(
+    _capture_ph_event(
+        ph_client,
         ANIRUDH_DISTINCT_ID,
         "alert check backlog",
         properties={
@@ -124,7 +134,8 @@ def alerts_backlog_task() -> None:
 
     DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
 
-    posthoganalytics.capture(
+    _capture_ph_event(
+        ph_client,
         ANIRUDH_DISTINCT_ID,
         "alert check backlog",
         properties={
@@ -135,6 +146,7 @@ def alerts_backlog_task() -> None:
 
     # sleeping 30s for prometheus to pick up the metrics sent during task
     time.sleep(30)
+    ph_client.shutdown()
 
 
 @shared_task(
@@ -219,6 +231,8 @@ def check_alert_task(alert_id: str) -> None:
 
 
 def check_alert(alert_id: str) -> None:
+    ph_client = get_ph_client()
+
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -261,12 +275,13 @@ def check_alert(alert_id: str) -> None:
     alert.save()
 
     try:
-        check_alert_and_notify_atomically(alert)
+        check_alert_and_notify_atomically(alert, ph_client)
     except Exception as err:
         ALERT_CHECK_ERROR_COUNTER.inc()
         user = cast(User, alert.created_by)
 
-        posthoganalytics.capture(
+        _capture_ph_event(
+            ph_client,
             cast(str, user.distinct_id),
             "alert check failed",
             properties={
@@ -296,9 +311,11 @@ def check_alert(alert_id: str) -> None:
         alert.is_calculating = False
         alert.save()
 
+        ph_client.shutdown()
+
 
 @transaction.atomic
-def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
+def check_alert_and_notify_atomically(alert: AlertConfiguration, ph_client: Posthog | None) -> None:
     """
     Computes insight results, checks alert for breaches and notifies user.
     Only commits updates to alert state if all of the above complete successfully.
@@ -312,7 +329,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     user = cast(User, alert.created_by)
 
     # Event to count alert checks
-    posthoganalytics.capture(
+    _capture_ph_event(
+        ph_client,
         cast(str, user.distinct_id),
         "alert check",
         properties={
@@ -334,7 +352,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     except Exception as err:
         error_message = f"Alert id = {alert.id}, failed to evaluate"
 
-        posthoganalytics.capture(
+        _capture_ph_event(
+            ph_client,
             cast(str, user.distinct_id),
             "alert check failed",
             properties={
@@ -372,7 +391,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
 
-        posthoganalytics.capture(
+        _capture_ph_event(
+            ph_client,
             cast(str, user.distinct_id),
             "alert check failed",
             properties={
