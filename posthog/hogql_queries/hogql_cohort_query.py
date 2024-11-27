@@ -434,11 +434,6 @@ class HogQLCohortQuery:
         )
 
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
-        res: str = ""
-
-        prepend = ""
-        idx = 0
-
         if prop.type == "behavioral":
             if prop.value == "performed_event":
                 return self.get_performed_event_condition(prop)
@@ -463,8 +458,6 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
-        return res
-
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]]
@@ -478,20 +471,23 @@ class HogQLCohortQuery:
                 for idx, property in enumerate(prop.values):
                     query = build_conditions(property)  # type: ignore
                     if query is not None:
-                        queries.append(query)
-                        # params.update(q_params)
+                        queries.append((query, getattr(property, "negation", False)))
 
                 if prop.type == PropertyOperatorType.OR:
                     return ast.SelectSetQuery(
-                        initial_select_query=queries[0],
+                        initial_select_query=queries[0][0],
                         subsequent_select_queries=[
-                            SelectSetNode(select_query=query, set_operator="UNION DISTINCT") for query in queries[1:]
+                            SelectSetNode(select_query=query, set_operator="UNION DISTINCT")
+                            for (query, negation) in queries[1:]
                         ],
                     )
+                # Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.
+                queries.sort(key=lambda query: query[1])  # False before True
                 return ast.SelectSetQuery(
-                    initial_select_query=queries[0],
+                    initial_select_query=queries[0][0],
                     subsequent_select_queries=[
-                        SelectSetNode(select_query=query, set_operator="INTERSECT") for query in queries[1:]
+                        SelectSetNode(select_query=query, set_operator="EXCEPT" if negation else "INTERSECT")
+                        for (query, negation) in queries[1:]
                     ],
                 )
             else:

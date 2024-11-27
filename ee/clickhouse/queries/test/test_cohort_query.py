@@ -1301,7 +1301,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertFalse(query_class._restrict_event_query_by_time)
         sync_execute(q, {**params, **filter.hogql_context.values})
 
-    def test_negation(self):
+    def test_negation_raises(self):
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
