@@ -128,6 +128,26 @@ SETTINGS
 """
 )
 
+SELECT_FROM_EVENTS_VIEW_RECENT = Template(
+    """
+SELECT
+    $fields
+FROM
+    events_batch_export_recent(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    ) AS events
+FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=1
+"""
+)
+
 SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
     """
 SELECT
@@ -258,7 +278,17 @@ async def iter_records_from_model_view(
         else:
             parameters["include_events"] = []
 
-        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+        end_at = dt.datetime.fromisoformat(interval_end)
+
+        if start_at:
+            is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+        else:
+            is_5_min_batch_export = False
+
+        if is_5_min_batch_export and not is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
             query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
