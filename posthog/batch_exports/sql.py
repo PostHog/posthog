@@ -275,7 +275,7 @@ CREATE OR REPLACE VIEW events_batch_export_recent ON CLUSTER {settings.CLICKHOUS
         events_recent
     PREWHERE
         events.inserted_at >= {{interval_start:DateTime64}}
-        events.inserted_at < {{interval_end:DateTime64}}
+        AND events.inserted_at < {{interval_end:DateTime64}}
     WHERE
         team_id = {{team_id:Int64}}
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
