@@ -10,7 +10,9 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from django.test import override_settings
+from django.utils import timezone
 from django.utils.timezone import now
+import pytz
 from requests.exceptions import HTTPError
 
 from posthog.models import ExportedAsset
@@ -700,50 +702,54 @@ class TestCSVExporter(APIBaseTest):
             )
 
     def test_csv_exporter_trends_query_with_compare_previous_option(self) -> None:
-        _create_person(distinct_ids=[f"user_1"], team=self.team)
-        events_by_person = {
-            "user_1": [
-                {
-                    "event": "$pageview",
-                    "timestamp": datetime(2024, 3, 21, 13, 46),
-                },
-                {
-                    "event": "$pageview",
-                    "timestamp": datetime(2024, 3, 21, 13, 46),
-                },
-                {
-                    "event": "$pageview",
-                    "timestamp": datetime(2024, 3, 22, 13, 47),
-                },
-            ],
-        }
-        journeys_for(events_by_person, self.team)
-        flush_persons_and_events()
+        self.team.timezone = "US/Pacific"  # GMT -8
+        self.team.save()
 
-        exported_asset = ExportedAsset(
-            team=self.team,
-            export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$pageview",
-                            "name": "$pageview",
-                            "math": "total",
-                        },
-                    ],
-                    "interval": "day",
-                    "compareFilter": {"compare": True},
-                }
-            },
-        )
-        exported_asset.save()
+        with timezone.override(pytz.timezone("US/Pacific")):
+            _create_person(distinct_ids=[f"user_1"], team=self.team)
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 21, 13, 46),
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 21, 13, 46),
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 47),
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+            flush_persons_and_events()
 
-        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_tabular(exported_asset)
-            content = object_storage.read(exported_asset.content_location)  # type: ignore
-            lines = (content or "").strip().split("\r\n")
-            self.assertEqual(lines, ["series,22-Mar-2024", "$pageview - current,1", "$pageview - previous,2"])
+            exported_asset = ExportedAsset(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.CSV,
+                export_context={
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "$pageview",
+                                "name": "$pageview",
+                                "math": "total",
+                            },
+                        ],
+                        "interval": "day",
+                        "compareFilter": {"compare": True},
+                    }
+                },
+            )
+            exported_asset.save()
+
+            with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+                csv_exporter.export_tabular(exported_asset)
+                content = object_storage.read(exported_asset.content_location)  # type: ignore
+                lines = (content or "").strip().split("\r\n")
+                self.assertEqual(lines, ["series,22-Mar-2024", "$pageview - current,1", "$pageview - previous,2"])
