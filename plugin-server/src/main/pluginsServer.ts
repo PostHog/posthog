@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node'
 import fs from 'fs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes, KafkaJSProtocolError } from 'kafkajs'
+import LZ4Codec from 'kafkajs-lz4'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
@@ -53,6 +54,7 @@ import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
+CompressionCodecs[CompressionTypes.LZ4] = new LZ4Codec().codec
 
 const { version } = require('../../package.json')
 
