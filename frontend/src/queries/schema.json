@@ -12226,6 +12226,19 @@
                 },
                 "showValuesOnSeries": {
                     "type": "boolean"
+                },
+                "stickinessCriteria": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/StickinessOperator"
+                        },
+                        "value": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": ["operator", "value"],
+                    "type": "object"
                 }
             },
             "type": "object"
@@ -12264,6 +12277,10 @@
                 }
             },
             "type": "object"
+        },
+        "StickinessOperator": {
+            "enum": ["gte", "lte", "exact"],
+            "type": "string"
         },
         "StickinessQuery": {
             "additionalProperties": false,

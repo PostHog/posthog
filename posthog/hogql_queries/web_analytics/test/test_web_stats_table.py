@@ -1137,6 +1137,15 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": ""},
         )
 
+        # Key exists, it's set to the invalid 'Etc/Unknown' timezone
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=did,
+            timestamp=f"2019-02-17 00:00:00",
+            properties={"$session_id": sid, "$pathname": f"/path1", "$timezone": "Etc/Unknown"},
+        )
+
         results = self._run_web_stats_table_query(
             "all",
             None,
