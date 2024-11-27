@@ -10,9 +10,7 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from django.test import override_settings
-from django.utils import timezone
 from django.utils.timezone import now
-import pytz
 from requests.exceptions import HTTPError
 
 from posthog.models import ExportedAsset
