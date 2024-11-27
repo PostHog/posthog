@@ -15,7 +15,6 @@ use crate::{
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
-// TODO - how do we know if this frame is minified? If it isn't, we can skip a lot of work, but I think we have to guess? Based on whether we can get a sourcemap for it?
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawJSFrame {
     #[serde(flatten)]
