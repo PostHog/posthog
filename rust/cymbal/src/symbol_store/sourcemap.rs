@@ -97,8 +97,7 @@ impl Parser for SourcemapProvider {
     async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
         let smc = JsData::from_bytes(data)
-            .map_err(JsResolveErr::from)?
-            .to_smc()
+            .and_then(JsData::to_smc)
             .map_err(JsResolveErr::from)?;
         start.label("success", "true").fin();
         Ok(smc)

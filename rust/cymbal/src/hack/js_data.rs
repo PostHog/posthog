@@ -47,8 +47,10 @@ impl JsData {
         Self::add_header(&mut data, JsDataType::SourceAndMap);
         data.extend_from_slice(&(s.len() as u64).to_le_bytes());
         data.extend_from_slice(s.as_bytes());
+        drop(s);
         data.extend_from_slice(&(sm.len() as u64).to_le_bytes());
         data.extend_from_slice(sm.as_bytes());
+        drop(sm);
         Self {
             data,
             is_raw_smc: false,
@@ -64,7 +66,7 @@ impl JsData {
 
         let len_before = data.len();
         // Reserve space for the length of the SMC
-        data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
+        data.extend_from_slice(&0u64.to_le_bytes());
 
         smc.serialize(&mut data)
             .map_err(|e| JsDataError::InvalidSourceMapCache(e.to_string()))?;
@@ -79,6 +81,7 @@ impl JsData {
     }
 
     pub fn from_bytes(data: Vec<u8>) -> Result<Self, JsDataError> {
+        todo!("use an iterator");
         let maybe = Self {
             data,
             is_raw_smc: false,

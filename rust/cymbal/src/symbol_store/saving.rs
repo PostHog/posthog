@@ -138,7 +138,7 @@ where
         info!("Fetching symbol set data for {}", set_ref);
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
             if let Some(storage_ptr) = record.storage_ptr {
-                info!("Found symbol set data for {}", set_ref);
+                info!("Found s3 saved symbol set data for {}", set_ref);
                 let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
                 metrics::counter!(SAVED_SYMBOL_SET_LOADED).increment(1);
                 return Ok(Saveable {
