@@ -973,7 +973,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       },
                                       insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
                                       canOpenInsight: true,
-                                  },
+                                  } as TabsTileTab,
                                   createTableTab(
                                       TileId.GEOGRAPHY,
                                       GeographyTab.COUNTRIES,
@@ -1004,18 +1004,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   ),
 
                                   // :BUG:, see #26475, hidden behind FF while we fix it
-                                  ...[
-                                      featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TIMEZONE_TAB]
-                                          ? createTableTab(
-                                                TileId.GEOGRAPHY,
-                                                GeographyTab.TIMEZONES,
-                                                'Timezones',
-                                                'Timezones',
-                                                WebStatsBreakdown.Timezone
-                                            )
-                                          : null,
-                                  ].filter((x) => x !== null),
-                              ],
+                                  featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TIMEZONE_TAB]
+                                      ? createTableTab(
+                                            TileId.GEOGRAPHY,
+                                            GeographyTab.TIMEZONES,
+                                            'Timezones',
+                                            'Timezones',
+                                            WebStatsBreakdown.Timezone
+                                        )
+                                      : null,
+                              ].filter(isNotNil),
                           }
                         : null,
                     {
