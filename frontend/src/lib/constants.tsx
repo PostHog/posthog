@@ -233,6 +233,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_MIGRATION_DISABLE_UI: 'experiments-migration-disable-ui', // owner: @jurajmajerik #team-experiments
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
     WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION: 'web-analytics-warn-custom-event-no-session', // owner: @robbie-c #team-web-analytics
+    WEB_ANALYTICS_TIMEZONE_TAB: 'web-analytics-timezone-tab', // owner: @rafaeelaudibert #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
