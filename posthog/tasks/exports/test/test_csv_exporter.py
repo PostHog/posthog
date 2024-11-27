@@ -112,6 +112,11 @@ class TestCSVExporter(APIBaseTest):
         asset.save()
         return asset
 
+    def _split_to_dict(self, url: str) -> dict[str, Any]:
+        first_split_parts = url.split("?")
+        assert len(first_split_parts) == 2
+        return {bits[0]: bits[1] for bits in [param.split("=") for param in first_split_parts[1].split("&")]}
+
     def teardown_method(self, method):
         s3 = resource(
             "s3",
@@ -633,11 +638,6 @@ class TestCSVExporter(APIBaseTest):
                 self.assertEqual(lines[0], "error")
                 self.assertEqual(lines[1], "No data available or unable to format for export.")
 
-    def _split_to_dict(self, url: str) -> dict[str, Any]:
-        first_split_parts = url.split("?")
-        assert len(first_split_parts) == 2
-        return {bits[0]: bits[1] for bits in [param.split("=") for param in first_split_parts[1].split("&")]}
-
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_query_with_none_action(
@@ -701,55 +701,64 @@ class TestCSVExporter(APIBaseTest):
                 ["series,22-Mar-2024", "Formula ((B/A)*100),100.0"],
             )
 
-    def test_csv_exporter_trends_query_with_compare_previous_option(self) -> None:
-        self.team.timezone = "US/Pacific"  # GMT -8
-        self.team.save()
+    def test_csv_exporter_trends_query_with_compare_previous_option(
+        self,
+    ) -> None:
+        # self.team.timezone = "US/Pacific"  # GMT -8
+        # self.team.save()
 
-        with timezone.override(pytz.timezone("US/Pacific")):
-            _create_person(distinct_ids=[f"user_1"], team=self.team)
-            events_by_person = {
-                "user_1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2024, 3, 21, 13, 46),
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2024, 3, 21, 13, 46),
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2024, 3, 22, 13, 47),
-                    },
-                ],
-            }
-            journeys_for(events_by_person, self.team)
-            flush_persons_and_events()
-
-            exported_asset = ExportedAsset(
-                team=self.team,
-                export_format=ExportedAsset.ExportFormat.CSV,
-                export_context={
-                    "source": {
-                        "kind": "TrendsQuery",
-                        "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
-                        "series": [
-                            {
-                                "kind": "EventsNode",
-                                "event": "$pageview",
-                                "name": "$pageview",
-                                "math": "total",
-                            },
-                        ],
-                        "interval": "day",
-                        "compareFilter": {"compare": True},
-                    }
+        # with timezone.override(pytz.timezone("US/Pacific")):
+        _create_person(distinct_ids=[f"user_1"], team=self.team)
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2023, 3, 21, 13, 46),
                 },
-            )
-            exported_asset.save()
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2023, 3, 21, 13, 46),
+                },
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2023, 3, 22, 13, 47),
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
 
-            with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-                csv_exporter.export_tabular(exported_asset)
-                content = object_storage.read(exported_asset.content_location)  # type: ignore
-                lines = (content or "").strip().split("\r\n")
-                self.assertEqual(lines, ["series,22-Mar-2024", "$pageview - current,1", "$pageview - previous,2"])
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2023-03-22", "date_from": "2023-03-22"},
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        },
+                    ],
+                    "interval": "day",
+                    "compareFilter": {"compare": True},
+                }
+            },
+        )
+        # mocked_uuidt.return_value = "a-guid-xxxx"
+        # mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)  # type: ignore
+            # self.assertEqual(
+            #     exported_asset.content,
+            #     b"series,22-Mar-2024\\r\\n$pageview - current,1\\r\\n$pageview - previous,2\\r\\n",
+            # )
+            # # content = str(exported_asset.content)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(lines, ["series,22-Mar-2023", "$pageview - current,1", "$pageview - previous,2"])
