@@ -150,6 +150,7 @@ export function PlayerInspectorControls(): JSX.Element {
                         }}
                         status={showSearch ? 'danger' : 'default'}
                         title="Search"
+                        className="rounded-[0px]"
                     />
                 </div>
             </div>
