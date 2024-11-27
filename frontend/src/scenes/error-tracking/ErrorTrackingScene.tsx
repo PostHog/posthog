@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingGroup } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -20,7 +20,6 @@ import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
-import { stringifiedFingerprint } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -65,7 +64,7 @@ export function ErrorTrackingScene(): JSX.Element {
 const ErrorTrackingActions = (): JSX.Element => {
     const { selectedRowIndexes } = useValues(errorTrackingSceneLogic)
     const { setSelectedRowIndexes } = useActions(errorTrackingSceneLogic)
-    const { mergeGroups } = useActions(errorTrackingDataNodeLogic)
+    const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-bg-3000 flex space-x-1">
@@ -77,7 +76,7 @@ const ErrorTrackingActions = (): JSX.Element => {
                     type="secondary"
                     size="small"
                     onClick={() => {
-                        mergeGroups(selectedRowIndexes)
+                        mergeIssues(selectedRowIndexes)
                         setSelectedRowIndexes([])
                     }}
                 >
@@ -115,7 +114,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { setSelectedRowIndexes } = useActions(errorTrackingSceneLogic)
 
     const rowIndex = props.recordIndex
-    const record = props.record as ErrorTrackingGroup
+    const record = props.record as ErrorTrackingIssue
 
     const checked = selectedRowIndexes.includes(props.recordIndex)
 
@@ -135,7 +134,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 />
             )}
             <LemonTableLink
-                title={record.exception_type || 'Unknown Type'}
+                title={record.name || 'Unknown Type'}
                 description={
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
@@ -147,22 +146,22 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 }
                 className="flex-1"
-                to={urls.errorTrackingGroup(stringifiedFingerprint(record.fingerprint))}
+                to={urls.errorTrackingIssue(record.id)}
             />
         </div>
     )
 }
 
 const AssigneeColumn: QueryContextColumnComponent = (props) => {
-    const { assignGroup } = useActions(errorTrackingDataNodeLogic)
+    const { assignIssue } = useActions(errorTrackingDataNodeLogic)
 
-    const record = props.record as ErrorTrackingGroup
+    const record = props.record as ErrorTrackingIssue
 
     return (
         <div className="flex justify-center">
             <AssigneeSelect
                 assignee={record.assignee}
-                onChange={(assigneeId) => assignGroup(props.recordIndex, assigneeId)}
+                onChange={(assigneeId) => assignIssue(props.recordIndex, assigneeId)}
             />
         </div>
     )

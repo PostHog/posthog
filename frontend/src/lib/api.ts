@@ -5,7 +5,6 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -14,7 +13,7 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
     DatabaseSerializedFieldType,
-    ErrorTrackingGroup,
+    ErrorTrackingIssue,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -712,14 +711,12 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('error_tracking')
     }
 
-    public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId)
-            .addPathComponent('group')
-            .addPathComponent(stringifiedFingerprint(fingerprint))
+    public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('group').addPathComponent(id)
     }
 
-    public errorTrackingGroupMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
-        return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
+    public errorTrackingIssueMerge(id: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(id).addPathComponent('merge')
     }
 
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
@@ -1862,21 +1859,19 @@ const api = {
 
     errorTracking: {
         async updateIssue(
-            fingerprint: ErrorTrackingGroup['fingerprint'],
-            data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
-        ): Promise<ErrorTrackingGroup> {
-            return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
+            id: ErrorTrackingIssue['id'],
+            data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>
+        ): Promise<ErrorTrackingIssue> {
+            return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
 
         async merge(
-            primaryFingerprint: ErrorTrackingGroup['fingerprint'],
-            mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
+            primaryIssueId: ErrorTrackingIssue['id'],
+            mergingIssueIds: ErrorTrackingIssue['id'][]
         ): Promise<{ content: string }> {
-            return await new ApiRequest()
-                .errorTrackingGroup(primaryFingerprint)
-                .create({ data: { merging_fingerprints: mergingFingerprints } })
+            return await new ApiRequest().errorTrackingIssue(primaryIssueId).create({ data: { ids: mergingIssueIds } })
         },
-        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<ErrorTrackingGroup> {
+        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<ErrorTrackingIssue> {
             return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
         },
 

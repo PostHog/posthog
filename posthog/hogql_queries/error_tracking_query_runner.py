@@ -48,38 +48,38 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(
-                alias="description",
-                expr=ast.Call(
-                    name="nullIf",
-                    args=[
-                        ast.Call(
-                            name="coalesce",
-                            args=[
-                                self.extracted_exception_list_property("value"),
-                                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
-                            ],
-                        ),
-                        ast.Constant(value=""),
-                    ],
-                ),
-            ),
-            ast.Alias(
-                alias="exception_type",
-                expr=ast.Call(
-                    name="nullIf",
-                    args=[
-                        ast.Call(
-                            name="coalesce",
-                            args=[
-                                self.extracted_exception_list_property("type"),
-                                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_type"])]),
-                            ],
-                        ),
-                        ast.Constant(value=""),
-                    ],
-                ),
-            ),
+            # ast.Alias(
+            #     alias="description",
+            #     expr=ast.Call(
+            #         name="nullIf",
+            #         args=[
+            #             ast.Call(
+            #                 name="coalesce",
+            #                 args=[
+            #                     self.extracted_exception_list_property("value"),
+            #                     ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
+            #                 ],
+            #             ),
+            #             ast.Constant(value=""),
+            #         ],
+            #     ),
+            # ),
+            # ast.Alias(
+            #     alias="exception_type",
+            #     expr=ast.Call(
+            #         name="nullIf",
+            #         args=[
+            #             ast.Call(
+            #                 name="coalesce",
+            #                 args=[
+            #                     self.extracted_exception_list_property("type"),
+            #                     ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_type"])]),
+            #                 ],
+            #             ),
+            #             ast.Constant(value=""),
+            #         ],
+            #     ),
+            # ),
         ]
 
         if not self.query.fingerprint:
@@ -89,40 +89,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             exprs.extend([parse_expr(x) for x in self.query.select])
 
         return exprs
-
-    @property
-    def fingerprint_grouping_expr(self):
-        groups = self.error_tracking_groups.values()
-
-        expr: ast.Expr = self.extracted_fingerprint_property()
-
-        if groups:
-            args: list[ast.Expr] = []
-            for group in groups:
-                # set the "fingerprint" of an exception to match that of the groups primary fingerprint
-                # replaces exceptions in "merged_fingerprints" with the group fingerprint
-                args.extend(
-                    [
-                        ast.Call(
-                            name="has",
-                            args=[
-                                self.group_fingerprints([group]),
-                                self.extracted_fingerprint_property(),
-                            ],
-                        ),
-                        ast.Constant(value=group["fingerprint"]),
-                    ]
-                )
-
-            # default to $exception_fingerprint property for exception events that don't match a group
-            args.append(self.extracted_fingerprint_property())
-
-            expr = ast.Call(
-                name="multiIf",
-                args=args,
-            )
-
-        return ast.Alias(alias="fingerprint", expr=expr)
 
     def where(self):
         exprs: list[ast.Expr] = [
@@ -201,7 +167,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return ast.And(exprs=exprs)
 
     def group_by(self):
-        return None if self.query.fingerprint else [ast.Field(chain=["fingerprint"])]
+        return None if self.query.issue_id else [ast.Field(chain=["properties", "$exception_issue_id"])]
 
     def calculate(self):
         query_result = self.paginator.execute_hogql_query(
@@ -283,21 +249,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             args=[
                 ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_list"])]),
                 ast.Constant(value=f"$[0].{property}"),
-            ],
-        )
-
-    def extracted_fingerprint_property(self):
-        return ast.Call(
-            name="JSONExtract",
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Field(chain=["properties", "$exception_fingerprint"]),
-                        ast.Constant(value="[]"),
-                    ],
-                ),
-                ast.Constant(value="Array(String)"),
             ],
         )
 
