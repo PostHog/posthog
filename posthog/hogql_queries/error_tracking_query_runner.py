@@ -11,6 +11,7 @@ from posthog.schema import (
 )
 from posthog.hogql.parser import parse_expr
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.error_tracking import ErrorTrackingIssue
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -48,42 +49,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            # ast.Alias(
-            #     alias="description",
-            #     expr=ast.Call(
-            #         name="nullIf",
-            #         args=[
-            #             ast.Call(
-            #                 name="coalesce",
-            #                 args=[
-            #                     self.extracted_exception_list_property("value"),
-            #                     ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
-            #                 ],
-            #             ),
-            #             ast.Constant(value=""),
-            #         ],
-            #     ),
-            # ),
-            # ast.Alias(
-            #     alias="exception_type",
-            #     expr=ast.Call(
-            #         name="nullIf",
-            #         args=[
-            #             ast.Call(
-            #                 name="coalesce",
-            #                 args=[
-            #                     self.extracted_exception_list_property("type"),
-            #                     ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_type"])]),
-            #                 ],
-            #             ),
-            #             ast.Constant(value=""),
-            #         ],
-            #     ),
-            # ),
         ]
-
-        if not self.query.fingerprint:
-            exprs.append(self.fingerprint_grouping_expr)
 
         if self.query.select:
             exprs.extend([parse_expr(x) for x in self.query.select])
@@ -100,21 +66,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
-        groups = []
-
-        if self.query.fingerprint:
-            groups.append(self.group_or_default(self.query.fingerprint))
-        elif self.query.assignee:
-            groups.extend(self.error_tracking_groups.values())
-
-        if groups:
+        if self.query.issueId:
             exprs.append(
                 ast.Call(
-                    name="has",
-                    args=[
-                        self.group_fingerprints(groups),
-                        self.extracted_fingerprint_property(),
-                    ],
+                    name="eq",
+                    args=[ast.Field(chain=["properties.$exception_issue_id"]), self.query.issueId],
                 ),
             )
 
@@ -167,7 +123,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return ast.And(exprs=exprs)
 
     def group_by(self):
-        return None if self.query.issue_id else [ast.Field(chain=["properties", "$exception_issue_id"])]
+        return None if self.query.issueId else [ast.Field(chain=["properties", "$exception_issue_id"])]
 
     def calculate(self):
         query_result = self.paginator.execute_hogql_query(
@@ -199,10 +155,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
     def results(self, columns: list[str], query_results: list):
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         results = []
+        issue_ids = [result["id"] for result in mapped_results]
+        issues = self.error_tracking_issues(issue_ids)
         for result_dict in mapped_results:
-            fingerprint = self.query.fingerprint if self.query.fingerprint else result_dict["fingerprint"]
-            group = self.group_or_default(fingerprint)
-            results.append(result_dict | group)
+            id = self.query.issueId if self.query.issueId else result_dict["id"]
+            issue = issues.get(id)
+            results.append(result_dict | issue)
 
         return results
 
@@ -223,50 +181,16 @@ class ErrorTrackingQueryRunner(QueryRunner):
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
-    def group_or_default(self, fingerprint):
-        return self.error_tracking_groups.get(
-            str(fingerprint),
-            {
-                "fingerprint": fingerprint,
-                "assignee": None,
-                "merged_fingerprints": [],
-                "status": "active",
-                # "status": str(ErrorTrackingGroup.Status.ACTIVE),
-            },
+    def error_tracking_issues(self, ids):
+        queryset = ErrorTrackingIssue.objects.filter(team=self.team, id__in=ids)
+        queryset = (
+            queryset.filter(id=self.query.issueId)
+            if self.query.issueId
+            else queryset.filter(status__in=[ErrorTrackingIssue.Status.ACTIVE])
         )
-
-    def group_fingerprints(self, groups):
-        exprs: list[ast.Expr] = []
-        for group in groups:
-            exprs.append(ast.Constant(value=group["fingerprint"]))
-            for fp in group["merged_fingerprints"]:
-                exprs.append(ast.Constant(value=fp))
-        return ast.Array(exprs=exprs)
-
-    def extracted_exception_list_property(self, property):
-        return ast.Call(
-            name="JSON_VALUE",
-            args=[
-                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_list"])]),
-                ast.Constant(value=f"$[0].{property}"),
-            ],
-        )
-
-    @cached_property
-    def error_tracking_groups(self):
-        return {}
-        # queryset = ErrorTrackingGroup.objects.filter(team=self.team)
-        # # :TRICKY: Ideally we'd have no null characters in the fingerprint, but if something made it into the pipeline with null characters
-        # # (because rest of the system supports it), try cleaning it up here. Make sure this cleaning is consistent with the rest of the system.
-        # cleaned_fingerprint = [part.replace("\x00", "\ufffd") for part in self.query.fingerprint or []]
-        # queryset = (
-        #     queryset.filter(fingerprint=cleaned_fingerprint)
-        #     if self.query.fingerprint
-        #     else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
-        # )
-        # queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
-        # groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
-        # return {str(item["fingerprint"]): item for item in groups}
+        queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
+        issues = queryset.values("id", "status", "assignee", "name", "description")
+        return {str(item["id"]): item for item in issues}
 
 
 def search_tokenizer(query: str) -> list[str]:
