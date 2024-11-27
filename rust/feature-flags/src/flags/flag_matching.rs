@@ -1275,7 +1275,7 @@ impl FeatureFlagMatcher {
 /// Evaluate static cohort filters by checking if the person is in each cohort.
 async fn evaluate_static_cohorts(
     reader: PostgresReader,
-    person_id: i32, // Change this parameter from distinct_id to person_id
+    person_id: i32,
     cohort_ids: Vec<CohortId>,
 ) -> Result<Vec<(CohortId, bool)>, FlagError> {
     let mut conn = reader.get_connection().await?;
@@ -1295,7 +1295,7 @@ async fn evaluate_static_cohorts(
 
     let rows = sqlx::query(query)
         .bind(&cohort_ids)
-        .bind(person_id) // Bind person_id directly
+        .bind(person_id)
         .fetch_all(&mut *conn)
         .await?;
 
