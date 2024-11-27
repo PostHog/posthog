@@ -15,7 +15,7 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
                     <LemonBanner type="warning" className="mt-2">
                         <p>
                             A custom event has been set as a conversion goal, but it has been seen with no{' '}
-                            <pre>$session_id</pre>. This means that some queries will not be able to include these
+                            <code>$session_id</code>. This means that some queries will not be able to include these
                             events.
                         </p>
                         <p>
