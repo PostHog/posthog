@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Executor;
@@ -75,6 +75,7 @@ impl ErrorTrackingStackFrame {
         e: E,
         team_id: i32,
         raw_id: &str,
+        result_ttl: Duration,
     ) -> Result<Option<Self>, UnhandledError>
     where
         E: Executor<'c, Database = sqlx::Postgres>,
@@ -104,6 +105,11 @@ impl ErrorTrackingStackFrame {
         let Some(found) = res else {
             return Ok(None);
         };
+
+        // If frame results are older than an hour or so, we discard them (and overwrite them)
+        if found.created_at < Utc::now() - result_ttl {
+            return Ok(None);
+        }
 
         // We don't serialise frame contexts on the Frame itself, but save it on the frame record,
         // and so when we load a frame record we need to patch back up the context onto the frame,
