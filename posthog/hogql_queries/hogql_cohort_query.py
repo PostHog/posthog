@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Union, Any
+from typing import Literal, Optional, Union, Any, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -427,9 +427,14 @@ class HogQLCohortQuery:
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
         return query_runner.to_query()
 
+    def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
+        cohort = Cohort.objects.get(pk=cast(int, prop.value))
+        return parse_select(
+            f"SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.pk} AND team_id = {self.team.pk}",
+        )
+
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         res: str = ""
-        params: dict[str, Any] = {}
 
         prepend = ""
         idx = 0
@@ -454,7 +459,7 @@ class HogQLCohortQuery:
         elif (
             prop.type == "static-cohort"
         ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
-            res, params = self.get_static_cohort_condition(prop, prepend, idx)
+            return self.get_static_cohort_condition(prop)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
