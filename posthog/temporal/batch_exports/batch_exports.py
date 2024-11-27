@@ -68,6 +68,32 @@ SETTINGS
     optimize_aggregation_in_order=1
 """
 
+# This is an updated version of the view that we will use going forward
+# We will migrate each batch export destination over one at a time to migitate
+# risk, and once this is done we can clean this up.
+SELECT_FROM_PERSONS_VIEW_NEW = """
+SELECT
+    persons.team_id AS team_id,
+    persons.distinct_id AS distinct_id,
+    persons.person_id AS person_id,
+    persons.properties AS properties,
+    persons.person_distinct_id_version AS person_distinct_id_version,
+    persons.person_version AS person_version,
+    persons.created_at AS created_at,
+    persons._inserted_at AS _inserted_at
+FROM
+    persons_batch_export(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end}
+    ) AS persons
+FORMAT ArrowStream
+SETTINGS
+    max_bytes_before_external_group_by=50000000000,
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
+"""
+
 SELECT_FROM_PERSONS_VIEW_BACKFILL = """
 SELECT
     persons.team_id AS team_id,
@@ -76,6 +102,31 @@ SELECT
     persons.properties AS properties,
     persons.person_distinct_id_version AS person_distinct_id_version,
     persons.person_version AS person_version,
+    persons._inserted_at AS _inserted_at
+FROM
+    persons_batch_export_backfill(
+        team_id={team_id},
+        interval_end={interval_end}
+    ) AS persons
+FORMAT ArrowStream
+SETTINGS
+    max_bytes_before_external_group_by=50000000000,
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
+"""
+
+# This is an updated version of the view that we will use going forward
+# We will migrate each batch export destination over one at a time to migitate
+# risk, and once this is done we can clean this up.
+SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW = """
+SELECT
+    persons.team_id AS team_id,
+    persons.distinct_id AS distinct_id,
+    persons.person_id AS person_id,
+    persons.properties AS properties,
+    persons.person_distinct_id_version AS person_distinct_id_version,
+    persons.person_version AS person_version,
+    persons.created_at AS created_at,
     persons._inserted_at AS _inserted_at
 FROM
     persons_batch_export_backfill(
@@ -195,6 +246,8 @@ async def iter_model_records(
     interval_start: str | None,
     interval_end: str,
     destination_default_fields: list[BatchExportField] | None = None,
+    # TODO - remove this once all batch exports are using the latest schema
+    use_latest_schema: bool = False,
     **parameters,
 ) -> AsyncRecordsGenerator:
     if not is_backfill and interval_start is None:
@@ -215,6 +268,7 @@ async def iter_model_records(
             extra_query_parameters=model.schema["values"] if model.schema is not None else None,
             interval_start=interval_start,
             interval_end=interval_end,
+            use_latest_schema=use_latest_schema,
             **parameters,
         ):
             yield record
@@ -241,13 +295,21 @@ async def iter_records_from_model_view(
     interval_start: str | None,
     interval_end: str,
     fields: list[BatchExportField],
+    # TODO - remove this once all batch exports are using the latest schema
+    use_latest_schema: bool = False,
     **parameters,
 ) -> AsyncRecordsGenerator:
     if model_name == "persons":
         if is_backfill and interval_start is None:
-            view = SELECT_FROM_PERSONS_VIEW_BACKFILL
+            if use_latest_schema:
+                view = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
+            else:
+                view = SELECT_FROM_PERSONS_VIEW_BACKFILL
         else:
-            view = SELECT_FROM_PERSONS_VIEW
+            if use_latest_schema:
+                view = SELECT_FROM_PERSONS_VIEW_NEW
+            else:
+                view = SELECT_FROM_PERSONS_VIEW
     elif str(team_id) not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
         # TODO: Let this model be exported by `astream_query_as_arrow`.
         # Just to reduce risk, I don't want to change the function that runs 100% of the exports
@@ -396,6 +458,8 @@ def start_produce_batch_export_record_batches(
     done_ranges: list[tuple[dt.datetime, dt.datetime]],
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
+    # TODO - remove this once all batch exports are using the latest schema
+    use_latest_schema: bool = False,
     **parameters,
 ):
     """Start producing batch export record batches from a model query.
@@ -418,9 +482,15 @@ def start_produce_batch_export_record_batches(
 
     if model_name == "persons":
         if is_backfill and full_range[0] is None:
-            view = SELECT_FROM_PERSONS_VIEW_BACKFILL
+            if use_latest_schema:
+                view = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
+            else:
+                view = SELECT_FROM_PERSONS_VIEW_BACKFILL
         else:
-            view = SELECT_FROM_PERSONS_VIEW
+            if use_latest_schema:
+                view = SELECT_FROM_PERSONS_VIEW_NEW
+            else:
+                view = SELECT_FROM_PERSONS_VIEW
 
     else:
         if parameters.get("exclude_events", None):
@@ -762,13 +832,10 @@ BatchExportRunId = str
 
 @activity.defn
 async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExportRunId:
-    """Activity that creates an BatchExportRun and returns the count of records to export.
+    """Activity that creates an BatchExportRun and returns the run id.
 
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
-
-    Upon seeing a count of 0 records to export, batch export workflows should finish early
-    (i.e. without running the insert activity), as there will be nothing to export.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     await logger.ainfo(
