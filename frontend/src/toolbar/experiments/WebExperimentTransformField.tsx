@@ -74,8 +74,7 @@ export function WebExperimentTransformField({
                                         fullWidth
                                         type="tertiary"
                                         icon={<IconPencil />}
-                                        onClick={(e) => {
-                                            e.stopPropagation()
+                                        onClick={() => {
                                             showEditSelector()
                                         }}
                                     >
