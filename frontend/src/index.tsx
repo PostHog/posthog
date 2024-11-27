@@ -11,9 +11,7 @@ import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'
 
 loadPostHogJS()
-initKea({
-    prefix: `team_${window.POSTHOG_APP_CONTEXT?.current_team?.id}_project_${window.POSTHOG_APP_CONTEXT?.current_team?.project_id}`,
-})
+initKea()
 
 // Expose `window.getReduxState()` to make snapshots to storybook easy
 if (typeof window !== 'undefined') {
