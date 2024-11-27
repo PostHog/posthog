@@ -17,7 +17,6 @@ import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -44,8 +43,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 type: AuthorizedUrlListType.TOOLBAR_URLS,
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
-            teamLogic,
-            ['currentTeam'],
         ],
     }),
 
@@ -127,7 +124,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
     })),
 
-    reducers(({ values }) => ({
+    reducers({
         filterPanelCollapsed: [
             false as boolean,
             { persist: true },
@@ -175,7 +172,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
         browserUrl: [
             null as string | null,
-            { persist: true, prefix: `team_${values.currentTeam?.id}` },
+            { persist: true },
             {
                 setBrowserUrl: (_, { url }) => url,
             },
@@ -195,7 +192,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setIframeBanner: (_, { banner }) => banner,
             },
         ],
-    })),
+    }),
 
     selectors({
         browserUrlSearchOptions: [
