@@ -353,12 +353,12 @@ class AssistantTrendsFilter(BaseModel):
     display: Optional[Display] = Field(
         default=Display.ACTIONS_LINE_GRAPH,
         description=(
-            "Changes the visualization type. `ActionsLineGraph` - if the user wants to see dynamics in time like a line"
-            " graph. Prefer this option. `ActionsLineGraphCumulative` - if the user wants to see cumulative dynamics"
+            "Changes the visualization type. `ActionsLineGraph` - if the user might want to see change over time as a"
+            " line graph (most typical type). `ActionsLineGraphCumulative` - if the user wants to see cumulative dynamics"
             " across time. `ActionsBarValue` - if the data is categorical and needs to be visualized as a bar chart."
             " `ActionsBar` - if the data is categorical and can be visualized as a stacked bar chart. `ActionsPie` - if"
-            " the data is easy to understand in a pie chart. `BoldNumber` - if the user asks a question where you can"
-            " answer with a single number. You can't use this option with breakdowns. `ActionsTable` - if the user"
+            " the data is easy to understand in a pie chart. `BoldNumber` - if the user very specifically asks for a"
+            " single output number (you can't use `BoldNumber` option with breakdowns). `ActionsTable` - if the user"
             " wants to see a table. `ActionsAreaGraph` - if the data is better visualized in an area graph. `WorldMap`"
             " - if the user has only one series and wants to see data from particular countries. It can only be used"
             " with the `$geoip_country_name` breakdown."
