@@ -69,7 +69,7 @@ const VariationCell = (
 
         // If current === previous, say "increased by 0%"
         const tooltip = `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
-            pctChangeFromPrevious,
+            Math.abs(pctChangeFromPrevious),
             0
         )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
 
