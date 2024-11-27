@@ -123,7 +123,7 @@ class HogQLCohortQuery:
 
         select_query = self._get_conditions()
 
-        if self.cohort_query._should_join_persons:
+        if self.cohort_query._should_join_persons and self.cohort_query._inner_property_groups:
             actors_query = self._actors_query()
             hogql_actors = print_ast(
                 actors_query,
