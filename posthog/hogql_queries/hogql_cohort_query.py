@@ -473,6 +473,7 @@ class HogQLCohortQuery:
                     if query is not None:
                         queries.append((query, negation))
 
+                all_negated = all(x[1] for x in queries)
                 if prop.type == PropertyOperatorType.OR:
                     return (
                         ast.SelectSetQuery(
@@ -482,10 +483,9 @@ class HogQLCohortQuery:
                                 for (query, negation) in queries[1:]
                             ],
                         ),
-                        False,
+                        all_negated,
                     )
                 # Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.
-                all_negated = all(x[1] for x in queries)
                 queries.sort(key=lambda query: query[1])  # False before True
                 return (
                     ast.SelectSetQuery(
