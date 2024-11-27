@@ -175,7 +175,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
         browserUrl: [
             null as string | null,
-            { persist: true, key: `${teamId}__` },
+            { persist: true, prefix: `${teamId}__` },
             {
                 setBrowserUrl: (_, { url }) => url,
             },
