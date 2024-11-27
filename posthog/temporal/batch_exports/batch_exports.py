@@ -105,7 +105,8 @@ FROM
 FORMAT ArrowStream
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=60
 """
 )
 
@@ -124,7 +125,8 @@ FROM
 FORMAT ArrowStream
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=60
 """
 )
 
