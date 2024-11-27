@@ -32,6 +32,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
         setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
         setSidebarOpen: (open: boolean) => ({ open }),
+        setPlaylistOpen: (open: boolean) => ({ open }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
     }),
     connect({
@@ -40,6 +41,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     reducers(({ values }) => ({
         showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
         sidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
+        playlistOpen: [true, { setPlaylistOpen: (_, { open }) => open }],
         preferredSidebarStacking: [
             SessionRecordingSidebarStacking.Horizontal as SessionRecordingSidebarStacking,
             { persist: true },
