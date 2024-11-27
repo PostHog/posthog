@@ -193,12 +193,12 @@ export function OutputPane({
                                     })
                                 }
                             >
-                                Update
+                                Update view
                             </LemonButton>
                         </>
                     ) : (
                         <LemonButton type="secondary" onClick={() => onSave()} disabledReason={saveDisabledReason}>
-                            Save query
+                            Save as view
                         </LemonButton>
                     )}
                     <LemonButton loading={responseLoading} type="primary" onClick={() => onQueryInputChange()}>
