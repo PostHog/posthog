@@ -121,7 +121,11 @@ function FrameContextLine({
     )
 }
 function ChainedStackTraces({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element {
-    const [showAllFrames, setShowAllFrames] = useState(false)
+    const hasAnyInApp = exceptionList
+        .map(({ stacktrace }) => stacktrace?.frames?.some((frame) => frame.in_app))
+        .some(Boolean)
+
+    const [showAllFrames, setShowAllFrames] = useState(!hasAnyInApp)
 
     return (
         <>
