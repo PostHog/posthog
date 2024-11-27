@@ -78,7 +78,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({ hub }: { hub: Hub }): 
     const consumer = new IngestionConsumer(
         hub,
         KAFKA_EVENTS_JSON,
-        `${KAFKA_PREFIX}clickhouse-plugin-server-async-onevent`,
+        `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
         batchHandler
     )
 
