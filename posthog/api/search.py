@@ -110,7 +110,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             assert entity_meta is not None
             klass_qs, entity_name = class_queryset(
                 view=self,
-                klass=entity_meta.get("klass"),
+                klass=entity_meta["klass"],
                 project_id=self.project_id,
                 query=query,
                 search_fields=entity_meta["search_fields"],
