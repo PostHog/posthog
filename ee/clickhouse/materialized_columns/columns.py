@@ -233,6 +233,7 @@ def materialize(
     column_name: ColumnName | None = None,
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
     create_minmax_index=not TEST,
+    is_nullable: bool = False,
 ) -> ColumnName | None:
     if (property, table_column) in get_materialized_columns(table):
         if TEST:
@@ -253,7 +254,7 @@ def materialize(
             property_name=property,
             is_disabled=False,
         ),
-        is_nullable=False,  # TODO
+        is_nullable=is_nullable,
     )
 
     table_info.map_data_nodes(
