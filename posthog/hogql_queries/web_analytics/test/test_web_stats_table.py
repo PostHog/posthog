@@ -147,8 +147,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/", 2, 0, 2, 0],
-                ["/login", 1, 0, 1, 0],
+                ["/", (2, 0), (2, 0)],
+                ["/login", (1, 0), (1, 0)],
             ],
             results,
         )
@@ -168,9 +168,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/", 2, 0, 2, 0],
-                ["/docs", 1, 0, 1, 0],
-                ["/login", 1, 0, 1, 0],
+                ["/", (2, 0), (2, 0)],
+                ["/docs", (1, 0), (1, 0)],
+                ["/login", (1, 0), (1, 0)],
             ],
             results,
         )
@@ -195,7 +195,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_stats_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
         self.assertEqual(
-            [["/", 1, 0, 1, 0], ["/login", 1, 0, 1, 0]],
+            [["/", (1, 0), (1, 0)], ["/login", (1, 0), (1, 0)]],
             results,
         )
 
@@ -235,7 +235,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response_1 = self._run_web_stats_table_query("all", "2023-12-15", limit=1)
         self.assertEqual(
             [
-                ["/", 2, 0, 2, 0],
+                ["/", (2, 0), (2, 0)],
             ],
             response_1.results,
         )
@@ -244,8 +244,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response_2 = self._run_web_stats_table_query("all", "2023-12-15", limit=2)
         self.assertEqual(
             [
-                ["/", 2, 0, 2, 0],
-                ["/login", 1, 0, 1, 0],
+                ["/", (2, 0), (2, 0)],
+                ["/login", (1, 0), (1, 0)],
             ],
             response_2.results,
         )
@@ -280,10 +280,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/cleaned/:id", 2, 0, 2, 0],
-                ["/cleaned/:id/path/:id", 1, 0, 1, 0],
-                ["/not-cleaned", 1, 0, 1, 0],
-                ["/thing_c", 1, 0, 1, 0],
+                ["/cleaned/:id", (2, 0), (2, 0)],
+                ["/cleaned/:id/path/:id", (1, 0), (1, 0)],
+                ["/not-cleaned", (1, 0), (1, 0)],
+                ["/thing_c", (1, 0), (1, 0)],
             ],
             results,
         )
@@ -308,9 +308,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 1, 0, 1, 0, 0, 0, 0.1, 0, 0, 0],
-                ["/b", 1, 0, 1, 0, 0, 0, 0.2, 0, 0, 0],
-                ["/c", 1, 0, 1, 0, 0, 0, 0.9, 0, 1, 0],
+                ["/a", (1, 0), (1, 0), (0, 0), (0.1, 0), (0, 0)],
+                ["/b", (1, 0), (1, 0), (0, 0), (0.2, 0), (0, 0)],
+                ["/c", (1, 0), (1, 0), (0, 0), (0.9, 0), (1, 0)],
             ],
             results,
         )
@@ -350,9 +350,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 0, 4, 0, 1 / 3, 0, 0.5, 0, 0.5, 0],
-                ["/b", 2, 0, 2, 0, 0, 0, 0.2, 0, 0, 0],
-                ["/c", 2, 0, 2, 0, 0, 0, 0.9, 0, 1, 0],
+                ["/a", (3, 0), (4, 0), (1 / 3, 0), (0.5, 0), (0.5, 0)],
+                ["/b", (2, 0), (2, 0), (0, 0), (0.2, 0), (0, 0)],
+                ["/c", (2, 0), (2, 0), (0, 0), (0.9, 0), (1, 0)],
             ],
             results,
         )
@@ -393,7 +393,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 0, 4, 0, 1 / 3, 0, 0.5, 0, 0.5, 0],
+                ["/a", (3, 0), (4, 0), (1 / 3, 0), (0.5, 0), (0.5, 0)],
             ],
             results,
         )
@@ -423,9 +423,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a/:id", 1, 0, 1, 0, 0, 0, 0.1, 0, 0, 0],
-                ["/b/:id", 1, 0, 1, 0, 0, 0, 0.2, 0, 0, 0],
-                ["/c/:id", 1, 0, 1, 0, 0, 0, 0.9, 0, 1, 0],
+                ["/a/:id", (1, 0), (1, 0), (0, 0), (0.1, 0), (0, 0)],
+                ["/b/:id", (1, 0), (1, 0), (0, 0), (0.2, 0), (0, 0)],
+                ["/c/:id", (1, 0), (1, 0), (0, 0), (0.9, 0), (1, 0)],
             ],
             results,
         )
@@ -449,9 +449,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 1, 0, 1, 0, 0, 0],
-                ["/b", 1, 0, 1, 0, 0, 0],
-                ["/c", 1, 0, 1, 0, 0, 0],
+                ["/a", (1, 0), (1, 0), (0, 0)],
+                ["/b", (1, 0), (1, 0), (0, 0)],
+                ["/c", (1, 0), (1, 0), (0, 0)],
             ],
             results,
         )
@@ -490,9 +490,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 0, 4, 0, 1 / 3, 0],
-                ["/b", 2, 0, 2, 0, 0, 0],
-                ["/c", 2, 0, 2, 0, 0, 0],
+                ["/a", (3, 0), (4, 0), (1 / 3, 0)],
+                ["/b", (2, 0), (2, 0), (0, 0)],
+                ["/c", (2, 0), (2, 0), (0, 0)],
             ],
             results,
         )
@@ -532,7 +532,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 0, 4, 0, 1 / 3, 0],
+                ["/a", (3, 0), (4, 0), (1 / 3, 0)],
             ],
             results,
         )
@@ -561,9 +561,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a/:id", 1, 0, 1, 0, 0, 0],
-                ["/b/:id", 1, 0, 1, 0, 0, 0],
-                ["/c/:id", 1, 0, 1, 0, 0, 0],
+                ["/a/:id", (1, 0), (1, 0), (0, 0)],
+                ["/b/:id", (1, 0), (1, 0), (0, 0)],
+                ["/c/:id", (1, 0), (1, 0), (0, 0)],
             ],
             results,
         )
@@ -587,7 +587,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 1, 0, 3, 0, 0, 0],
+                ["/a", (1, 0), (3, 0), (0, 0)],
             ],
             results,
         )
@@ -626,7 +626,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 0, 8, 0, 1 / 3, 0],
+                ["/a", (3, 0), (8, 0), (1 / 3, 0)],
             ],
             results,
         )
@@ -666,7 +666,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 0, 4, 0, 1 / 3, 0],
+                ["/a", (3, 0), (4, 0), (1 / 3, 0)],
             ],
             results,
         )
@@ -695,7 +695,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a/:id", 1, 0, 3, 0, 0, 0],
+                ["/a/:id", (1, 0), (3, 0), (0, 0)],
             ],
             results,
         )
@@ -743,7 +743,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         self.assertEqual(
-            [["google / (none) / (none)", 1, 0, 1, 0], ["news.ycombinator.com / referral / (none)", 1, 0, 1, 0]],
+            [
+                ["google / (none) / (none)", (1, 0), (1, 0)],
+                ["news.ycombinator.com / referral / (none)", (1, 0), (1, 0)],
+            ],
             results,
         )
 
@@ -792,7 +795,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         self.assertEqual(
-            [["google", 1.0, 0, 1.0, 0], [None, 1.0, 0, 1.0, 0]],
+            [["google", (1, 0), (1, 0)], [None, (1, 0), (1, 0)]],
             results,
         )
 
@@ -842,7 +845,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         self.assertEqual(
-            [[None, 1.0, 0, 1.0, 0]],
+            [[None, (1, 0), (1, 0)]],
             results,
         )
 
@@ -878,7 +881,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2024-07-31",
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
         ).results
-        assert [["google", 1, 0, 2, 0]] == results_session
+        assert [["google", (1, 0), (2, 0)]] == results_session
 
         # Try this with a query that uses event properties
         results_event = self._run_web_stats_table_query(
@@ -886,13 +889,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2024-07-31",
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
-        assert [["/path", 1, 0, 2, 0]] == results_event
+        assert [["/path", (1, 0), (2, 0)]] == results_event
 
         # Try this with a query using the bounce rate
         results_event = self._run_web_stats_table_query(
             "all", "2024-07-31", breakdown_by=WebStatsBreakdown.PAGE, include_bounce_rate=True
         ).results
-        assert [["/path", 1, 0, 2, 0, 0, 0]] == results_event
+        assert [["/path", (1, 0), (2, 0), (0, 0)]] == results_event
 
         # Try this with a query using the scroll depth
         results_event = self._run_web_stats_table_query(
@@ -902,7 +905,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
             include_scroll_depth=True,
         ).results
-        assert [["/path", 1, 0, 2, 0, 0, 0, 0, 0, 0, 0]] == results_event
+        assert [["/path", (1, 0), (2, 0), (0, 0), (0, 0), (0, 0)]] == results_event
 
     def test_no_session_id(self):
         d1 = "d1"
@@ -922,18 +925,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Don't show session property breakdowns type of sessions with no session id
-        # results = self._run_web_stats_table_query(
-        #     "all",
-        #     "2024-07-31",
-        #     breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
-        # ).results
-        # assert [] == results
-        # results = self._run_web_stats_table_query(
-        #     "all",
-        #     "2024-07-31",
-        #     breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
-        # ).results
-        # assert [] == results
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        ).results
+        assert [] == results
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+        ).results
+        assert [] == results
 
         # Do show event property breakdowns of events with no session id
         # but it will return 0 views because we depend on session.$start_timestamp
@@ -944,7 +947,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
 
-        assert [["/path", 0, 0, 0, 0]] == results
+        assert [["/path", (0, 0), (0, 0)]] == results
 
     def test_cohort_test_filters(self):
         d1 = "d1"
@@ -1006,7 +1009,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
 
-        assert results == [["/path1", 1, 0, 1, 0]]
+        assert results == [["/path1", (1, 0), (1, 0)]]
 
     def test_language_filter(self):
         d1, s1 = "d1", str(uuid7("2024-07-30"))
@@ -1082,7 +1085,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # which is causing this to be flaky (en-GB happens sometimes),
         # we'll instead assert on a reduced form where we're
         # not counting the country, but only the locale
-        # assert results == [["en-US", 1.0, 0, 3.0, 0], ["pt-BR", 1.0, 0, 2.0, 0], ["nl-", 1.0, 0, 1.0, 0]]
+        # assert results == [["en-US", (1, 0), (3, 0)], ["pt-BR", (1, 0), (2, 0)], ["nl-", (1, 0), (1, 0)]]
 
         country_results = [result[0].split("-")[0] for result in results]
         assert country_results == ["en", "pt", "nl"]
@@ -1132,10 +1135,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Brasilia UTC-3, New York UTC-4, Calcutta UTC+5:30, UTC
         assert results == [
-            [-3.0, 1.0, 1.0, 4.0, 1],
-            [-4.0, 1.0, 1.0, 3.0, 1],
-            [5.5, 1.0, 1.0, 2.0, 1],
-            [0.0, 1.0, 1.0, 1.0, 1],
+            [-3, (1, 1), (4, 1)],
+            [-4, (1, 1), (3, 1)],
+            [5.5, (1, 1), (2, 1)],
+            [0, (1, 1), (1, 1)],
         ]
 
     def test_timezone_filter_dst_change(self):
@@ -1165,7 +1168,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         # Change from UTC-2 to UTC-3 in the middle of the night
-        assert results == [[-3.0, 1.0, 0, 4.0, 0], [-2.0, 1.0, 0, 2.0, 0]]
+        assert results == [[-3, (1, 0), (4, 0)], [-2, (1, 0), (2, 0)]]
 
     def test_timezone_filter_with_invalid_timezone(self):
         date = "2024-07-30"

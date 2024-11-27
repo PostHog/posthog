@@ -64,10 +64,14 @@ WITH
     start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     {processed_breakdown_value} AS "context.columns.breakdown_value",
-    uniqIf(filtered_person_id, current_period_segment) AS "context.columns.visitors",
-    uniqIf(filtered_person_id, previous_period_segment) AS "context.columns.previous_visitors",
-    sumIf(filtered_pageview_count, current_period_segment) AS "context.columns.views",
-    sumIf(filtered_pageview_count, previous_period_segment) AS "context.columns.previous_views"
+    tuple(
+        uniqIf(filtered_person_id, current_period_segment),
+        uniqIf(filtered_person_id, previous_period_segment)
+    ) AS "context.columns.visitors",
+    tuple(
+        sumIf(filtered_pageview_count, current_period_segment),
+        sumIf(filtered_pageview_count, previous_period_segment)
+    ) AS "context.columns.views"
 FROM (
     SELECT
         any(person_id) AS filtered_person_id,
@@ -117,10 +121,14 @@ WITH
     start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     {processed_breakdown_value} AS "context.columns.breakdown_value",
-    uniqIf(filtered_person_id, current_period_segment) AS "context.columns.visitors",
-    uniqIf(filtered_person_id, previous_period_segment) AS "context.columns.previous_visitors",
-    sumIf(filtered_pageview_count, current_period_segment) AS "context.columns.views",
-    sumIf(filtered_pageview_count, previous_period_segment) AS "context.columns.previous_views"
+    tuple(
+        uniqIf(filtered_person_id, current_period_segment),
+        uniqIf(filtered_person_id, previous_period_segment)
+    ) AS "context.columns.visitors",
+    tuple(
+        sumIf(filtered_pageview_count, current_period_segment),
+        sumIf(filtered_pageview_count, previous_period_segment)
+    )  AS "context.columns.views"
 FROM (
     SELECT
         any(person_id) AS filtered_person_id,
@@ -172,12 +180,18 @@ WITH
     start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    uniqIf(filtered_person_id, current_period_segment) AS "context.columns.visitors",
-    uniqIf(filtered_person_id, previous_period_segment) AS "context.columns.previous_visitors",
-    sumIf(filtered_pageview_count, current_period_segment) AS "context.columns.views",
-    sumIf(filtered_pageview_count, previous_period_segment) AS "context.columns.previous_views",
-    coalesce(avgIf(is_bounce, current_period_segment), 0) AS "context.columns.bounce_rate",
-    coalesce(avgIf(is_bounce, previous_period_segment), 0) AS "context.columns.previous_bounce_rate"
+    tuple(
+        uniqIf(filtered_person_id, current_period_segment),
+        uniqIf(filtered_person_id, previous_period_segment)
+    ) AS "context.columns.visitors",
+    tuple(
+        sumIf(filtered_pageview_count, current_period_segment),
+        sumIf(filtered_pageview_count, previous_period_segment)
+    ) AS "context.columns.views",
+    tuple(
+        coalesce(avgIf(is_bounce, current_period_segment), 0),
+        coalesce(avgIf(is_bounce, previous_period_segment), 0)
+    ) AS "context.columns.bounce_rate",
 FROM (
     SELECT
         {bounce_breakdown} AS breakdown_value,
@@ -216,8 +230,6 @@ ORDER BY "context.columns.visitors" DESC,
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    # TODO: Adding previous count to this one is slightly more complicated
-    # because we don't follow the same approach of grouping stuff on the external query
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
         if self.query.breakdownBy != WebStatsBreakdown.PAGE:
             raise NotImplementedError("Scroll depth is only supported for page breakdowns")
@@ -230,16 +242,11 @@ WITH
     start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
-    counts.visitors AS "context.columns.visitors",
-    counts.previous_visitors AS "context.columns.previous_visitors",
-    counts.views AS "context.columns.views",
-    counts.previous_views AS "context.columns.previous_views",
-    bounce.bounce_rate AS "context.columns.bounce_rate",
-    bounce.previous_bounce_rate AS "context.columns.previous_bounce_rate",
-    scroll.average_scroll_percentage AS "context.columns.average_scroll_percentage",
-    scroll.previous_average_scroll_percentage AS "context.columns.previous_average_scroll_percentage",
-    scroll.scroll_gt80_percentage AS "context.columns.scroll_gt80_percentage",
-    scroll.previous_scroll_gt80_percentage AS "context.columns.previous_scroll_gt80_percentage"
+    tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
+    tuple(counts.views, counts.previous_views) AS "context.columns.views",
+    tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS "context.columns.bounce_rate",
+    tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS "context.columns.average_scroll_percentage",
+    tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS "context.columns.scroll_gt80_percentage",
 FROM (
     SELECT
         breakdown_value,
@@ -357,12 +364,9 @@ WITH
     start_timestamp >= {date_from_previous_period} AND start_timestamp < {date_from} AS previous_period_segment
 SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
-    counts.visitors AS "context.columns.visitors",
-    counts.previous_visitors AS "context.columns.previous_visitors",
-    counts.views AS "context.columns.views",
-    counts.previous_views AS "context.columns.previous_views",
-    bounce.bounce_rate AS "context.columns.bounce_rate",
-    bounce.previous_bounce_rate AS "context.columns.previous_bounce_rate"
+    tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
+    tuple(counts.views, counts.previous_views) AS "context.columns.views",
+    tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS "context.columns.bounce_rate"
 FROM (
     SELECT
         breakdown_value,
@@ -509,10 +513,11 @@ ORDER BY "context.columns.visitors" DESC,
             results,
             {
                 0: self._join_with_aggregation_value,  # breakdown_value
-                1: self._unsample,  # views
-                2: self._unsample,  # previous views
-                3: self._unsample,  # visitors
-                4: self._unsample,  # previous visitors
+                1: lambda tuple, row: (self._unsample(tuple[0], row), self._unsample(tuple[1], row)),  # Views (tuple)
+                2: lambda tuple, row: (
+                    self._unsample(tuple[0], row),
+                    self._unsample(tuple[1], row),
+                ),  # Visitors (tuple)
             },
         )
 
