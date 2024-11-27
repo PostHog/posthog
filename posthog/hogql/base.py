@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
-from typing import TYPE_CHECKING, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Literal, Never, Optional, TypeVar
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedError
@@ -71,6 +71,9 @@ class Type(AST):
 @dataclass(kw_only=True)
 class Expr(AST):
     type: Optional[Type] = field(default=None)
+
+    def __bool__(self) -> Never:
+        raise TypeError('unsupported boolean comparison (use "is None" instead)')
 
 
 @dataclass(kw_only=True)
