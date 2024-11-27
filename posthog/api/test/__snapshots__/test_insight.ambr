@@ -1993,7 +1993,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.4
+# name: TestInsight.test_listing_insights_does_not_nplus1.6
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
