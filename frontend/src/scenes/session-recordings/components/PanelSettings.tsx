@@ -16,6 +16,7 @@ interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     isAvailable?: boolean
     whenUnavailable?: LemonMenuItem
     highlightWhenActive?: boolean
+    closeOnClickInside?: boolean
 }
 
 export function SettingsMenu({
@@ -23,6 +24,7 @@ export function SettingsMenu({
     items,
     icon,
     isAvailable = true,
+    closeOnClickInside = true,
     highlightWhenActive = true,
     whenUnavailable,
     ...props
@@ -31,7 +33,7 @@ export function SettingsMenu({
     return (
         <LemonMenu
             buttonSize="xsmall"
-            closeOnClickInside={false}
+            closeOnClickInside={closeOnClickInside}
             items={isAvailable ? items : whenUnavailable ? [whenUnavailable] : []}
             {...props}
         >
