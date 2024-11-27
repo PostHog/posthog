@@ -1,7 +1,6 @@
 import './ErrorDisplay.scss'
 
-import { IconFlag } from '@posthog/icons'
-import { LemonBanner, LemonCollapse } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -28,46 +27,58 @@ function StackTrace({
     frames: ErrorTrackingStackFrame[]
     showAllFrames: boolean
 }): JSX.Element | null {
-    const { frameContexts } = useValues(stackFrameLogic)
-    const { loadFrameContexts } = useActions(stackFrameLogic)
+    const { stackFrameRecords } = useValues(stackFrameLogic)
+    const { loadFromRawIds } = useActions(stackFrameLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     useEffect(() => {
-        loadFrameContexts({ frames })
-    }, [frames, loadFrameContexts])
+        loadFromRawIds(frames.map(({ raw_id }) => raw_id))
+    }, [frames, loadFromRawIds])
 
-    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0
-
-    const panels = displayFrames.map(({ raw_id, source, line, column, resolved_name, lang }, index) => {
-        const frameContext = frameContexts[raw_id]
-        return {
-            key: index,
-            header: (
-                <div className="flex flex-wrap space-x-0.5">
-                    <span>{source}</span>
-                    {resolved_name ? (
-                        <div className="flex space-x-0.5">
-                            <span className="text-muted">in</span>
-                            <span>{resolved_name}</span>
+    const panels = displayFrames.map(
+        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure }, index) => {
+            const record = stackFrameRecords[raw_id]
+            return {
+                key: index,
+                header: (
+                    <div className="flex flex-1 justify-between items-center">
+                        <div className="flex flex-wrap space-x-0.5">
+                            <span>{source}</span>
+                            {resolved_name ? (
+                                <div className="flex space-x-0.5">
+                                    <span className="text-muted">in</span>
+                                    <span>{resolved_name}</span>
+                                </div>
+                            ) : null}
+                            {line ? (
+                                <div className="flex space-x-0.5">
+                                    <span className="text-muted">@</span>
+                                    <span>
+                                        {line}
+                                        {column && `:${column}`}
+                                    </span>
+                                </div>
+                            ) : null}
                         </div>
-                    ) : null}
-                    {line ? (
-                        <div className="flex space-x-0.5">
-                            <span className="text-muted">@</span>
-                            <span>
-                                {line}
-                                {column && `:${column}`}
-                            </span>
-                        </div>
-                    ) : null}
-                </div>
-            ),
-            content: frameContext ? <FrameContext context={frameContext} language={getLanguage(lang)} /> : null,
-            className: 'p-0',
+                        {!resolved && (
+                            <div className="flex items-center space-x-1">
+                                <Tooltip title={resolve_failure}>
+                                    <LemonTag>Unresolved</LemonTag>
+                                </Tooltip>
+                            </div>
+                        )}
+                    </div>
+                ),
+                content:
+                    record && record.context ? (
+                        <FrameContext context={record.context} language={getLanguage(lang)} />
+                    ) : null,
+                className: 'p-0',
+            }
         }
-    })
+    )
 
-    return <LemonCollapse defaultActiveKeys={[initiallyActiveIndex]} multiple panels={panels} size="xsmall" />
+    return <LemonCollapse multiple panels={panels} size="xsmall" />
 }
 
 function FrameContext({
@@ -109,20 +120,13 @@ function FrameContextLine({
         </div>
     )
 }
-function ChainedStackTraces({
-    exceptionList,
-    ingestionErrors,
-}: {
-    exceptionList: ErrorTrackingException[]
-    ingestionErrors: string[]
-}): JSX.Element {
+function ChainedStackTraces({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element {
     const [showAllFrames, setShowAllFrames] = useState(false)
 
     return (
         <>
-            <LemonDivider dashed={true} />
             <div className="flex gap-1 mt-6 justify-between items-center">
-                <h2 className="mb-0">Stack Trace</h2>
+                <h3 className="mb-0">Stack Trace</h3>
                 <LemonSwitch
                     checked={showAllFrames}
                     label="Show entire stack trace"
@@ -131,17 +135,8 @@ function ChainedStackTraces({
                     }}
                 />
             </div>
-            {ingestionErrors && (
-                <LemonBanner type="error">
-                    <ul>
-                        {ingestionErrors.map((e, i) => (
-                            <li key={i}>{e}</li>
-                        ))}
-                    </ul>
-                </LemonBanner>
-            )}
             {exceptionList.map(({ stacktrace, value }, index) => {
-                if (stacktrace.type === 'resolved') {
+                if (stacktrace && stacktrace.type === 'resolved') {
                     const { frames } = stacktrace
                     if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
                         // if we're not showing all frames and there are no in_app frames, skip this exception
@@ -155,31 +150,7 @@ function ChainedStackTraces({
                         </div>
                     )
                 }
-
-                return null
             })}
-        </>
-    )
-}
-
-function ActiveFlags({ flags }: { flags: string[] }): JSX.Element {
-    return (
-        <>
-            {flags && flags.length ? (
-                <div className="flex flex-row gap-2 flex-wrap">
-                    {flags.map((flag, index) => {
-                        return (
-                            <div key={index} className="border rounded px-1.5 py-1 bg-primary-alt-highlight text-muted">
-                                <IconFlag className="pr-1" />
-
-                                {flag}
-                            </div>
-                        )
-                    })}
-                </div>
-            ) : (
-                <div>No active feature flags</div>
-            )}
         </>
     )
 }
@@ -249,12 +220,14 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $browser_version,
         $os,
         $os_version,
-        $active_feature_flags,
         $sentry_url,
         $exception_list,
         $level,
-        $cymbal_errors,
     } = getExceptionPropertiesFrom(eventProperties)
+
+    const exceptionList: ErrorTrackingException[] | undefined = $exception_list
+    const exceptionWithStack = exceptionList?.length && exceptionList.some((e) => !!e.stacktrace)
+    const ingestionErrors: string[] | undefined = eventProperties['$cymbal_errors']
 
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">
@@ -265,19 +238,17 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     type="success"
                     title="captured by"
                     value={
-                        <>
-                            {$sentry_url ? (
-                                <Link
-                                    className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
-                                    to={$sentry_url}
-                                    target="_blank"
-                                >
-                                    Sentry
-                                </Link>
-                            ) : (
-                                <>PostHog</>
-                            )}
-                        </>
+                        $sentry_url ? (
+                            <Link
+                                className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
+                                to={$sentry_url}
+                                target="_blank"
+                            >
+                                Sentry
+                            </Link>
+                        ) : (
+                            'PostHog'
+                        )
                     }
                 />
                 <TitledSnack title="synthetic" value={$exception_synthetic ? 'true' : 'false'} />
@@ -285,14 +256,20 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
                 <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
             </div>
-            {$exception_list?.length ? (
-                <ChainedStackTraces exceptionList={$exception_list} ingestionErrors={$cymbal_errors} />
-            ) : null}
-            <LemonDivider dashed={true} />
-            <div className="flex flex-col gap-1 mt-6">
-                <h2 className="mb-0">Active Feature Flags</h2>
-                <ActiveFlags flags={$active_feature_flags} />
-            </div>
+
+            {ingestionErrors || exceptionWithStack ? <LemonDivider dashed={true} /> : null}
+            {ingestionErrors && (
+                <>
+                    <LemonBanner type="error">
+                        <ul>
+                            {ingestionErrors.map((e, i) => (
+                                <li key={i}>{e}</li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
+                </>
+            )}
+            {exceptionWithStack ? <ChainedStackTraces exceptionList={$exception_list} /> : null}
         </div>
     )
 }
