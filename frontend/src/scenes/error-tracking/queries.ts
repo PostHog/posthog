@@ -4,7 +4,7 @@ import { range } from 'lib/utils'
 import {
     DataTableNode,
     DateRange,
-    ErrorTrackingGroup,
+    ErrorTrackingIssue,
     ErrorTrackingQuery,
     EventsQuery,
     InsightVizNode,
@@ -146,7 +146,7 @@ export const errorTrackingIssueEventsQuery = ({
     offset,
 }: {
     select: string[]
-    issueId: ErrorTrackingGroup['id']
+    issueId: ErrorTrackingIssue['id']
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
