@@ -240,3 +240,17 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+
+    def test_list_organization_members_filter_by_email(self):
+        # Create additional users
+        user1 = User.objects.create_and_join(self.organization, "specific@posthog.com", None)
+        User.objects.create_and_join(self.organization, "another@posthog.com", None)
+
+        # Test filtering by email
+        response = self.client.get("/api/organizations/@current/members/?email=specific@posthog.com")
+        response_data = response.json()["results"]
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["user"]["email"], "specific@posthog.com")
+        self.assertEqual(response_data[0]["user"]["uuid"], str(user1.uuid))

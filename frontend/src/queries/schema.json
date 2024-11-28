@@ -13371,7 +13371,8 @@
                 "Country",
                 "Region",
                 "City",
-                "Timezone"
+                "Timezone",
+                "Language"
             ],
             "type": "string"
         },
