@@ -168,27 +168,27 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
-            description: 'When a user opens the app either for the first time or from the foreground.',
+            description: 'When a user opens the mobile app either for the first time or from the foreground.',
         },
         'Application Backgrounded': {
             label: 'Application Backgrounded',
-            description: 'When a user puts the app in the background.',
+            description: 'When a user puts the mobile app in the background.',
         },
         'Application Updated': {
             label: 'Application Updated',
-            description: 'When a user upgrades the app.',
+            description: 'When a user upgrades mobile the app.',
         },
         'Application Installed': {
             label: 'Application Installed',
-            description: 'When a user installs the app.',
+            description: 'When a user installs mobile the app.',
         },
         'Application Became Active': {
             label: 'Application Became Active',
-            description: 'When a user puts the app in the foreground.',
+            description: 'When a user puts the mobile app in the foreground.',
         },
         'Deep Link Opened': {
             label: 'Deep Link Opened',
-            description: 'When a user opens the app via a deep link.',
+            description: 'When a user opens the mobile app via a deep link.',
         },
     },
     elements: {
@@ -219,8 +219,20 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     metadata: {
         distinct_id: {
             label: 'Distinct ID',
-            description: 'The current distinct ID of the user',
+            description: 'The current distinct ID of the user.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
+        timestamp: {
+            label: 'Timestamp',
+            description: 'Time the event happened.',
+            examples: ['2023-05-20T15:30:00Z'],
+            system: true,
+        },
+        event: {
+            label: 'Event',
+            description: 'The name of the event.',
+            examples: ['$pageview'],
+            system: true,
         },
     },
     event_properties: {
@@ -750,9 +762,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             system: true,
         },
         $timestamp: {
-            label: 'Timestamp',
-            description: 'Time the event happened.',
-            examples: [new Date().toISOString()],
+            label: 'Timestamp (deprecated)',
+            description:
+                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
+            examples: ['2023-05-20T15:30:00Z'],
+            system: true,
         },
         $sent_at: {
             label: 'Sent At',
@@ -1220,6 +1234,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Surveys Activated',
             description: 'The surveys that were activated for this event.',
         },
+        $process_person_profile: {
+            label: 'Person Profile processing flag',
+            description: 'The setting from an SDK to control whether an event has person processing enabled',
+        },
+        $dead_clicks_enabled_server_side: {
+            label: 'Dead clicks enabled server side',
+            description: 'Whether dead clicks were enabled in remote config',
+        },
         $dead_click_scroll_delay_ms: {
             label: 'Dead click scroll delay in milliseconds',
             description: 'The delay between a click and the next scroll event',
@@ -1413,8 +1435,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINI
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
 
-CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = {}
-
 for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)) {
     if (PERSON_PROPERTIES_ADAPTED_FROM_EVENT.has(key) || key.startsWith('$geoip_')) {
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = {
@@ -1445,7 +1465,6 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
-            examples: 'examples' in value ? value.examples : undefined,
         }
     }
 }

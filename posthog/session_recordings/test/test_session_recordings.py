@@ -189,11 +189,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert mock_capture.call_args_list[0] == call(
             self.user.distinct_id,
             "recording list filters changed",
-            {
+            properties={
                 "$current_url": ANY,
                 "$session_id": ANY,
                 "partial_filter_chosen_my_filter": "something",
             },
+            groups=ANY,
         )
 
     @snapshot_postgres_queries
@@ -740,12 +741,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     "start_timestamp": "2022-12-31T23:59:55Z",
                     "end_timestamp": "2023-01-01T00:00:00Z",
                     "blob_key": "1672531195000-1672531200000",
-                },
-                {
-                    "source": "realtime",
-                    "start_timestamp": "2022-12-31T23:59:55Z",
-                    "end_timestamp": None,
-                    "blob_key": None,
                 },
             ]
         }

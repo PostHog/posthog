@@ -223,6 +223,9 @@ class QueryDateRange:
         is_relative = delta_mapping is not None
         interval = self._interval
 
+        if self._date_range.explicitDate:
+            return False
+
         if not is_relative or not interval:
             return True
 

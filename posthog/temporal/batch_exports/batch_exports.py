@@ -3,6 +3,7 @@ import collections
 import collections.abc
 import dataclasses
 import datetime as dt
+import operator
 import typing
 import uuid
 from string import Template
@@ -27,6 +28,7 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run,
 )
+from posthog.settings.base_variables import TEST
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
@@ -62,7 +64,8 @@ FROM
 FORMAT ArrowStream
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
-    max_bytes_before_external_sort=50000000000
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
 """
 
 SELECT_FROM_PERSONS_VIEW_BACKFILL = """
@@ -359,8 +362,8 @@ def start_produce_batch_export_record_batches(
     model_name: str,
     is_backfill: bool,
     team_id: int,
-    interval_start: str | None,
-    interval_end: str,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: list[tuple[dt.datetime, dt.datetime]],
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
     **parameters,
@@ -384,7 +387,7 @@ def start_produce_batch_export_record_batches(
             fields = destination_default_fields
 
     if model_name == "persons":
-        if is_backfill and interval_start is None:
+        if is_backfill and full_range[0] is None:
             view = SELECT_FROM_PERSONS_VIEW_BACKFILL
         else:
             view = SELECT_FROM_PERSONS_VIEW
@@ -418,24 +421,110 @@ def start_produce_batch_export_record_batches(
 
         view = query_template.substitute(fields=query_fields)
 
-    if interval_start is not None:
-        parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-
-    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     parameters["team_id"] = team_id
 
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
     parameters = {**parameters, **extra_query_parameters}
 
     queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES)
-    query_id = uuid.uuid4()
     produce_task = asyncio.create_task(
-        client.aproduce_query_as_arrow_record_batches(
-            view, queue=queue, query_parameters=parameters, query_id=str(query_id)
+        produce_batch_export_record_batches_from_range(
+            client=client,
+            query=view,
+            full_range=full_range,
+            done_ranges=done_ranges,
+            queue=queue,
+            query_parameters=parameters,
         )
     )
 
     return queue, produce_task
+
+
+async def produce_batch_export_record_batches_from_range(
+    client: ClickHouseClient,
+    query: str,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
+    queue: RecordBatchQueue,
+    query_parameters: dict[str, typing.Any],
+):
+    """Produce all record batches into `queue` required to complete `full_range`.
+
+    This function will skip over any already completed `done_ranges`.
+    """
+    for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
+        if interval_start is not None:
+            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_id = uuid.uuid4()
+
+        await client.aproduce_query_as_arrow_record_batches(
+            query, queue=queue, query_parameters=query_parameters, query_id=str(query_id)
+        )
+
+
+def generate_query_ranges(
+    remaining_range: tuple[dt.datetime | None, dt.datetime],
+    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
+) -> typing.Iterator[tuple[dt.datetime | None, dt.datetime]]:
+    """Recursively yield ranges of dates that need to be queried.
+
+    There are essentially 3 scenarios we are expecting:
+    1. The batch export just started, so we expect `done_ranges` to be an empty
+       list, and thus should return the `remaining_range`.
+    2. The batch export crashed mid-execution, so we have some `done_ranges` that
+       do not completely add up to the full range. In this case we need to yield
+       ranges in between all the done ones.
+    3. The batch export crashed right after we finish, so we have a full list of
+       `done_ranges` adding up to the `remaining_range`. In this case we should not
+       yield anything.
+
+    Case 1 is fairly trivial and we can simply return `remaining_range` if we get
+    an empty `done_ranges`.
+
+    Case 2 is more complicated and we can expect that the ranges produced by this
+    function will lead to duplicate events selected, as our batch export query is
+    inclusive in the lower bound. Since multiple rows may have the same
+    `inserted_at` we cannot simply skip an `inserted_at` value, as there may be a
+    row that hasn't been exported as it with the same `inserted_at` as a row that
+    has been exported. So this function will return ranges with `inserted_at`
+    values that were already exported for at least one event. Ideally, this is
+    *only* one event, but we can never be certain.
+    """
+    if len(done_ranges) == 0:
+        yield remaining_range
+        return
+
+    epoch = dt.datetime.fromtimestamp(0, tz=dt.UTC)
+    list_done_ranges: list[tuple[dt.datetime, dt.datetime]] = list(done_ranges)
+
+    list_done_ranges.sort(key=operator.itemgetter(0))
+
+    while True:
+        try:
+            next_range: tuple[dt.datetime | None, dt.datetime] = list_done_ranges.pop(0)
+        except IndexError:
+            if remaining_range[0] != remaining_range[1]:
+                # If they were equal it would mean we have finished.
+                yield remaining_range
+
+            return
+        else:
+            candidate_end_at = next_range[0] if next_range[0] is not None else epoch
+
+        candidate_start_at = remaining_range[0]
+        remaining_range = (next_range[1], remaining_range[1])
+
+        if candidate_start_at is not None and candidate_start_at >= candidate_end_at:
+            # We have landed within a done range.
+            continue
+
+        if candidate_start_at is None and candidate_end_at == epoch:
+            # We have landed within the first done range of a backfill.
+            continue
+
+        yield (candidate_start_at, candidate_end_at)
 
 
 async def raise_on_produce_task_failure(produce_task: asyncio.Task) -> None:
@@ -929,7 +1018,7 @@ async def execute_batch_export_insert_activity(
     finish_inputs: FinishBatchExportRunInputs,
     interval: str,
     heartbeat_timeout_seconds: int | None = 120,
-    maximum_attempts: int = 15,
+    maximum_attempts: int = 0,
     initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
@@ -952,16 +1041,18 @@ async def execute_batch_export_insert_activity(
     """
     get_export_started_metric().add(1)
 
+    if TEST:
+        maximum_attempts = 1
+
     if interval == "hour":
         start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
-        maximum_attempts = 0
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
-        # TODO: Consider removing this 10 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        start_to_close_timeout = max(dt.timedelta(minutes=10), dt.timedelta(**kwargs))
+        # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
+        start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 

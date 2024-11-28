@@ -2,26 +2,54 @@ use std::{sync::Arc, time::Duration};
 
 use axum::async_trait;
 use reqwest::Url;
-use sourcemap::SourceMap;
+use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
 
 use crate::{
     config::Config,
     error::{Error, JsResolveErr},
     metric_consts::{
-        SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_HEADER_FOUND,
-        SOURCEMAP_NOT_FOUND, SOURCE_REF_BODY_FETCHES,
+        SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND,
+        SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
     },
 };
 
-use super::SymbolProvider;
+use super::{Fetcher, Parser};
 
 pub struct SourcemapProvider {
     pub client: reqwest::Client,
 }
 
+// Sigh. Later we can be smarter here to only do the parse once, but it involves
+// `unsafe` for lifetime reasons. On the other hand, the parse is cheap, so maybe
+// it doesn't matter?
+#[derive(Debug)]
+pub struct OwnedSourceMapCache {
+    data: Vec<u8>,
+}
+
+impl OwnedSourceMapCache {
+    pub fn new(data: Vec<u8>, r: impl ToString) -> Result<Self, JsResolveErr> {
+        // Pass-through parse once to assert we're given valid data, so the unwrap below
+        // is safe.
+        SourceMapCache::parse(&data).map_err(|e| {
+            JsResolveErr::InvalidSourceMapCache(format!(
+                "Got error {} for url {}",
+                e,
+                r.to_string()
+            ))
+        })?;
+        Ok(Self { data })
+    }
+
+    pub fn get_smc(&self) -> SourceMapCache {
+        // UNWRAP - we've already parsed this data once, so we know it's valid
+        SourceMapCache::parse(&self.data).unwrap()
+    }
+}
+
 impl SourcemapProvider {
-    pub fn new(config: &Config) -> Result<Self, Error> {
+    pub fn new(config: &Config) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
         let mut client = reqwest::Client::builder().timeout(timeout);
 
@@ -31,32 +59,67 @@ impl SourcemapProvider {
             warn!("Internal IPs are allowed, this is a security risk");
         }
 
-        let client = client.build()?;
+        let client = client.build().unwrap();
 
-        Ok(Self { client })
+        Self { client }
     }
 }
 
 #[async_trait]
-impl SymbolProvider for SourcemapProvider {
+impl Fetcher for SourcemapProvider {
     type Ref = Url;
-    type Set = SourceMap;
-    async fn fetch(&self, _: i32, r: Url) -> Result<Arc<SourceMap>, Error> {
-        let sourcemap_url = find_sourcemap_url(&self.client, r).await?;
-        let data = fetch_source_map(&self.client, sourcemap_url).await?;
+    type Fetched = Vec<u8>;
+    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Error> {
+        let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
+        let (sourcemap_url, minified_source) = find_sourcemap_url(&self.client, r).await?;
 
-        Ok(Arc::new(
-            SourceMap::from_reader(data.as_slice()).map_err(JsResolveErr::from)?,
-        ))
+        let start = start.label("found_url", "true");
+
+        let sourcemap = fetch_source_map(&self.client, sourcemap_url.clone()).await?;
+
+        // TOTAL GUESS at a reasonable capacity here, btw
+        let mut cache_bytes = Vec::with_capacity(minified_source.len() + sourcemap.len());
+
+        let writer = SourceMapCacheWriter::new(&minified_source, &sourcemap).map_err(|e| {
+            JsResolveErr::InvalidSourceMapCache(format!(
+                "Failed to construct sourcemap cache: {}, for sourcemap url {}",
+                e, sourcemap_url
+            ))
+        })?;
+
+        // UNWRAP: writing into a vector always succeeds
+        writer.serialize(&mut cache_bytes).unwrap();
+
+        start.label("found_data", "true").fin();
+
+        Ok(cache_bytes)
     }
 }
 
-async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url, Error> {
-    info!("Fetching sourcemap from {}", start);
+#[async_trait]
+impl Parser for SourcemapProvider {
+    type Source = Vec<u8>;
+    type Set = OwnedSourceMapCache;
+    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
+        let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
+        let sm = OwnedSourceMapCache::new(data, "parse")?;
+        start.label("success", "true").fin();
+        Ok(sm)
+    }
+}
 
-    // If this request fails, we cannot resolve the frame, and do not hand this error to the frames
-    // failure-case handling - it just didn't work. We should tell the user about it, somehow, though.
-    let res = client.get(start).send().await?;
+async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url, String), Error> {
+    info!("Fetching script source from {}", start);
+
+    // If this request fails, we cannot resolve the frame, and hand this error to the frames
+    // failure-case handling.
+    let res = client
+        .get(start.clone())
+        .send()
+        .await
+        .map_err(JsResolveErr::from)?;
+
+    res.error_for_status_ref().map_err(JsResolveErr::from)?;
 
     // we use the final URL of the response in the relative case, to account for any redirects
     let mut final_url = res.url().clone();
@@ -65,7 +128,11 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
     let headers = res.headers();
     let header_url = headers
         .get("SourceMap")
-        .or_else(|| headers.get("X-SourceMap"));
+        .or_else(|| headers.get("X-SourceMap"))
+        .cloned();
+
+    // We always need the body
+    let body = res.text().await.map_err(JsResolveErr::from)?;
 
     if let Some(header_url) = header_url {
         info!("Found sourcemap header: {:?}", header_url);
@@ -86,14 +153,11 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
             final_url.set_path(url);
             final_url
         };
-        return Ok(url);
+        return Ok((url, body));
     }
 
     // If we didn't find a header, we have to check the body
 
-    // Grab the body as text, and split it into lines
-    metrics::counter!(SOURCE_REF_BODY_FETCHES).increment(1);
-    let body = res.text().await?; // Transport error, unresolvable
     let lines = body.lines().rev(); // Our needle tends to be at the bottom of the haystack
     for line in lines {
         if line.starts_with("//# sourceMappingURL=") {
@@ -108,22 +172,34 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url,
                 final_url.set_path(found);
                 final_url
             };
-            return Ok(url);
+            return Ok((url, body));
         }
     }
 
     metrics::counter!(SOURCEMAP_NOT_FOUND).increment(1);
-    // We looked in the headers and the body, and couldn't find a source map. This /might/ indicate the frame
-    // is not minified, or it might just indicate someone misconfigured their sourcemaps - we'll hand this error
-    // back to the frame itself to figure out.
+
+    // We looked in the headers and the body, and couldn't find a source map. We lastly just see if there's some data at
+    // the start URL, with `.map` appended. We don't actually fetch the body here, just see if the URL resolves to a 200
+    let mut test_url = start; // Move the `start` into `test_url`, since we don't need it anymore, making it mutable
+    test_url.set_path(&(test_url.path().to_owned() + ".map"));
+    if let Ok(res) = client.head(test_url.clone()).send().await {
+        if res.status().is_success() {
+            return Ok((res.url().clone(), body));
+        }
+    }
+
+    // We failed entirely to find a sourcemap. This /might/ indicate the frame is not minified, or it might
+    // just indicate someone misconfigured their sourcemaps - we'll hand this error back to the frame itself
+    // to figure out.
     Err(JsResolveErr::NoSourcemap(final_url.to_string()).into())
 }
 
-async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<Vec<u8>, Error> {
+async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<String, Error> {
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
-    let res = client.get(url).send().await?;
-    let bytes = res.bytes().await?;
-    Ok(bytes.to_vec())
+    let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
+    res.error_for_status_ref().map_err(JsResolveErr::from)?;
+    let sourcemap = res.text().await.map_err(JsResolveErr::from)?;
+    Ok(sourcemap)
 }
 
 #[cfg(test)]
@@ -132,6 +208,8 @@ mod test {
 
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
+    const MINIFIED_WITH_NO_MAP_REF: &[u8] =
+        include_bytes!("../../tests/static/chunk-PGUQKT6S-no-map.js");
 
     use super::*;
 
@@ -146,29 +224,11 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
-        let res = find_sourcemap_url(&client, url).await.unwrap();
+        let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
 
         // We're doing relative-URL resolution here, so we have to account for that
         let expected = server.url("/static/chunk-PGUQKT6S.js.map").parse().unwrap();
         assert_eq!(res, expected);
-        mock.assert_hits(1);
-    }
-
-    #[tokio::test]
-    async fn fetch_source_map_test() {
-        // This ones maybe a little silly - we're almost just testing reqwest
-        let server = MockServer::start();
-
-        let mock = server.mock(|when, then| {
-            when.method("GET").path("/static/chunk-PGUQKT6S.js.map");
-            then.status(200).body(MAP);
-        });
-
-        let client = reqwest::Client::new();
-        let url = server.url("/static/chunk-PGUQKT6S.js.map").parse().unwrap();
-        let res = fetch_source_map(&client, url).await.unwrap();
-
-        assert_eq!(res, MAP);
         mock.assert_hits(1);
     }
 
@@ -189,13 +249,48 @@ mod test {
         let mut config = Config::init_with_defaults().unwrap();
         // Needed because we're using mockserver, so hitting localhost
         config.allow_internal_ips = true;
-        let store = SourcemapProvider::new(&config).unwrap();
+        let store = SourcemapProvider::new(&config);
 
         let start_url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
 
         store.fetch(1, start_url).await.unwrap();
 
         first_mock.assert_hits(1);
+        second_mock.assert_hits(1);
+    }
+
+    #[tokio::test]
+    async fn checks_dot_map_urls_test() {
+        let server = MockServer::start();
+
+        let first_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js");
+            then.status(200).body(MINIFIED_WITH_NO_MAP_REF);
+        });
+
+        // We expect cymbal to then make a HEAD request to see if the map might exist
+        let head_mock = server.mock(|when, then| {
+            when.method("HEAD").path("/static/chunk-PGUQKT6S.js.map");
+            then.status(200);
+        });
+
+        // And then fetch it
+        let second_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js.map");
+            then.status(200).body(MAP);
+        });
+
+        let mut config = Config::init_with_defaults().unwrap();
+        // Needed because we're using mockserver, so hitting localhost
+        config.allow_internal_ips = true;
+        let store = SourcemapProvider::new(&config);
+
+        let start_url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
+
+        store.fetch(1, start_url).await.unwrap();
+
+        first_mock.assert_hits(1);
+        head_mock.assert_hits(1);
         second_mock.assert_hits(1);
     }
 

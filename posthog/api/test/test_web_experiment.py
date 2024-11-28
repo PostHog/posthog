@@ -1,15 +1,18 @@
+from datetime import datetime, timedelta
+
 from rest_framework import status
+from unittest.mock import ANY, patch
 
 from posthog.models import WebExperiment
 from posthog.test.base import APIBaseTest
 
 
 class TestWebExperiment(APIBaseTest):
-    def _create_web_experiment(self):
+    def _create_web_experiment(self, name="Zero to Web Experiment"):
         return self.client.post(
             f"/api/projects/{self.team.id}/web_experiments/",
             data={
-                "name": "Zero to Web Experiment",
+                "name": name,
                 "variants": {
                     "control": {
                         "transforms": [
@@ -28,7 +31,8 @@ class TestWebExperiment(APIBaseTest):
             format="json",
         )
 
-    def test_can_create_basic_web_experiment(self):
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_can_create_basic_web_experiment(self, mock_capture):
         response = self._create_web_experiment()
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
@@ -51,6 +55,40 @@ class TestWebExperiment(APIBaseTest):
         assert web_experiment.type == "web"
         assert web_experiment.variants.get("control") is not None
         assert web_experiment.variants.get("test") is not None
+        mock_capture.assert_called_once_with(
+            ANY,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": True,
+                "variants_count": 2,
+                "has_rollout_percentage": True,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": linked_flag.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "creation_context": "web_experiments",
+            },
+        )
+
+    def test_can_list_active_web_experiments(self):
+        response = self._create_web_experiment("active_web_experiment")
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        response = self._create_web_experiment("completed_web_experiment")
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        completed_web_exp_id = response_data["id"]
+        completed_web_exp = WebExperiment.objects.get(id=completed_web_exp_id)
+        completed_web_exp.start_date = datetime.now().utcnow() - timedelta(days=2)
+        completed_web_exp.end_date = datetime.now().utcnow()
+        completed_web_exp.save()
+        list_response = self.client.get(f"/api/web_experiments?token={self.team.api_token}")
+        assert list_response.status_code == status.HTTP_200_OK, list_response
+        response_data = list_response.json()
+        assert len(response_data["experiments"]) == 1
+        assert response_data["experiments"][0]["name"] == "active_web_experiment"
 
     def test_can_delete_web_experiment(self):
         response = self._create_web_experiment()

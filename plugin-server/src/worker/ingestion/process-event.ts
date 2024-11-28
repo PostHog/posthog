@@ -12,8 +12,10 @@ import {
     Person,
     PersonMode,
     PreIngestionEvent,
+    ProjectId,
     RawKafkaEvent,
     Team,
+    TeamId,
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
@@ -202,11 +204,7 @@ export class EventsProcessor {
         return res
     }
 
-    createEvent(
-        preIngestionEvent: PreIngestionEvent,
-        person: Person,
-        processPerson: boolean
-    ): [RawKafkaEvent, Promise<void>] {
+    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
@@ -262,10 +260,14 @@ export class EventsProcessor {
             person_mode: personMode,
         }
 
+        return rawEvent
+    }
+
+    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
         const ack = this.kafkaProducer
             .produce({
                 topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                key: uuid,
+                key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
                 waitForAck: true,
             })
@@ -273,21 +275,21 @@ export class EventsProcessor {
                 // Some messages end up significantly larger than the original
                 // after plugin processing, person & group enrichment, etc.
                 if (error instanceof MessageSizeTooLarge) {
-                    await captureIngestionWarning(this.db.kafkaProducer, teamId, 'message_size_too_large', {
-                        eventUuid: uuid,
-                        distinctId: distinctId,
+                    await captureIngestionWarning(this.db.kafkaProducer, rawEvent.team_id, 'message_size_too_large', {
+                        eventUuid: rawEvent.uuid,
+                        distinctId: rawEvent.distinct_id,
                     })
                 } else {
                     throw error
                 }
             })
 
-        return [rawEvent, ack]
+        return ack
     }
 
     private async upsertGroup(
-        teamId: number,
-        projectId: number,
+        teamId: TeamId,
+        projectId: ProjectId,
         properties: Properties,
         timestamp: DateTime
     ): Promise<void> {
@@ -302,6 +304,7 @@ export class EventsProcessor {
             await upsertGroup(
                 this.db,
                 teamId,
+                projectId,
                 groupTypeIndex,
                 groupKey.toString(),
                 groupPropertiesToSet || {},

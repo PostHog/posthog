@@ -153,7 +153,6 @@ export function ResultsQuery({
                             } as InsightVizNode,
                             result: newQueryResults?.insight,
                             disable_baseline: true,
-                            last_refresh: newQueryResults?.last_refresh,
                         },
                         doNotLoad: true,
                     },
@@ -265,6 +264,8 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
 }
 
 export function ResultsHeader(): JSX.Element {
+    const { experimentResults } = useValues(experimentLogic)
+
     return (
         <div className="flex">
             <div className="w-1/2">
@@ -275,9 +276,7 @@ export function ResultsHeader(): JSX.Element {
             </div>
 
             <div className="w-1/2 flex flex-col justify-end">
-                <div className="ml-auto">
-                    <ExploreButton />
-                </div>
+                <div className="ml-auto">{experimentResults && <ExploreButton />}</div>
             </div>
         </div>
     )
@@ -451,6 +450,7 @@ export function PageHeaderCustom(): JSX.Element {
         areResultsSignificant,
         isSingleVariantShipped,
         featureFlags,
+        hasGoalSet,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -473,6 +473,9 @@ export function PageHeaderCustom(): JSX.Element {
                                 type="primary"
                                 data-attr="launch-experiment"
                                 onClick={() => launchExperiment()}
+                                disabledReason={
+                                    !hasGoalSet ? 'Add the main goal before launching the experiment' : undefined
+                                }
                             >
                                 Launch
                             </LemonButton>
@@ -687,7 +690,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
 export function ActionBanner(): JSX.Element {
     const {
         experiment,
-        experimentInsightType,
+        getMetricType,
         experimentResults,
         experimentLoading,
         experimentResultsLoading,
@@ -704,6 +707,9 @@ export function ActionBanner(): JSX.Element {
     const { archiveExperiment } = useActions(experimentLogic)
 
     const { aggregationLabel } = useValues(groupsModel)
+
+    const metricType = getMetricType(0)
+
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
             ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
@@ -746,7 +752,8 @@ export function ActionBanner(): JSX.Element {
     if (!isExperimentRunning) {
         return (
             <LemonBanner type="info" className="mt-4">
-                Your experiment is in draft mode. You can edit your variants, adjust release conditions, and{' '}
+                Your experiment is in draft mode. You can set the goal, edit the variants, adjust release conditions,
+                and{' '}
                 <Link className="font-semibold" to="https://posthog.com/docs/experiments/testing-and-launching">
                     test your feature flag
                 </Link>
@@ -761,7 +768,7 @@ export function ActionBanner(): JSX.Element {
         // Results insignificant, but a large enough sample/running time has been achieved
         // Further collection unlikely to change the result -> recommmend cutting the losses
         if (
-            experimentInsightType === InsightType.FUNNELS &&
+            metricType === InsightType.FUNNELS &&
             funnelResultsPersonsTotal > Math.max(recommendedSampleSize, 500) &&
             dayjs().diff(experiment.start_date, 'day') > 2 // at least 2 days running
         ) {
@@ -773,7 +780,7 @@ export function ActionBanner(): JSX.Element {
                 </LemonBanner>
             )
         }
-        if (experimentInsightType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
+        if (metricType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
             return (
                 <LemonBanner type="warning" className="mt-4">
                     Your experiment has been running long enough, but the results are still inconclusive. Continuing the
@@ -802,7 +809,7 @@ export function ActionBanner(): JSX.Element {
 
         // Win probability only slightly over 0.9 and the recommended sample/time just met -> proceed with caution
         if (
-            experimentInsightType === InsightType.FUNNELS &&
+            metricType === InsightType.FUNNELS &&
             funnelResultsPersonsTotal < recommendedSampleSize + 50 &&
             winProbability < 0.93
         ) {
@@ -816,7 +823,7 @@ export function ActionBanner(): JSX.Element {
         }
 
         if (
-            experimentInsightType === InsightType.TRENDS &&
+            metricType === InsightType.TRENDS &&
             actualRunningTime < recommendedRunningTime + 2 &&
             winProbability < 0.93
         ) {

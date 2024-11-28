@@ -11,6 +11,11 @@ CORS_ALLOWED_TRACING_HEADERS = (
     "x-highlight-request",
     "x-datadome-clientid",
     "x-posthog-token",
+    "x-b3-sampled",
+    "x-b3-spanid",
+    "x-b3-traceid",
+    "x-b3-parentspanid",
+    "b3",
 )
 
 

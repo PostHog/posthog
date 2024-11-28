@@ -17,6 +17,7 @@ from posthog.caching.insights_api import (
 from posthog.clickhouse import query_tagging
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -291,7 +292,7 @@ class TrendsQueryRunner(QueryRunner):
             compare=res_compare,
         )
 
-    def calculate(self):
+    def calculate(self, context: Optional[HogQLContext] = None):
         queries = self.to_queries()
 
         if len(queries) == 0:
@@ -303,7 +304,8 @@ class TrendsQueryRunner(QueryRunner):
                 response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
             with self.timings.measure("printing_hogql_for_response"):
-                response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
+                database = context.database if context else None
+                response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers, database)
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
         timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
@@ -330,6 +332,7 @@ class TrendsQueryRunner(QueryRunner):
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
+                    context=context,
                 )
 
                 timings_matrix[index + 1] = response.timings
@@ -524,17 +527,8 @@ class TrendsQueryRunner(QueryRunner):
 
             # Modifications for when comparing to previous period
             if self.query.compareFilter is not None and self.query.compareFilter.compare:
-                labels = [
-                    "{} {}".format(
-                        self.query.interval if self.query.interval is not None else "day",
-                        i,
-                    )
-                    for i in range(len(series_object.get("labels", [])))
-                ]
-
                 series_object["compare"] = True
                 series_object["compare_label"] = "previous" if series.is_previous_period_series else "current"
-                series_object["labels"] = labels
 
             # Modifications for when breakdowns are active
             if self.breakdown_enabled:
@@ -897,7 +891,16 @@ class TrendsQueryRunner(QueryRunner):
             if not table_or_view:
                 raise ValueError(f"Table {series.table_name} not found")
 
-            field_type = dict(table_or_view.columns)[self.query.breakdownFilter.breakdown]["clickhouse"]
+            breakdown_key = (
+                self.query.breakdownFilter.breakdown[0]
+                if isinstance(self.query.breakdownFilter.breakdown, list)
+                else self.query.breakdownFilter.breakdown
+            )
+
+            if breakdown_key not in dict(table_or_view.columns):
+                return False
+
+            field_type = dict(table_or_view.columns)[breakdown_key]["clickhouse"]
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]
