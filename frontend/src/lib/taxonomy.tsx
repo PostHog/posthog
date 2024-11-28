@@ -388,14 +388,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             ),
         },
         // exception tracking
-        $cymbal_error: {
-            label: 'Symbolification error',
-            description: 'Error encountered while trying to add symbol data to a stack trace',
+        $cymbal_errors: {
+            label: 'Exception processing errors',
+            description: 'Errors encountered while trying to process exceptions',
             system: true,
         },
         $exception_list: {
             label: 'Exception list',
-            description: 'A list of one or more associated exceptions',
+            description: 'List of one or more associated exceptions',
         },
         // TODO - most of the rest of these are legacy, I think?
         $sentry_exception: {
