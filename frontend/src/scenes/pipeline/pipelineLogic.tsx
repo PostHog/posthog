@@ -11,11 +11,7 @@ import { ActivityScope, Breadcrumb, PipelineTab } from '~/types'
 import type { pipelineLogicType } from './pipelineLogicType'
 
 export const humanFriendlyTabName = (tab: PipelineTab): string => {
-    const label = capitalizeFirstLetter(tab).replace(/[-_]/g, ' ')
-    if (label.endsWith(' old')) {
-        return label.slice(0, -4) + ' (old)'
-    }
-    return label
+    return capitalizeFirstLetter(tab).replace(/[-_]/g, ' ')
 }
 
 export const pipelineLogic = kea<pipelineLogicType>([

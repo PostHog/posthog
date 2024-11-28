@@ -6,6 +6,7 @@ from rest_framework import serializers
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
+from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ class InputsItemSerializer(serializers.Serializer):
                         # We want to exclude the "design" property
                         value = {key: value[key] for key in value if key != "design"}
 
-                    if function_type in ("site_app", "site_destination"):
+                    if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                         compiler = JavaScriptCompiler()
                         code = transpile_template_code(value, compiler)
                         # TODO: we're not really using it. keep?

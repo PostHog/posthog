@@ -31,6 +31,7 @@ from posthog.models.hog_functions.hog_function import (
     HogFunctionState,
     TYPES_WITH_COMPILED_FILTERS,
     TYPES_WITH_TRANSPILED_FILTERS,
+    TYPES_WITH_JAVASCRIPT_SOURCE,
 )
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
@@ -186,7 +187,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     del attrs["filters"]["bytecode"]
 
         if "hog" in attrs:
-            if attrs["type"] in ("site_app", "site_destination"):
+            if attrs["type"] in TYPES_WITH_JAVASCRIPT_SOURCE:
                 # Upon creation, this code will be run before the model has an "id".
                 # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
                 id = str(instance.id) if instance else "__"
@@ -224,7 +225,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         hog_function = super().create(validated_data=validated_data)
-        if validated_data.get("type") == "web":
+        if validated_data.get("type") in TYPES_WITH_JAVASCRIPT_SOURCE:
             # Re-run the transpilation now that we have an ID
             hog_function.transpiled = get_transpiled_function(
                 str(hog_function.id), hog_function.hog, hog_function.filters, hog_function.inputs, hog_function.team

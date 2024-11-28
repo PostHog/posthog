@@ -48,6 +48,7 @@ class HogFunctionType(models.TextChoices):
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
 TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION,)
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
+TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
 
 class HogFunction(UUIDModel):
@@ -64,7 +65,6 @@ class HogFunction(UUIDModel):
     icon_url = models.TextField(null=True, blank=True)
 
     # hog: contains Hog source, except for the "site_*" types, when it contains TypeScript
-    # TODO: rename to "source" ?
     hog = models.TextField()
     # Used when the source language is Hog (everything except the "site_*" types)
     bytecode = models.JSONField(null=True, blank=True)
