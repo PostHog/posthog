@@ -29,10 +29,11 @@ pub fn random_string(prefix: &str, length: usize) -> String {
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = rand::thread_rng().gen_range(1..10_000_000);
     let token = random_string("phc_", 12);
     let team = Team {
         id,
+        project_id: i64::from(id)-1,
         name: "team".to_string(),
         api_token: token,
     };
@@ -206,6 +207,7 @@ pub async fn insert_new_team_in_pg(
     let token = random_string("phc_", 12);
     let team = Team {
         id,
+        project_id: id as i64,
         name: "team".to_string(),
         api_token: token,
     };
@@ -228,8 +230,8 @@ pub async fn insert_new_team_in_pg(
     let res = sqlx::query(
         r#"INSERT INTO posthog_team 
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical) VALUES
-        ($1, $5, $2::uuid, $1, $3, $4, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]')"#
-    ).bind(team.id).bind(ORG_ID).bind(&team.api_token).bind(&team.name).bind(uuid).execute(&mut *conn).await?;
+        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]')"#
+    ).bind(team.id).bind(uuid).bind(ORG_ID).bind(team.project_id).bind(&team.api_token).bind(&team.name).execute(&mut *conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -246,11 +248,12 @@ pub async fn insert_new_team_in_pg(
             r#"INSERT INTO posthog_grouptypemapping
             (group_type, group_type_index, name_singular, name_plural, team_id, project_id)
             VALUES
-            ($1, $2, NULL, NULL, $3, $3)"#,
+            ($1, $2, NULL, NULL, $3, $4)"#,
         )
         .bind(group_type)
         .bind(group_type_index)
         .bind(team.id)
+        .bind(team.project_id)
         .execute(&mut *conn)
         .await?;
         assert_eq!(res.rows_affected(), 1);
