@@ -433,6 +433,15 @@ def start_produce_batch_export_record_batches(
         else:
             parameters["include_events"] = []
 
+        start_at, end_at = full_range
+
+        if start_at:
+            is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+        else:
+            is_5_min_batch_export = False
+
+        if is_5_min_batch_export and not is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
         if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
@@ -635,7 +644,18 @@ def iter_records(
         "exclude_events": events_to_exclude_array,
         "include_events": events_to_include_array,
     }
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+
+    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+    end_at = dt.datetime.fromisoformat(interval_end)
+
+    if start_at:
+        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+    else:
+        is_5_min_batch_export = False
+
+    if is_5_min_batch_export and not is_backfill:
+        query = SELECT_FROM_EVENTS_VIEW_RECENT
+    elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     elif is_backfill:
         query = SELECT_FROM_EVENTS_VIEW_BACKFILL
