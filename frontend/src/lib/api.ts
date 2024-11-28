@@ -38,6 +38,7 @@ import {
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
+    DataColorThemeModel,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -111,7 +112,6 @@ import {
     UserBasicType,
     UserType,
 } from '~/types'
-import { DataColorThemeModel } from './colors'
 
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {

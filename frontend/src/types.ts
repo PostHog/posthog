@@ -4737,3 +4737,10 @@ export type ReplayTemplateVariableType = {
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
 }
+
+export type DataColorThemeModel = {
+    id: number
+    name: string
+    colors: string[]
+    is_global: boolean
+}

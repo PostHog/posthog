@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { DataColorThemeModel } from 'lib/colors'
+import { DataColorThemeModel } from '~/types'
 
 import type { dataColorThemesModalLogicType } from './dataColorThemeModalLogicType'
 

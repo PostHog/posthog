@@ -48,13 +48,6 @@ export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
     [key: `preset-${number}`]: string
 }
 
-export type DataColorThemeModel = {
-    id: number
-    name: string
-    colors: string[]
-    is_global: boolean
-}
-
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
