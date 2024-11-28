@@ -92,7 +92,7 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         user = User.objects.create_and_join(organization, "no-project-or-team@posthog.com", "testtest")
         user_access_control = UserAccessControl(user)
 
-        assert user_access_control._organization_membership == "None"
+        assert user_access_control._organization_membership is None
         assert user_access_control._organization is None
         assert user_access_control._user_role_ids == []
 
