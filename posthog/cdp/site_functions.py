@@ -38,7 +38,7 @@ def get_transpiled_function(id: str, source: str, filters: dict, inputs: dict, t
             inputs_object.append(f"{key_string}: {json.dumps(value)}")
 
     # Convert the filters to code
-    filters_expr = hog_function_filters_to_expr(filters, team, None)
+    filters_expr = hog_function_filters_to_expr(filters, team, {})
     filters_code = compiler.visit(filters_expr)
 
     # Start with the STL functions

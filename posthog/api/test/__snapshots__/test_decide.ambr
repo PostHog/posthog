@@ -260,6 +260,7 @@
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
          "posthog_hogfunction"."inputs_schema",
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
@@ -510,6 +511,19 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.25
+  '''
+  SELECT "posthog_hogfunction"."id",
+         "posthog_hogfunction"."updated_at",
+         "posthog_hogfunction"."type"
+  FROM "posthog_hogfunction"
+  WHERE ("posthog_hogfunction"."enabled"
+         AND "posthog_hogfunction"."team_id" = 99999
+         AND "posthog_hogfunction"."transpiled" IS NOT NULL
+         AND "posthog_hogfunction"."type" IN ('site_destination',
+                                              'site_app'))
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
   '''
   SELECT "posthog_team"."id",
@@ -740,12 +754,12 @@
   INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '253'
+          AND "ee_accesscontrol"."resource_id" = '16'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '253'
+             AND "ee_accesscontrol"."resource_id" = '16'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -785,6 +799,7 @@
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
          "posthog_hogfunction"."inputs_schema",
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
@@ -1012,22 +1027,6 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.5
   '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.6
-  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -1051,22 +1050,6 @@
          AND "posthog_cohort"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.7
-  '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
 # name: TestDecide.test_flag_with_regular_cohorts
   '''
   SELECT "posthog_hogfunction"."id",
@@ -1082,6 +1065,7 @@
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
          "posthog_hogfunction"."inputs_schema",
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
@@ -1473,6 +1457,7 @@
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
          "posthog_hogfunction"."inputs_schema",
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
@@ -1578,5 +1563,18 @@
          AND "posthog_pluginsourcefile"."filename" = 'site.ts'
          AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
          AND "posthog_pluginconfig"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_web_app_queries.6
+  '''
+  SELECT "posthog_hogfunction"."id",
+         "posthog_hogfunction"."updated_at",
+         "posthog_hogfunction"."type"
+  FROM "posthog_hogfunction"
+  WHERE ("posthog_hogfunction"."enabled"
+         AND "posthog_hogfunction"."team_id" = 99999
+         AND "posthog_hogfunction"."transpiled" IS NOT NULL
+         AND "posthog_hogfunction"."type" IN ('site_destination',
+                                              'site_app'))
   '''
 # ---

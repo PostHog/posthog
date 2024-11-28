@@ -101,7 +101,9 @@ def get_decide_site_functions(team: "Team", using_database: str = "default") -> 
         hash = md5(str(source[1]).encode()).hexdigest()
         return f"/site_function/{source[0]}/{hash}/"
 
-    return [asdict(WebJsUrl(source[0], site_function_url(source), source[2])) for source in sources]
+    return [
+        asdict(WebJsUrl(source[0], site_function_url(source), source[2] or "site_destination")) for source in sources
+    ]
 
 
 def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Optional[dict]):
