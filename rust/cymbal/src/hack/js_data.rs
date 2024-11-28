@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::symbol_store::sourcemap::OwnedSourceMapCache;
 
+// NOTE: see psothog/api/error_tracking.py
 pub struct JsData {
     data: Vec<u8>,
     // For legacy reasons, before we has this serialisation format,
@@ -81,7 +82,6 @@ impl JsData {
     }
 
     pub fn from_bytes(data: Vec<u8>) -> Result<Self, JsDataError> {
-        todo!("use an iterator");
         let maybe = Self {
             data,
             is_raw_smc: false,

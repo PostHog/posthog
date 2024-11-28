@@ -88,7 +88,6 @@ async fn main() {
             }
         };
 
-        println!("Processed event: {:?}", event.uuid.to_string());
         send_keyed_iter_to_kafka(
             &context.kafka_producer,
             &context.config.events_topic,
