@@ -5,6 +5,7 @@ from django.db.models import Q
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.models import DataColorTheme
 
 
@@ -19,7 +20,14 @@ class GlobalThemePermission(BasePermission):
         return request.user.is_staff
 
 
-class DataColorThemeSerializer(serializers.ModelSerializer):
+class PublicDataColorThemeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DataColorTheme
+        fields = ["id", "name", "colors"]
+        read_only_fields = ["id", "name", "colors"]
+
+
+class DataColorThemeSerializer(PublicDataColorThemeSerializer):
     is_global = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -47,12 +55,18 @@ class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = DataColorTheme.objects.all().order_by("-created_at")
     serializer_class = DataColorThemeSerializer
     permission_classes = [GlobalThemePermission]
+    sharing_enabled_actions = ["retrieve", "list"]
 
     # override the team scope queryset to also include global themes
     def dangerously_get_queryset(self):
         query_condition = Q(team_id=self.team_id) | Q(team_id=None)
 
         return DataColorTheme.objects.filter(query_condition)
+
+    def get_serializer_class(self):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            return PublicDataColorThemeSerializer
+        return DataColorThemeSerializer
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
