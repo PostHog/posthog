@@ -11,9 +11,8 @@ from posthog.models.personal_api_key import hash_key_value, mask_key_value
 from posthog.models.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.permissions import TimeSensitiveActionPermission
+from posthog.permissions import TimeSensitiveActionPermission, APIScopePermission
 from posthog.user_permissions import UserPermissions
-
 
 MAX_API_KEYS_PER_USER = 10  # Same as in personalAPIKeysLogic.tsx
 
@@ -117,15 +116,19 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 class PersonalAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "personal_api_key"
     lookup_field = "id"
+    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
     serializer_class = PersonalAPIKeySerializer
-    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission]
     queryset = PersonalAPIKey.objects.none()
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
 
-    def safely_get_object(self):
-        return self.get_object()
+    def safely_get_object(self, queryset) -> PersonalAPIKey:
+        lookup_value = self.kwargs[self.lookup_field]
+        if lookup_value == "@current":
+            return self.request.successful_authenticator.personal_api_key
+
+        return super().safely_get_object(queryset)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())

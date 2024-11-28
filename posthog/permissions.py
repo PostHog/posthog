@@ -47,7 +47,10 @@ def extract_organization(object: Model, view: ViewSet) -> Organization:
             try:
                 return object.project.organization  # type: ignore
             except AttributeError:
-                pass
+                try:
+                    return object.user.organization  # type: ignore
+                except AttributeError:
+                    pass
     raise ValueError("Object not compatible with organization-based permissions!")
 
 
@@ -360,7 +363,7 @@ class APIScopePermission(ScopeBasePermission):
     def has_permission(self, request, view) -> bool:
         # NOTE: We do this first to error out quickly if the view is missing the required attribute
         # Helps devs remember to add it.
-        self._get_scope_object(request, view)
+        scope_object = self._get_scope_object(request, view)
 
         # API Scopes currently only apply to PersonalAPIKeyAuthentication
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
@@ -371,6 +374,12 @@ class APIScopePermission(ScopeBasePermission):
         # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
         if not key_scopes:
             return True
+        if scope_object == "personal_api_key":
+            if view.action == "retrieve":
+                return True
+            else:
+                self.message = f"This action does not support Personal API Key access"
+                return False
 
         required_scopes = self._get_required_scopes(request, view)
 
@@ -403,7 +412,6 @@ class APIScopePermission(ScopeBasePermission):
 
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
-
         if scoped_teams:
             try:
                 team = view.team
