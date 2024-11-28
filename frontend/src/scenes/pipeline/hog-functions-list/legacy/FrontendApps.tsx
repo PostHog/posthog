@@ -1,41 +1,24 @@
+// This code shows the old legacy site apps while we haven't migrated everyone over.
+
 import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 
-import { PipelineStage, ProductKey } from '~/types'
-
+import { SiteApp } from '../../types'
+import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from '../../utils'
 import { frontendAppsLogic } from './frontendAppsLogic'
-import { NewButton } from './NewButton'
-import { SiteApp } from './types'
-import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function FrontendApps(): JSX.Element {
     const { loading, frontendApps } = useValues(frontendAppsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(frontendAppsLogic)
-
-    const shouldShowEmptyState = frontendApps.length === 0 && !loading
-
     return (
         <>
-            <PageHeader
-                caption="Extend your web app with custom functionality."
-                buttons={<NewButton stage={PipelineStage.SiteApp} />}
-            />
-            <ProductIntroduction
-                productName="Site apps"
-                thingName="site app"
-                productKey={ProductKey.SITE_APPS}
-                description="Site apps allow you to add custom functionality to your website using PostHog."
-                docsURL="https://posthog.com/docs/apps/pineapple-mode"
-                actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
-                isEmpty={shouldShowEmptyState}
-            />
-            {!shouldShowEmptyState && (
+            {frontendApps.length > 0 && (
                 <>
+                    <h2 className="mt-4">Legacy site apps</h2>
+                    <p>These site apps are using an older system. You may migrate at your leasure.</p>
                     <LemonTable
                         dataSource={frontendApps}
                         size="small"

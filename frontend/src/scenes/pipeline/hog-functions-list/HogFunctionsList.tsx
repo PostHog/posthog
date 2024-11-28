@@ -22,6 +22,7 @@ import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '.
 import { HogFunctionsListFilters } from './HogFunctionsListFilters'
 import { hogFunctionsListFiltersLogic } from './hogFunctionsListFiltersLogic'
 import { hogFunctionsListLogic } from './hogFunctionsListLogic'
+import { FrontendApps } from './legacy/FrontendApps'
 import { NewFunctionsListTable } from './NewHogFunction'
 
 export interface HogFunctionsListProps {
@@ -72,6 +73,8 @@ export function HogFunctionsList({ types }: HogFunctionsListProps): JSX.Element 
                     : 'New Hog function'}
             </h2>
             <NewFunctionsListTable types={types} />
+            {/* Old site-apps until we migrate everyone onto the new ones */}
+            {types.includes('site_app') ? <FrontendApps /> : null}
         </>
     )
 }
@@ -84,7 +87,13 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
     const { toggleNode, deleteNode } = useActions(hogFunctionsListLogic({ types }))
     const { resetFilters } = useActions(hogFunctionsListFiltersLogic({ types }))
 
-    const isDestination = types.includes('destination')
+    const showFrequencyHistory = types.includes('destination')
+    const simpleName =
+        types.includes('destination') || types.includes('site_destination')
+            ? 'destination'
+            : types.includes('site_app')
+            ? 'site app'
+            : 'Hog function'
 
     return (
         <div className="space-y-2">
@@ -137,7 +146,7 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                             )
                         },
                     },
-                    ...(isDestination
+                    ...(showFrequencyHistory
                         ? [
                               {
                                   title: 'Frequency',
@@ -148,7 +157,7 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                               } as LemonTableColumn<Destination, any>,
                           ]
                         : []),
-                    ...(isDestination
+                    ...(showFrequencyHistory
                         ? [
                               {
                                   title: 'Last 7 days',
@@ -203,23 +212,23 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                                             items={[
                                                 {
                                                     label: destination.enabled
-                                                        ? 'Pause destination'
-                                                        : 'Unpause destination',
+                                                        ? `Pause ${simpleName}`
+                                                        : `Unpause ${simpleName}`,
                                                     onClick: () => toggleNode(destination, !destination.enabled),
                                                     disabledReason: !canConfigurePlugins
-                                                        ? 'You do not have permission to toggle destinations.'
+                                                        ? `You do not have permission to toggle ${simpleName}s.`
                                                         : !canEnableDestination(destination) && !destination.enabled
-                                                        ? 'Data pipelines add-on is required for enabling new destinations'
+                                                        ? `Data pipelines add-on is required for enabling new ${simpleName}s`
                                                         : undefined,
                                                 },
                                                 ...pipelineNodeMenuCommonItems(destination),
                                                 {
-                                                    label: 'Delete destination',
+                                                    label: `Delete ${simpleName}`,
                                                     status: 'danger' as const, // for typechecker happiness
                                                     onClick: () => deleteNode(destination),
                                                     disabledReason: canConfigurePlugins
                                                         ? undefined
-                                                        : 'You do not have permission to delete destinations.',
+                                                        : `You do not have permission to delete ${simpleName}.`,
                                                 },
                                             ]}
                                         />

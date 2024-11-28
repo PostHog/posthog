@@ -6,9 +6,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
+import { convertToPipelineNode, SiteApp } from '../../types'
+import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from '../../utils'
 import type { frontendAppsLogicType } from './frontendAppsLogicType'
-import { convertToPipelineNode, SiteApp } from './types'
-import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
 
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
     path(['scenes', 'pipeline', 'frontendAppsLogic']),

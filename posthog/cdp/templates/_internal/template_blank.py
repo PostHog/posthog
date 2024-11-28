@@ -1,10 +1,10 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 blank_site_app: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+    status="client-side",
     type="site_app",
     id="template-blank-site-app",
-    name="New client-side app",
+    name="New site app",
     description="Run custom JavaScript on your website. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-03.png",
     category=["Custom", "Analytics"],
@@ -25,7 +25,7 @@ export function onLoad({ inputs, posthog }) {
 )
 
 blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+    status="client-side",
     type="site_destination",
     id="template-blank-site-destination",
     name="New client-side destination",

@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+    status="client-side",
     type="site_app",
     id="template-pineapple-mode",
     name="Pineapple Mode",

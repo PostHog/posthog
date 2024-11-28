@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
-import { frontendAppsLogic } from './frontendAppsLogic'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './hog-functions-list/constants'
 import { NewFunctionsList } from './hog-functions-list/NewHogFunction'
 import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
@@ -107,8 +106,6 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
         return <NewFunctionsList types={DESTINATION_TYPES} />
     } else if (stage === PipelineStage.SiteApp) {
         return <NewFunctionsList types={SITE_APP_TYPES} />
-    } else if (stage === PipelineStage.SiteAppOld) {
-        return <SiteAppOptionsTable />
     } else if (stage === PipelineStage.Source) {
         return <NewSourceWizardScene />
     }
@@ -119,12 +116,6 @@ function TransformationOptionsTable(): JSX.Element {
     const { plugins, loading } = useValues(pipelineTransformationsLogic)
     const targets = Object.values(plugins).map(convertPluginToTableEntry)
     return <NodeOptionsTable stage={PipelineStage.Transformation} targets={targets} loading={loading} />
-}
-
-function SiteAppOptionsTable(): JSX.Element {
-    const { plugins, loading } = useValues(frontendAppsLogic)
-    const targets = Object.values(plugins).map(convertPluginToTableEntry)
-    return <NodeOptionsTable stage={PipelineStage.SiteApp} targets={targets} loading={loading} />
 }
 
 function NodeOptionsTable({

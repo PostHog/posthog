@@ -96,7 +96,10 @@ export const newHogFunctionLogic = kea<newHogFunctionLogicType>([
                         description: hogFunction.description,
                         backend: PipelineBackend.HogFunction as const,
                         url: combineUrl(
-                            urls.pipelineNodeNew(PipelineStage.Destination, `hog-${hogFunction.id}`),
+                            urls.pipelineNodeNew(
+                                hogFunctionTypeToPipelineStage(hogFunction.type),
+                                `hog-${hogFunction.id}`
+                            ),
                             {},
                             hashParams
                         ).url,
@@ -148,3 +151,16 @@ export const newHogFunctionLogic = kea<newHogFunctionLogicType>([
         actions.loadHogFunctionTemplates()
     }),
 ])
+
+function hogFunctionTypeToPipelineStage(type: string): PipelineStage {
+    switch (type) {
+        case 'site_destination':
+            return PipelineStage.Destination
+        case 'destination':
+            return PipelineStage.Destination
+        case 'site_app':
+            return PipelineStage.SiteApp
+        default:
+            throw new Error(`Unknown hog function type: ${type}`)
+    }
+}

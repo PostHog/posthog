@@ -708,7 +708,6 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
-    SiteAppsOld = 'site-apps-old',
     Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
@@ -720,7 +719,6 @@ export enum PipelineStage {
     Destination = 'destination',
     Source = 'source',
     SiteApp = 'site-app',
-    SiteAppOld = 'site-app-old',
     ImportApp = 'legacy-source',
 }
 
@@ -4620,7 +4618,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
+export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
 export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
 
 export type HogFunctionConfigurationType = Omit<

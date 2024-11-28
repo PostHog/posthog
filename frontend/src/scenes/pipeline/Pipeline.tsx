@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 import { ActivityScope, PipelineTab } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
-import { FrontendApps } from './FrontendApps'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './hog-functions-list/constants'
 import { HogFunctionsList } from './hog-functions-list/HogFunctionsList'
 import { ImportApps } from './ImportApps'
@@ -30,7 +29,6 @@ export function Pipeline(): JSX.Element {
         { key: PipelineTab.Transformations, content: <Transformations /> },
         { key: PipelineTab.Destinations, content: <HogFunctionsList types={DESTINATION_TYPES} /> },
         { key: PipelineTab.SiteApps, content: <HogFunctionsList types={SITE_APP_TYPES} /> },
-        { key: PipelineTab.SiteAppsOld, content: <FrontendApps /> },
     ]
 
     // Import apps are deprecated, we only show the tab if there are some still enabled
