@@ -126,7 +126,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     onChange={(newValue) => {
                         setSelectedIssueIds(
                             newValue
-                                ? [...selectedIssueIds, record.id]
+                                ? [...new Set([...selectedIssueIds, record.id])]
                                 : selectedIssueIds.filter((id) => id != record.id)
                         )
                     }}

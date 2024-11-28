@@ -18,7 +18,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
 
     connect(({ key, query }: ErrorTrackingDataNodeLogicProps) => ({
         values: [dataNodeLogic({ key, query }), ['response']],
-        actions: [dataNodeLogic({ key, query }), ['setResponse']],
+        actions: [dataNodeLogic({ key, query }), ['setResponse', 'loadData']],
     })),
 
     actions({
@@ -38,7 +38,6 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                 const mergedIssue = mergeIssues(primaryIssue, issues)
 
                 // optimistically update local results
-                // TODO: handle failed case
                 actions.setResponse({
                     ...values.response,
                     results: results
@@ -50,6 +49,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                         ),
                 })
                 await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
+                actions.loadData(true)
             }
         },
         assignIssue: async ({ id, assigneeId }) => {
@@ -62,9 +62,9 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                     const issue = { ...results[recordIndex], ...params }
                     results.splice(recordIndex, 1, issue)
                     // optimistically update local results
-                    // TODO: handle failed case
                     actions.setResponse({ ...response, results: results })
                     await api.errorTracking.updateIssue(issue.id, params)
+                    actions.loadData(true)
                 }
             }
         },

@@ -1,4 +1,6 @@
 import re
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -12,6 +14,8 @@ from posthog.schema import (
 from posthog.hogql.parser import parse_expr
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
+
+logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -63,6 +67,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=["event"]),
                 right=ast.Constant(value="$exception"),
+            ),
+            ast.Call(
+                name="isNotNull",
+                args=[ast.Field(chain=["properties", "$exception_issue_id"])],
             ),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
@@ -160,7 +168,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         for result_dict in mapped_results:
             issue = issues.get(result_dict["id"])
-            results.append(issue | result_dict | {"assignee": self.query.assignee})
+            if issue:
+                results.append(issue | result_dict | {"assignee": self.query.assignee})
+            else:
+                logger.error(
+                    "error tracking issue not found",
+                    issue_id=result_dict["id"],
+                    exc_info=True,
+                )
 
         return results
 

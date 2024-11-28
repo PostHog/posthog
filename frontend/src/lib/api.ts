@@ -715,8 +715,8 @@ class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('issue').addPathComponent(id)
     }
 
-    public errorTrackingIssueMerge(id: ErrorTrackingIssue['id']): ApiRequest {
-        return this.errorTrackingIssue(id).addPathComponent('merge')
+    public errorTrackingIssueMerge(into: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(into).addPathComponent('merge')
     }
 
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
