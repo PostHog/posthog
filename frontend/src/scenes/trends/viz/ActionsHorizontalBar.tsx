@@ -34,6 +34,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         breakdownFilter,
         hiddenLegendIndexes,
         getTrendsColor,
+        theme,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
@@ -71,7 +72,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults])
+    }, [indexedResults, theme])
 
     return data && total > 0 ? (
         <LineGraph

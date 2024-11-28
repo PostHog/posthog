@@ -289,7 +289,7 @@ export function LineGraph_({
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -812,6 +812,7 @@ export function LineGraph_({
         showValuesOnSeries,
         showPercentStackView,
         alertLines,
+        theme,
     ])
 
     return (

@@ -3,7 +3,6 @@ import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
@@ -62,9 +61,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'interval',
                 'insightData',
                 'insightDataError',
+                'theme',
             ],
-            dataThemeLogic,
-            ['getTheme'],
             groupsModel,
             ['aggregationLabel'],
             featureFlagLogic,
@@ -413,10 +411,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         getFunnelsColor: [
-            (s) => [s.resultCustomizations, s.querySource, s.getTheme],
-            (resultCustomizations, querySource, getTheme) => {
+            (s) => [s.resultCustomizations, s.theme],
+            (resultCustomizations, theme) => {
                 return (dataset) => {
-                    const theme = getTheme(querySource?.dataColorTheme)
                     const colorToken = getFunnelResultCustomizationColorToken(
                         resultCustomizations,
                         theme,

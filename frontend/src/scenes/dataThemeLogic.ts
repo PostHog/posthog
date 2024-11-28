@@ -1,7 +1,7 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { getColorVar, _DataColorTheme } from 'lib/colors'
+import { _DataColorTheme, getColorVar } from 'lib/colors'
 
 import type { dataThemeLogicType } from './dataThemeLogicType'
 

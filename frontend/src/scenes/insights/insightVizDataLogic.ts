@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -87,6 +88,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['filterTestAccountsDefault'],
             databaseTableListLogic,
             ['dataWarehouseTablesMap'],
+            dataThemeLogic,
+            ['getTheme'],
         ],
         actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
     })),
@@ -381,6 +384,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.querySource, actionsModel.selectors.actions],
             (querySource, actions) => (querySource ? getAllEventNames(querySource, actions) : []),
         ],
+
+        theme: [(s) => [s.getTheme, s.querySource], (getTheme, querySource) => getTheme(querySource.dataColorTheme)],
     }),
 
     listeners(({ actions, values, props }) => ({
