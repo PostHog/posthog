@@ -12,8 +12,5 @@ class DataColorTheme(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(blank=True, null=True)
 
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique_name_per_team")]
-
     def __str__(self):
         return self.name

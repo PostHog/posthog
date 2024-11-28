@@ -63,9 +63,5 @@ class Migration(migrations.Migration):
                 ("deleted", models.BooleanField(blank=True, null=True)),
             ],
         ),
-        migrations.AddConstraint(
-            model_name="datacolortheme",
-            constraint=models.UniqueConstraint(fields=("team", "name"), name="unique_name_per_team"),
-        ),
         migrations.RunPython(add_default_themes, remove_default_themes),
     ]
