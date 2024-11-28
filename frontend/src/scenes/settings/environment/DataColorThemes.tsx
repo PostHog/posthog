@@ -1,6 +1,7 @@
 import { IconBadge } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { DataColorTheme } from 'lib/colors'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { teamLogic } from 'scenes/teamLogic'
 

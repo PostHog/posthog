@@ -64,7 +64,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
 
             <h3 className="l4 mt-2 mb-2">Color</h3>
             <div className="flex flex-wrap gap-1">
-                {Object.keys(theme).map((key) => (
+                {Object.keys(theme || {}).map((key) => (
                     <ColorGlyphButton
                         key={key as DataColorToken}
                         colorToken={key as DataColorToken}
@@ -140,7 +140,7 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
     const { querySource } = useValues(insightVizDataLogic)
 
     const theme = getTheme(querySource?.dataColorTheme)
-    const color = theme[colorToken] as string
+    const color = theme?.[colorToken] as string
 
     return (
         <LemonButton

@@ -527,7 +527,7 @@ export function getTrendResultCustomizationColorToken(
         | Record<number, ResultCustomizationByPosition>
         | null
         | undefined,
-    theme: DataColorTheme,
+    theme: DataColorTheme | null,
     dataset: IndexedTrendResult
 ): DataColorToken {
     const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
@@ -536,7 +536,7 @@ export function getTrendResultCustomizationColorToken(
     // by the position in the dataset. colors repeat after all options
     // have been exhausted.
     const datasetPosition = getTrendDatasetPosition(dataset)
-    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+    const tokenIndex = (datasetPosition % Object.keys(theme || {}).length) + 1
 
     return resultCustomization && resultCustomization.color
         ? resultCustomization.color
