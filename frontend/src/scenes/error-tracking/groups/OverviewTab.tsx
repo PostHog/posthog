@@ -9,11 +9,11 @@ import { dayjs } from 'lib/dayjs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
-import { ErrorTrackingEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
+import { ErrorTrackingEvent, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
-    const { events, issueLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingGroupSceneLogic)
-    const { loadEvents, setActiveEventUUID } = useActions(errorTrackingGroupSceneLogic)
+    const { events, issueLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingIssueSceneLogic)
+    const { loadEvents, setActiveEventUUID } = useActions(errorTrackingIssueSceneLogic)
 
     return (
         <div className="ErrorTracking__issue">
