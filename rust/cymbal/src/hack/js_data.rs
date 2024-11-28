@@ -174,7 +174,7 @@ impl JsData {
                 .try_into()
                 .unwrap(),
         );
-        Ok(JsDataType::try_from(data_type)?)
+        JsDataType::try_from(data_type)
     }
 
     fn assert_has_source_and_map(&self) -> Result<(), JsDataError> {
