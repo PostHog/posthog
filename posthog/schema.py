@@ -353,15 +353,15 @@ class AssistantTrendsFilter(BaseModel):
     display: Optional[Display] = Field(
         default=Display.ACTIONS_LINE_GRAPH,
         description=(
-            "Changes the visualization type. `ActionsLineGraph` - if the user wants to see dynamics in time like a line"
-            " graph. Prefer this option. `ActionsLineGraphCumulative` - if the user wants to see cumulative dynamics"
-            " across time. `ActionsBarValue` - if the data is categorical and needs to be visualized as a bar chart."
-            " `ActionsBar` - if the data is categorical and can be visualized as a stacked bar chart. `ActionsPie` - if"
-            " the data is easy to understand in a pie chart. `BoldNumber` - if the user asks a question where you can"
-            " answer with a single number. You can't use this option with breakdowns. `ActionsTable` - if the user"
-            " wants to see a table. `ActionsAreaGraph` - if the data is better visualized in an area graph. `WorldMap`"
-            " - if the user has only one series and wants to see data from particular countries. It can only be used"
-            " with the `$geoip_country_name` breakdown."
+            "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as"
+            " it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area"
+            " chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics."
+            " `BoldNumber` - total value single large number. You can't use this with breakdown; use when user"
+            " explicitly asks for a single output number. `ActionsBarValue` - total value (NOT time-series) bar chart;"
+            " good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions."
+            " `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap`"
+            " - total value world map; use when breaking down by country name using property `$geoip_country_name`, and"
+            " only then."
         ),
     )
     formula: Optional[str] = Field(default=None, description="If the formula is provided, apply it here.")
