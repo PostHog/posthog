@@ -2,6 +2,9 @@
 
 from django.db import migrations, models
 import django.db.models.deletion
+from django.contrib.postgres.operations import AddIndexConcurrently
+from django.db.models.expressions import F, OrderBy
+from django.db.models.functions.comparison import Coalesce
 
 
 class Migration(migrations.Migration):
@@ -9,7 +12,21 @@ class Migration(migrations.Migration):
     dependencies = [("posthog", "0525_hog_function_transpiled")]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
+        migrations.RunSQL(
+            """
+            -- Add field project to eventdefinition
+            ALTER TABLE "posthog_eventdefinition" ADD COLUMN "project_id" bigint NULL CONSTRAINT "posthog_eventdefinit_project_id_f93fcbb0_fk_posthog_p" REFERENCES "posthog_project"("id") DEFERRABLE INITIALLY DEFERRED;
+            SET CONSTRAINTS "posthog_eventdefinit_project_id_f93fcbb0_fk_posthog_p" IMMEDIATE;
+            -- Add field project to eventproperty
+            ALTER TABLE "posthog_eventproperty" ADD COLUMN "project_id" bigint NULL CONSTRAINT "posthog_eventproperty_project_id_dd2337d2_fk_posthog_project_id" REFERENCES "posthog_project"("id") DEFERRABLE INITIALLY DEFERRED;
+            SET CONSTRAINTS "posthog_eventproperty_project_id_dd2337d2_fk_posthog_project_id" IMMEDIATE;
+            -- Add field project to propertydefinition
+            ALTER TABLE "posthog_propertydefinition" ADD COLUMN "project_id" bigint NULL CONSTRAINT "posthog_propertydefi_project_id_d3eb982d_fk_posthog_p" REFERENCES "posthog_project"("id") DEFERRABLE INITIALLY DEFERRED;
+            SET CONSTRAINTS "posthog_propertydefi_project_id_d3eb982d_fk_posthog_p" IMMEDIATE;""",
+            reverse_sql="""
+            ALTER TABLE "posthog_eventdefinition" DROP COLUMN IF EXISTS "project_id";
+            ALTER TABLE "posthog_eventproperty" DROP COLUMN IF EXISTS "project_id";
+            ALTER TABLE "posthog_propertydefinition" DROP COLUMN IF EXISTS "project_id";""",
             state_operations=[
                 migrations.AddField(
                     model_name="eventdefinition",
@@ -33,34 +50,40 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            database_operations=[
-                migrations.RunSQL(
-                    """
-                    -- Add field project to eventdefinition
-                    ALTER TABLE "posthog_eventdefinition" ADD COLUMN "project_id" bigint NULL CONSTRAINT "posthog_eventdefinit_project_id_f93fcbb0_fk_posthog_p" REFERENCES "posthog_project"("id") DEFERRABLE INITIALLY DEFERRED;
-                    SET CONSTRAINTS "posthog_eventdefinit_project_id_f93fcbb0_fk_posthog_p" IMMEDIATE;
-                    -- Add field project to eventproperty
-                    ALTER TABLE "posthog_eventproperty" ADD COLUMN "project_id" bigint NULL CONSTRAINT "posthog_eventproperty_project_id_dd2337d2_fk_posthog_project_id" REFERENCES "posthog_project"("id") DEFERRABLE INITIALLY DEFERRED;
-                    SET CONSTRAINTS "posthog_eventproperty_project_id_dd2337d2_fk_posthog_project_id" IMMEDIATE;
-                    -- Add field project to propertydefinition
-                    ALTER TABLE "posthog_propertydefinition" ADD COLUMN "project_id" bigint NULL CONSTRAINT "posthog_propertydefi_project_id_d3eb982d_fk_posthog_p" REFERENCES "posthog_project"("id") DEFERRABLE INITIALLY DEFERRED;
-                    SET CONSTRAINTS "posthog_propertydefi_project_id_d3eb982d_fk_posthog_p" IMMEDIATE;""",
-                    reverse_sql="""
-                    ALTER TABLE "posthog_eventdefinition" DROP COLUMN IF EXISTS "project_id";
-                    ALTER TABLE "posthog_eventproperty" DROP COLUMN IF EXISTS "project_id";
-                    ALTER TABLE "posthog_propertydefinition" DROP COLUMN IF EXISTS "project_id";""",
-                ),
-                # We add CONCURRENTLY to the CREATE INDEX commands
-                migrations.RunSQL(
-                    """
-                    CREATE INDEX CONCURRENTLY "posthog_eventdefinition_project_id_f93fcbb0" ON "posthog_eventdefinition" ("project_id");
-                    CREATE INDEX CONCURRENTLY "posthog_eventproperty_project_id_dd2337d2" ON "posthog_eventproperty" ("project_id");
-                    CREATE INDEX CONCURRENTLY "posthog_propertydefinition_project_id_d3eb982d" ON "posthog_propertydefinition" ("project_id");""",
-                    reverse_sql="""
-                    DROP INDEX IF EXISTS "posthog_eventdefinition_project_id_f93fcbb0";
-                    DROP INDEX IF EXISTS "posthog_eventproperty_project_id_dd2337d2";
-                    DROP INDEX IF EXISTS "posthog_propertydefinition_project_id_d3eb982d";""",
-                ),
-            ],
-        )
+        ),
+        AddIndexConcurrently(
+            model_name="eventdefinition",
+            index=models.Index(fields=["project"], name="posthog_eve_proj_id_f93fcbb0"),
+        ),
+        AddIndexConcurrently(
+            model_name="propertydefinition",
+            index=models.Index(fields=["project"], name="posthog_prop_proj_id_d3eb982d"),
+        ),
+        AddIndexConcurrently(
+            model_name="propertydefinition",
+            index=models.Index(
+                F("project_id"),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                OrderBy(F("query_usage_30_day"), descending=True, nulls_last=True),
+                OrderBy(F("name")),
+                name="index_property_def_query_proj",
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="propertydefinition",
+            index=models.Index(fields=["project_id", "type", "is_numerical"], name="posthog_pro_project_3583d2_idx"),
+        ),
+        AddIndexConcurrently(
+            model_name="eventproperty",
+            index=models.Index(fields=["project"], name="posthog_eve_proj_id_dd2337d2"),
+        ),
+        AddIndexConcurrently(
+            model_name="eventproperty",
+            index=models.Index(fields=["project", "event"], name="posthog_eve_proj_id_22de03_idx"),
+        ),
+        AddIndexConcurrently(
+            model_name="eventproperty",
+            index=models.Index(fields=["project", "property"], name="posthog_eve_proj_id_26dbfb_idx"),
+        ),
     ]

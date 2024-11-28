@@ -84,6 +84,7 @@ impl GroupType {
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct PropertyDefinition {
     pub team_id: i32,
+    pub project_id: i32,
     pub name: String,
     pub is_numerical: bool,
     pub property_type: Option<PropertyValueType>,
@@ -98,6 +99,7 @@ pub struct PropertyDefinition {
 pub struct EventDefinition {
     pub name: String,
     pub team_id: i32,
+    pub project_id: i32,
     pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
@@ -105,6 +107,7 @@ pub struct EventDefinition {
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventProperty {
     pub team_id: i32,
+    pub project_id: i32,
     pub event: String,
     pub property: String,
 }
@@ -143,6 +146,7 @@ impl From<&Event> for EventDefinition {
         EventDefinition {
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
+            project_id: event.project_id,
             // We round last seen to the nearest hour. Unwrap is safe here because we
             // the duration is positive, non-zero, and smaller than time since epoch. We use this
             // in the hash value, so updates which would modify this in the DB are issued even
@@ -262,6 +266,7 @@ impl Event {
 
             updates.push(Update::EventProperty(EventProperty {
                 team_id: self.team_id,
+                project_id: self.project_id,
                 event: self.event.clone(),
                 property: key.clone(),
             }));
@@ -271,6 +276,7 @@ impl Event {
 
             let def = PropertyDefinition {
                 team_id: self.team_id,
+                project_id: self.project_id,
                 name: key.clone(),
                 is_numerical,
                 property_type,
@@ -475,7 +481,7 @@ impl PropertyDefinition {
             group_type_index,
             self.is_numerical,
             self.team_id,
-            self.project_id,
+            self.project_id as i64,
             self.property_type.as_ref().map(|t| t.to_string())
         ).execute(executor).await.map(|_| ())
     }
@@ -490,8 +496,8 @@ impl EventProperty {
             r#"INSERT INTO posthog_eventproperty (event, property, team_id, project_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#,
             self.event,
             self.property,
-            self.team_id
-            self.project_id
+            self.team_id,
+            self.project_id as i64
         )
         .execute(executor)
         .await
