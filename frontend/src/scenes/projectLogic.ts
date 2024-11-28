@@ -91,7 +91,7 @@ export const projectLogic = kea<projectLogicType>([
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
@@ -110,7 +110,7 @@ export const projectLogic = kea<projectLogicType>([
             lemonToast.success('Project has been deleted')
         },
         createProjectSuccess: ({ currentProject }) => {
-            if (currentProject && currentProject.id !== values.currentProject?.id) {
+            if (currentProject) {
                 actions.switchTeam(currentProject.id)
             }
         },
