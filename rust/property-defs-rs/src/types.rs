@@ -429,12 +429,12 @@ impl EventDefinition {
             INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
             VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW()) ON CONFLICT
             ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq
-            DO UPDATE SET last_seen_at = $4
+            DO UPDATE SET last_seen_at = $5
         "#,
             Uuid::now_v7(),
             self.name,
             self.team_id,
-            self.project_id,
+            self.project_id as i64,
             Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
         ).execute(executor).await.map(|_| ())
     }
