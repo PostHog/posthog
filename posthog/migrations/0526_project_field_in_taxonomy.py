@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
                 name="index_property_def_query_proj",
             ),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="propertydefinition",
             index=models.Index(fields=["project_id", "type", "is_numerical"], name="posthog_pro_project_3583d2_idx"),
         ),
