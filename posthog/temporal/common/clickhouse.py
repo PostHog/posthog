@@ -455,7 +455,7 @@ class ClickHouseClient:
 
 @contextlib.asynccontextmanager
 async def get_client(
-    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
+    *, team_id: typing.Optional[int] = None, **kwargs
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
@@ -495,13 +495,8 @@ async def get_client(
             team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
         )
 
-    if clickhouse_url is None:
-        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
-    else:
-        url = clickhouse_url
-
     async with ClickHouseClient(
-        url=url,
+        url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         database=settings.CLICKHOUSE_DATABASE,

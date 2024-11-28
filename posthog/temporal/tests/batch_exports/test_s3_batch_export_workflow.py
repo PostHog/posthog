@@ -517,7 +517,7 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)

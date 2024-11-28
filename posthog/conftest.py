@@ -62,7 +62,7 @@ def reset_clickhouse_tables():
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.error_tracking.sql import TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL
-    from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL, TRUNCATE_EVENTS_RECENT_TABLE_SQL
+    from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.models.performance.sql import TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL
     from posthog.models.person.sql import (
@@ -80,7 +80,6 @@ def reset_clickhouse_tables():
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
         TRUNCATE_EVENTS_TABLE_SQL(),
-        TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
