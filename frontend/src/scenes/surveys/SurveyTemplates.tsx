@@ -1,10 +1,11 @@
 import './SurveyTemplates.scss'
 
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Survey } from '~/types'
@@ -20,6 +21,10 @@ export const scene: SceneExport = {
 export function SurveyTemplates(): JSX.Element {
     const { setSurveyTemplateValues } = useActions(surveyLogic({ id: 'new' }))
     const { reportSurveyTemplateClicked } = useActions(eventUsageLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const surveyAppearance = {
+        ...currentTeam?.survey_config?.appearance,
+    }
 
     return (
         <>
@@ -48,7 +53,11 @@ export function SurveyTemplates(): JSX.Element {
                                     setSurveyTemplateValues({
                                         name: template.templateType,
                                         questions: template.questions,
-                                        appearance: { ...defaultSurveyAppearance, ...template.appearance },
+                                        appearance: {
+                                            ...defaultSurveyAppearance,
+                                            ...template.appearance,
+                                            ...surveyAppearance,
+                                        },
                                     })
                                     reportSurveyTemplateClicked(template.templateType)
                                 }}
@@ -69,6 +78,7 @@ export function SurveyTemplates(): JSX.Element {
                                                     ...defaultSurveyAppearance,
                                                     whiteLabel: true,
                                                     ...template.appearance,
+                                                    ...surveyAppearance,
                                                 },
                                             } as Survey
                                         }

@@ -16,8 +16,6 @@
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
 
-<script src=https://unpkg.com/eventsource@2.0.2/example/eventsource-polyfill.js></script>
-
 {% if not opt_out_capture and js_posthog_api_key %}
     <script>
         window.JS_POSTHOG_API_KEY = {{js_posthog_api_key | safe}};
@@ -37,6 +35,11 @@
 {% if sentry_environment %}
     <script>
         window.SENTRY_ENVIRONMENT = '{{ sentry_environment | escapejs }}';
+    </script>
+{% endif %}
+{% if stripe_public_key %}
+    <script>
+        window.STRIPE_PUBLIC_KEY = '{{ stripe_public_key | escapejs }}';
     </script>
 {% endif %}
 <script id='posthog-app-user-preload'>

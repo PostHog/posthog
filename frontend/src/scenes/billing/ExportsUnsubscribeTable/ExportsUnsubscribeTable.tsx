@@ -9,7 +9,7 @@ import { exportsUnsubscribeTableLogic } from './exportsUnsubscribeTableLogic'
 
 export function ExportsUnsubscribeTable(): JSX.Element {
     const { loading, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
-    const { disablePlugin, pauseBatchExport } = useActions(exportsUnsubscribeTableLogic)
+    const { disablePlugin, pauseBatchExport, disableHogFunction } = useActions(exportsUnsubscribeTableLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     if (!currentOrganization) {
@@ -55,6 +55,8 @@ export function ExportsUnsubscribeTable(): JSX.Element {
                                         disablePlugin(item.plugin_config_id)
                                     } else if (item.batch_export_id !== undefined) {
                                         pauseBatchExport(item.batch_export_id)
+                                    } else if (item.hog_function_id !== undefined) {
+                                        disableHogFunction(item.hog_function_id)
                                     }
                                 }}
                                 disabledReason={item.disabled ? 'Already disabled' : null}

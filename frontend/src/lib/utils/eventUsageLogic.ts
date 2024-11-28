@@ -14,9 +14,12 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
+import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -46,6 +49,7 @@ import {
     DashboardType,
     EntityType,
     Experiment,
+    ExperimentIdType,
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
@@ -61,7 +65,6 @@ import {
     RecordingUniversalFilters,
     Resource,
     SessionPlayerData,
-    SessionRecordingPlayerTab,
     SessionRecordingType,
     SessionRecordingUsageType,
     Survey,
@@ -361,11 +364,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBookmarkletDragged: true,
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
-        reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
-        reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
-            nameProvided,
-            instanceEmailAvailable,
-        }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -412,6 +410,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsJoinModeUpdated: (mode: string) => ({ mode }),
         reportBounceRatePageViewModeUpdated: (mode: string) => ({ mode }),
         reportSessionTableVersionUpdated: (version: string) => ({ version }),
+        reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -444,11 +443,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingInspectorTabViewed: (tab: SessionRecordingPlayerTab) => ({ tab }),
-        reportRecordingInspectorItemExpanded: (tab: SessionRecordingPlayerTab, index: number) => ({ tab, index }),
-        reportRecordingInspectorMiniFilterViewed: (tab: SessionRecordingPlayerTab, minifilterKey: string) => ({
-            tab,
+        reportRecordingInspectorItemExpanded: (tab: InspectorListItemType, index: number) => ({ tab, index }),
+        reportRecordingInspectorMiniFilterViewed: (minifilterKey: MiniFilterKey, enabled: boolean) => ({
             minifilterKey,
+            enabled,
         }),
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
@@ -485,6 +483,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentInsightLoadFailed: true,
         reportExperimentVariantShipped: (experiment: Experiment) => ({ experiment }),
+        reportExperimentVariantScreenshotUploaded: (experimentId: ExperimentIdType) => ({ experimentId }),
+        reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => ({ experimentId }),
+        reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => ({ experimentId }),
+        reportExperimentReleaseConditionsUpdated: (experimentId: ExperimentIdType) => ({ experimentId }),
+        reportExperimentHoldoutCreated: (holdout: Holdout) => ({ holdout }),
+        reportExperimentHoldoutAssigned: ({
+            experimentId,
+            holdoutId,
+        }: {
+            experimentId: ExperimentIdType
+            holdoutId: Holdout['id']
+        }) => ({ experimentId, holdoutId }),
+
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -572,22 +583,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
-        reportSurveyLaunched: (survey: Survey) => ({ survey }),
-        reportSurveyStopped: (survey: Survey) => ({ survey }),
-        reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
-        // onboarding
-        reportOnboardingProductSelected: (
-            productKey: string,
-            includeFirstOnboardingProductOnUserProperties: boolean
-        ) => ({
-            productKey,
-            includeFirstOnboardingProductOnUserProperties,
-        }),
-        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
         // command bar
         reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
@@ -741,26 +740,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
         },
-        reportBulkInviteAttempted: async ({
-            inviteesCount,
-            namesCount,
-        }: {
-            inviteesCount: number
-            namesCount: number
-        }) => {
-            // namesCount -> Number of invitees for which a name was provided
-            posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
-            for (let i = 0; i < inviteesCount; i++) {
-                posthog.capture('team member invited')
-            }
-        },
-        reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
-            posthog.capture('team member invited')
-            posthog.capture('team invite attempted', {
-                name_provided: nameProvided,
-                instance_email_available: instanceEmailAvailable,
-            })
-        },
         reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {
                 event_count: eventCount,
@@ -840,6 +819,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportSessionTableVersionUpdated: async ({ version }) => {
             posthog.capture('session table version updated', { version })
+        },
+        reportCustomChannelTypeRulesUpdated: async ({ numRules }) => {
+            posthog.capture('custom channel type rules updated', { numRules })
         },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
@@ -972,14 +954,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
-        reportRecordingInspectorTabViewed: ({ tab }) => {
-            posthog.capture('recording inspector tab viewed', { tab })
-        },
         reportRecordingInspectorItemExpanded: ({ tab, index }) => {
-            posthog.capture('recording inspector item expanded', { tab, index })
+            posthog.capture('recording inspector item expanded', { tab: 'replay-4000', type: tab, index })
         },
-        reportRecordingInspectorMiniFilterViewed: ({ tab, minifilterKey }) => {
-            posthog.capture('recording inspector minifilter selected', { tab, minifilterKey })
+        reportRecordingInspectorMiniFilterViewed: ({ minifilterKey, enabled }) => {
+            posthog.capture('recording inspector minifilter selected', { tab: 'replay-4000', enabled, minifilterKey })
         },
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })
@@ -1019,6 +998,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment created', {
                 name: experiment.name,
                 id: experiment.id,
+                type: experiment.type,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
@@ -1086,6 +1066,39 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
+            })
+        },
+        reportExperimentVariantScreenshotUploaded: ({ experimentId }) => {
+            posthog.capture('experiment variant screenshot uploaded', {
+                experiment_id: experimentId,
+            })
+        },
+        reportExperimentResultsLoadingTimeout: ({ experimentId }) => {
+            posthog.capture('experiment results loading timeout', {
+                experiment_id: experimentId,
+            })
+        },
+        reportExperimentReleaseConditionsViewed: ({ experimentId }) => {
+            posthog.capture('experiment release conditions viewed', {
+                experiment_id: experimentId,
+            })
+        },
+        reportExperimentReleaseConditionsUpdated: ({ experimentId }) => {
+            posthog.capture('experiment release conditions updated', {
+                experiment_id: experimentId,
+            })
+        },
+        reportExperimentHoldoutCreated: ({ holdout }) => {
+            posthog.capture('experiment holdout created', {
+                name: holdout.name,
+                holdout_id: holdout.id,
+                filters: holdout.filters,
+            })
+        },
+        reportExperimentHoldoutAssigned: ({ experimentId, holdoutId }) => {
+            posthog.capture('experiment holdout assigned', {
+                experiment_id: experimentId,
+                holdout_id: holdoutId,
             })
         },
         reportPropertyGroupFilterAdded: () => {
@@ -1268,16 +1281,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ),
             })
         },
-        reportSurveyLaunched: ({ survey }) => {
-            posthog.capture('survey launched', {
-                name: survey.name,
-                id: survey.id,
-                survey_type: survey.type,
-                question_types: survey.questions.map((question) => question.type),
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-            })
-        },
         reportSurveyViewed: ({ survey }) => {
             posthog.capture('survey viewed', {
                 name: survey.name,
@@ -1285,23 +1288,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 created_at: survey.created_at,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
-            })
-        },
-        reportSurveyStopped: ({ survey }) => {
-            posthog.capture('survey stopped', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-            })
-        },
-        reportSurveyResumed: ({ survey }) => {
-            posthog.capture('survey resumed', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
             })
         },
         reportSurveyArchived: ({ survey }) => {
@@ -1355,21 +1341,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         // onboarding
-        reportOnboardingProductSelected: ({ productKey, includeFirstOnboardingProductOnUserProperties }) => {
-            posthog.capture('onboarding product selected', {
-                product_key: productKey,
-                $set_once: {
-                    first_onboarding_product_selected: includeFirstOnboardingProductOnUserProperties
-                        ? productKey
-                        : undefined,
-                },
-            })
-        },
-        reportOnboardingCompleted: ({ productKey }) => {
-            posthog.capture('onboarding completed', {
-                product_key: productKey,
-            })
-        },
         reportSubscribedDuringOnboarding: ({ productKey }) => {
             posthog.capture('subscribed during onboarding', {
                 product_key: productKey,

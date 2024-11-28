@@ -111,6 +111,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.type == "string"
         assert field.schema_valid is True
 
+    def test_serialize_database_warehouse_with_deleted_joins(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="some_field",
+            deleted=True,
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=db))
+
+        events_table = serialized_database.get("events")
+        assert events_table is not None
+
+        joined_field = events_table.fields.get("some_field")
+        assert joined_field is None
+
     def test_serialize_database_warehouse_table_s3_with_hyphens(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(
@@ -220,13 +241,17 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
     def test_database_group_type_mappings(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="test", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
+        )
         db = create_hogql_database(team_id=self.team.pk)
 
         assert db.events.fields["test"] == FieldTraverser(chain=["group_0"])
 
     def test_database_group_type_mappings_overwrite(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="event", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
+        )
         db = create_hogql_database(team_id=self.team.pk)
 
         assert db.events.fields["event"] == StringDatabaseField(name="event")

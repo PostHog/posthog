@@ -25,8 +25,6 @@ export function WebhookIntegration(): JSX.Element {
         }
     }, [currentTeam])
 
-    const hogFunctionsEnabled = featureFlags[FEATURE_FLAGS.HOG_FUNCTIONS]
-
     const webhooks_disallowed = featureFlags[FEATURE_FLAGS.WEBHOOKS_DENYLIST]
     if (webhooks_disallowed) {
         return (
@@ -41,7 +39,7 @@ export function WebhookIntegration(): JSX.Element {
         )
     }
 
-    if (hogFunctionsEnabled && !currentTeam?.slack_incoming_webhook) {
+    if (!currentTeam?.slack_incoming_webhook) {
         return (
             <>
                 <p>

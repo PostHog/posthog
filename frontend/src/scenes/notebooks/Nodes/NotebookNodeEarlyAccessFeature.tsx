@@ -15,6 +15,7 @@ import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconRocket } from '@posthog/icons'
+import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = attributes
@@ -129,7 +130,7 @@ export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNo
         id: {},
     },
     pasteOptions: {
-        find: urls.earlyAccessFeature('') + '(.+)',
+        find: urls.earlyAccessFeature(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: match[1] }
         },

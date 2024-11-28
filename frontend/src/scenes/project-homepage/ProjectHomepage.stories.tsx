@@ -12,11 +12,11 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/dashboards/': require('../dashboard/__mocks__/dashboards.json'),
-                '/api/projects/:team_id/dashboards/1/': require('../dashboard/__mocks__/dashboard1.json'),
-                '/api/projects/:team_id/dashboards/1/collaborators/': [],
-                '/api/projects/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/insights/my_last_viewed/': [],
+                '/api/environments/:team_id/dashboards/': require('../dashboard/__mocks__/dashboards.json'),
+                '/api/environments/:team_id/dashboards/1/': require('../dashboard/__mocks__/dashboard1.json'),
+                '/api/environments/:team_id/dashboards/1/collaborators/': [],
+                '/api/environments/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
+                '/api/environments/:team_id/insights/my_last_viewed/': [],
             },
         }),
     ],

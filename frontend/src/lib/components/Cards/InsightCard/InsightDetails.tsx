@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import {
+    convertPropertiesToPropertyGroup,
     formatPropertyLabel,
     isAnyPropertyfilter,
     isCohortPropertyFilter,
@@ -26,12 +27,13 @@ import {
     FunnelsQuery,
     InsightQueryNode,
     LifecycleQuery,
-    NodeKind,
     PathsQuery,
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema'
 import {
+    isActionsNode,
+    isEventsNode,
     isFunnelsQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
@@ -41,13 +43,7 @@ import {
     isTrendsQuery,
     isValidBreakdown,
 } from '~/queries/utils'
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    FilterType,
-    PropertyGroupFilter,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, QueryBasedInsightModel } from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
@@ -154,15 +150,15 @@ function SeriesDisplay({
     seriesIndex: number
 }): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
-    const filter = query.series[seriesIndex]
+    const series = query.series[seriesIndex]
 
     const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
 
     const mathDefinition = mathDefinitions[
         isLifecycleQuery(query)
             ? 'dau'
-            : filter.math
-            ? apiValueToMathType(filter.math, filter.math_group_type_index)
+            : series.math
+            ? apiValueToMathType(series.math, series.math_group_type_index)
             : 'total'
     ] as MathDefinition | undefined
 
@@ -172,12 +168,12 @@ function SeriesDisplay({
             className="SeriesDisplay"
             icon={<SeriesLetter seriesIndex={seriesIndex} hasBreakdown={hasBreakdown} />}
             extendedContent={
-                filter.properties &&
-                filter.properties.length > 0 && (
+                series.properties &&
+                series.properties.length > 0 && (
                     <CompactPropertyFiltersDisplay
                         groupFilter={{
                             type: FilterLogicalOperator.And,
-                            values: [{ type: FilterLogicalOperator.And, values: filter.properties }],
+                            values: [{ type: FilterLogicalOperator.And, values: series.properties }],
                         }}
                         embedded
                     />
@@ -186,34 +182,36 @@ function SeriesDisplay({
         >
             <span>
                 {isFunnelsQuery(query) ? 'Performed' : 'Showing'}
-                {filter.custom_name && <b> "{filter.custom_name}"</b>}
-                {filter.kind === NodeKind.ActionsNode && filter.id ? (
+                {series.custom_name && <b> "{series.custom_name}"</b>}
+                {isActionsNode(series) ? (
                     <Link
-                        to={urls.action(filter.id)}
+                        to={urls.action(series.id)}
                         className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
                         title="Action series"
                     >
-                        {filter.name}
+                        {series.name}
                     </Link>
-                ) : (
+                ) : isEventsNode(series) ? (
                     <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                        <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
+                        <PropertyKeyInfo value={series.event || '$pageview'} type={TaxonomicFilterGroupType.Events} />
                     </span>
+                ) : (
+                    <i>{series.kind /* TODO: Support DataWarehouseNode */}</i>
                 )}
                 {!isFunnelsQuery(query) && (
                     <span className="leading-none">
                         counted by{' '}
                         {mathDefinition?.category === MathCategory.HogQLExpression ? (
-                            <code>{filter.math_hogql}</code>
+                            <code>{series.math_hogql}</code>
                         ) : (
                             <>
-                                {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
+                                {mathDefinition?.category === MathCategory.PropertyValue && series.math_property && (
                                     <>
                                         {' '}
                                         event's
                                         <span className="SeriesDisplay__raw-name">
                                             <PropertyKeyInfo
-                                                value={filter.math_property}
+                                                value={series.math_property}
                                                 type={TaxonomicFilterGroupType.EventProperties}
                                             />
                                         </span>
@@ -251,11 +249,11 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     )
 }
 
-export function SeriesSummary({ query }: { query: InsightQueryNode }): JSX.Element {
+export function SeriesSummary({ query, heading }: { query: InsightQueryNode; heading?: JSX.Element }): JSX.Element {
     return (
-        <>
-            <h5>Query summary</h5>
-            <section className="InsightDetails__query">
+        <section>
+            <h5>{heading || 'Query summary'}</h5>
+            <div className="InsightDetails__query">
                 {isTrendsQuery(query) && query.trendsFilter?.formula && (
                     <>
                         <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
@@ -283,8 +281,8 @@ export function SeriesSummary({ query }: { query: InsightQueryNode }): JSX.Eleme
                         <i>Unavailable for this insight type.</i>
                     )}
                 </div>
-            </section>
-        </>
+            </div>
+        </section>
     )
 }
 
@@ -293,44 +291,13 @@ export function PropertiesSummary({
 }: {
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
 }): JSX.Element {
-    const groupFilter: PropertyGroupFilter | null = Array.isArray(properties)
-        ? {
-              type: FilterLogicalOperator.And,
-              values: [
-                  {
-                      type: FilterLogicalOperator.And,
-                      values: properties,
-                  },
-              ],
-          }
-        : properties || null
-
     return (
-        <>
+        <section>
             <h5>Filters</h5>
-            <section>
-                <CompactPropertyFiltersDisplay groupFilter={groupFilter} />
-            </section>
-        </>
-    )
-}
-
-export function LEGACY_FilterBasedBreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element | null {
-    if (filters.breakdown_type == null || filters.breakdown == null) {
-        return null
-    }
-
-    const breakdownArray = Array.isArray(filters.breakdown) ? filters.breakdown : [filters.breakdown]
-
-    return (
-        <>
-            <h5>Breakdown by</h5>
-            <section className="InsightDetails__breakdown">
-                {breakdownArray.map((breakdown) => (
-                    <BreakdownTag key={breakdown} breakdown={breakdown} breakdownType={filters.breakdown_type} />
-                ))}
-            </section>
-        </>
+            <div>
+                <CompactPropertyFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
+            </div>
+        </section>
     )
 }
 
@@ -342,9 +309,9 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
     const { breakdown_type, breakdown, breakdowns } = query.breakdownFilter
 
     return (
-        <>
+        <section>
             <h5>Breakdown by</h5>
-            <section className="InsightDetails__breakdown">
+            <div>
                 {Array.isArray(breakdowns)
                     ? breakdowns.map((b) => (
                           <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
@@ -355,8 +322,8 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
                           : [breakdown].map((b) => (
                                 <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
                             )))}
-            </section>
-        </>
+            </div>
+        </section>
     )
 }
 

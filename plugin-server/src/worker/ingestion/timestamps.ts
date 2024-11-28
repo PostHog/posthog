@@ -45,13 +45,21 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
         parsedTs = now
     }
 
-    if (!parsedTs.isValid) {
-        callback?.('ignored_invalid_timestamp', {
+    const parsedTsOutOfBounds = parsedTs.year < 0 || parsedTs.year > 9999
+    if (!parsedTs.isValid || parsedTsOutOfBounds) {
+        const details: Record<string, any> = {
             eventUuid: data['uuid'] ?? '',
             field: 'timestamp',
             value: data['timestamp'] ?? '',
-            reason: parsedTs.invalidExplanation || 'unknown error',
-        })
+            reason: parsedTs.invalidExplanation || (parsedTsOutOfBounds ? 'out of bounds' : 'unknown error'),
+        }
+
+        if (parsedTsOutOfBounds) {
+            details['offset'] = data['offset']
+            details['parsed_year'] = parsedTs.year
+        }
+
+        callback?.('ignored_invalid_timestamp', details)
         return DateTime.utc()
     }
 

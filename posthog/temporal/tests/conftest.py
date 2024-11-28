@@ -1,14 +1,14 @@
 import asyncio
 import random
 
+import psycopg
 import pytest
 import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from temporalio.testing import ActivityEnvironment
-import psycopg
 from psycopg import sql
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -65,10 +65,10 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture(scope="module")
-def clickhouse_client():
+@pytest_asyncio.fixture(scope="module")
+async def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
-    client = ClickHouseClient(
+    async with ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -78,9 +78,8 @@ def clickhouse_client():
         # Durting testing, it's useful to enable it to wait for mutations.
         # Otherwise, tests that rely on running a mutation may become flaky.
         mutations_sync=2,
-    )
-
-    yield client
+    ) as client:
+        yield client
 
 
 @pytest_asyncio.fixture

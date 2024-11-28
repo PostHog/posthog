@@ -7,6 +7,7 @@ import contextlib
 import csv
 import datetime as dt
 import gzip
+import json
 import tempfile
 import typing
 
@@ -15,6 +16,8 @@ import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
+
+from posthog.temporal.batch_exports.heartbeat import DateRange
 
 logger = structlog.get_logger()
 
@@ -95,6 +98,9 @@ class BatchExportTemporaryFile:
 
     def __iter__(self):
         yield from self._file
+
+    def __str__(self) -> str:
+        return self._file.name
 
     @property
     def brotli_compressor(self):
@@ -243,7 +249,6 @@ class BatchExportTemporaryFile:
         self.records_since_last_reset = 0
 
 
-LastInsertedAt = dt.datetime
 IsLast = bool
 RecordsSinceLastFlush = int
 BytesSinceLastFlush = int
@@ -254,7 +259,7 @@ FlushCallable = collections.abc.Callable[
         RecordsSinceLastFlush,
         BytesSinceLastFlush,
         FlushCounter,
-        LastInsertedAt,
+        DateRange,
         IsLast,
         Exception | None,
     ],
@@ -314,13 +319,22 @@ class BatchExportWriter(abc.ABC):
 
     def reset_writer_tracking(self):
         """Reset this writer's tracking state."""
-        self.last_inserted_at: dt.datetime | None = None
+        self.start_at_since_last_flush: dt.datetime | None = None
+        self.end_at_since_last_flush: dt.datetime | None = None
+        self.flushed_date_ranges: list[DateRange] = []
         self.records_total = 0
         self.records_since_last_flush = 0
         self.bytes_total = 0
         self.bytes_since_last_flush = 0
         self.flush_counter = 0
         self.error = None
+
+    @property
+    def date_range_since_last_flush(self) -> DateRange | None:
+        if self.start_at_since_last_flush is not None and self.end_at_since_last_flush is not None:
+            return (self.start_at_since_last_flush, self.end_at_since_last_flush)
+        else:
+            return None
 
     @contextlib.asynccontextmanager
     async def open_temporary_file(self, current_flush_counter: int = 0):
@@ -348,12 +362,12 @@ class BatchExportWriter(abc.ABC):
             finally:
                 self.track_bytes_written(temp_file)
 
-                if self.last_inserted_at is not None and self.bytes_since_last_flush > 0:
+                if self.bytes_since_last_flush > 0:
                     # `bytes_since_last_flush` should be 0 unless:
                     # 1. The last batch wasn't flushed as it didn't reach `max_bytes`.
                     # 2. The last batch was flushed but there was another write after the last call to
                     #    `write_record_batch`. For example, footer bytes.
-                    await self.flush(self.last_inserted_at, is_last=True)
+                    await self.flush(is_last=True)
 
                 self._batch_export_file = None
 
@@ -387,24 +401,41 @@ class BatchExportWriter(abc.ABC):
         self.bytes_total = batch_export_file.bytes_total
         self.bytes_since_last_flush = batch_export_file.bytes_since_last_reset
 
-    async def write_record_batch(self, record_batch: pa.RecordBatch) -> None:
+    async def write_record_batch(self, record_batch: pa.RecordBatch, flush: bool = True) -> None:
         """Issue a record batch write tracking progress and flushing if required."""
         record_batch = record_batch.sort_by("_inserted_at")
-        last_inserted_at = record_batch.column("_inserted_at")[-1].as_py()
+
+        if self.start_at_since_last_flush is None:
+            raw_start_at = record_batch.column("_inserted_at")[0].as_py()
+            if isinstance(raw_start_at, int):
+                try:
+                    self.start_at_since_last_flush = dt.datetime.fromtimestamp(raw_start_at, tz=dt.UTC)
+                except Exception:
+                    raise
+            else:
+                self.start_at_since_last_flush = raw_start_at
+
+        raw_end_at = record_batch.column("_inserted_at")[-1].as_py()
+        if isinstance(raw_end_at, int):
+            self.end_at_since_last_flush = dt.datetime.fromtimestamp(raw_end_at, tz=dt.UTC)
+        else:
+            self.end_at_since_last_flush = raw_end_at
 
         column_names = record_batch.column_names
         column_names.pop(column_names.index("_inserted_at"))
 
         await asyncio.to_thread(self._write_record_batch, record_batch.select(column_names))
 
-        self.last_inserted_at = last_inserted_at
         self.track_records_written(record_batch)
         self.track_bytes_written(self.batch_export_file)
 
-        if self.bytes_since_last_flush >= self.max_bytes:
-            await self.flush(last_inserted_at)
+        if flush and self.should_flush():
+            await self.flush()
 
-    async def flush(self, last_inserted_at: dt.datetime, is_last: bool = False) -> None:
+    def should_flush(self) -> bool:
+        return self.bytes_since_last_flush >= self.max_bytes
+
+    async def flush(self, is_last: bool = False) -> None:
         """Call the provided `flush_callable` and reset underlying file.
 
         The underlying batch export temporary file will be reset after calling `flush_callable`.
@@ -414,12 +445,15 @@ class BatchExportWriter(abc.ABC):
 
         self.batch_export_file.seek(0)
 
+        if self.date_range_since_last_flush is not None:
+            self.flushed_date_ranges.append(self.date_range_since_last_flush)
+
         await self.flush_callable(
             self.batch_export_file,
             self.records_since_last_flush,
             self.bytes_since_last_flush,
             self.flush_counter,
-            last_inserted_at,
+            self.flushed_date_ranges[-1],
             is_last,
             self.error,
         )
@@ -428,6 +462,8 @@ class BatchExportWriter(abc.ABC):
         self.records_since_last_flush = 0
         self.bytes_since_last_flush = 0
         self.flush_counter += 1
+        self.start_at_since_last_flush = None
+        self.end_at_since_last_flush = None
 
 
 class JSONLBatchExportWriter(BatchExportWriter):
@@ -457,16 +493,43 @@ class JSONLBatchExportWriter(BatchExportWriter):
         """Write a single row of JSONL."""
         try:
             n = self.batch_export_file.write(orjson.dumps(d, default=str) + b"\n")
-        except orjson.JSONEncodeError:
-            logger.exception("Failed to encode with orjson: %s", d)
-            # orjson is very strict about invalid unicode. This slow path protects us against
-            # things we've observed in practice, like single surrogate codes, e.g. "\ud83d"
-            cleaned_content = replace_broken_unicode(d)
-            n = self.batch_export_file.write(orjson.dumps(cleaned_content, default=str) + b"\n")
-        except TypeError:
-            logger.exception("Orjson detected a deeply nested dict: %s", d)
-            raise
+        except orjson.JSONEncodeError as err:
+            # NOTE: `orjson.JSONEncodeError` is actually just an alias for `TypeError`.
+            # This handler will catch everything coming from orjson, so we have to
+            # awkwardly check error messages.
+            if str(err) == "Recursion limit reached":
+                # Orjson enforces an unmodifiable recursion limit (256), so we can't
+                # dump very nested dicts.
+                if d.get("event", None) == "$web_vitals":
+                    # These are PostHog events that for a while included a bunch of
+                    # nested DOM structures. Eventually, this was removed, but these
+                    # events could still be present in database.
+                    # Let's try to clear the key with nested elements first.
+                    try:
+                        del d["properties"]["$web_vitals_INP_event"]["attribution"]["interactionTargetElement"]
+                    except KeyError:
+                        # We tried, fallback to the slower but more permissive stdlib
+                        # json.
+                        logger.exception("PostHog $web_vitals event didn't match expected structure")
+                        dumped = json.dumps(d, default=str).encode("utf-8")
+                        n = self.batch_export_file.write(dumped + b"\n")
+                    else:
+                        dumped = orjson.dumps(d, default=str)
+                        n = self.batch_export_file.write(dumped + b"\n")
 
+                else:
+                    # In this case, we fallback to the slower but more permissive stdlib
+                    # json.
+                    logger.exception("Orjson detected a deeply nested dict: %s", d)
+                    dumped = json.dumps(d, default=str).encode("utf-8")
+                    n = self.batch_export_file.write(dumped + b"\n")
+            else:
+                # Orjson is very strict about invalid unicode. This slow path protects us
+                # against things we've observed in practice, like single surrogate codes, e.g.
+                # "\ud83d"
+                logger.exception("Failed to encode with orjson: %s", d)
+                cleaned_content = replace_broken_unicode(d)
+                n = self.batch_export_file.write(orjson.dumps(cleaned_content, default=str) + b"\n")
         return n
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:

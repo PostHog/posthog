@@ -7,12 +7,12 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getFilterLabel } from 'lib/taxonomy'
+import { useMemo } from 'react'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
@@ -37,7 +37,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
-    const hogFunctionsEnabled = useFeatureFlag('HOG_FUNCTIONS')
+
+    const memoizedQuery = useMemo(
+        () => ({
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                event: definition.name,
+            },
+            full: true,
+            showEventFilter: false,
+        }),
+        [definition.name]
+    )
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -200,39 +213,25 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 <>
                     <EventDefinitionProperties definition={definition} />
 
-                    {hogFunctionsEnabled && (
-                        <>
-                            <LemonDivider className="my-6" />
-                            <h2 className="flex-1 subtitle">Connected destinations</h2>
-                            <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
+                    <LemonDivider className="my-6" />
+                    <h2 className="flex-1 subtitle">Connected destinations</h2>
+                    <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
-                            <LinkedHogFunctions
-                                filters={{
-                                    events: [
-                                        {
-                                            id: `${definition.name}`,
-                                            type: 'events',
-                                        },
-                                    ],
-                                }}
-                            />
-                        </>
-                    )}
+                    <LinkedHogFunctions
+                        type="destination"
+                        filters={{
+                            events: [
+                                {
+                                    id: `${definition.name}`,
+                                    type: 'events',
+                                },
+                            ],
+                        }}
+                    />
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>
                     <p>This is the list of recent events that match this definition.</p>
-                    <Query
-                        query={{
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.EventsQuery,
-                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                event: definition.name,
-                            },
-                            full: true,
-                            showEventFilter: false,
-                        }}
-                    />
+                    <Query query={memoizedQuery} />
                 </>
             )}
         </>

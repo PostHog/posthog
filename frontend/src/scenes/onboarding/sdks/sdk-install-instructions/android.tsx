@@ -84,3 +84,26 @@ export function SDKInstallAndroidInstructions(props: AndroidSetupProps): JSX.Ele
         </>
     )
 }
+
+export function SDKInstallAndroidTrackScreenInstructions(): JSX.Element {
+    return (
+        <>
+            <p>
+                With <code>captureScreenViews = true</code>, PostHog will try to record all screen changes
+                automatically.
+            </p>
+            <p>
+                If you want to manually send a new screen capture event, use the <code>screen</code> function.
+            </p>
+            <CodeSnippet language={Language.Kotlin}>{`import com.posthog.PostHog
+
+PostHog.screen(
+    screenTitle = "Dashboard",
+    properties = mapOf(
+        "background" to "blue",
+        "hero" to "superhog"
+    )
+)`}</CodeSnippet>
+        </>
+    )
+}

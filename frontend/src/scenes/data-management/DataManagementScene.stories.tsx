@@ -238,7 +238,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/projects/:team_id/query/': (req) => {
+                '/api/environments/:team_id/query/': (req) => {
                     if ((req.body as any).query.kind === 'DatabaseSchemaQuery') {
                         return [200, MOCK_DATABASE]
                     }

@@ -19,6 +19,7 @@ export enum SurveysTabs {
     Archived = 'archived',
     Notifications = 'notifications',
     History = 'history',
+    Settings = 'settings',
 }
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
@@ -161,6 +162,10 @@ export const surveysLogic = kea<surveysLogicType>([
             ],
         ],
         surveysStylingAvailable: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
+        ],
+        globalSurveyAppearanceConfigAvailable: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
         ],

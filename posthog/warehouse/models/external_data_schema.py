@@ -4,6 +4,7 @@ from typing import Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
 import snowflake.connector
+from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
@@ -59,6 +60,9 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     __repr__ = sane_repr("name")
 
+    def folder_path(self) -> str:
+        return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
+
     @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
@@ -95,8 +99,7 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
     )
 
 
-@database_sync_to_async
-def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
     schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()
@@ -115,20 +118,11 @@ def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exte
     return schema
 
 
-@database_sync_to_async
-def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return list(
-        ExternalDataSchema.objects.exclude(deleted=True)
-        .filter(team_id=team_id, source_id=source_id, should_sync=True)
-        .all()
-    )
-
-
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
-def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):
+def sync_old_schemas_with_new_schemas(new_schemas: list[str], source_id: uuid.UUID, team_id: int) -> list[str]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -136,6 +130,8 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
 
     for schema in schemas_to_create:
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
+
+    return schemas_to_create
 
 
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta:
@@ -314,6 +310,7 @@ def get_mysql_schemas(
             user=user,
             password=password,
             connect_timeout=5,
+            ssl_ca="/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt",
         )
 
         with connection.cursor() as cursor:

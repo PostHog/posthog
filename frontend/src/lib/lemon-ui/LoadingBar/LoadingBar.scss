@@ -18,4 +18,9 @@
     left: 0;
     height: 100%;
     background: var(--primary-3000-active);
+
+    .storybook-test-runner & {
+        // When taking UI snapshots, we hard-code progress width to 50%
+        width: 50% !important;
+    }
 }

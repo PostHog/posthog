@@ -23,6 +23,7 @@ import {
     IconLive,
     IconNight,
     IconNotebook,
+    IconPalette,
     IconPeople,
     IconPeopleFilled,
     IconPieChart,
@@ -493,9 +494,9 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconLive,
-                        display: 'Go to Events explorer',
+                        display: 'Go to Activity',
                         executor: () => {
-                            push(urls.events())
+                            push(urls.activity())
                         },
                     },
                     {
@@ -857,6 +858,11 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                 executor: () => {
                                     actions.updateUser({ theme_mode: 'system' })
                                 },
+                            },
+                            {
+                                icon: IconPalette,
+                                display: 'Add custom CSS',
+                                executor: () => push(urls.customCss()),
                             },
                         ],
                     }),

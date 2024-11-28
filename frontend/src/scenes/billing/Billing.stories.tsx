@@ -1,9 +1,9 @@
 import { Meta } from '@storybook/react'
-import { FEATURE_FLAGS } from 'lib/constants'
 
-import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_100_percent_discount.json'
+import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
@@ -58,8 +58,19 @@ export const BillingWithDiscount = (): JSX.Element => {
     return <Billing />
 }
 
+export const BillingWithCredits = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing/': {
+                ...billingJsonWithCredits,
+            },
+        },
+    })
+
+    return <Billing />
+}
+
 export const BillingWithCreditCTA = (): JSX.Element => {
-    setFeatureFlags([FEATURE_FLAGS.PURCHASE_CREDITS])
     useStorybookMocks({
         get: {
             '/api/billing/': {
@@ -122,6 +133,7 @@ export const BillingUnsubscribeModal = (): JSX.Element => {
 
     return <UnsubscribeSurveyModal product={billingJson.products[0]} />
 }
+
 export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
     useStorybookMocks({
         get: {

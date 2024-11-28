@@ -13,6 +13,12 @@ from posthog.models.alert import (
     AlertSubscription,
     are_alerts_supported_for_insight,
 )
+from posthog.schema import AlertState
+from posthog.api.insight import InsightBasicSerializer
+
+from posthog.utils import relative_date_parse
+from zoneinfo import ZoneInfo
+from posthog.constants import AvailableFeature
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -71,6 +77,11 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
         return data
 
 
+class RelativeDateTimeField(serializers.DateTimeField):
+    def to_internal_value(self, data):
+        return data
+
+
 class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(many=True, read_only=True)
@@ -82,6 +93,7 @@ class AlertSerializer(serializers.ModelSerializer):
         write_only=True,
         allow_empty=False,
     )
+    snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
 
     class Meta:
         model = AlertConfiguration
@@ -97,18 +109,26 @@ class AlertSerializer(serializers.ModelSerializer):
             "state",
             "enabled",
             "last_notified_at",
+            "last_checked_at",
+            "next_check_at",
             "checks",
+            "config",
+            "calculation_interval",
+            "snoozed_until",
         ]
         read_only_fields = [
             "id",
             "created_at",
             "state",
             "last_notified_at",
+            "last_checked_at",
+            "next_check_at",
         ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
+        data["insight"] = InsightBasicSerializer(instance.insight).data
         return data
 
     def add_threshold(self, threshold_data, validated_data):
@@ -140,6 +160,30 @@ class AlertSerializer(serializers.ModelSerializer):
         return instance
 
     def update(self, instance, validated_data):
+        if "snoozed_until" in validated_data:
+            snoozed_until_param = validated_data.pop("snoozed_until")
+
+            if snoozed_until_param is None:
+                instance.state = AlertState.NOT_FIRING
+                instance.snoozed_until = None
+            else:
+                # always store snoozed_until as UTC time
+                # as we look at current UTC time to check when to run alerts
+                snoozed_until = relative_date_parse(
+                    snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
+                )
+                instance.state = AlertState.SNOOZED
+                instance.snoozed_until = snoozed_until
+
+            AlertCheck.objects.create(
+                alert_configuration=instance,
+                calculated_value=None,
+                condition=instance.condition,
+                targets_notified={},
+                state=instance.state,
+                error=None,
+            )
+
         conditions_or_threshold_changed = False
 
         threshold_data = validated_data.pop("threshold", None)
@@ -169,10 +213,24 @@ class AlertSerializer(serializers.ModelSerializer):
                 )
 
         if conditions_or_threshold_changed:
-            # If anything changed we set inactive, so it's firing and notifying with the new settings
-            instance.state = "inactive"
+            # If anything changed we set to NOT_FIRING, so it's firing and notifying with the new settings
+            instance.state = AlertState.NOT_FIRING
+
+        calculation_interval_changed = (
+            "calculation_interval" in validated_data
+            and validated_data["calculation_interval"] != instance.calculation_interval
+        )
+        if conditions_or_threshold_changed or calculation_interval_changed:
+            # calculate alert right now, don't wait until preset time
+            self.next_check_at = None
 
         return super().update(instance, validated_data)
+
+    def validate_snoozed_until(self, value):
+        if value is not None and not isinstance(value, str):
+            raise ValidationError("snoozed_until has to be passed in string format")
+
+        return value
 
     def validate_insight(self, value):
         if value and not are_alerts_supported_for_insight(value):
@@ -189,13 +247,39 @@ class AlertSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        if attrs.get("enabled") is not False and (
-            AlertConfiguration.objects.filter(team_id=self.context["team_id"], enabled=True).count()
-            >= AlertConfiguration.ALERTS_PER_TEAM
-        ):
-            raise ValidationError(
-                {"alert": [f"Your team has reached the limit of {AlertConfiguration.ALERTS_PER_TEAM} enabled alerts."]}
-            )
+        # only validate alert count when creating a new alert
+        if self.context["request"].method != "POST":
+            return attrs
+
+        user_org = self.context["request"].user.organization
+
+        has_alerts_feature = user_org.is_feature_available(AvailableFeature.ALERTS)
+
+        allowed_alerts_count = next(
+            (
+                feature.get("limit")
+                for feature in user_org.available_product_features or []
+                if feature.get("key") == AvailableFeature.ALERTS
+            ),
+            None,
+        )
+
+        existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
+
+        if has_alerts_feature:
+            # If allowed_alerts_count is None then the user is allowed unlimited alerts
+            if allowed_alerts_count is not None:
+                # Check current count against allowed limit
+                if existing_alerts_count >= allowed_alerts_count:
+                    raise ValidationError(
+                        {"alert": [f"Your team has reached the limit of {allowed_alerts_count} alerts on your plan."]}
+                    )
+        else:
+            # If the org doesn't have alerts feature, limit to that on free tier
+            if existing_alerts_count >= AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER:
+                raise ValidationError(
+                    {"alert": [f"Your plan is limited to {AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER} alerts"]}
+                )
 
         return attrs
 
@@ -215,6 +299,21 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         instance.checks = instance.alertcheck_set.all().order_by("-created_at")[:5]
         serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        insight_id = request.GET.get("insight_id")
+        if insight_id is not None:
+            queryset = queryset.filter(insight=insight_id)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 

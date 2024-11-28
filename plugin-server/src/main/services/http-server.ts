@@ -121,11 +121,13 @@ async function getProfileByType(req: Request, res: Response) {
                 v8Profiler.setSamplingInterval(interval ?? 1000) // in microseconds
                 v8Profiler.startProfiling('cpu', true, mode)
                 finishProfile = () => v8Profiler.stopProfiling('cpu')
+                break
             case 'heap':
                 // See https://v8docs.nodesource.com/node-18.16/d7/d76/classv8_1_1_heap_profiler.html
                 const depth = typeof req.query.depth === 'string' ? parseInt(req.query.depth) : 16
                 v8Profiler.startSamplingHeapProfiling(interval ?? 512 * 1024, depth)
                 finishProfile = () => v8Profiler.stopSamplingHeapProfiling()
+                break
         }
 
         if (finishProfile) {

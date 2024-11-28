@@ -129,6 +129,7 @@ def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction
         hog_name = f"[CDP-TEST-HIDDEN] {hog_name}"
     hog_function = HogFunction(
         name=hog_name,
+        type="destination",
         description="Automatically migrated from legacy action webhooks",
         team_id=action.team_id,
         inputs=validate_inputs(

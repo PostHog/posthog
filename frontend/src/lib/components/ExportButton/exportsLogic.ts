@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { DataNode } from '~/queries/schema'
+import { AnyDataNode } from '~/queries/schema'
 import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
@@ -33,7 +33,7 @@ export const exportsLogic = kea<exportsLogicType>([
         pollExportStatus: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
-        createStaticCohort: (name: string, query: DataNode) => ({ query, name }),
+        createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
     }),
 
     connect({
@@ -140,8 +140,8 @@ export const exportsLogic = kea<exportsLogicType>([
             })
         },
         createStaticCohort: async ({ query, name }) => {
+            const toastId = 'toast-' + Math.random()
             try {
-                const toastId = 'toast-' + Math.random()
                 lemonToast.info('Saving cohort...', { toastId, autoClose: false })
                 const cohort: CohortType = await api.create('api/cohort', {
                     is_static: true,
@@ -159,6 +159,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     },
                 })
             } catch (e) {
+                lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')
             }
         },

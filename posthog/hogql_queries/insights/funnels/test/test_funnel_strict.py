@@ -13,11 +13,11 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_group_test_factory,
     assert_funnel_results_equal,
 )
+from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
-from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.schema import FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -43,11 +43,12 @@ class BaseTestFunnelStrictStepsBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.STRICT,
-        ClickhouseFunnelStrictActors,
+        PseudoFunnelActors,
         _create_action,
         _create_person,
     ),
 ):
+    __test__ = False
     maxDiff = None
 
     def test_basic_funnel_default_funnel_days_breakdown_event(self):
@@ -183,27 +184,28 @@ class BaseTestStrictFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.STRICT,
-        ClickhouseFunnelStrictActors,
+        PseudoFunnelActors,
     ),
 ):
-    pass
+    __test__ = False
 
 
 class BaseTestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelStrictActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
 ):
     maxDiff = None
-    pass
+    __test__ = False
 
 
 class BaseTestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+    __test__ = False
 
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         filter = Filter(data=filter, team=self.team)
         person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = ClickhouseFunnelStrictActors(person_filter, self.team).get_actors()
+        _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
 
         return [val["id"] for val in serialized_result]
 
@@ -629,19 +631,19 @@ class BaseTestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelStrictStepsBreakdown(BaseTestFunnelStrictStepsBreakdown):
-    pass
+    __test__ = True
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelStrictSteps(BaseTestFunnelStrictSteps):
-    pass
+    __test__ = True
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestStrictFunnelGroupBreakdown(BaseTestStrictFunnelGroupBreakdown):
-    pass
+    __test__ = True
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelStrictStepsConversionTime(BaseTestFunnelStrictStepsConversionTime):
-    pass
+    __test__ = True

@@ -45,7 +45,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
         })
         const teamId = await createTeam(organizationId, `http://localhost:${server.address()?.port}`)
         const user = await createUser(teamId, new UUIDT().toString())
-        await createGroupType(teamId, 0, 'organization')
+        await createGroupType(teamId, teamId, 0, 'organization')
         await createGroup(teamId, 0, 'TestWebhookOrg', { name: 'test-webhooks' })
         const action = await createAction({
             team_id: teamId,

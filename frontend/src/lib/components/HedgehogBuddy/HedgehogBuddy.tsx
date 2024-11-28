@@ -113,12 +113,23 @@ export class HedgehogActor {
 
         this.x = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
         this.y = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
+        this.preloadAnimationSprites()
         this.setAnimation('fall')
     }
 
     animations(): { [key: string]: SpriteInfo } {
         const animations = skins[this.hedgehogConfig.skin || 'default']
         return animations
+    }
+
+    preloadAnimationSprites(): void {
+        for (const animation of Object.values(this.animations())) {
+            const preload = document.createElement('link')
+            preload.rel = 'preload'
+            preload.as = 'image'
+            preload.href = spriteUrl(this.hedgehogConfig.skin || 'default', animation.img)
+            document.head.appendChild(preload)
+        }
     }
 
     private accessories(): AccessoryInfo[] {
@@ -838,9 +849,11 @@ export class HedgehogActor {
                         ))}
                         {this.overlayAnimation ? (
                             <div
-                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] rendering-pixelated`}
+                                className="absolute top-0 left-0 rendering-pixelated"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
                                     backgroundPosition: `-${
                                         (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
@@ -946,7 +959,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     useEffect(() => {
         onPositionChange?.(actor)
-    }, [actor.x, actor.y])
+    }, [actor.x, actor.y, actor.direction])
 
     const onClick = (): void => {
         !actor.isDragging && _onClick?.(actor)

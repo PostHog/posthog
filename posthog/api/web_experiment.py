@@ -58,14 +58,13 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         for name, variant in variants.items():
             if variant.get("rollout_percentage") is None:
                 raise ValidationError(f"Experiment variant '{name}' does not have any rollout percentage")
-            transforms = variant.get("transforms")
-            if transforms is None:
-                raise ValidationError(f"Experiment variant '{name}' does not have any element transforms")
-            for idx, transform in enumerate(transforms):
-                if transform.get("selector") is None:
-                    raise ValidationError(
-                        f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
-                    )
+            if name != "control":
+                transforms = variant.get("transforms", {})
+                for idx, transform in enumerate(transforms):
+                    if transform.get("selector") is None:
+                        raise ValidationError(
+                            f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
+                        )
 
         return attrs
 
@@ -99,6 +98,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                 "name": f'Feature Flag for Experiment {validated_data["name"]}',
                 "filters": filters,
                 "active": False,
+                "creation_context": "web_experiments",
             },
             context=self.context,
         )
@@ -187,7 +187,10 @@ def web_experiments(request: Request):
             )
 
         result = WebExperimentsAPISerializer(
-            WebExperiment.objects.filter(team_id=team.id).exclude(archived=True).select_related("feature_flag"),
+            WebExperiment.objects.filter(team_id=team.id)
+            .exclude(archived=True)
+            .exclude(end_date__isnull=False)
+            .select_related("feature_flag"),
             many=True,
         ).data
 

@@ -5,18 +5,17 @@ import {
     itemSizeInfo,
 } from 'scenes/session-recordings/apm/performance-event-utils'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { PerformanceEvent, RecordingEventType, SessionRecordingPlayerTab } from '~/types'
+import { FilterableInspectorListItemTypes, PerformanceEvent, RecordingEventType } from '~/types'
 
 import type { performanceEventDataLogicType } from './performanceEventDataLogicType'
 
 export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.NETWORK
+    type: FilterableInspectorListItemTypes.NETWORK
     data: PerformanceEvent
 }
 
@@ -105,12 +104,7 @@ export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
     key((props: PerformanceEventDataLogicProps) => `${props.key}-${props.sessionRecordingId}`),
     connect((props: PerformanceEventDataLogicProps) => ({
         actions: [],
-        values: [
-            playerSettingsLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
-            sessionRecordingDataLogic(props),
-            ['sessionPlayerData', 'webVitalsEvents'],
-        ],
+        values: [sessionRecordingDataLogic(props), ['sessionPlayerData', 'webVitalsEvents']],
     })),
     selectors(() => ({
         allPerformanceEvents: [

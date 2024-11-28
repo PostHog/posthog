@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from posthog.test.base import clean_varying_query_parts
+
 
 def pretty_print_in_tests(query: str, team_id: int) -> str:
     query = (
@@ -27,7 +29,7 @@ def pretty_print_response_in_tests(response: Any, team_id: int) -> str:
     clickhouse = response.clickhouse
     hogql = response.hogql
     query = "-- ClickHouse\n" + clickhouse + "\n\n-- HogQL\n" + hogql
-    return pretty_print_in_tests(query, team_id)
+    return clean_varying_query_parts(pretty_print_in_tests(query, team_id), False)
 
 
 def pretty_dataclasses(obj, seen=None, indent=0):

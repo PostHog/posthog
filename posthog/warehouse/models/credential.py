@@ -15,6 +15,10 @@ class DataWarehouseCredential(CreatedMetaFields, UUIDModel):
 
 
 @database_sync_to_async
+def aget_or_create_datawarehouse_credential(team_id, access_key, access_secret) -> DataWarehouseCredential:
+    return get_or_create_datawarehouse_credential(team_id, access_key, access_secret)
+
+
 def get_or_create_datawarehouse_credential(team_id, access_key, access_secret) -> DataWarehouseCredential:
     credential, _ = DataWarehouseCredential.objects.get_or_create(
         team_id=team_id, access_key=access_key, access_secret=access_secret

@@ -1,10 +1,15 @@
-import { IconAIText, IconCode, IconMessage } from '@posthog/icons'
+import { IconAIText, IconCheckCircle, IconCode, IconMessage } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonSegmentedButton, LemonSegmentedButtonOption } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useState } from 'react'
 
-import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import {
+    ElementSelectorButtonTypes,
+    ElementSelectorType,
+    experimentsTabLogic,
+} from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
@@ -12,39 +17,128 @@ interface WebExperimentTransformFieldProps {
     tIndex: number
     transform: WebExperimentTransform
 }
-type elementTransformKind = 'html' | 'text' | 'css'
-const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind>[] = [
-    {
-        value: 'html',
-        label: 'HTML',
-        icon: <IconCode />,
-    },
-    {
-        value: 'text',
-        label: 'Text',
-        icon: <IconMessage />,
-    },
-    {
-        value: 'css',
-        label: 'CSS',
-        icon: <IconAIText />,
-    },
-]
 
 export function WebExperimentTransformField({
     variant,
     tIndex,
     transform,
 }: WebExperimentTransformFieldProps): JSX.Element {
-    const [transformSelected, setTransformSelected] = useState(transform.html ? 'html' : 'text')
-    const { experimentForm } = useValues(experimentsTabLogic)
-    const { setExperimentFormValue } = useActions(experimentsTabLogic)
+    const [transformSelected, setTransformSelected] = useState(
+        transform.html && transform.html.length > 0 ? 'html' : 'text'
+    )
+    const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
+    const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
+        useActions(experimentsTabLogic)
+
     return (
         <>
+            <div className="flex-1 mb-2">
+                <LemonButton
+                    size="small"
+                    type={inspectingElement === tIndex && selectedVariant === variant ? 'primary' : 'secondary'}
+                    sideAction={{
+                        dropdown: {
+                            overlay: (
+                                <>
+                                    {Object.entries(ElementSelectorButtonTypes).map(([key, value]) => {
+                                        return (
+                                            <LemonButton
+                                                key={'element-selector-' + key}
+                                                fullWidth
+                                                type={
+                                                    inspectingElement === tIndex &&
+                                                    selectedVariant === variant &&
+                                                    selectedElementType === key
+                                                        ? 'primary'
+                                                        : 'tertiary'
+                                                }
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    selectVariant(variant)
+                                                    selectElementType(key as ElementSelectorType)
+                                                    inspectForElementWithIndex(
+                                                        variant,
+                                                        key as ElementSelectorType,
+                                                        inspectingElement === tIndex ? null : tIndex
+                                                    )
+                                                }}
+                                            >
+                                                {value}
+                                            </LemonButton>
+                                        )
+                                    })}
+                                </>
+                            ),
+                            placement: 'bottom',
+                            matchWidth: true,
+                        },
+                    }}
+                >
+                    {transform.selector ? 'Change element' : 'Select element'}
+                </LemonButton>
+            </div>
             <LemonSegmentedButton
                 fullWidth
-                options={ELEMENT_TRANSFORM_OPTIONS}
-                onChange={(e) => setTransformSelected(e)}
+                options={[
+                    {
+                        value: 'html',
+                        label: 'HTML',
+                        icon:
+                            transform.html && transform.html.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconCode />
+                            ),
+                    },
+                    {
+                        value: 'text',
+                        label: 'Text',
+                        icon:
+                            transform.text && transform.text.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconMessage />
+                            ),
+                    },
+                    {
+                        value: 'css',
+                        label: 'CSS',
+                        icon:
+                            transform.css && transform.css.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconAIText />
+                            ),
+                    },
+                ]}
+                onChange={(e) => {
+                    setTransformSelected(e)
+                    if (experimentForm.variants) {
+                        const webVariant = experimentForm.variants[variant]
+                        if (webVariant && transform.selector) {
+                            const element = document.querySelector(transform.selector) as HTMLElement
+                            switch (e) {
+                                case 'html':
+                                    if (transform.html === '') {
+                                        transform.html = element.innerHTML
+                                    }
+                                    break
+
+                                case 'text':
+                                    if (transform.text === '' && element.textContent) {
+                                        transform.text = element.textContent
+                                    }
+                                    break
+                                case 'css':
+                                    if (transform.css === '' && element.hasAttribute('style')) {
+                                        transform.css = element.getAttribute('style')!
+                                    }
+                                    break
+                            }
+                            setExperimentFormValue('variants', experimentForm.variants)
+                        }
+                    }
+                }}
                 value={transformSelected}
             />
             {transformSelected == 'text' && (
@@ -52,13 +146,11 @@ export function WebExperimentTransformField({
                     onChange={(value) => {
                         if (experimentForm.variants) {
                             const webVariant = experimentForm.variants[variant]
-                            if (webVariant) {
+                            if (webVariant && transform.selector) {
                                 webVariant.transforms[tIndex].text = value
-                                if (transform.selector) {
-                                    const element = document.querySelector(transform.selector) as HTMLElement
-                                    if (element) {
-                                        element.innerText = value
-                                    }
+                                const element = document.querySelector(transform.selector) as HTMLElement
+                                if (element) {
+                                    element.innerText = value
                                 }
                             }
                         }
@@ -74,13 +166,11 @@ export function WebExperimentTransformField({
                         transform.html = value
                         if (experimentForm.variants) {
                             const webVariant = experimentForm.variants[variant]
-                            if (webVariant) {
+                            if (webVariant && transform.selector) {
                                 webVariant.transforms[tIndex].html = value
-                                if (transform.selector) {
-                                    const element = document.querySelector(transform.selector) as HTMLElement
-                                    if (element) {
-                                        element.innerHTML = value
-                                    }
+                                const element = document.querySelector(transform.selector) as HTMLElement
+                                if (element) {
+                                    element.innerHTML = value
                                 }
                             }
                         }
@@ -95,19 +185,15 @@ export function WebExperimentTransformField({
                     onChange={(value) => {
                         if (experimentForm.variants) {
                             const webVariant = experimentForm.variants[variant]
-                            if (webVariant) {
-                                webVariant.transforms[tIndex].className = value
-                                if (transform.selector) {
-                                    const element = document.querySelector(transform.selector) as HTMLElement
-                                    if (element) {
-                                        element.className = value
-                                    }
-                                }
+                            if (webVariant && transform.selector) {
+                                webVariant.transforms[tIndex].css = value
+                                const element = document.querySelector(transform.selector) as HTMLElement
+                                element.setAttribute('style', value)
                             }
                         }
                         setExperimentFormValue('variants', experimentForm.variants)
                     }}
-                    value={transform.className}
+                    value={transform.css || ''}
                 />
             )}
         </>

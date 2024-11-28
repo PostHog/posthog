@@ -654,7 +654,9 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_event_count(result[2]), 0)
 
     def test_trends_math_group_persons(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="Company", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="Company", group_type_index=0
+        )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="Hooli")
         create_group(team_id=self.team.pk, group_type_index=0, group_key="Pied Piper")
 
@@ -695,7 +697,9 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_event_count(result[1]), 1)
 
     def test_trends_math_group_persons_filters_empty(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="Company", group_type_index=0)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="Company", group_type_index=0
+        )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="Hooli")
         create_group(team_id=self.team.pk, group_type_index=0, group_key="")
 
@@ -1295,8 +1299,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
         self.assertEqual(len(result), 2)
-        self.assertEqual(set(result[0][0]["distinct_ids"]), {"anon3"})
-        self.assertEqual(set(result[1][0]["distinct_ids"]), {"anon2", "p2"})
+        self.assertCountEqual([x[0]["distinct_ids"] for x in result], (["anon3"], ["anon2", "p2"]))
 
     def test_trends_math_first_time_for_user_matches_first_event_only(self):
         timestamp = "2020-01-11T12:00:00Z"

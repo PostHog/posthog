@@ -11,7 +11,7 @@ import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionType } from '~/types'
+import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
 import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
 
@@ -21,11 +21,11 @@ export interface Fuse extends FuseClass<HogFunctionType> {}
 export type HogFunctionListFilters = {
     search?: string
     showPaused?: boolean
-    showHidden?: boolean
     filters?: Record<string, any>
 }
 
 export type HogFunctionListLogicProps = {
+    type: HogFunctionTypeType
     defaultFilters?: HogFunctionListFilters
     forceFilters?: HogFunctionListFilters
     syncFiltersWithUrl?: boolean
@@ -69,14 +69,15 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             },
         ],
     })),
-    loaders(({ values, actions }) => ({
-        _hogFunctions: [
+    loaders(({ values, actions, props }) => ({
+        hogFunctions: [
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
                     return (
                         await api.hogFunctions.list({
                             filters: values.filters?.filters,
+                            type: props.type,
                         })
                     ).results
                 },
@@ -114,18 +115,13 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                     ]
                 },
                 addHogFunction: ({ hogFunction }) => {
-                    return [hogFunction, ...values._hogFunctions]
+                    return [hogFunction, ...values.hogFunctions]
                 },
             },
         ],
     })),
     selectors({
-        loading: [(s) => [s._hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
-        hogFunctions: [
-            (s) => [s._hogFunctions, s.filters],
-            (hogFunctions, filters) =>
-                filters.showHidden ? hogFunctions : hogFunctions.filter((hf) => !hf.name.includes('[CDP-TEST-HIDDEN]')),
-        ],
+        loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
         sortedHogFunctions: [
             (s) => [s.hogFunctions],
             (hogFunctions): HogFunctionType[] => {

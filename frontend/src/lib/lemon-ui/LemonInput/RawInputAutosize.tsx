@@ -56,9 +56,7 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
                     boxSizing: 'content-box',
-                    // ResizeObserver is completely unreliable when taking UI snapshots,
-                    // so we won't be using its calculations here
-                    width: !global.process?.env.STORYBOOK ? `${inputWidth}px` : '100%',
+                    width: inputWidth,
                     maxWidth: '100%',
                 }}
                 {...inputProps}

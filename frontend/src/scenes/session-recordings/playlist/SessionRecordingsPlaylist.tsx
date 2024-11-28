@@ -1,4 +1,3 @@
-import { IconGear } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -8,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -20,7 +20,10 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
+import {
+    SessionRecordingPlaylistBottomSettings,
+    SessionRecordingsPlaylistTopSettings,
+} from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
@@ -44,6 +47,8 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
 
     const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
+
+    const { playlistOpen } = useValues(playerSettingsLogic)
 
     const notebookNode = useNotebookNode()
 
@@ -90,20 +95,15 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     <RecordingsUniversalFilters filters={filters} setFilters={setFilters} className="border" />
                 )}
                 <Playlist
+                    isCollapsed={!playlistOpen}
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
-                    title="Recordings"
+                    title="Results"
                     embedded={!!notebookNode}
                     sections={sections}
                     onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
-                    headerActions={[
-                        {
-                            key: 'settings',
-                            tooltip: 'Playlist settings',
-                            content: <SessionRecordingsPlaylistSettings />,
-                            icon: <IconGear />,
-                        },
-                    ]}
+                    headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
+                    footerActions={<SessionRecordingPlaylistBottomSettings />}
                     loading={sessionRecordingsResponseLoading}
                     onScrollListEdge={(edge) => {
                         if (edge === 'top') {
@@ -201,8 +201,8 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                     the Web SDK
                 </Link>
                 ,{' '}
-                <Link to="https://posthog.com/docs/libraries/android" target="_blank">
-                    the Android SDK
+                <Link to="https://posthog.com/docs/libraries" target="_blank">
+                    and the Mobile SDKs (Android, iOS, React Native and Flutter)
                 </Link>
             </p>
         </LemonBanner>

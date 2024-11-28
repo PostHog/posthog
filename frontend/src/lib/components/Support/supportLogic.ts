@@ -141,7 +141,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'data_warehouse',
                 'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (beta)',
+                label: 'Data warehouse',
             },
             {
                 value: 'feature_flags',
@@ -171,7 +171,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
-                label: 'Web Analytics (beta)',
+                label: 'Web Analytics',
             },
         ],
     },

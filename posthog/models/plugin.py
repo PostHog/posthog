@@ -1,8 +1,9 @@
 import datetime
 import os
+import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Optional, cast
+from typing import Any, Optional, cast, Literal
 from uuid import UUID
 
 from django.conf import settings
@@ -302,6 +303,24 @@ class PluginLogEntryType(StrEnum):
     ERROR = "ERROR"
 
 
+def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
+    from posthog.settings.base_variables import BASE_DIR
+
+    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
+    if type not in ["site", "frontend"]:
+        raise Exception('Invalid type. Must be "site" or "frontend".')
+
+    process = subprocess.Popen(
+        ["node", transpiler_path, "--type", type], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    stdout, stderr = process.communicate(input=input_string.encode())
+
+    if process.returncode != 0:
+        error = stderr.decode()
+        raise Exception(error)
+    return stdout.decode()
+
+
 class PluginSourceFileManager(models.Manager):
     def sync_from_plugin_archive(
         self, plugin: Plugin, plugin_json_parsed: Optional[dict[str, Any]] = None
@@ -318,8 +337,10 @@ class PluginSourceFileManager(models.Manager):
             plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
+
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
         filenames_to_delete = []
+
         # Save plugin.json
         plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
             plugin=plugin,
@@ -331,36 +352,58 @@ class PluginSourceFileManager(models.Manager):
                 "error": None,
             },
         )
+
         # Save frontend.tsx
         frontend_tsx_instance: Optional[PluginSourceFile] = None
         if frontend_tsx is not None:
+            transpiled = None
+            status = None
+            error = None
+            try:
+                transpiled = transpile(frontend_tsx, type="site")
+                status = PluginSourceFile.Status.TRANSPILED
+            except Exception as e:
+                error = str(e)
+                status = PluginSourceFile.Status.ERROR
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
                 filename="frontend.tsx",
                 defaults={
                     "source": frontend_tsx,
-                    "transpiled": None,
-                    "status": None,
-                    "error": None,
+                    "transpiled": transpiled,
+                    "status": status,
+                    "error": error,
                 },
             )
         else:
             filenames_to_delete.append("frontend.tsx")
-        # Save frontend.tsx
+
+        # Save site.ts
         site_ts_instance: Optional[PluginSourceFile] = None
         if site_ts is not None:
+            transpiled = None
+            status = None
+            error = None
+            try:
+                transpiled = transpile(site_ts, type="site")
+                status = PluginSourceFile.Status.TRANSPILED
+            except Exception as e:
+                error = str(e)
+                status = PluginSourceFile.Status.ERROR
+
             site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
                 filename="site.ts",
                 defaults={
                     "source": site_ts,
-                    "transpiled": None,
-                    "status": None,
-                    "error": None,
+                    "transpiled": transpiled,
+                    "status": status,
+                    "error": error,
                 },
             )
         else:
             filenames_to_delete.append("site.ts")
+
         # Save index.ts
         index_ts_instance: Optional[PluginSourceFile] = None
         if index_ts is not None:
@@ -378,10 +421,13 @@ class PluginSourceFileManager(models.Manager):
             )
         else:
             filenames_to_delete.append("index.ts")
+
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
+
         # Trigger plugin server reload and code transpilation
         plugin.save()
+
         return (
             plugin_json_instance,
             index_ts_instance,

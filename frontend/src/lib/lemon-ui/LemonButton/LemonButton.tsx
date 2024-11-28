@@ -26,6 +26,8 @@ export interface LemonButtonPropsBase
         | 'onMouseEnter'
         | 'onMouseLeave'
         | 'onKeyDown'
+        | 'className'
+        | 'style'
         | 'role'
         | 'aria-haspopup'
     > {
@@ -41,8 +43,6 @@ export interface LemonButtonPropsBase
     disableClientSideRouting?: boolean
     /** If set clicking this button will open the page in a new tab. */
     targetBlank?: boolean
-    /** External URL to link to. */
-    className?: string
 
     /** Icon displayed on the left. */
     icon?: React.ReactElement | null

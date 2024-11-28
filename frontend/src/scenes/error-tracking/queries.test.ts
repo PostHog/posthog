@@ -1,4 +1,9 @@
-import { generateSparklineProps, parseSparklineSelection, SPARKLINE_CONFIGURATIONS } from './queries'
+import {
+    generateSparklineProps,
+    parseSparklineSelection,
+    SPARKLINE_CONFIGURATIONS,
+    stringifyFingerprints,
+} from './queries'
 
 describe('generateSparklineProps', () => {
     beforeAll(() => {
@@ -129,5 +134,25 @@ describe('parseSparklineSelection', () => {
         expect(parseSparklineSelection('4y')).toEqual({ value: 48, displayAs: 'month' })
         expect(parseSparklineSelection('10m')).toEqual({ value: 10, displayAs: 'month' })
         expect(parseSparklineSelection('6w')).toEqual({ value: 6, displayAs: 'week' })
+    })
+})
+
+describe('stringifyFingerprints', () => {
+    it('works for basic case', async () => {
+        expect(stringifyFingerprints([['a', 'b', 'c']])).toEqual("[['a','b','c']]")
+        expect(stringifyFingerprints([['a']])).toEqual("[['a']]")
+        expect(stringifyFingerprints([])).toEqual('[]')
+    })
+
+    it('escapes single quotes correctly', async () => {
+        expect(stringifyFingerprints([["a'"]])).toEqual("[['a\\'']]")
+        expect(stringifyFingerprints([["a'", "b'"]])).toEqual("[['a\\'','b\\'']]")
+        expect(stringifyFingerprints([["a'", "b'"], ["c'"]])).toEqual("[['a\\'','b\\''],['c\\'']]")
+    })
+
+    it('escapes double quotes correctly', async () => {
+        expect(stringifyFingerprints([['a"']])).toEqual("[['a\"']]")
+        expect(stringifyFingerprints([['a"', 'b"']])).toEqual("[['a\"','b\"']]")
+        expect(stringifyFingerprints([['a"', 'b"'], ['c"']])).toEqual("[['a\"','b\"'],['c\"']]")
     })
 })

@@ -318,6 +318,7 @@ class TestBillingAPI(APILicensedTest):
 
         assert decoded_token == {
             "aud": "posthog:license-key",
+            "distinct_id": str(self.user.distinct_id),
             "exp": 1640996100,
             "id": self.license.key.split("::")[0],
             "organization_id": str(self.organization.id),

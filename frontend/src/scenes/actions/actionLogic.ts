@@ -19,6 +19,7 @@ export const actionLogic = kea<actionLogicType>([
     key((props) => props.id || 'new'),
     path((key) => ['scenes', 'actions', 'actionLogic', key]),
     actions(() => ({
+        updateAction: (action: Partial<ActionType>) => ({ action }),
         checkIsFinished: (action) => ({ action }),
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
         setIsComplete: (isComplete) => ({ isComplete }),
@@ -47,6 +48,12 @@ export const actionLogic = kea<actionLogicType>([
         ],
     })),
     reducers(() => ({
+        action: [
+            null as ActionType | null,
+            {
+                updateAction: (state, { action }) => (state ? { ...state, ...action } : null),
+            },
+        ],
         pollTimeout: [
             null as number | null,
             {
@@ -70,7 +77,7 @@ export const actionLogic = kea<actionLogicType>([
             (action, inProgressName): Breadcrumb[] => [
                 {
                     key: Scene.DataManagement,
-                    name: `Data Management`,
+                    name: `Data management`,
                     path: urls.eventDefinitions(),
                 },
                 {

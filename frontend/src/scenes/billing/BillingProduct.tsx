@@ -102,6 +102,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}
+            data-attr={`billing-product-${product.type}`}
         >
             <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
                 <div className="border-b border-border rounded-t bg-bg-3000 p-4">

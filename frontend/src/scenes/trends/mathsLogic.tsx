@@ -4,7 +4,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { BaseMathType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
+import { BaseMathType, CountPerActorMathType, FunnelMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import type { mathsLogicType } from './mathsLogicType'
 
@@ -23,6 +23,50 @@ export interface MathDefinition {
     shortName: string
     description: string | JSX.Element
     category: MathCategory
+}
+
+export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
+    [FunnelMathType.AnyMatch]: {
+        name: 'Any events match',
+        shortName: 'any event',
+        description: <>Any event of this type that matches the filter will count towards the funnel</>,
+        category: MathCategory.EventCount,
+    },
+    [FunnelMathType.FirstTimeForUser]: {
+        name: 'First event for user',
+        shortName: 'first event',
+        description: (
+            <>
+                Only the first time the user performed this event will count towards the funnel, and only if it matches
+                the event filters.
+                <br />
+                <br />
+                <i>
+                    Example: If the we are looking for pageview events to posthog.com/about, but the user's first
+                    pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
+                </i>
+            </>
+        ),
+        category: MathCategory.EventCount,
+    },
+    [FunnelMathType.FirstTimeForUserWithFilters]: {
+        name: 'First matching event for user',
+        shortName: 'first matching event',
+        description: (
+            <>
+                The first time the user performed this event that matches the event filters will count towards the
+                funnel.
+                <br />
+                <br />
+                <i>
+                    Example: If the we are looking for pageview events to posthog.com/about, and the user's first
+                    pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
+                    event from posthog.com/about
+                </i>
+            </>
+        ),
+        category: MathCategory.EventCount,
+    },
 }
 
 export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
@@ -318,6 +362,15 @@ export const mathsLogic = kea<mathsLogicType>([
                     ...HOGQL_MATH_DEFINITIONS,
                 }
                 return filterMathTypesUnderFeatureFlags(allMathDefinitions, featureFlags)
+            },
+        ],
+        funnelMathDefinitions: [
+            (s) => [s.featureFlags],
+            (featureFlags): Record<string, MathDefinition> => {
+                const funnelMathDefinitions: Record<string, MathDefinition> = {
+                    ...FUNNEL_MATH_DEFINITIONS,
+                }
+                return filterMathTypesUnderFeatureFlags(funnelMathDefinitions, featureFlags)
             },
         ],
         // Static means the options do not have nested selectors (like math function)

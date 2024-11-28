@@ -40,6 +40,7 @@ export function FeatureFlagReleaseConditions({
     filters,
     onChange,
     hideMatchOptions,
+    nonEmptyFeatureFlagVariants,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
@@ -77,6 +78,8 @@ export function FeatureFlagReleaseConditions({
 
     const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
     const filterGroups: FeatureFlagGroupType[] = (isSuper ? filters?.super_groups : filters?.groups) || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
@@ -245,6 +248,7 @@ export function FeatureFlagReleaseConditions({
                                         : null
                                 }
                                 exactMatchFeatureFlagCohortOperators={true}
+                                hideBehavioralCohorts={true}
                             />
                         </div>
                     )}
@@ -334,7 +338,7 @@ export function FeatureFlagReleaseConditions({
                             </div>
                         </div>
                     )}
-                    {nonEmptyVariants.length > 0 && (
+                    {featureFlagVariants.length > 0 && (
                         <>
                             <LemonDivider className="my-3" />
                             {readOnly ? (
@@ -359,7 +363,7 @@ export function FeatureFlagReleaseConditions({
                                             allowClear={true}
                                             value={group.variant}
                                             onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
-                                            options={nonEmptyVariants.map((variant) => ({
+                                            options={featureFlagVariants.map((variant) => ({
                                                 label: variant.key,
                                                 value: variant.key,
                                             }))}
@@ -453,8 +457,17 @@ export function FeatureFlagReleaseConditions({
                                 <>
                                     <h3 className="l3">Release conditions</h3>
                                     <div className="text-muted mb-4">
-                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
-                                        that condition sets are rolled out independently of each other.
+                                        Specify {aggregationTargetName} for flag release. Condition sets roll out
+                                        independently.
+                                        {aggregationTargetName === 'users' && (
+                                            <>
+                                                {' '}
+                                                Cohort-based targeting{' '}
+                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
+                                                    doesn't support dynamic behavioral cohorts.
+                                                </Link>{' '}
+                                            </>
+                                        )}
                                     </div>
                                 </>
                             )}

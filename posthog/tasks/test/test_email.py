@@ -191,14 +191,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
 
         self._create_user("test2@posthog.com")
-        self.user.partial_notification_settings = {"batch_export_run_failure": False}
+        self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
         send_batch_export_run_failure(batch_export_run.id)
         # Should only be sent to user2
         assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
 
-        self.user.partial_notification_settings = {"batch_export_run_failure": True}
+        self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
         send_batch_export_run_failure(batch_export_run.id)

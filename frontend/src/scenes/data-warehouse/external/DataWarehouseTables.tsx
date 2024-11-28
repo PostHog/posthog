@@ -54,9 +54,10 @@ export const DataWarehouseTables = ({ insightProps }: DataWarehousetTablesProps)
 
 interface DatabaseTableTreeProps {
     inline?: boolean
+    collapsible?: boolean
 }
 
-export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
+export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: DatabaseTableTreeProps): JSX.Element => {
     const {
         dataWarehouseTablesBySourceType,
         posthogTables,
@@ -81,7 +82,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             return <></>
         }
 
-        if (table.type === 'view' || table.type === 'data_warehouse') {
+        if (table.type === 'view' || table.type === 'materialized_view') {
             return (
                 <LemonButton
                     data-attr="schema-list-item-delete"
@@ -95,10 +96,6 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     Delete
                 </LemonButton>
             )
-        }
-
-        if (table.type === 'posthog') {
-            return <></>
         }
 
         return <></>
@@ -135,7 +132,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             >
                 Add join
             </LemonButton>
-            {table.type == 'view' && (
+            {(table.type == 'view' || table.type == 'materialized_view') && (
                 <LemonButton
                     onClick={() => {
                         router.actions.push(urls.dataWarehouseView(table.id))
@@ -297,13 +294,13 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     return (
         <div
             className={clsx(
-                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
+                `bg-bg-light rounded space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
             {collapsed ? (
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
-            ) : (
+            ) : collapsible ? (
                 <>
                     <LemonButton
                         size="xsmall"
@@ -314,6 +311,11 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     >
                         <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
+                    <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+                </>
+            ) : (
+                <>
+                    <span className="text-muted-alt tracking-wider font-normal">Sources</span>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}
@@ -336,7 +338,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     setIsOpen={setIsDeleteModalOpen}
                     onDelete={() => {
                         if (selectedRow) {
-                            if (selectedRow.type === 'view') {
+                            if (selectedRow.type === 'view' || selectedRow.type === 'materialized_view') {
                                 deleteDataWarehouseSavedQuery(selectedRow.id)
                             } else {
                                 deleteDataWarehouseTable(selectedRow.id)

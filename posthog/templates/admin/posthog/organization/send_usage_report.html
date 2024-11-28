@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block content %}
+<div id="content-main">
+    <form method="post">
+        <p>The date is the day that the usage report would have been run, so is one day past the date where usage reports are missing.
+            <br/>For instance, if we had 0 usage reports on May 11, the date you'd use is actually May 12 (because usage reports are reporting usage for the previous day).
+            <br/>Read more <b><a href="https://posthog.com/docs/advanced/usage-reports" target="_blank">here</a></b>.</p>
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            {% for field in form %}
+                <div class="form-row">
+                    {{ field.errors }}
+                    {{ field.label_tag }} {{ field }}
+                </div>
+            {% endfor %}
+        </fieldset>
+        <div class="submit-row">
+            <input type="submit" value="Send Usage Report" class="default" name="_send_report">
+        </div>
+    </form>
+</div>
+{% endblock %}

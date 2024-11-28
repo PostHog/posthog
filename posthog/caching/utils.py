@@ -1,10 +1,9 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, Union
 
-from dateutil.parser import parser, isoparse
-
 import posthoganalytics
+from dateutil.parser import isoparse, parser
 
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
@@ -125,9 +124,10 @@ class ThresholdMode(Enum):
     LEGACY = "legacy"
     DEFAULT = "default"
     LAZY = "lazy"
+    AI = "ai"
 
 
-staleness_threshold_map = {
+staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
     ThresholdMode.DEFAULT: {
         None: timedelta(minutes=1),
         "minute": timedelta(seconds=15),
@@ -143,6 +143,9 @@ staleness_threshold_map = {
         "day": timedelta(hours=6),
         "week": timedelta(days=1),
         "month": timedelta(days=2),
+    },
+    ThresholdMode.AI: {
+        None: timedelta(hours=1),
     },
 }
 

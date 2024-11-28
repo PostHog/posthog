@@ -1,12 +1,13 @@
 from collections.abc import Callable
+from django.utils import timezone
+from dateutil.relativedelta import relativedelta
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.person import Person
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list, calculate_cohorts
+from posthog.tasks.calculate_cohort import calculate_cohort_from_list, calculate_cohorts, MAX_AGE_MINUTES
 from posthog.test.base import APIBaseTest
 
 
@@ -66,38 +67,28 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             people = Person.objects.filter(cohort__id=cohort.pk)
             self.assertEqual(people.count(), 1)
 
-        def test_calculate_cohorts(self) -> None:
-            FeatureFlag.objects.create(
-                team=self.team,
-                filters={
-                    "groups": [
-                        {
-                            "properties": [{"key": "id", "type": "cohort", "value": 267}],
-                            "rollout_percentage": None,
-                        }
-                    ]
-                },
-                key="default-flag-1",
-                created_by=self.user,
+        @patch("posthog.tasks.calculate_cohort.update_cohort")
+        def test_exponential_backoff(self, patch_update_cohort: MagicMock) -> None:
+            # Exponential backoff
+            Cohort.objects.create(
+                last_calculation=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1),
+                errors_calculating=1,
+                last_error_at=timezone.now() - relativedelta(minutes=60),  # Should be included
+                team_id=self.team.pk,
             )
-
-            FeatureFlag.objects.create(
-                team=self.team,
-                filters={
-                    "groups": [
-                        {
-                            "properties": [
-                                {"key": "id", "type": "cohort", "value": 22},
-                                {"key": "id", "type": "cohort", "value": 35},
-                            ],
-                            "rollout_percentage": None,
-                        }
-                    ]
-                },
-                key="default-flag-2",
-                created_by=self.user,
+            Cohort.objects.create(
+                last_calculation=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1),
+                errors_calculating=5,
+                last_error_at=timezone.now() - relativedelta(minutes=60),  # Should be excluded
+                team_id=self.team.pk,
             )
-
+            # Test empty last_error_at
+            Cohort.objects.create(
+                last_calculation=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1),
+                errors_calculating=1,
+                team_id=self.team.pk,
+            )
             calculate_cohorts(5)
+            self.assertEqual(patch_update_cohort.call_count, 2)
 
     return TestCalculateCohort

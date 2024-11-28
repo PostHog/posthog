@@ -63,6 +63,7 @@ const HOG_TEMPLATE: HogFunctionTemplateType = {
     ],
     status: 'beta',
     id: 'template-webhook',
+    type: 'destination',
     name: 'HTTP Webhook',
     description: 'Sends a webhook templated by the incoming event data',
     hog: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});\n\nif (inputs.debug) {\n  print('Response', res.status, res.body);\n}",
@@ -170,6 +171,7 @@ describe('hogFunctionConfigurationLogic', () => {
             expect(logic.values.template).toEqual(HOG_TEMPLATE)
             expect(logic.values.configuration).toEqual({
                 name: HOG_TEMPLATE.name,
+                type: HOG_TEMPLATE.type,
                 description: HOG_TEMPLATE.description,
                 inputs_schema: HOG_TEMPLATE.inputs_schema,
                 filters: null,
@@ -182,6 +184,9 @@ describe('hogFunctionConfigurationLogic', () => {
                             event: '{event}',
                             person: '{person}',
                         },
+                    },
+                    debug: {
+                        value: false,
                     },
                 },
                 enabled: true,

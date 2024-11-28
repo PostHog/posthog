@@ -24,18 +24,18 @@ from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatu
 from .cohort import Cohort, CohortPeople
 from .comment import Comment
 from .dashboard import Dashboard
+from .dashboard_templates import DashboardTemplate
 from .dashboard_tile import DashboardTile, Text
 from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import ErrorTrackingGroup
+from .error_tracking import ErrorTrackingGroup, ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
-from .web_experiment import WebExperiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .feedback.survey import Survey
@@ -62,6 +62,7 @@ from .plugin import (
     PluginLogEntry,
     PluginSourceFile,
 )
+from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
@@ -75,6 +76,7 @@ from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
+from .web_experiment import WebExperiment
 
 __all__ = [
     "AlertConfiguration",
@@ -93,12 +95,15 @@ __all__ = [
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
+    "DashboardTemplate",
     "DeletionType",
     "EarlyAccessFeature",
     "Element",
     "ElementGroup",
     "Entity",
     "ErrorTrackingGroup",
+    "ErrorTrackingStackFrame",
+    "ErrorTrackingSymbolSet",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -116,6 +121,7 @@ __all__ = [
     "InsightViewed",
     "InstanceSetting",
     "Integration",
+    "InviteExpiredException",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
@@ -134,6 +140,7 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
+    "ProductIntent",
     "Project",
     "Property",
     "PropertyDefinition",

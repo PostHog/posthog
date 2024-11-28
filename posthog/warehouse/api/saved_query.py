@@ -1,9 +1,10 @@
 from typing import Any
+from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
-from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 
@@ -20,6 +21,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
 import uuid
+
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +95,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             try:
                 view.columns = view.get_columns()
                 view.external_tables = view.s3_tables
+                view.status = DataWarehouseSavedQuery.Status.MODIFIED
             except RecursionError:
                 raise serializers.ValidationError("Model contains a cycle")
 
@@ -153,8 +156,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
-        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
-        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
+
+        for join in DataWarehouseJoin.objects.filter(
+            Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
+        ).exclude(deleted=True):
+            join.soft_delete()
+
+        if instance.table is not None:
+            instance.table.soft_delete()
+
         self.perform_destroy(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -168,6 +178,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         saved_query = self.get_object()
 
         temporal = sync_connect()
+
         inputs = RunWorkflowInputs(
             team_id=saved_query.team_id,
             select=[Selector(label=saved_query.id.hex, ancestors=ancestors, descendants=descendants)],

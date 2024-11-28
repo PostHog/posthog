@@ -28,7 +28,7 @@
     position: relative; // For arrow
     flex-grow: 1;
     max-width: 100%;
-    overflow: hidden;
+    overflow: visible; // Explicitly `visible`. We can't set `hidden`, because that would hide the popover arrow
     background: var(--bg-light);
     border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);

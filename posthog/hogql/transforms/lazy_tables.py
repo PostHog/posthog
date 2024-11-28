@@ -2,6 +2,7 @@ import dataclasses
 from typing import Optional, cast, Literal
 
 from posthog.hogql import ast
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
 from posthog.hogql.errors import ResolutionError
@@ -13,7 +14,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 # This mutates the nodes
 def resolve_lazy_tables(
-    node: ast.Expr,
+    node: _T_AST,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]],
     context: HogQLContext,

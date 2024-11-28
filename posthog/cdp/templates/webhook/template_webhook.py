@@ -3,22 +3,28 @@ from posthog.cdp.templates.hog_function_template import SUB_TEMPLATE_COMMON, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-webhook",
     name="HTTP Webhook",
     description="Sends a webhook templated by the incoming event data",
     icon_url="/static/posthog-icon.svg",
     category=["Custom"],
     hog="""
-let res := fetch(inputs.url, {
+let payload := {
   'headers': inputs.headers,
   'body': inputs.body,
   'method': inputs.method
-});
+}
+
+if (inputs.debug) {
+  print('Request', inputs.url, payload)
+}
+
+let res := fetch(inputs.url, payload);
 
 if (inputs.debug) {
   print('Response', res.status, res.body);
 }
-
 """.strip(),
     inputs_schema=[
         {

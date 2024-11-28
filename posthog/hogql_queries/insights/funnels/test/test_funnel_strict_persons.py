@@ -20,7 +20,9 @@ from posthog.test.test_journeys import journeys_for
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
-class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
+class BaseTestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
+
     def _create_sample_data_multiple_dropoffs(self):
         events_by_person = {}
         for i in range(5):
@@ -265,3 +267,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+
+
+class TestFunnelStrictStepsPersons(BaseTestFunnelStrictStepsPersons):
+    __test__ = True

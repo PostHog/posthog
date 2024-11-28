@@ -16,6 +16,7 @@ import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     CohortType,
+    DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
@@ -220,6 +221,11 @@ export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is 
 export function isDataWarehousePropertyFilter(filter?: AnyFilterLike | null): filter is DataWarehousePropertyFilter {
     return filter?.type === PropertyFilterType.DataWarehouse
 }
+export function isDataWarehousePersonPropertyFilter(
+    filter?: AnyFilterLike | null
+): filter is DataWarehousePropertyFilter {
+    return filter?.type === PropertyFilterType.DataWarehousePersonProperty
+}
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
 }
@@ -252,7 +258,8 @@ export function isPropertyFilterWithOperator(
     | LogEntryPropertyFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
-    | DataWarehousePropertyFilter {
+    | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -264,7 +271,8 @@ export function isPropertyFilterWithOperator(
             isFeaturePropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
             isCohortPropertyFilter(filter) ||
-            isDataWarehousePropertyFilter(filter))
+            isDataWarehousePropertyFilter(filter) ||
+            isDataWarehousePersonPropertyFilter(filter))
     )
 }
 

@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -142,12 +143,12 @@ class ActorsQueryRunner(QueryRunner):
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
-    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> list[str]:
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
         else:
-            select = source_query.select_queries[0].select
+            select = next(extract_select_queries(source_query)).select
 
         for column in select:
             if isinstance(column, ast.Alias) and (column.alias in ("group_key", "actor_id", "person_id")):

@@ -151,12 +151,12 @@ export interface PluginsServerConfig extends CdpConfig {
     CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
-    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
-    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data to for clickhouse ingestion
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
+    EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     // Redis url pretty much only used locally / self hosted
     REDIS_URL: string
     // Redis params for the ingestion services
-    INGESTION_REDIS_PASSWORD: string
     INGESTION_REDIS_HOST: string
     INGESTION_REDIS_PORT: number
     // Redis params for the core posthog (django+celery) services
@@ -390,6 +390,11 @@ export enum JobName {
 export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
+/**
+ * An integer, just like team ID. In fact project ID = ID of its first team, the one was created along with the project.
+ * A branded type here so that we don't accidentally pass a team ID as a project ID, or vice versa.
+ */
+export type ProjectId = Team['id'] & { __brand: 'ProjectId' }
 
 export enum MetricMathOperations {
     Increment = 'increment',
@@ -620,6 +625,7 @@ export interface RawOrganization {
 /** Usable Team model. */
 export interface Team {
     id: number
+    project_id: ProjectId
     uuid: string
     organization_id: string
     name: string
@@ -627,6 +633,7 @@ export interface Team {
     api_token: string
     slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
+    person_processing_opt_out?: boolean
     heatmaps_opt_in: boolean | null
     ingested_event: boolean
     person_display_name_properties: string[] | null
@@ -670,7 +677,7 @@ export interface EventMessage extends BaseEventMessage {
 interface BaseEvent {
     uuid: string
     event: string
-    team_id: number
+    team_id: TeamId
     distinct_id: string
     /** Person UUID. */
     person_id?: string
@@ -702,6 +709,14 @@ export interface RawClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
+export interface RawKafkaEvent extends RawClickHouseEvent {
+    /**
+     * The project ID field is only included in the `clickhouse_events_json` topic, not present in ClickHouse.
+     * That's because we need it in `property-defs-rs` and not elsewhere.
+     */
+    project_id: ProjectId
+}
+
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
     timestamp: DateTime
@@ -730,6 +745,7 @@ export interface PreIngestionEvent {
     eventUuid: string
     event: string
     teamId: TeamId
+    projectId: ProjectId
     distinctId: string
     properties: Properties
     timestamp: ISOTimestamp

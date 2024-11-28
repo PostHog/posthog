@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
@@ -37,8 +36,11 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         switchLatestRuns: (enabled: boolean) => ({ enabled }),
         loadRuns: true,
         retryRun: (run: BatchExportRun) => ({ run }),
+        cancelRun: (run: BatchExportRun) => ({ run }),
         openBackfillModal: true,
         closeBackfillModal: true,
+        setEarliestBackfill: true,
+        unsetEarliestBackfill: true,
     }),
     loaders(({ props, values }) => ({
         runsPaginatedResponse: [
@@ -90,27 +92,40 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 closeBackfillModal: () => false,
             },
         ],
+        isEarliestBackfill: [
+            false,
+            {
+                setEarliestBackfill: () => true,
+                unsetEarliestBackfill: () => false,
+            },
+        ],
     }),
     forms(({ props, actions, values }) => ({
         backfillForm: {
-            defaults: { end_at: dayjs() } as {
+            defaults: {
+                start_at: undefined,
+                end_at: dayjs().tz(teamLogic.values.timezone).hour(0).minute(0).second(0).millisecond(0),
+                earliest_backfill: false,
+            } as {
                 start_at?: Dayjs
                 end_at?: Dayjs
+                earliest_backfill: boolean
             },
-            errors: ({ start_at, end_at }) => ({
-                start_at: !start_at ? 'Start date is required' : undefined,
+
+            errors: ({ start_at, end_at, earliest_backfill }) => ({
+                start_at: !start_at ? (!earliest_backfill ? 'Start date is required' : undefined) : undefined,
                 end_at: !end_at ? 'End date is required' : undefined,
+                earliest_backfill: undefined,
             }),
-            submit: async ({ start_at, end_at }) => {
-                if (
-                    values.batchExportConfig &&
-                    values.batchExportConfig.interval.endsWith('minutes') &&
-                    start_at?.minute() !== undefined &&
-                    end_at?.minute() !== undefined
-                ) {
+
+            submit: async ({ start_at, end_at, earliest_backfill }) => {
+                if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
                     // TODO: Make this generic for all minute frequencies.
                     // Currently, only 5 minute batch exports are supported.
-                    if (!(start_at?.minute() % 5 === 0) || !(end_at?.minute() % 5 === 0)) {
+                    if (
+                        (start_at?.minute() !== undefined && !(start_at?.minute() % 5 === 0)) ||
+                        (end_at?.minute() !== undefined && !(end_at?.minute() % 5 === 0))
+                    ) {
                         lemonToast.error(
                             'Backfilling a 5 minute batch export requires bounds be multiple of five minutes'
                         )
@@ -148,7 +163,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 await new Promise((resolve) => setTimeout(resolve, 1000))
                 await api.batchExports
                     .createBackfill(props.id, {
-                        start_at: start_at?.toISOString() ?? null,
+                        start_at: earliest_backfill ? null : start_at?.toISOString() ?? null,
                         end_at: end_at?.toISOString() ?? null,
                     })
                     .catch((e) => {
@@ -184,12 +199,10 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 return runs.map((run) => {
                     return {
                         ...run,
-                        created_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
-                        data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
-                        data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
-                        last_updated_at: run.last_updated_at
-                            ? dayjsUtcToTimezone(run.last_updated_at, teamLogic.values.timezone)
-                            : undefined,
+                        created_at: dayjs(run.created_at),
+                        data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : undefined,
+                        data_interval_end: dayjs(run.data_interval_end),
+                        last_updated_at: run.last_updated_at ? dayjs(run.last_updated_at) : undefined,
                     }
                 })
             },
@@ -206,24 +219,29 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 const groupedRuns: Record<string, GroupedBatchExportRuns> = {}
 
                 runs.forEach((run) => {
+                    if (!run.data_interval_start) {
+                        // For now, don't include backfill runs in here as it gets
+                        // complicated to sort and group.
+                        return
+                    }
+
                     const key = `${run.data_interval_start}-${run.data_interval_end}`
+
                     if (!groupedRuns[key]) {
                         groupedRuns[key] = {
-                            data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
-                            data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
+                            data_interval_start: dayjs(run.data_interval_start),
+                            data_interval_end: dayjs(run.data_interval_end),
                             runs: [],
-                            last_run_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
+                            last_run_at: dayjs(run.created_at),
                         }
                     }
 
                     groupedRuns[key].runs.push({
                         ...run,
-                        created_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
-                        data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
-                        data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
-                        last_updated_at: run.last_updated_at
-                            ? dayjsUtcToTimezone(run.last_updated_at, teamLogic.values.timezone)
-                            : undefined,
+                        created_at: dayjs(run.created_at),
+                        data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : undefined,
+                        data_interval_end: dayjs(run.data_interval_end),
+                        last_updated_at: run.last_updated_at ? dayjs(run.last_updated_at) : undefined,
                     })
                     groupedRuns[key].runs.sort((a, b) => b.created_at.diff(a.created_at))
                     groupedRuns[key].last_run_at = groupedRuns[key].runs[0].created_at
@@ -243,6 +261,10 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         retryRun: async ({ run }) => {
             await api.batchExports.retryRun(props.id, run.id)
             lemonToast.success('Retry has been scheduled.')
+        },
+        cancelRun: async ({ run }) => {
+            await api.batchExports.cancelRun(props.id, run.id)
+            lemonToast.success('Run has been cancelled.')
         },
     })),
     afterMount(({ actions }) => {

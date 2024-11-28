@@ -112,6 +112,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'createExportJSON',
                 'customRRWebEvents',
                 'fullyLoaded',
+                'wasMarkedViewed',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMouseTail'],
@@ -131,6 +132,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotSourcesFailure',
                 'loadRecordingMetaSuccess',
                 'maybePersistRecording',
+                'setWasMarkedViewed',
+                'markViewed',
             ],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
@@ -812,6 +815,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setEndReached: ({ reached }) => {
             if (reached) {
                 actions.setPause()
+                // TODO: this will be time-gated so won't happen immediately, but we need it to
+                if (!values.wasMarkedViewed) {
+                    actions.markViewed(0)
+                }
             }
         },
         startBuffer: () => {

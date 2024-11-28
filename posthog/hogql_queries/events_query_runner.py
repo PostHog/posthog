@@ -1,7 +1,6 @@
 from datetime import timedelta
 from typing import Optional
 
-from dateutil.parser import isoparse
 from django.db.models import Prefetch
 from django.utils.timezone import now
 import orjson
@@ -114,10 +113,15 @@ class EventsQueryRunner(QueryRunner):
                             Person.objects.filter(team=self.team), self.query.personId
                         ).first()
                         where_exprs.append(
-                            parse_expr(
-                                "distinct_id in {list}",
-                                {"list": ast.Constant(value=get_distinct_ids_for_subquery(person, self.team))},
-                                timings=self.timings,
+                            ast.CompareOperation(
+                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
+                                right=ast.Tuple(
+                                    exprs=[
+                                        ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
+                                        for id in get_distinct_ids_for_subquery(person, self.team)
+                                    ]
+                                ),
+                                op=ast.CompareOperationOp.In,
                             )
                         )
                 if self.query.filterTestAccounts:
@@ -128,10 +132,7 @@ class EventsQueryRunner(QueryRunner):
             with self.timings.measure("timestamps"):
                 # prevent accidentally future events from being visible by default
                 before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
-                try:
-                    parsed_date = isoparse(before)
-                except ValueError:
-                    parsed_date = relative_date_parse(before, self.team.timezone_info)
+                parsed_date = relative_date_parse(before, self.team.timezone_info)
                 where_exprs.append(
                     parse_expr(
                         "timestamp < {timestamp}",
@@ -143,10 +144,7 @@ class EventsQueryRunner(QueryRunner):
                 # limit to the last 24h by default
                 after = self.query.after or "-24h"
                 if after != "all":
-                    try:
-                        parsed_date = isoparse(after)
-                    except ValueError:
-                        parsed_date = relative_date_parse(after, self.team.timezone_info)
+                    parsed_date = relative_date_parse(after, self.team.timezone_info)
                     where_exprs.append(
                         parse_expr(
                             "timestamp > {timestamp}",

@@ -43,7 +43,7 @@ describe('sessionRecordingDataLogic', () => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
-                '/api/projects/:team/session_recordings/:id/snapshots': async (req, res, ctx) => {
+                '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
@@ -69,10 +69,13 @@ describe('sessionRecordingDataLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
             },
             post: {
-                '/api/projects/:team/query': recordingEventsJson,
+                '/api/environments/:team_id/query': recordingEventsJson,
+            },
+            patch: {
+                '/api/environments/:team_id/session_recordings/:id': { success: true },
             },
         })
         initKeaTests()
@@ -136,7 +139,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.unmount()
             useMocks({
                 get: {
-                    '/api/projects/:team/session_recordings/:id': () => [500, { status: 0 }],
+                    '/api/environments/:team_id/session_recordings/:id': () => [500, { status: 0 }],
                 },
             })
             logic.mount()
@@ -167,7 +170,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.unmount()
             useMocks({
                 get: {
-                    '/api/projects/:team/session_recordings/:id/snapshots': () => [500, { status: 0 }],
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
             logic.mount()
@@ -221,7 +224,7 @@ describe('sessionRecordingDataLogic', () => {
             }).toDispatchActions(['loadEvents', 'loadEventsSuccess'])
 
             expect(api.create).toHaveBeenCalledWith(
-                `api/projects/${MOCK_TEAM_ID}/query`,
+                `api/environments/${MOCK_TEAM_ID}/query`,
                 {
                     client_query_id: undefined,
                     query: {
@@ -364,7 +367,7 @@ describe('sessionRecordingDataLogic', () => {
                     action.payload.source?.source === 'blob',
                 'loadSnapshotsForSourceSuccess',
                 // and then we report having viewed the recording
-                'reportViewed',
+                'markViewed',
                 // the response to the success action triggers loading of the second item which is the realtime source
                 (action) =>
                     action.type === logic.actionTypes.loadSnapshotsForSource &&

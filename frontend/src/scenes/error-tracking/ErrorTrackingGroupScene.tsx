@@ -13,6 +13,7 @@ import { AssigneeSelect } from './AssigneeSelect'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingGroupSceneLogic } from './errorTrackingGroupSceneLogic'
 import { OverviewTab } from './groups/OverviewTab'
+import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
 export const scene: SceneExport = {
     component: ErrorTrackingGroupScene,
@@ -30,7 +31,7 @@ const STATUS_LABEL: Record<ErrorTrackingGroup['status'], string> = {
 }
 
 export function ErrorTrackingGroupScene(): JSX.Element {
-    const { group, groupLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { group, groupLoading, hasGroupActions } = useValues(errorTrackingGroupSceneLogic)
     const { updateGroup, loadGroup } = useActions(errorTrackingGroupSceneLogic)
 
     useEffect(() => {
@@ -45,7 +46,7 @@ export function ErrorTrackingGroupScene(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    group ? (
+                    group && hasGroupActions ? (
                         group.status === 'active' ? (
                             <div className="flex divide-x gap-x-2">
                                 <AssigneeSelect
@@ -80,10 +81,9 @@ export function ErrorTrackingGroupScene(): JSX.Element {
             />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
-            <ErrorTrackingFilters.Options showOrder={false} />
-            <div className="pt-2">
-                <OverviewTab />
-            </div>
+            <ErrorTrackingFilters.Options isGroup />
+            <OverviewTab />
+            <SymbolSetUploadModal />
         </>
     )
 }

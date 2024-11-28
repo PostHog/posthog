@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -21,9 +22,11 @@ import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
 import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/DashboardTemplateSelectStep'
+import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
+import { sdksLogic } from './sdks/sdksLogic'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
@@ -103,12 +106,16 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { combinedSnippetAndLiveEventsHosts } = useValues(sdksLogic)
+
     // mount the logic here so that it stays mounted for the entire onboarding flow
     // not sure if there is a better way to do this
     useValues(newDashboardLogic)
 
     const showTemplateSteps =
-        featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' && window.innerWidth > 1000
+        featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' &&
+        window.innerWidth > 1000 &&
+        combinedSnippetAndLiveEventsHosts.length > 0
 
     const options: ProductConfigOption[] = [
         {
@@ -185,6 +192,69 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         </OnboardingWrapper>
     )
 }
+
+const WebAnalyticsOnboarding = (): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+
+    const options: ProductConfigOption[] = [
+        {
+            title: 'Autocapture frontend interactions',
+            description: `If you use our JavaScript or React Native libraries, we'll automagically 
+            capture frontend interactions like clicks, submits, and more. Fine-tune what you 
+            capture directly in your code snippet.`,
+            teamProperty: 'autocapture_opt_out',
+            value: !currentTeam?.autocapture_opt_out,
+            type: 'toggle',
+            inverseToggle: true,
+            visible: true,
+        },
+        {
+            title: 'Enable heatmaps',
+            description: `If you use our JavaScript libraries, we can capture general clicks, mouse movements,
+                   and scrolling to create heatmaps. 
+                   No additional events are created, and you can disable this at any time.`,
+            teamProperty: 'heatmaps_opt_in',
+            value: currentTeam?.heatmaps_opt_in ?? true,
+            type: 'toggle',
+            visible: true,
+        },
+        {
+            title: 'Enable web vitals autocapture',
+            description: `Uses Google's web vitals library to automagically capture performance information.`,
+            teamProperty: 'autocapture_web_vitals_opt_in',
+            value: currentTeam?.autocapture_web_vitals_opt_in ?? true,
+            type: 'toggle',
+            visible: true,
+        },
+        {
+            title: 'Enable session recordings',
+            description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
+            teamProperty: 'session_recording_opt_in',
+            value: currentTeam?.session_recording_opt_in ?? true,
+            type: 'toggle',
+            visible: true,
+        },
+        {
+            title: 'Capture network performance',
+            description: `Automatically enable network performance capture`,
+            teamProperty: 'capture_performance_opt_in',
+            value: true,
+            type: 'toggle',
+            visible: false,
+        },
+    ]
+
+    return (
+        <OnboardingWrapper>
+            <SDKs
+                usersAction="collecting events"
+                sdkInstructionMap={WebAnalyticsSDKInstructions}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
+            <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
+        </OnboardingWrapper>
+    )
+}
 const SessionReplayOnboarding = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -252,9 +322,22 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs
-                usersAction="loading flags & experiments"
+                usersAction="loading flags"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
-                subtitle="Choose the framework where you want to use feature flags and/or run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.INSTALL}
+            />
+        </OnboardingWrapper>
+    )
+}
+
+const ExperimentsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <SDKs
+                usersAction="loading experiments"
+                sdkInstructionMap={ExperimentsSDKInstructions}
+                subtitle="Choose the framework where you want to run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
@@ -284,8 +367,10 @@ const DataWarehouseOnboarding = (): JSX.Element => {
 
 export const onboardingViews = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
+    [ProductKey.WEB_ANALYTICS]: WebAnalyticsOnboarding,
     [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
     [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+    [ProductKey.EXPERIMENTS]: ExperimentsOnboarding,
     [ProductKey.SURVEYS]: SurveysOnboarding,
     [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
 }

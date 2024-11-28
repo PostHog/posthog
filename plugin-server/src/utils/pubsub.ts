@@ -2,8 +2,8 @@ import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
+import { createRedis } from './db/redis'
 import { status } from './status'
-import { createRedis } from './utils'
 
 export type PubSubTask = ((message: string) => void) | ((message: string) => Promise<void>)
 
@@ -26,7 +26,7 @@ export class PubSub {
         if (this.redisSubscriber) {
             throw new Error('Started PubSub cannot be started again!')
         }
-        this.redisSubscriber = await createRedis(this.serverConfig)
+        this.redisSubscriber = await createRedis(this.serverConfig, 'ingestion')
         const channels = Object.keys(this.taskMap)
         await this.redisSubscriber.subscribe(channels)
         this.redisSubscriber.on('message', (channel: string, message: string) => {
@@ -51,12 +51,16 @@ export class PubSub {
         }
 
         await this.redisSubscriber.unsubscribe()
-        this.redisSubscriber.disconnect()
+        if (this.redisSubscriber) {
+            this.redisSubscriber.disconnect()
+        }
         this.redisSubscriber = undefined
 
         if (this.redisPublisher) {
             const redisPublisher = await this.redisPublisher
-            redisPublisher.disconnect()
+            if (redisPublisher) {
+                redisPublisher.disconnect()
+            }
             this.redisPublisher = undefined
         }
 
@@ -65,7 +69,7 @@ export class PubSub {
 
     public async publish(channel: string, message: string): Promise<void> {
         if (!this.redisPublisher) {
-            this.redisPublisher = createRedis(this.serverConfig)
+            this.redisPublisher = createRedis(this.serverConfig, 'ingestion')
         }
 
         const redisPublisher = await this.redisPublisher

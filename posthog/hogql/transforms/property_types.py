@@ -1,5 +1,6 @@
 from typing import Literal, Optional, cast
 
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_enabled_materialized_columns
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -13,7 +14,7 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
 
 
-def build_property_swapper(node: ast.Expr, context: HogQLContext) -> None:
+def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
 
     if not context or not context.team_id:
@@ -222,7 +223,7 @@ class PropertySwapper(CloningVisitor):
             return ast.Call(
                 name="transform",
                 args=[
-                    node,
+                    ast.Call(name="toString", args=[node]),
                     ast.Constant(value=["true", "false"]),
                     ast.Constant(value=[True, False]),
                     ast.Constant(value=None),
@@ -272,13 +273,5 @@ class PropertySwapper(CloningVisitor):
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
-        try:
-            from ee.clickhouse.materialized_columns.columns import (
-                TablesWithMaterializedColumns,
-                get_materialized_columns,
-            )
-
-            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-            return materialized_columns.get((property_name, field_name), None)
-        except ModuleNotFoundError:
-            return None
+        materialized_columns = get_enabled_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
+        return materialized_columns.get((property_name, field_name), None)

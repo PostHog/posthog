@@ -13,6 +13,7 @@ export interface LemonCollapsePanel<K extends React.Key> {
     key: K
     header: ReactNode
     content: ReactNode
+    dataAttr?: string
     className?: string
 }
 
@@ -75,14 +76,18 @@ export function LemonCollapse<K extends React.Key>({
         }
     }
 
+    const displayPanels = panels.filter(Boolean) as LemonCollapsePanel<K>[]
+    const hasExpandablePanels = displayPanels.some((p) => !!p.content)
+
     return (
         <div className={clsx('LemonCollapse', embedded && 'LemonCollapse--embedded', className)}>
-            {(panels.filter(Boolean) as LemonCollapsePanel<K>[]).map(({ key, ...panel }) => (
+            {displayPanels.map(({ key, ...panel }) => (
                 <LemonCollapsePanel
                     key={key}
                     {...panel}
                     size={size}
                     isExpanded={isPanelExpanded(key)}
+                    indexUnexpanableHeader={hasExpandablePanels}
                     onChange={(isExanded) => onPanelChange(key, isExanded)}
                 />
             ))}
@@ -94,6 +99,7 @@ interface LemonCollapsePanelProps {
     header: ReactNode
     content: ReactNode
     isExpanded: boolean
+    indexUnexpanableHeader: boolean
     size: LemonButtonProps['size']
     onChange: (isExpanded: boolean) => void
     className?: string
@@ -108,6 +114,7 @@ function LemonCollapsePanel({
     size,
     className,
     dataAttr,
+    indexUnexpanableHeader,
     onChange,
     onHeaderClick,
 }: LemonCollapsePanelProps): JSX.Element {
@@ -115,18 +122,29 @@ function LemonCollapsePanel({
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
-            <LemonButton
-                onClick={() => {
-                    onHeaderClick && onHeaderClick()
-                    onChange(!isExpanded)
-                }}
-                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                className="LemonCollapsePanel__header"
-                {...(dataAttr ? { 'data-attr': dataAttr } : {})}
-                size={size}
-            >
-                {header}
-            </LemonButton>
+            {content ? (
+                <LemonButton
+                    onClick={() => {
+                        onHeaderClick && onHeaderClick()
+                        onChange(!isExpanded)
+                    }}
+                    icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                    className="LemonCollapsePanel__header"
+                    {...(dataAttr ? { 'data-attr': dataAttr } : {})}
+                    size={size}
+                >
+                    {header}
+                </LemonButton>
+            ) : (
+                <LemonButton
+                    className="LemonCollapsePanel__header LemonCollapsePanel__header--disabled"
+                    {...(dataAttr ? { 'data-attr': dataAttr } : {})}
+                    size={size}
+                    icon={indexUnexpanableHeader ? <div className="w-[1em] h-[1em]" /> : null}
+                >
+                    {header}
+                </LemonButton>
+            )}
             <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
                 {(status) => (
                     <div

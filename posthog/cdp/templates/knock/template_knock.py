@@ -2,6 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-knock",
     name="Knock",
     description="Send events to Knock",
@@ -40,7 +41,7 @@ let res := fetch(inputs.webhookUrl, {
 })
 
 if (res.status >= 400) {
-    print('Error from knock.app api:', res.status, res.body)
+    throw Error(f'Error from knock.app (status {res.status}): {res.body}')
 }
 
 """.strip(),

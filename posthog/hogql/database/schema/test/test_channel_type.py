@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.utils import uuid7
+from posthog.schema import HogQLQueryModifiers, CustomChannelRule, CustomChannelCondition, FilterLogicalOperator
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -106,7 +107,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
         )
         return (person_response.results or [])[0][0]
 
-    def _get_session_channel_type(self, properties=None):
+    def _get_session_channel_type(self, properties=None, custom_channel_rules=None):
         person_id = str(uuid.uuid4())
         properties = {
             "$session_id": str(uuid7()),
@@ -124,6 +125,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 placeholders={"person_id": ast.Constant(value=person_id)},
             ),
             self.team,
+            modifiers=HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules),
         )
         return (session_response.results or [])[0][0]
 
@@ -326,6 +328,103 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                     "gad_source": "",
                 }
             ),
+        )
+
+    def test_custom_channel_type(self):
+        # add a custom channel type for a specific utm_source
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "test",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value="test", id="1")],
+                        channel_type="Test",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    )
+                ],
+            )
+            == "Test"
+        )
+        # add an array of values
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "test",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value=["test", "test2"], id="1")],
+                        channel_type="Test",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    )
+                ],
+            )
+            == "Test"
+        )
+        # add an array of a single value
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "test",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value=["test"], id="1")],
+                        channel_type="Test",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    )
+                ],
+            )
+            == "Test"
+        )
+        # add an array of conditions
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "s",
+                    "utm_medium": "m",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[
+                            CustomChannelCondition(key="utm_source", op="exact", value="s", id="1"),
+                            CustomChannelCondition(key="utm_medium", op="exact", value="m", id="2"),
+                        ],
+                        channel_type="Test",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    )
+                ],
+            )
+            == "Test"
+        )
+        # add an array of rules
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "2",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value="1", id="1")],
+                        channel_type="Test1",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    ),
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value="2", id="2")],
+                        channel_type="Test2",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="b",
+                    ),
+                ],
+            )
+            == "Test2"
         )
 
     def _get_initial_channel_type_from_wild_clicks(self, url: str, referrer: str):

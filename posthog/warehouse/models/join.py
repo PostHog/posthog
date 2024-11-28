@@ -1,6 +1,6 @@
 from typing import Optional
 from warnings import warn
-
+from datetime import datetime
 from django.db import models
 
 from posthog.hogql.ast import SelectQuery
@@ -40,6 +40,11 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     joining_table_name = models.CharField(max_length=400)
     joining_table_key = models.CharField(max_length=400)
     field_name = models.CharField(max_length=400)
+
+    def soft_delete(self):
+        self.deleted = True
+        self.deleted_at = datetime.now()
+        self.save()
 
     def join_function(
         self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None

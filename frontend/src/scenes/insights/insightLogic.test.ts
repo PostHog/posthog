@@ -112,7 +112,7 @@ describe('insightLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/tags': [],
-                '/api/projects/:team/insights/trend/': async (req) => {
+                '/api/environments/:team_id/insights/trend/': async (req) => {
                     const clientQueryId = req.url.searchParams.get('client_query_id')
                     if (clientQueryId !== null) {
                         seenQueryIDs.push(clientQueryId)
@@ -131,18 +131,18 @@ describe('insightLogic', () => {
                     }
                     return [200, { result: ['result from api'] }]
                 },
-                '/api/projects/:team/insights/path/': { result: ['result from api'] },
-                '/api/projects/:team/insights/path': { result: ['result from api'] },
-                '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
-                '/api/projects/:team/insights/retention/': { result: ['result from api'] },
-                '/api/projects/:team/insights/43/': partialInsight43,
-                '/api/projects/:team/insights/44/': {
+                '/api/environments/:team_id/insights/path/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/path': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/retention/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/43/': partialInsight43,
+                '/api/environments/:team_id/insights/44/': {
                     id: 44,
                     short_id: Insight44,
                     result: ['result 44'],
                     filters: API_FILTERS,
                 },
-                '/api/projects/:team/insights/': (req) => {
+                '/api/environments/:team_id/insights/': (req) => {
                     if (req.url.searchParams.get('saved')) {
                         return [
                             200,
@@ -181,7 +181,7 @@ describe('insightLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/dashboards/33/': {
+                '/api/environments/:team_id/dashboards/33/': {
                     id: 33,
                     filters: {},
                     tiles: [
@@ -198,7 +198,7 @@ describe('insightLogic', () => {
                         },
                     ],
                 },
-                '/api/projects/:team/dashboards/34/': {
+                '/api/environments/:team_id/dashboards/34/': {
                     id: 33,
                     filters: {},
                     tiles: [
@@ -217,16 +217,16 @@ describe('insightLogic', () => {
                 },
             },
             post: {
-                '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
-                '/api/projects/:team/insights/:id/viewed': [201],
-                '/api/projects/:team/insights/': (req) => [
+                '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/:id/viewed': [201],
+                '/api/environments/:team_id/insights/': (req) => [
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],
-                '/api/projects/997/insights/cancel/': [201],
+                '/api/environments/997/insights/cancel/': [201],
             },
             patch: {
-                '/api/projects/:team/insights/:id': async (req) => {
+                '/api/environments/:team_id/insights/:id': async (req) => {
                     const payload = await req.json()
                     const response = patchResponseFor(
                         payload,
@@ -737,7 +737,7 @@ describe('insightLogic', () => {
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
-                    `api/projects/${MOCK_TEAM_ID}/insights`,
+                    `api/environments/${MOCK_TEAM_ID}/insights`,
                     expect.objectContaining({
                         derived_name: 'DataTableNode query',
                         query: {

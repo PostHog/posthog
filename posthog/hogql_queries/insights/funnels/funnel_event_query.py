@@ -1,5 +1,5 @@
 from typing import Union, Optional
-from posthog.clickhouse.materialized_columns.column import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
@@ -132,7 +132,7 @@ class FunnelEventQuery:
         )
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
-        team, query, funnelsFilter = self.context.team, self.context.query, self.context.funnelsFilter
+        query, funnelsFilter = self.context.query, self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions or []
 
         if skip_entity_filter is True:
@@ -145,7 +145,7 @@ class FunnelEventQuery:
                 events.add(node.event)
             elif isinstance(node, ActionsNode) or isinstance(node, FunnelExclusionActionsNode):
                 try:
-                    action = Action.objects.get(pk=int(node.id), team=team)
+                    action = Action.objects.get(pk=int(node.id), team__project_id=self.context.team.project_id)
                     events.update(action.get_step_events())
                 except Action.DoesNotExist:
                     raise ValidationError(f"Action ID {node.id} does not exist!")

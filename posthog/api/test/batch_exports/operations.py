@@ -1,5 +1,6 @@
 from django.test.client import Client as TestClient
 from rest_framework import status
+
 from posthog.models.utils import UUIDT
 
 
@@ -120,3 +121,13 @@ def get_batch_export_log_entries(client: TestClient, team_id: int, batch_export_
 
 def get_batch_export_run_log_entries(client: TestClient, team_id: int, batch_export_id: str, run_id, **extra):
     return client.get(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/runs/{run_id}/logs", extra)
+
+
+def cancel_batch_export_run(client: TestClient, team_id: int, batch_export_id: str, run_id):
+    return client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/runs/{run_id}/cancel")
+
+
+def cancel_batch_export_run_ok(client: TestClient, team_id: int, batch_export_id: str, run_id):
+    response = client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/runs/{run_id}/cancel")
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    return response.json()

@@ -1,5 +1,9 @@
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
+from uuid import UUID
 
+import posthoganalytics
+from django.db.models import QuerySet
 from rest_framework import (
     exceptions,
     mixins,
@@ -9,11 +13,12 @@ from rest_framework import (
     status,
     viewsets,
 )
-from posthog.api.utils import action
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
+from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
@@ -23,9 +28,85 @@ from posthog.models.user import User
 from posthog.tasks.email import send_invite
 
 
+class OrganizationInviteManager:
+    @staticmethod
+    def combine_invites(
+        organization_id: UUID | str, validated_data: dict[str, Any], combine_pending_invites: bool = True
+    ) -> dict[str, Any]:
+        """Combines multiple pending invites for the same email address."""
+        if not combine_pending_invites:
+            return validated_data
+
+        existing_invites = OrganizationInviteManager._get_invites_for_user_org(
+            organization_id=organization_id, target_email=validated_data["target_email"]
+        )
+
+        if not existing_invites.exists():
+            return validated_data
+
+        validated_data["level"] = OrganizationInviteManager._get_highest_level(
+            existing_invites=existing_invites,
+            new_level=validated_data.get("level", OrganizationMembership.Level.MEMBER),
+        )
+
+        validated_data["private_project_access"] = OrganizationInviteManager._combine_project_access(
+            existing_invites=existing_invites, new_access=validated_data.get("private_project_access", [])
+        )
+
+        return validated_data
+
+    @staticmethod
+    def _get_invites_for_user_org(
+        organization_id: UUID | str, target_email: str, include_expired: bool = False
+    ) -> QuerySet:
+        filters: dict[str, Any] = {
+            "organization_id": organization_id,
+            "target_email": target_email,
+        }
+
+        if not include_expired:
+            filters["created_at__gt"] = datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY)
+
+        return OrganizationInvite.objects.filter(**filters).order_by("-created_at")
+
+    @staticmethod
+    def _get_highest_level(existing_invites: QuerySet, new_level: int) -> int:
+        levels = [invite.level for invite in existing_invites]
+        levels.append(new_level)
+        return max(levels)
+
+    @staticmethod
+    def _combine_project_access(existing_invites: QuerySet, new_access: list[dict]) -> list[dict]:
+        combined_access: dict[int, int] = {}
+
+        # Add new access first
+        for access in new_access:
+            combined_access[access["id"]] = access["level"]
+
+        # Combine with existing access, keeping highest levels
+        for invite in existing_invites:
+            if not invite.private_project_access:
+                continue
+
+            for access in invite.private_project_access:
+                project_id = access["id"]
+                if project_id not in combined_access or access["level"] > combined_access[project_id]:
+                    combined_access[project_id] = access["level"]
+
+        return [{"id": project_id, "level": level} for project_id, level in combined_access.items()]
+
+    @staticmethod
+    def delete_existing_invites(organization_id: UUID | str, target_email: str) -> None:
+        """Deletes all existing invites for a given email in an organization."""
+        OrganizationInviteManager._get_invites_for_user_org(
+            organization_id=organization_id, target_email=target_email, include_expired=True
+        ).delete()
+
+
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     send_email = serializers.BooleanField(write_only=True, default=True)
+    combine_pending_invites = serializers.BooleanField(write_only=True, default=False)
 
     class Meta:
         model = OrganizationInvite
@@ -42,6 +123,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "message",
             "private_project_access",
             "send_email",
+            "combine_pending_invites",
         ]
         read_only_fields = [
             "id",
@@ -58,7 +140,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
     def validate_private_project_access(
         self, private_project_access: Optional[list[dict[str, Any]]]
     ) -> Optional[list[dict[str, Any]]]:
-        team_error = "Team does not exist on this organization, or it is private and you do not have access to it."
+        team_error = "Project does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None
         for item in private_project_access:
@@ -77,15 +159,23 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             if not is_private:
                 continue
             try:
-                explicit_team_membership: ExplicitTeamMembership = ExplicitTeamMembership.objects.get(
+                team_membership: ExplicitTeamMembership | OrganizationMembership = ExplicitTeamMembership.objects.get(
                     team_id=item["id"],
                     parent_membership__user=self.context["request"].user,
                 )
             except ExplicitTeamMembership.DoesNotExist:
-                raise exceptions.ValidationError(
-                    team_error,
-                )
-            if explicit_team_membership.level < item["level"]:
+                try:
+                    # No explicit team membership. Try getting the implicit team membership - any org owners and admins can invite to any team
+                    team_membership = OrganizationMembership.objects.get(
+                        organization_id=self.context["organization_id"],
+                        user=self.context["request"].user,
+                        level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
+                    )
+                except OrganizationMembership.DoesNotExist:
+                    raise exceptions.ValidationError(
+                        team_error,
+                    )
+            if team_membership.level < item["level"]:
                 raise exceptions.ValidationError(
                     "You cannot invite to a private project with a higher level than your own.",
                 )
@@ -98,12 +188,30 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             user__email=validated_data["target_email"],
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
+
+        combine_pending_invites = validated_data.pop("combine_pending_invites", False)
         send_email = validated_data.pop("send_email", True)
+
+        # Handle invite combination if requested
+        if combine_pending_invites:
+            validated_data = OrganizationInviteManager.combine_invites(
+                organization_id=self.context["organization_id"],
+                validated_data=validated_data,
+                combine_pending_invites=True,
+            )
+
+        # Delete existing invites for this email
+        OrganizationInviteManager.delete_existing_invites(
+            organization_id=self.context["organization_id"], target_email=validated_data["target_email"]
+        )
+
+        # Create new invite
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"],
             created_by=self.context["request"].user,
             **validated_data,
         )
+
         if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
             send_invite(invite_id=invite.id)
@@ -119,6 +227,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             ).count(),
             is_bulk=self.context.get("bulk_create", False),
             email_available=is_email_available(with_absolute_urls=True),
+            current_url=self.context.get("current_url"),
+            session_id=self.context.get("session_id"),
         )
 
         return invite
@@ -162,6 +272,19 @@ class OrganizationInviteViewSet(
     @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
+        user = cast(User, self.request.user)
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
+        if user.distinct_id:
+            posthoganalytics.capture(
+                user.distinct_id,
+                "bulk invite attempted",
+                properties={
+                    "invitees_count": len(data),
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                },
+            )
         if not isinstance(data, list):
             raise exceptions.ValidationError("This endpoint needs an array of data for bulk invite creation.")
         if len(data) > 20:
@@ -173,7 +296,12 @@ class OrganizationInviteViewSet(
         serializer = OrganizationInviteSerializer(
             data=data,
             many=True,
-            context={**self.get_serializer_context(), "bulk_create": True},
+            context={
+                **self.get_serializer_context(),
+                "bulk_create": True,
+                "current_url": current_url,
+                "session_id": session_id,
+            },
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -186,6 +314,8 @@ class OrganizationInviteViewSet(
             current_invite_count=organization.active_invites.count(),
             current_member_count=organization.memberships.count(),
             email_available=is_email_available(),
+            current_url=current_url,
+            session_id=session_id,
         )
 
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)

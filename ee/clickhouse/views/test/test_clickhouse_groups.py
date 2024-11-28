@@ -311,15 +311,69 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:7",
+            properties={"industry": "finance-technology"},
+        )
+        create_group(
+            team_id=self.team.pk,
             group_type_index=1,
             group_key="org:1",
             properties={"industry": "finance"},
         )
+
+        # Test without query parameter
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0"
         ).json()
+        self.assertEqual(len(response_data), 3)
+        self.assertEqual(
+            response_data,
+            [
+                {"name": "finance", "count": 1},
+                {"name": "finance-technology", "count": 1},
+                {"name": "technology", "count": 1},
+            ],
+        )
+
+        # Test with query parameter
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=fin"
+        ).json()
         self.assertEqual(len(response_data), 2)
-        self.assertEqual(response_data, [{"name": "finance"}, {"name": "technology"}])
+        self.assertEqual(response_data, [{"name": "finance", "count": 1}, {"name": "finance-technology", "count": 1}])
+
+        # Test with query parameter - case insensitive
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=TECH"
+        ).json()
+        self.assertEqual(len(response_data), 2)
+        self.assertEqual(
+            response_data, [{"name": "finance-technology", "count": 1}, {"name": "technology", "count": 1}]
+        )
+
+        # Test with query parameter - no matches
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=healthcare"
+        ).json()
+        self.assertEqual(len(response_data), 0)
+        self.assertEqual(response_data, [])
+
+        # Test with query parameter - exact match
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=technology"
+        ).json()
+        self.assertEqual(len(response_data), 2)
+        self.assertEqual(
+            response_data, [{"name": "finance-technology", "count": 1}, {"name": "technology", "count": 1}]
+        )
+
+        # Test with different group_type_index
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=1&value=fin"
+        ).json()
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data, [{"name": "finance", "count": 1}])
 
     def test_empty_property_values(self):
         create_group(
@@ -347,9 +401,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_data, [])
 
     def test_update_groups_metadata(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="playlist", group_type_index=1)
-        GroupTypeMapping.objects.create(team=self.team, group_type="another", group_type_index=2)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="playlist", group_type_index=1
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="another", group_type_index=2
+        )
 
         response_data = self.client.patch(
             f"/api/projects/{self.team.id}/groups_types/update_metadata",
@@ -388,9 +448,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_list_group_types(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="playlist", group_type_index=1)
-        GroupTypeMapping.objects.create(team=self.team, group_type="another", group_type_index=2)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="playlist", group_type_index=1
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="another", group_type_index=2
+        )
 
         response_data = self.client.get(f"/api/projects/{self.team.id}/groups_types").json()
 
@@ -422,9 +488,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other project")
 
-        GroupTypeMapping.objects.create(team=other_team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=other_team, group_type="playlist", group_type_index=1)
-        GroupTypeMapping.objects.create(team=other_team, group_type="another", group_type_index=2)
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="playlist", group_type_index=1
+        )
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="another", group_type_index=2
+        )
 
         response = self.client.get(f"/api/projects/{other_team.id}/groups_types")  # No access to this project
 
@@ -440,9 +512,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other project")
 
-        GroupTypeMapping.objects.create(team=other_team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=other_team, group_type="playlist", group_type_index=1)
-        GroupTypeMapping.objects.create(team=other_team, group_type="another", group_type_index=2)
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="playlist", group_type_index=1
+        )
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="another", group_type_index=2
+        )
 
         response = self.client.get(
             f"/api/projects/{other_team.id}/groups_types/?sharing_access_token={sharing_configuration.access_token}"
@@ -459,9 +537,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         other_team = Team.objects.create(organization=other_org, name="other project")
         sharing_configuration = SharingConfiguration.objects.create(team=other_team, enabled=True)
 
-        GroupTypeMapping.objects.create(team=other_team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=other_team, group_type="playlist", group_type_index=1)
-        GroupTypeMapping.objects.create(team=other_team, group_type="another", group_type_index=2)
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="playlist", group_type_index=1
+        )
+        GroupTypeMapping.objects.create(
+            team=other_team, project_id=other_team.project_id, group_type="another", group_type_index=2
+        )
 
         disabled_response = self.client.get(
             f"/api/projects/{other_team.id}/groups_types/?sharing_access_token={sharing_configuration.access_token}"
@@ -506,8 +590,12 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _create_related_groups_data(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="playlist", group_type_index=1)
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="playlist", group_type_index=1
+        )
 
         uuid = UUID("01795392-cc00-0003-7dc7-67a694604d72")
 

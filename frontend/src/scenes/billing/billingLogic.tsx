@@ -4,7 +4,6 @@ import { FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -19,6 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 import { BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
+import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -231,6 +231,7 @@ export const billingLogic = kea<billingLogicType>([
 
                 deactivateProduct: async (key: string) => {
                     // clear upgrade params from URL
+                    // Note(@zach): This is not working properly. We need to look into this.
                     const currentURL = new URL(window.location.href)
                     currentURL.searchParams.delete('upgraded')
                     currentURL.searchParams.delete('products')
@@ -240,8 +241,12 @@ export const billingLogic = kea<billingLogicType>([
                     try {
                         const response = await api.getResponse('api/billing/deactivate?products=' + key)
                         const jsonRes = await getJSONOrNull(response)
-                        lemonToast.success('You have been unsubscribed')
+
+                        lemonToast.success(
+                            "You have been unsubscribed. We're sad to see you go. May the hedgehogs be ever in your favor."
+                        )
                         actions.reportProductUnsubscribed(key)
+
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
                         if (error.code) {
@@ -321,7 +326,7 @@ export const billingLogic = kea<billingLogicType>([
         creditOverview: [
             {
                 eligible: false,
-                estimated_monthly_credit_amount_usd: 0,
+                estimated_monthly_credit_amount_usd: DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
                 status: 'none',
                 invoice_url: null,
                 collection_method: null,
@@ -336,15 +341,14 @@ export const billingLogic = kea<billingLogicType>([
                         if (!values.creditForm.creditInput) {
                             actions.setCreditFormValue(
                                 'creditInput',
-                                Math.round(response.estimated_monthly_credit_amount_usd * 12)
+                                Math.round(
+                                    (response.estimated_monthly_credit_amount_usd ||
+                                        DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD) * 12
+                                )
                             )
                         }
 
-                        if (
-                            response.eligible &&
-                            response.status === 'none' &&
-                            values.featureFlags[FEATURE_FLAGS.PURCHASE_CREDITS]
-                        ) {
+                        if (response.eligible && response.status === 'none') {
                             actions.reportCreditsCTAShown(response)
                         }
                         return response
@@ -352,7 +356,7 @@ export const billingLogic = kea<billingLogicType>([
                     // Return default values if not subscribed
                     return {
                         eligible: false,
-                        estimated_monthly_credit_amount_usd: 0,
+                        estimated_monthly_credit_amount_usd: DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
                         status: 'none',
                         invoice_url: null,
                         collection_method: null,
@@ -455,12 +459,11 @@ export const billingLogic = kea<billingLogicType>([
                 collectionMethod: 'charge_automatically',
             },
             submit: async ({ creditInput, collectionMethod }) => {
-                values.computedDiscount * 100,
-                    await api.create('api/billing/credits/purchase', {
-                        annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
-                        discount_percent: values.computedDiscount * 100,
-                        collection_method: collectionMethod,
-                    })
+                await api.create('api/billing/credits/purchase', {
+                    annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
+                    discount_percent: values.computedDiscount * 100,
+                    collection_method: collectionMethod,
+                })
 
                 actions.showPurchaseCreditsModal(false)
                 actions.loadCreditOverview()
@@ -498,9 +501,9 @@ export const billingLogic = kea<billingLogicType>([
             errors: ({ creditInput, collectionMethod }) => ({
                 creditInput: !creditInput
                     ? 'Please enter the amount of credits you want to purchase'
-                    : // This value is used because 6667 - 10% = 6000
-                    +creditInput < 6667
-                    ? 'Please enter a credit amount greater than $6,666'
+                    : // This value is used because 3333 - 10% = 3000
+                    +creditInput < 3333
+                    ? 'Please enter a credit amount of at least $3,333'
                     : undefined,
                 collectionMethod: !collectionMethod ? 'Please select a collection method' : undefined,
             }),
@@ -532,7 +535,8 @@ export const billingLogic = kea<billingLogicType>([
             posthog.capture('credits cta shown', {
                 eligible: creditOverview.eligible,
                 status: creditOverview.status,
-                estimated_monthly_credit_amount_usd: creditOverview.estimated_monthly_credit_amount_usd,
+                estimated_monthly_credit_amount_usd:
+                    creditOverview.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
             })
         },
         toggleCreditCTAHeroDismissed: ({ isDismissed }) => {
@@ -645,7 +649,7 @@ export const billingLogic = kea<billingLogicType>([
                     discount = 0.25
                 } else if (spend >= 20000) {
                     discount = 0.2
-                } else if (spend >= 6000) {
+                } else if (spend >= 3000) {
                     discount = 0.1
                 }
                 actions.setComputedDiscount(discount)

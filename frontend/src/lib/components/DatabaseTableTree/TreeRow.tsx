@@ -92,6 +92,9 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
             if (item.table.status === 'Failed') {
                 return `Materialization failed`
             }
+            if (item.table.status === 'Modified') {
+                return `View definition modified since last materialization`
+            }
             if (item.table.status === 'Completed') {
                 return `Last materialized ${humanFriendlyDetailedTime(item.table.last_run_at)}`
             }
@@ -99,13 +102,16 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         return ''
     }
 
-    const getIconColor = (): 'text-primary' | 'text-danger' | 'text-success' => {
+    const getIconColor = (): 'text-primary' | 'text-danger' | 'text-warning' | 'text-success' => {
         if (item.table?.type === 'materialized_view') {
             if (item.table.status === 'Running') {
                 return 'text-primary'
             }
             if (item.table.status === 'Failed') {
                 return 'text-danger'
+            }
+            if (item.table.status === 'Modified') {
+                return 'text-warning'
             }
         }
         return 'text-success'

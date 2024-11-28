@@ -76,5 +76,6 @@ export function openPlayerShareDialog({ seconds, id }: PlayerShareLogicProps): v
             children: 'Close',
             type: 'secondary',
         },
+        zIndex: '1062',
     })
 }

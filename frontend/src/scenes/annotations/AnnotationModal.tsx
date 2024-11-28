@@ -82,6 +82,7 @@ export function AnnotationModal({
                     </div>
                 </div>
             }
+            width={512}
         >
             <Form
                 logic={annotationModalLogic}

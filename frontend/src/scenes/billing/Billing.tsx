@@ -11,8 +11,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -22,6 +21,7 @@ import { BillingCTAHero } from './BillingCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { CreditCTAHero } from './CreditCTAHero'
+import { PaymentEntryModal } from './PaymentEntryModal'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
@@ -83,6 +83,8 @@ export function Billing(): JSX.Element {
     const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
         <div ref={ref}>
+            <PaymentEntryModal />
+
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -109,14 +111,18 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {billing?.free_trial_until ? (
-                <LemonBanner type="success" className="mb-2">
-                    You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
+            {billing?.trial ? (
+                <LemonBanner type="info" className="mb-2">
+                    You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b> until{' '}
+                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
+                    {billing.trial.type === 'autosubscribe'
+                        ? 'you will be automatically subscribed to the plan.'
+                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
                 </LemonBanner>
             ) : null}
 
             {!billing?.has_active_subscription && platformAndSupportProduct && (
-                <div className="mb-6">
+                <div className="mb-4">
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
             )}
@@ -131,53 +137,67 @@ export function Billing(): JSX.Element {
             >
                 <div>
                     <div
-                        className={clsx('flex flex-wrap gap-4 w-fit', {
+                        className={clsx('flex flex-wrap gap-6 w-fit mb-4', {
                             'flex-col items-stretch': size === 'small',
                             'items-center': size !== 'small',
                         })}
                     >
                         {!isOnboarding && billing?.billing_period && (
                             <div className="flex-1 pt-2">
-                                <div className="space-y-2">
+                                <div className="space-y-4">
                                     {billing?.has_active_subscription && (
                                         <>
-                                            <LemonLabel
-                                                info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far. This number updates once daily.`}
-                                            >
-                                                Current bill total
-                                            </LemonLabel>
-                                            <div className="font-bold text-6xl">
-                                                {humanFriendlyCurrency(billing.current_total_amount_usd_after_discount)}
-                                            </div>
-                                            {billing.discount_percent && (
+                                            <div className="flex flex-row gap-10 items-end">
                                                 <div>
-                                                    <p className="ml-0">
-                                                        <strong>{billing.discount_percent}%</strong> off discount
-                                                        applied
-                                                    </p>
+                                                    <LemonLabel
+                                                        info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far. This number updates once daily.`}
+                                                    >
+                                                        Current bill total
+                                                    </LemonLabel>
+                                                    <div className="font-bold text-6xl">
+                                                        {billing.discount_percent
+                                                            ? // if they have a discount percent, we want to show the amount they are due - so the total after discount
+                                                              humanFriendlyCurrency(
+                                                                  billing.current_total_amount_usd_after_discount
+                                                              )
+                                                            : // but if they have credits, we want to show the amount they are due before credits,
+                                                              // so they know what their total deduction will be
+                                                              // We don't let people have credits and discounts at the same time
+                                                              humanFriendlyCurrency(billing.current_total_amount_usd)}
+                                                    </div>
                                                 </div>
-                                            )}
-                                            {billing.discount_amount_usd && (
-                                                <div>
-                                                    <p className="ml-0">
-                                                        <Tooltip
-                                                            title={
+                                                {billing?.discount_amount_usd && (
+                                                    <div>
+                                                        <LemonLabel
+                                                            info={`The total credits remaining in your account. ${
                                                                 billing?.amount_off_expires_at
-                                                                    ? `Expires on ${billing?.amount_off_expires_at?.format(
-                                                                          'LL'
-                                                                      )}`
+                                                                    ? 'Your credits expire on ' +
+                                                                      billing?.amount_off_expires_at?.format('LL')
                                                                     : null
-                                                            }
-                                                            placement="bottom-start"
+                                                            }`}
+                                                            className="text-muted"
                                                         >
-                                                            <strong>
-                                                                {humanFriendlyCurrency(billing.discount_amount_usd)}
-                                                            </strong>
-                                                        </Tooltip>{' '}
-                                                        remaining credits applied to your bill.
-                                                    </p>
-                                                </div>
-                                            )}
+                                                            Available credits
+                                                        </LemonLabel>
+                                                        <div className="font-semibold text-2xl text-muted">
+                                                            {humanFriendlyCurrency(billing?.discount_amount_usd, 0)}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {billing?.discount_percent && (
+                                                    <div>
+                                                        <LemonLabel
+                                                            info="The discount applied to your current bill, reflected in the total amount."
+                                                            className="text-muted"
+                                                        >
+                                                            Applied discount
+                                                        </LemonLabel>
+                                                        <div className="font-semibold text-2xl text-muted">
+                                                            {billing.discount_percent}%
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </>
                                     )}
                                     <div>
@@ -189,7 +209,7 @@ export function Billing(): JSX.Element {
                                             remaining)
                                         </p>
                                         {!billing.has_active_subscription && (
-                                            <p className="italic ml-0 text-muted">
+                                            <p className="italic ml-0 text-muted mb-0">
                                                 Monthly free allocation resets at the end of the cycle.
                                             </p>
                                         )}
@@ -199,8 +219,8 @@ export function Billing(): JSX.Element {
                         )}
                     </div>
 
-                    {!isOnboarding && billing?.has_active_subscription && (
-                        <div className="w-fit mt-2">
+                    {!isOnboarding && billing?.customer_id && billing?.stripe_portal_url && (
+                        <div className="w-fit">
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
@@ -210,7 +230,9 @@ export function Billing(): JSX.Element {
                                 center
                                 data-attr="manage-billing"
                             >
-                                Manage card details and view past invoices
+                                {billing.has_active_subscription
+                                    ? 'Manage card details and invoices'
+                                    : 'View past invoices'}
                             </LemonButton>
                         </div>
                     )}

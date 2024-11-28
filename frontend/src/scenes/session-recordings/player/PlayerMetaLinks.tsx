@@ -5,7 +5,6 @@ import {
     IconNotebook,
     IconPin,
     IconPinFilled,
-    IconSearch,
     IconShare,
     IconTrash,
 } from '@posthog/icons'
@@ -80,6 +79,7 @@ function PinToPlaylistButton({
 export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
@@ -99,7 +99,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
     }
 
     const commonProps: Partial<LemonButtonProps> = {
-        size: 'small',
+        size: 'xsmall',
     }
 
     const buttonContent = (label: string): JSX.Element => {
@@ -112,6 +112,11 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
         <div className="flex">
             {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
+                    {sessionRecordingId && (
+                        <div className="flex items-center gap-0.5">
+                            {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
+                        </div>
+                    )}
                     <NotebookSelectButton
                         {...commonProps}
                         icon={<IconComment />}
@@ -158,12 +163,6 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                     ) : null}
 
                     <PinToPlaylistButton buttonContent={buttonContent} {...commonProps} />
-
-                    {sessionRecordingId && (
-                        <div className="flex items-center gap-0.5">
-                            {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
-                        </div>
-                    )}
                 </>
             ) : null}
         </div>
@@ -172,8 +171,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
 
 const MenuActions = (): JSX.Element => {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { exportRecordingToFile, openExplorer, deleteRecording, setIsFullScreen } =
-        useActions(sessionRecordingPlayerLogic)
+    const { exportRecordingToFile, deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const { fetchSimilarRecordings } = useActions(sessionRecordingDataLogic(logicProps))
 
     const hasMobileExportFlag = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
@@ -203,11 +201,6 @@ const MenuActions = (): JSX.Element => {
             icon: <IconDownload />,
             tooltip: 'Export recording to a file. This can be loaded later into PostHog for playback.',
         },
-        {
-            label: 'Explore DOM',
-            onClick: openExplorer,
-            icon: <IconSearch />,
-        },
         hasMobileExport && {
             label: 'Export mobile replay to file',
             onClick: () => exportRecordingToFile(true),
@@ -230,8 +223,8 @@ const MenuActions = (): JSX.Element => {
     ]
 
     return (
-        <LemonMenu items={items}>
-            <LemonButton size="small" icon={<IconEllipsis />} />
+        <LemonMenu items={items} buttonSize="xsmall">
+            <LemonButton size="xsmall" icon={<IconEllipsis />} />
         </LemonMenu>
     )
 }

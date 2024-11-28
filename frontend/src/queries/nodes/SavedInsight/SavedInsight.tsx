@@ -12,9 +12,11 @@ import { InsightLogicProps } from '~/types'
 interface InsightProps {
     query: SavedInsightNode
     context?: QueryContext
+    embedded?: boolean
+    readOnly?: boolean
 }
 
-export function SavedInsight({ query: propsQuery, context }: InsightProps): JSX.Element {
+export function SavedInsight({ query: propsQuery, context, embedded, readOnly }: InsightProps): JSX.Element {
     const insightProps: InsightLogicProps = { dashboardItemId: propsQuery.shortId }
     const { insight, insightLoading } = useValues(insightLogic(insightProps))
     const { query: dataQuery } = useValues(insightDataLogic(insightProps))
@@ -29,5 +31,13 @@ export function SavedInsight({ query: propsQuery, context }: InsightProps): JSX.
 
     const query = { ...propsQuery, ...dataQuery, full: propsQuery.full }
 
-    return <Query query={query} cachedResults={insight} context={{ ...context, insightProps }} />
+    return (
+        <Query
+            query={query}
+            cachedResults={insight}
+            context={{ ...context, insightProps }}
+            embedded={embedded}
+            readOnly={readOnly}
+        />
+    )
 }
