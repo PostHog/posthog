@@ -422,7 +422,7 @@ export class DB {
     public redisSCard(key: string): Promise<number> {
         return instrumentQuery('query.redisSCard', undefined, async () => {
             const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('SCARD delayed. Waiting over 30 sec to perform SADD', {
+            const timeout = timeoutGuard('SCARD delayed. Waiting over 30 sec to perform SCARD', {
                 key,
             })
             try {
