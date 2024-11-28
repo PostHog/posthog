@@ -166,10 +166,10 @@ class OauthIntegration:
                 token_info_config_fields=["hub_id", "hub_domain", "user", "user_id"],
                 client_id=settings.HUBSPOT_APP_CLIENT_ID,
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
-                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read",
+                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
                 additional_authorize_params={
                     # NOTE: these scopes are only available on certain hubspot plans and as such are optional
-                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.companies.write"
+                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
                 },
                 id_path="hub_id",
                 name_path="hub_domain",
