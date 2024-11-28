@@ -116,8 +116,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 class PersonalAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "personal_api_key"
     lookup_field = "id"
-    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
     serializer_class = PersonalAPIKeySerializer
+    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
     queryset = PersonalAPIKey.objects.none()
 
     def safely_get_queryset(self, queryset) -> QuerySet:
