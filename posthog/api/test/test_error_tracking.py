@@ -136,9 +136,10 @@ class TestErrorTracking(APIBaseTest):
         )
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
+            data = {"source_map": fake_big_file, "minified": fake_big_file}
             response = self.client.put(
                 f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
-                {"source_map": fake_big_file},
+                data,
                 format="multipart",
             )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
