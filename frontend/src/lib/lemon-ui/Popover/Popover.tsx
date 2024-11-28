@@ -134,12 +134,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         strategy: 'fixed',
         middleware: [
             ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
-            shift(),
+            shift({ padding: 8, boundary: document.body }), // Add padding and use document.body as boundary
             size({
                 padding: 4,
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
                     floating.style.maxHeight = `${availableHeight}px`
-                    floating.style.maxWidth = `${availableWidth}px`
+                    floating.style.maxWidth = `${Math.min(availableWidth, window.innerWidth - 16)}px` // Ensure popover doesn't extend past window edge
                     floating.style.width = 'initial'
                     if (matchWidth) {
                         floating.style.minWidth = `${rects.reference.width}px`
@@ -199,7 +199,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, referenceRef?.current, floatingElement, ...additionalRefs])
+    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs])
 
     const floatingContainer = useFloatingContainer()
 

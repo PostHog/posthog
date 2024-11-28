@@ -1,7 +1,8 @@
 import { CanvasArg, canvasMutationData, canvasMutationParam, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import { debounce } from 'lib/utils'
-import { canvasMutation, EventType, IncrementalSource, Replayer, ReplayPlugin } from 'rrweb'
+import { canvasMutation, EventType, IncrementalSource, Replayer } from 'rrweb'
+import { ReplayPlugin } from 'rrweb/typings/types'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
@@ -15,12 +16,12 @@ function isCanvasMutation(e: eventWithTime): e is CanvasEventWithTime {
 }
 
 function quickFindClosestCanvasEventIndex(
-    events: CanvasEventWithTime[],
-    target: CanvasEventWithTime,
+    events: CanvasEventWithTime[] | undefined,
+    target: CanvasEventWithTime | undefined,
     start: number,
     end: number
 ): number {
-    if (!target) {
+    if (!target || !events || !events.length) {
         return -1
     }
 
@@ -28,9 +29,19 @@ function quickFindClosestCanvasEventIndex(
         return end
     }
 
+    if (start < 0 || end > events.length - 1) {
+        return -1
+    }
+
     const mid = Math.floor((start + end) / 2)
 
-    return target.timestamp <= events[mid].timestamp
+    // in production, we do sometimes see this be undefined
+    const middleEvent = events[mid]
+    if (!middleEvent) {
+        return -1
+    }
+
+    return target.timestamp <= middleEvent.timestamp
         ? quickFindClosestCanvasEventIndex(events, target, start, mid - 1)
         : quickFindClosestCanvasEventIndex(events, target, mid + 1, end)
 }

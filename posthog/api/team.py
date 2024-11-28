@@ -24,6 +24,8 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -35,8 +37,9 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
     APIScopePermission,
+    AccessControlPermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
@@ -57,7 +60,7 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        if request.method in CREATE_METHODS:
+        if view.action in CREATE_ACTIONS:
             try:
                 organization = get_organization_from_view(view)
             except ValueError:
@@ -129,6 +132,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_network_payload_capture_config",
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
+            "session_recording_event_trigger_config",
             "session_replay_config",
             "survey_config",
             "recording_domains",
@@ -139,7 +143,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         ]
 
 
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
     effective_membership_level = serializers.SerializerMethodField()
@@ -185,6 +189,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_network_payload_capture_config",
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
+            "session_recording_event_trigger_config",
             "session_replay_config",
             "survey_config",
             "effective_membership_level",
@@ -205,6 +210,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "capture_dead_clicks",
+            "user_access_level",
         )
         read_only_fields = (
             "id",
@@ -220,9 +226,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_modifiers",
             "person_on_events_querying_enabled",
             "live_events_token",
+            "user_access_level",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+        # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
@@ -442,7 +450,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return updated_team
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
@@ -479,6 +487,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
+            AccessControlPermission,
             PremiumMultiProjectPermissions,
             *self.permission_classes,
         ]

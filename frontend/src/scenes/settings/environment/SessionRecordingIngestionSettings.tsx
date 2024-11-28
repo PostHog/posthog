@@ -12,9 +12,11 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -250,6 +252,8 @@ function UrlConfigSection({
             </div>
             <p>{description}</p>
 
+            <p>{title} is only available for JavaScript Web.</p>
+
             {props.isAddFormVisible && (
                 <UrlConfigForm type={type} onCancel={props.onCancel} isSubmitting={props.isSubmitting} />
             )}
@@ -317,6 +321,36 @@ function UrlBlocklistOptions(): JSX.Element | null {
             onEdit={setEditUrlBlocklistIndex}
             onRemove={removeUrlBlocklist}
         />
+    )
+}
+
+function EventTriggerOptions(): JSX.Element | null {
+    const { eventTriggerConfig } = useValues(sessionReplayIngestionControlLogic)
+    const { updateEventTriggerConfig } = useActions(sessionReplayIngestionControlLogic)
+
+    return (
+        <div className="flex flex-col space-y-2 mt-4">
+            <div className="flex items-center gap-2 justify-between">
+                <LemonLabel className="text-base">Event emitted</LemonLabel>
+            </div>
+            <p>
+                Session recording will be started immediately before PostHog queues any of these events to be sent to
+                the backend.
+            </p>
+            <p>Event emitted is only available for JavaScript Web.</p>
+            <EventSelect
+                filterGroupTypes={[TaxonomicFilterGroupType.Events]}
+                onChange={(includedEvents) => {
+                    updateEventTriggerConfig(includedEvents)
+                }}
+                selectedEvents={eventTriggerConfig ?? []}
+                addElement={
+                    <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                        Add event
+                    </LemonButton>
+                }
+            />
+        </div>
     )
 }
 
@@ -451,6 +485,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                             useful if you want to reduce the amount of data you collect. 100% means all sessions will be
                             collected. 50% means roughly half of sessions will be collected.
                         </p>
+                        <p>Sampling is only available for JavaScript Web.</p>
                     </>
                 )}
                 {recordingDurationMinimumFeatureEnabled && (
@@ -471,14 +506,14 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                             value are collected. This helps you avoid collecting sessions that are too short to be
                             useful.
                         </p>
+                        <p>Minimum session duration is only available for JavaScript Web.</p>
                     </>
                 )}
                 <LinkedFlagSelector />
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
-                    <UrlTriggerOptions />
-                </FlaggedFeature>
+                <UrlTriggerOptions />
                 <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_BLOCKLIST}>
                     <UrlBlocklistOptions />
+                    <EventTriggerOptions />
                 </FlaggedFeature>
             </>
         </PayGateMini>

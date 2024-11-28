@@ -267,8 +267,9 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-grpcio==1.57.0
+grpcio==1.63.2
     # via
+    #   -r requirements.in
     #   google-api-core
     #   grpcio-status
     #   sqlalchemy-bigquery
@@ -282,7 +283,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.46
+hogql-parser==1.0.47
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -327,6 +328,8 @@ jsonpath-ng==1.6.0
     # via dlt
 jsonpointer==3.0.0
     # via jsonpatch
+jsonref==1.1.0
+    # via -r requirements.in
 jsonschema==4.20.0
     # via drf-spectacular
 jsonschema-specifications==2023.12.1
@@ -456,7 +459,7 @@ pluggy==1.5.0
     # via dlt
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.6.6
+posthoganalytics==3.7.3
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -512,7 +515,7 @@ pyjwt==2.4.0
     #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
-pymssql==2.3.0
+pymssql==2.3.1
     # via -r requirements.in
 pymysql==1.1.1
     # via -r requirements.in
@@ -700,8 +703,9 @@ structlog==23.2.0
     #   django-structlog
 temporalio==1.7.1
     # via -r requirements.in
-tenacity==8.2.3
+tenacity==8.4.2
     # via
+    #   -r requirements.in
     #   celery-redbeat
     #   dlt
     #   langchain

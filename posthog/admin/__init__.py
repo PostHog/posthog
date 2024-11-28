@@ -21,6 +21,7 @@ from posthog.admin.admins import (
     DataWarehouseTableAdmin,
     ProjectAdmin,
     HogFunctionAdmin,
+    GroupTypeMappingAdmin,
 )
 from posthog.models import (
     Organization,
@@ -43,6 +44,7 @@ from posthog.models import (
     Survey,
     DataWarehouseTable,
     HogFunction,
+    GroupTypeMapping,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
@@ -53,6 +55,7 @@ admin.site.register(User, UserAdmin)
 admin.site.register(Dashboard, DashboardAdmin)
 admin.site.register(DashboardTemplate, DashboardTemplateAdmin)
 admin.site.register(Insight, InsightAdmin)
+admin.site.register(GroupTypeMapping, GroupTypeMappingAdmin)
 
 admin.site.register(Experiment, ExperimentAdmin)
 admin.site.register(FeatureFlag, FeatureFlagAdmin)

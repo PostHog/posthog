@@ -19,7 +19,7 @@ import { AggregationSelect } from '../filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
 import { FunnelVizType } from '../views/Funnels/FunnelVizType'
 
-export const FUNNEL_STEP_COUNT_LIMIT = 20
+export const FUNNEL_STEP_COUNT_LIMIT = 30
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))

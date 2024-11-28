@@ -17,6 +17,8 @@ class ErrorTrackingIssue(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
+    name = models.TextField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):
@@ -74,7 +76,7 @@ class ErrorTrackingStackFrame(UUIDModel):
     contents = models.JSONField(null=False, blank=False)
     resolved = models.BooleanField(null=False, blank=False)
     # The context around the frame, +/- a few lines, if we can get it
-    context = models.TextField(null=True, blank=True)
+    context = models.JSONField(null=True, blank=True)
 
     class Meta:
         indexes = [

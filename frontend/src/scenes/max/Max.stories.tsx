@@ -8,6 +8,7 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
 import { chatResponseChunk, failureChunk, generationFailureChunk } from './__mocks__/chatResponse.mocks'
 import { MaxInstance } from './Max'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
 const meta: Meta = {
@@ -31,6 +32,12 @@ export default meta
 const SESSION_ID = 'b1b4b3b4-1b3b-4b3b-1b3b4b3b4b3b'
 
 const Template = ({ sessionId: SESSION_ID }: { sessionId: string }): JSX.Element => {
+    const { acceptDataProcessing } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        acceptDataProcessing()
+    }, [])
+
     return (
         <div className="relative flex flex-col h-fit">
             <BindLogic logic={maxLogic} props={{ sessionId: SESSION_ID }}>
@@ -56,6 +63,11 @@ export const Welcome: StoryFn = () => {
             ],
         },
     })
+    const { acceptDataProcessing } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        // We override data processing opt-in to false, so that wee see the welcome screen as a first-time user would
+        acceptDataProcessing(false)
+    }, [])
 
     return <Template sessionId={SESSION_ID} />
 }
@@ -65,7 +77,7 @@ export const WelcomeSuggestionsAvailable: StoryFn = () => {
 
     useEffect(() => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
-    })
+    }, [])
 
     return <Welcome />
 }
@@ -81,7 +93,7 @@ export const WelcomeLoadingSuggestions: StoryFn = () => {
 
     useEffect(() => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
-    })
+    }, [])
 
     return <Template sessionId={SESSION_ID} />
 }
@@ -130,17 +142,17 @@ export const GenerationFailureThread: StoryFn = () => {
     })
 
     const { askMax, setMessageStatus } = useActions(maxLogic({ sessionId: SESSION_ID }))
-    const { thread, threadLoading } = useValues(maxLogic({ sessionId: SESSION_ID }))
+    const { threadRaw, threadLoading } = useValues(maxLogic({ sessionId: SESSION_ID }))
 
     useEffect(() => {
         askMax('What are my most popular pages?')
     }, [])
 
     useEffect(() => {
-        if (thread.length === 2 && !threadLoading) {
+        if (threadRaw.length === 2 && !threadLoading) {
             setMessageStatus(1, 'error')
         }
-    }, [thread.length, threadLoading])
+    }, [threadRaw.length, threadLoading])
 
     return <Template sessionId={SESSION_ID} />
 }
@@ -156,6 +168,23 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
 
     useEffect(() => {
         askMax('What are my most popular pages?')
+    }, [])
+
+    return <Template sessionId={SESSION_ID} />
+}
+
+export const ThreadWithRateLimit: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/chat/': (_, res, ctx) =>
+                res(ctx.text(chatResponseChunk), ctx.status(429)),
+        },
+    })
+
+    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
+
+    useEffect(() => {
+        askMax('Is Bielefeld real?')
     }, [])
 
     return <Template sessionId={SESSION_ID} />

@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from posthog.clickhouse.materialized_columns import get_materialized_columns
+from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
@@ -156,7 +156,7 @@ class FunnelCorrelation:
         ):
             # When dealing with properties, make sure funnel response comes with properties
             # so we don't have to join on persons/groups to get these properties again
-            mat_event_cols = get_materialized_columns("events")
+            mat_event_cols = get_enabled_materialized_columns("events")
 
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
@@ -305,7 +305,7 @@ class FunnelCorrelation:
                     {event_join_query}
                     AND event.event IN %(event_names)s
             )
-            GROUP BY name
+            GROUP BY name, prop
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
             HAVING (success_count + failure_count) > 2
