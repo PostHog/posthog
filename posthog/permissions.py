@@ -412,6 +412,7 @@ class APIScopePermission(ScopeBasePermission):
 
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+
         if scoped_teams:
             try:
                 team = view.team
