@@ -563,6 +563,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (experiment?.start_date) {
                 actions.loadExperimentResults()
+                actions.loadMetricResults()
                 actions.loadSecondaryMetricResults()
             }
         },
@@ -845,6 +846,41 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                         return null
                     }
+                },
+            },
+        ],
+        metricResults: [
+            null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[] | null,
+            {
+                loadMetricResults: async (
+                    refresh?: boolean
+                ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[] | null> => {
+                    if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                        return (await Promise.all(
+                            values.experiment?.metrics.map(async (metric) => {
+                                try {
+                                    // Queries are shareable, so we need to set the experiment_id for the backend to correctly associate the query with the experiment
+                                    const queryWithExperimentId = {
+                                        ...metric,
+                                        experiment_id: values.experimentId,
+                                    }
+                                    const response: ExperimentResults = await api.create(
+                                        `api/projects/${values.currentTeamId}/query`,
+                                        { query: queryWithExperimentId, refresh: 'lazy_async' }
+                                    )
+
+                                    return {
+                                        ...response,
+                                        fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                        last_refresh: response.last_refresh || '',
+                                    }
+                                } catch (error) {
+                                    return {}
+                                }
+                            })
+                        )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse)[]
+                    }
+                    return null
                 },
             },
         ],
