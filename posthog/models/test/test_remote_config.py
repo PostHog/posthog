@@ -149,7 +149,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         self.remote_config.build_config()
         js = self.remote_config.build_js_config()
 
-        # TODO: Come up with a good way of solidly testing this...
+        # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
         assert js == snapshot(
             """\
 (function() {

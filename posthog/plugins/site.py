@@ -22,15 +22,6 @@ class WebJsUrl:
     url: str
 
 
-@dataclass
-class WebJsApp:
-    id: int
-    source: str
-    token: str
-    config_schema: list[dict]
-    config: dict
-
-
 def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Optional[dict]):
     if not config or not config_schema:
         return {}
@@ -41,7 +32,7 @@ def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Opt
     }
 
 
-def _get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
+def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
     from posthog.models import PluginConfig, PluginSourceFile
 
     response = (
@@ -61,8 +52,6 @@ def _get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
         )
         .first()
     )
-
-    print(response)
 
     if not response:
         return None
@@ -96,21 +85,6 @@ def get_site_apps_for_team(team_id: int) -> list[WebJsSource]:
         items.append(WebJsSource(*(list(row))))
 
     return items
-
-
-def _generate_site_app_script(source_file: WebJsSource) -> str:
-    id = source_file.id
-    source = source_file.source
-    config = get_site_config_from_schema(source_file.config_schema, source_file.config)
-    return f"{source}().inject({{config:{json.dumps(config)},posthog:window['__$$ph_site_app_{id}']}})"
-
-
-def get_site_app_script(id: int, token: str) -> str:
-    source_file = _get_transpiled_site_source(id, token) if token else None
-    if not source_file:
-        raise Exception("No source file found")
-
-    return _generate_site_app_script(source_file)
 
 
 def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[dict]:
