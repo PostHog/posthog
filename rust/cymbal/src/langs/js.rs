@@ -229,13 +229,23 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
 impl From<&RawJSFrame> for Frame {
     fn from(raw_frame: &RawJSFrame) -> Self {
         metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
+
+        // If this is a source_url: <anonymous> frame, we always assume it's not in_app
+        let is_anon = raw_frame
+            .source_url
+            .as_ref()
+            .map(|s| s == "<anonymous>")
+            .unwrap_or_default();
+
+        let in_app = raw_frame.in_app && !is_anon;
+
         let mut res = Self {
             raw_id: String::new(),
             mangled_name: raw_frame.fn_name.clone(),
             line: None,
             column: None,
             source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
-            in_app: raw_frame.in_app,
+            in_app,
             resolved_name: Some(raw_frame.fn_name.clone()),
             lang: "javascript".to_string(),
             resolved: true, // Without location information, we're assuming this is not minified
