@@ -374,6 +374,8 @@ class APIScopePermission(ScopeBasePermission):
         # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
         if not key_scopes:
             return True
+
+        # Personal API keys are only allowed to retrieve their own key, no other actions, and the required scope isn't needed
         if scope_object == "personal_api_key":
             if view.action == "retrieve":
                 return True
