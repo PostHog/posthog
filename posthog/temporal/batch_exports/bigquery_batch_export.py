@@ -199,15 +199,14 @@ class BigQueryClient(bigquery.Client):
         project_id: str,
         dataset_id: str,
         table_id: str,
-        table_schema: list[bigquery.SchemaField] | None = None,
+        table_schema: list[bigquery.SchemaField],
         exists_ok: bool = True,
         not_found_ok: bool = True,
         delete: bool = True,
         create: bool = True,
     ) -> collections.abc.AsyncGenerator[bigquery.Table, None]:
-        """Manage a table in BigQuery by ensure it exists while in context."""
+        """Manage a table in BigQuery by ensuring it exists while in context."""
         if create is True:
-            assert table_schema is not None, "Table schema is required when creating a table"
             table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
         else:
             table = await self.aget_table(project_id, dataset_id, table_id)
