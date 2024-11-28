@@ -64,7 +64,9 @@ const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
 }
 
-export type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string}`
+type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string}`
+type PostHogComTutorialsURL = `https://${'www.' | ''}posthog.com/tutorials/${string}`
+export type PostHogComResourcesURL = PostHogComDocsURL | PostHogComTutorialsURL
 
 /**
  * Link
