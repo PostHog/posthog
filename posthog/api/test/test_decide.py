@@ -493,7 +493,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team_allow_list.append(f"{self.team.id}")
 
         with self.settings(
-            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name, SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list
+            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
+            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=",".join(team_allow_list or []),
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
