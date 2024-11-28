@@ -572,7 +572,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
         use_ssl_obj = payload.get("use_ssl", {})
-        using_ssl_str = use_ssl_obj.get("enabled", "0")
+        using_ssl_str = use_ssl_obj.get("enabled", "1")
         using_ssl = str_to_bool(using_ssl_str)
 
         if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
@@ -625,6 +625,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             password,
             schema,
             ssh_tunnel,
+            using_ssl,
         )
 
         return new_source_model, list(schemas.keys())
@@ -927,6 +928,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
             ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
+            use_ssl_obj = request.data.get("use_ssl", {})
+            using_ssl_str = use_ssl_obj.get("enabled", "1")
+            using_ssl = str_to_bool(using_ssl_str)
+
             ssh_tunnel = SSHTunnel(
                 enabled=using_ssh_tunnel,
                 host=ssh_tunnel_host,
@@ -984,6 +989,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     password,
                     schema,
                     ssh_tunnel,
+                    using_ssl,
                 )
                 if len(result.keys()) == 0:
                     return Response(
