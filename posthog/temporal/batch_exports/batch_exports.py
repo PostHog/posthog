@@ -1166,6 +1166,7 @@ async def wait_for_delta_past_data_interval_end(
     now = dt.datetime.now(dt.UTC)
 
     while target + delta > now:
+        now = dt.datetime.now(dt.UTC)
         remaining = (target + delta) - now
         # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
         await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))
