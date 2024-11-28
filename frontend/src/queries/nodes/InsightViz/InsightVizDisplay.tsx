@@ -270,15 +270,13 @@ export function InsightVizDisplay({
                                     </div>
                                 </>
                             ) : (
-                                <>
-                                    {renderActiveView()}
-                                    <ResultCustomizationsModal />
-                                </>
+                                <>{renderActiveView()}</>
                             )}
                         </div>
                     </>
                 )}
             </div>
+            <ResultCustomizationsModal />
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
