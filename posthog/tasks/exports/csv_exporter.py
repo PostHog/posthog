@@ -172,15 +172,26 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
         elif isinstance(first_result.get("data"), list):
             # TRENDS LIKE
             for index, item in enumerate(results):
-                line = {"series": item.get("label", f"Series #{index + 1}")}
+                label = item.get("label", f"Series #{index + 1}")
+                compare_label = item.get("compare_label", "")
+                series_name = f"{label} - {compare_label}" if compare_label else label
+                line = {"series": series_name}
+
+                # take labels from current results, when comparing against previous
+                if item.get("compare_label") == "previous":
+                    label_item = results[index - 1]
+                else:
+                    label_item = item
+
                 action = item.get("action")
+
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
                 if item.get("aggregated_value"):
                     line["total count"] = item.get("aggregated_value")
                 else:
                     for index, data in enumerate(item["data"]):
-                        line[item["labels"][index]] = data
+                        line[label_item["labels"][index]] = data
 
                 yield line
 

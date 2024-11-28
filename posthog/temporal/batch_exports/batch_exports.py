@@ -128,6 +128,26 @@ SETTINGS
 """
 )
 
+SELECT_FROM_EVENTS_VIEW_RECENT = Template(
+    """
+SELECT
+    $fields
+FROM
+    events_batch_export_recent(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    ) AS events
+FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=1
+"""
+)
+
 SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
     """
 SELECT
@@ -258,7 +278,17 @@ async def iter_records_from_model_view(
         else:
             parameters["include_events"] = []
 
-        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+        end_at = dt.datetime.fromisoformat(interval_end)
+
+        if start_at:
+            is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+        else:
+            is_5_min_batch_export = False
+
+        if is_5_min_batch_export and not is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
             query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
@@ -403,6 +433,15 @@ def start_produce_batch_export_record_batches(
         else:
             parameters["include_events"] = []
 
+        start_at, end_at = full_range
+
+        if start_at:
+            is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+        else:
+            is_5_min_batch_export = False
+
+        if is_5_min_batch_export and not is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
         if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
@@ -605,7 +644,18 @@ def iter_records(
         "exclude_events": events_to_exclude_array,
         "include_events": events_to_include_array,
     }
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+
+    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+    end_at = dt.datetime.fromisoformat(interval_end)
+
+    if start_at:
+        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
+    else:
+        is_5_min_batch_export = False
+
+    if is_5_min_batch_export and not is_backfill:
+        query = SELECT_FROM_EVENTS_VIEW_RECENT
+    elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     elif is_backfill:
         query = SELECT_FROM_EVENTS_VIEW_BACKFILL
@@ -1103,3 +1153,19 @@ async def execute_batch_export_insert_activity(
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
+
+
+async def wait_for_delta_past_data_interval_end(
+    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
+) -> None:
+    """Wait for some time after `data_interval_end` before querying ClickHouse."""
+    if settings.TEST:
+        return
+
+    target = data_interval_end.astimezone(dt.UTC)
+    now = dt.datetime.now(dt.UTC)
+
+    while target + delta < now:
+        remaining = (target + delta) - now
+        # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
+        await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))

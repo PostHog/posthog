@@ -746,17 +746,16 @@ class Status(StrEnum):
     PENDING_RELEASE = "pending_release"
 
 
-class ErrorTrackingGroup(BaseModel):
+class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     assignee: Optional[float] = None
     description: Optional[str] = None
-    exception_type: Optional[str] = None
-    fingerprint: list[str]
     first_seen: AwareDatetime
+    id: str
     last_seen: AwareDatetime
-    merged_fingerprints: list[list[str]]
+    name: Optional[str] = None
     occurrences: float
     sessions: float
     status: Status
@@ -1535,16 +1534,6 @@ class StepOrderValue(StrEnum):
     ORDERED = "ordered"
 
 
-class StickinessFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    display: Optional[ChartDisplayType] = None
-    hiddenLegendIndexes: Optional[list[int]] = None
-    showLegend: Optional[bool] = None
-    showValuesOnSeries: Optional[bool] = None
-
-
 class StickinessFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1555,6 +1544,12 @@ class StickinessFilterLegacy(BaseModel):
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
+
+
+class StickinessOperator(StrEnum):
+    GTE = "gte"
+    LTE = "lte"
+    EXACT = "exact"
 
 
 class SuggestedQuestionsQueryResponse(BaseModel):
@@ -1725,6 +1720,7 @@ class WebStatsBreakdown(StrEnum):
     REGION = "Region"
     CITY = "City"
     TIMEZONE = "Timezone"
+    LANGUAGE = "Language"
 
 
 class Scale(StrEnum):
@@ -2722,7 +2718,7 @@ class QueryResponseAlternative15(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[ErrorTrackingGroup]
+    results: list[ErrorTrackingIssue]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -2934,7 +2930,7 @@ class QueryResponseAlternative27(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[ErrorTrackingGroup]
+    results: list[ErrorTrackingIssue]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3292,6 +3288,25 @@ class SessionsTimelineQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class StickinessCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: StickinessOperator
+    value: int
+
+
+class StickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: Optional[ChartDisplayType] = None
+    hiddenLegendIndexes: Optional[list[int]] = None
+    showLegend: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
+    stickinessCriteria: Optional[StickinessCriteria] = None
 
 
 class StickinessQueryResponse(BaseModel):
@@ -3932,7 +3947,7 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[ErrorTrackingGroup]
+    results: list[ErrorTrackingIssue]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -4812,7 +4827,7 @@ class Response9(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[ErrorTrackingGroup]
+    results: list[ErrorTrackingIssue]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -4996,7 +5011,7 @@ class ErrorTrackingQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[ErrorTrackingGroup]
+    results: list[ErrorTrackingIssue]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6127,7 +6142,7 @@ class ErrorTrackingQuery(BaseModel):
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
-    fingerprint: Optional[list[str]] = None
+    issueId: Optional[str] = None
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(

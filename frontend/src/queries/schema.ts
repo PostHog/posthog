@@ -1500,11 +1500,20 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
 export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
 
+export type StickinessOperator =
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThanOrEqual
+    | PropertyOperator.Exact
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     hiddenLegendIndexes?: integer[]
+    stickinessCriteria?: {
+        operator: StickinessOperator
+        value: integer
+    }
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -1841,6 +1850,7 @@ export enum WebStatsBreakdown {
     Region = 'Region',
     City = 'City',
     Timezone = 'Timezone',
+    Language = 'Language',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
@@ -1924,7 +1934,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    fingerprint?: string[]
+    issueId?: string
     select?: HogQLExpression[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
@@ -1935,14 +1945,13 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     limit?: integer
 }
 
-export interface ErrorTrackingGroup {
-    fingerprint: string[]
-    exception_type: string | null
-    merged_fingerprints: string[][]
+export interface ErrorTrackingIssue {
+    id: string
+    name: string | null
+    description: string | null
     occurrences: number
     sessions: number
     users: number
-    description: string | null
     /**  @format date-time */
     first_seen: string
     /**  @format date-time */
@@ -1953,7 +1962,7 @@ export interface ErrorTrackingGroup {
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
 
-export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
     hasMore?: boolean
     limit?: integer
     offset?: integer

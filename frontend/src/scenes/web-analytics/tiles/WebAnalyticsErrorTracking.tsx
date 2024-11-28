@@ -3,22 +3,21 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingGroup } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const record = props.record as ErrorTrackingGroup
+    const record = props.record as ErrorTrackingIssue
 
     return (
         <div className="flex items-start space-x-1.5 group">
             <LemonTableLink
-                title={record.exception_type || 'Unknown Type'}
+                title={record.name || 'Unknown Type'}
                 description={
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
@@ -28,7 +27,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 }
                 className="flex-1"
-                to={urls.errorTrackingGroup(stringifiedFingerprint(record.fingerprint))}
+                to={urls.errorTrackingIssue(record.id)}
             />
         </div>
     )

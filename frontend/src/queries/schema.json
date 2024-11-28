@@ -1893,7 +1893,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingGroup"
+                        "$ref": "#/definitions/ErrorTrackingIssue"
                     },
                     "type": "array"
                 },
@@ -4580,7 +4580,7 @@
                                 },
                                 "results": {
                                     "items": {
-                                        "$ref": "#/definitions/ErrorTrackingGroup"
+                                        "$ref": "#/definitions/ErrorTrackingIssue"
                                     },
                                     "type": "array"
                                 },
@@ -5498,7 +5498,7 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
-        "ErrorTrackingGroup": {
+        "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
                 "assignee": {
@@ -5507,31 +5507,19 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "exception_type": {
-                    "type": ["string", "null"]
-                },
-                "fingerprint": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "first_seen": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
                     "type": "string"
                 },
                 "last_seen": {
                     "format": "date-time",
                     "type": "string"
                 },
-                "merged_fingerprints": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
+                "name": {
+                    "type": ["string", "null"]
                 },
                 "occurrences": {
                     "type": "number"
@@ -5549,13 +5537,12 @@
                 "volume": {}
             },
             "required": [
-                "fingerprint",
-                "exception_type",
-                "merged_fingerprints",
+                "id",
+                "name",
+                "description",
                 "occurrences",
                 "sessions",
                 "users",
-                "description",
                 "first_seen",
                 "last_seen",
                 "assignee",
@@ -5585,11 +5572,8 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "fingerprint": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
+                "issueId": {
+                    "type": "string"
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -5658,7 +5642,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingGroup"
+                        "$ref": "#/definitions/ErrorTrackingIssue"
                     },
                     "type": "array"
                 },
@@ -9856,7 +9840,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/ErrorTrackingGroup"
+                                "$ref": "#/definitions/ErrorTrackingIssue"
                             },
                             "type": "array"
                         },
@@ -10529,7 +10513,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/ErrorTrackingGroup"
+                                "$ref": "#/definitions/ErrorTrackingIssue"
                             },
                             "type": "array"
                         },
@@ -12226,6 +12210,19 @@
                 },
                 "showValuesOnSeries": {
                     "type": "boolean"
+                },
+                "stickinessCriteria": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/StickinessOperator"
+                        },
+                        "value": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": ["operator", "value"],
+                    "type": "object"
                 }
             },
             "type": "object"
@@ -12264,6 +12261,10 @@
                 }
             },
             "type": "object"
+        },
+        "StickinessOperator": {
+            "enum": ["gte", "lte", "exact"],
+            "type": "string"
         },
         "StickinessQuery": {
             "additionalProperties": false,
@@ -13370,7 +13371,8 @@
                 "Country",
                 "Region",
                 "City",
-                "Timezone"
+                "Timezone",
+                "Language"
             ],
             "type": "string"
         },

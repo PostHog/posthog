@@ -12,14 +12,14 @@ import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordi
 import { ErrorTrackingEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
-    const { events, groupLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingGroupSceneLogic)
+    const { events, issueLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingGroupSceneLogic)
     const { loadEvents, setActiveEventUUID } = useActions(errorTrackingGroupSceneLogic)
 
     return (
-        <div className="ErrorTracking__group">
+        <div className="ErrorTracking__issue">
             <div className="h-full space-y-2">
                 <Playlist
-                    loading={groupLoading || eventsLoading}
+                    loading={issueLoading || eventsLoading}
                     title="Exceptions"
                     sections={[
                         {

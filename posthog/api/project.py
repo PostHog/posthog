@@ -15,6 +15,7 @@ from posthog.api.team import (
     TeamSerializer,
     validate_team_attrs,
 )
+from ee.api.rbac.access_control import AccessControlViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -395,7 +396,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return instance
 
 
-class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
