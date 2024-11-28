@@ -17,13 +17,9 @@ interface PlayerExplorerBottomSettingsProps {
     onClose?: (() => void) | undefined
 }
 
-function PlayerExplorerBottomSettings({
-    iframeKey,
-    setIframeKey,
-    onClose,
-}: PlayerExplorerBottomSettingsProps): JSX.Element {
+function PlayerExplorerSettings({ iframeKey, setIframeKey, onClose }: PlayerExplorerBottomSettingsProps): JSX.Element {
     return (
-        <SettingsBar border="top" className="justify-end">
+        <SettingsBar border="top" className="justify-between">
             <SettingsButton
                 icon={<IconRevert />}
                 onClick={() => setIframeKey(iframeKey + 1)}
@@ -50,6 +46,7 @@ export function SessionRecordingPlayerExplorer({
 
     return (
         <div className="SessionRecordingPlayerExplorer flex flex-1 flex-col h-full overflow-hidden">
+            <PlayerExplorerSettings iframeKey={iframeKey} setIframeKey={setIframeKey} onClose={onClose} />
             <div
                 className="flex-1 p-0.5 overflow-hidden bg-text-3000 border SessionRecordingPlayerExplorer__wrapper"
                 ref={elementRef}
@@ -73,8 +70,6 @@ export function SessionRecordingPlayerExplorer({
                     app. Use your Browser Developer Tools to inspect the content.
                 </LemonBanner>
             )}
-
-            <PlayerExplorerBottomSettings iframeKey={iframeKey} setIframeKey={setIframeKey} onClose={onClose} />
         </div>
     )
 }
