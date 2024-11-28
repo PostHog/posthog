@@ -196,13 +196,12 @@ HAVING and(
                 "date_range_end": end,
                 "event_properties": self.event_properties(),
                 "session_properties": self.session_properties(),
-                "conversion_person_id_expr": self.conversion_person_id_expr,
                 "event_type_expr": self.event_type_expr,
             },
         )
         assert isinstance(parsed_select, ast.SelectQuery)
 
-        if self.query.conversionGoal:
+        if self.conversion_count_expr and self.conversion_person_id_expr:
             parsed_select.select.append(ast.Alias(alias="conversion_count", expr=self.conversion_count_expr))
             parsed_select.select.append(ast.Alias(alias="conversion_person_id", expr=self.conversion_person_id_expr))
         else:
