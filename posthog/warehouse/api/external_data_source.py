@@ -47,7 +47,7 @@ from posthog.temporal.data_imports.pipelines.vitally import (
 from posthog.temporal.data_imports.pipelines.zendesk import (
     validate_credentials as validate_zendesk_credentials,
 )
-from posthog.utils import get_instance_region
+from posthog.utils import get_instance_region, str_to_bool
 from posthog.warehouse.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
@@ -571,6 +571,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
+        use_ssl_obj = payload.get("use_ssl", {})
+        using_ssl_str = use_ssl_obj.get("enabled", "0")
+        using_ssl = str_to_bool(using_ssl_str)
+
         if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
             raise InternalPostgresError()
 
@@ -596,6 +600,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "ssh_tunnel_auth_type_password": ssh_tunnel_auth_type_password,
                 "ssh_tunnel_auth_type_passphrase": ssh_tunnel_auth_type_passphrase,
                 "ssh_tunnel_auth_type_private_key": ssh_tunnel_auth_type_private_key,
+                "using_ssl": using_ssl,
             },
             prefix=prefix,
         )
