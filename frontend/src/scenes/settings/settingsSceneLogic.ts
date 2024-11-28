@@ -48,6 +48,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             if (!section) {
                 return
             }
+
             // As of middle of September 2024, `details` and `danger-zone` are the only sections present
             // at both Environment and Project levels. Others we want to redirect based on the feature flag.
             if (!section.endsWith('-details') && !section.endsWith('-danger-zone')) {
@@ -57,8 +58,9 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                     section = section.replace(/^environment/, 'project')
                 }
             }
+
             if (SettingLevelIds.includes(section as SettingLevelId)) {
-                if (section !== values.selectedLevel) {
+                if (section !== values.selectedLevel || values.selectedSectionId) {
                     actions.selectLevel(section as SettingLevelId)
                 }
             } else if (section !== values.selectedSectionId) {
