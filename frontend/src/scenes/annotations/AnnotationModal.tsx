@@ -97,7 +97,10 @@ export function AnnotationModal({
                         label={
                             <span>
                                 Date and time (
-                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
+                                <Link
+                                    to={urls.settings('environment-product-analytics', 'date-and-time')}
+                                    target="_blank"
+                                >
                                     {shortTimeZone(timezone)}
                                 </Link>
                                 )

@@ -46,7 +46,11 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
             <div className="flex justify-between items-center">
                 <h3 className="mb-0">Timezone conversion</h3>
                 <span>
-                    <LemonButton icon={<IconGear />} size="small" to={urls.settings('project', 'date-and-time')} />
+                    <LemonButton
+                        icon={<IconGear />}
+                        size="small"
+                        to={urls.settings('environment-product-analytics', 'date-and-time')}
+                    />
                 </span>
             </div>
 
