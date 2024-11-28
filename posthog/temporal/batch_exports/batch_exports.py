@@ -1156,7 +1156,7 @@ async def execute_batch_export_insert_activity(
 
 
 async def wait_for_delta_past_data_interval_end(
-    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=60)
+    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
 ) -> None:
     """Wait for some time after `data_interval_end` before querying ClickHouse."""
     target = data_interval_end.astimezone(dt.UTC)
