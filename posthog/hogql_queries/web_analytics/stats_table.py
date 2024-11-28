@@ -189,8 +189,8 @@ SELECT
         sumIf(filtered_pageview_count, previous_period_segment)
     ) AS "context.columns.views",
     tuple(
-        coalesce(avgIf(is_bounce, current_period_segment), 0),
-        coalesce(avgIf(is_bounce, previous_period_segment), 0)
+        avgIf(is_bounce, current_period_segment),
+        avgIf(is_bounce, previous_period_segment)
     ) AS "context.columns.bounce_rate",
 FROM (
     SELECT
@@ -277,8 +277,8 @@ FROM (
 LEFT JOIN (
     SELECT
         breakdown_value,
-        coalesce(avgIf(is_bounce, current_period_segment), 0) AS bounce_rate,
-        coalesce(avgIf(is_bounce, previous_period_segment), 0) AS previous_bounce_rate
+        avgIf(is_bounce, current_period_segment) AS bounce_rate,
+        avgIf(is_bounce, previous_period_segment) AS previous_bounce_rate
     FROM (
         SELECT
             {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname
@@ -302,10 +302,10 @@ ON counts.breakdown_value = bounce.breakdown_value
 LEFT JOIN (
     SELECT
         breakdown_value,
-        coalesce(avgMergeIf(average_scroll_percentage_state, current_period_segment), 0) AS average_scroll_percentage,
-        coalesce(avgMergeIf(average_scroll_percentage_state, previous_period_segment), 0) AS previous_average_scroll_percentage,
-        coalesce(avgMergeIf(scroll_gt80_percentage_state, current_period_segment), 0) AS scroll_gt80_percentage,
-        coalesce(avgMergeIf(scroll_gt80_percentage_state, previous_period_segment), 0) AS previous_scroll_gt80_percentage
+        avgMergeIf(average_scroll_percentage_state, current_period_segment) AS average_scroll_percentage,
+        avgMergeIf(average_scroll_percentage_state, previous_period_segment) AS previous_average_scroll_percentage,
+        avgMergeIf(scroll_gt80_percentage_state, current_period_segment) AS scroll_gt80_percentage,
+        avgMergeIf(scroll_gt80_percentage_state, previous_period_segment) AS previous_scroll_gt80_percentage
     FROM (
         SELECT
             {scroll_breakdown_value} AS breakdown_value, -- use $prev_pageview_pathname to find the scroll depth when leaving this pathname
@@ -397,8 +397,8 @@ FROM (
 LEFT JOIN (
     SELECT
         breakdown_value,
-        coalesce(avgIf(is_bounce, current_period_segment), 0) AS bounce_rate,
-        coalesce(avgIf(is_bounce, previous_period_segment), 0) AS previous_bounce_rate
+        avgIf(is_bounce, current_period_segment) AS bounce_rate,
+        avgIf(is_bounce, previous_period_segment) AS previous_bounce_rate
     FROM (
         SELECT
             {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname

@@ -48,12 +48,21 @@ const VariationCell = (
         isPercentage ? `${(value * 100).toFixed(1)}%` : value.toLocaleString()
 
     return function Cell({ value }) {
+        if (!value) {
+            return null
+        }
+
         if (!Array.isArray(value)) {
             return <span>{String(value)}</span>
         }
 
         const [current, previous] = value as [number, number]
-        const pctChangeFromPrevious = previous === 0 ? null : current / previous - 1
+        const pctChangeFromPrevious =
+            previous === 0 && current === 0 // Special case, render as flatline
+                ? 0
+                : current === null || previous === null || previous === 0
+                ? null
+                : current / previous - 1
 
         const trend =
             pctChangeFromPrevious === null
