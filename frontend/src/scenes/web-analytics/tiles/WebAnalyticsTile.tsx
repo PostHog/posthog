@@ -1,4 +1,5 @@
 import { IconGear } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -463,7 +464,20 @@ export const WebStatsTableTile = ({
                         <LemonSwitch
                             label={
                                 <div className="flex flex-row space-x-2">
-                                    <span>Enable path cleaning</span>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Check{' '}
+                                                <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                                                    our path cleaning rules documentation
+                                                </Link>{' '}
+                                                to learn more about path cleaning
+                                            </>
+                                        }
+                                        interactive
+                                    >
+                                        <span>Enable path cleaning</span>
+                                    </Tooltip>
                                     <LemonButton
                                         icon={<IconGear />}
                                         type="tertiary"
