@@ -360,7 +360,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                     linked_flag = linked_flag_key
 
             rrweb_script_config = None
-            breakpoint()
+
             if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
                 "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
                 or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
