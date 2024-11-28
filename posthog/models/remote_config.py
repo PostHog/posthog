@@ -1,3 +1,5 @@
+import json
+import os
 from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_save
@@ -15,10 +17,14 @@ logger = structlog.get_logger(__name__)
 
 
 # TODO list
-# - Add a listener for when a feature flag is created/updated/deleted
-# - Add a listener for when a team is created/updated/deleted
 # - Add a listener for when a site app is created/updated/deleted
 # - Add tests to ensure that decide uses this config perfectly
+# - Add JS loader that includes only config and other assets (site apps)
+# - Add JS loader including posthog-js
+
+# Load the JS content from the frontend buil
+ARRAY_JS_CONTENT_FILE = os.path.join(settings.BASE_DIR, "frontend/dist/array.js")
+ARRAY_JS_CONTENT = open(ARRAY_JS_CONTENT_FILE).read()
 
 
 class RemoteConfig(UUIDModel):
@@ -160,6 +166,29 @@ class RemoteConfig(UUIDModel):
         config["site_apps"] = site_apps
 
         return config
+
+    def build_js_config(self):
+        # NOTE: This is the JS that will be loaded by the SDK.
+        # It includes the dist JS for the frontend and the JSON config
+
+        js_content = f"""
+        var POSTHOG_CONFIG = {json.dumps(self.config)};
+        """.strip()
+
+        return js_content
+
+    def build_array_js_config(self):
+        # NOTE: This is the JS that will be loaded by the SDK.
+        # It includes the dist JS for the frontend and the JSON config
+
+        js_content = self.build_js_config()
+
+        js_content = f"""
+        {js_content}
+        {ARRAY_JS_CONTENT}
+        """
+
+        return js_content
 
     def sync(self):
         """

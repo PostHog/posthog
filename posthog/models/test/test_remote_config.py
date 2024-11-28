@@ -1,10 +1,14 @@
+from inline_snapshot import snapshot
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 from posthog.test.base import BaseTest
 
 
-class TestRemoteConfig(BaseTest):
+class _RemoteConfigBase(BaseTest):
+    remote_config: RemoteConfig
+
     def setUp(self):
         super().setUp()
         project, team = Project.objects.create_with_team(
@@ -16,6 +20,8 @@ class TestRemoteConfig(BaseTest):
         # There will always be a config thanks to the signal
         self.remote_config = RemoteConfig.objects.get(team=self.team)
 
+
+class TestRemoteConfig(_RemoteConfigBase):
     def test_creates_remote_config_immediately(self):
         assert self.remote_config
         assert self.remote_config.updated_at
@@ -90,3 +96,42 @@ class TestRemoteConfig(BaseTest):
         self.team.save()
         self.remote_config.refresh_from_db()
         assert self.remote_config.config["autocaptureExceptions"] == {"endpoint": "/e/"}
+
+
+class TestRemoteConfigJS(_RemoteConfigBase):
+    def test_renders_js_including_config(self):
+        # NOTE: This is a very basic test to check that the JS is rendered correctly
+        # It doesn't check the actual contents of the JS, as that changes often but checks some general things
+        js = self.remote_config.build_config()
+        js = self.remote_config.build_js_config()
+
+        # TODO: Come up with a good way of solidly testing this...
+        assert js == snapshot(
+            'var POSTHOG_CONFIG = {"surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocaptureExceptions": false, "supported_compression": ["gzip", "gzip-js"], "default_identified_only": false, "elements_chain_as_string": false};'
+        )
+
+    def test_renders_js_including_site_apps(self):
+        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
+        PluginSourceFile.objects.create(
+            plugin=plugin,
+            filename="site.ts",
+            source="export function inject (){}",
+            transpiled="function inject(){}",
+            status=PluginSourceFile.Status.TRANSPILED,
+        )
+        plugin_config = PluginConfig.objects.create(
+            plugin=plugin,
+            enabled=True,
+            order=1,
+            team=self.team,
+            config={},
+            web_token="tokentoken",
+        )
+
+        self.remote_config.build_config()
+        js = self.remote_config.build_js_config()
+
+        # TODO: Come up with a good way of solidly testing this...
+        assert js == snapshot(
+            'var POSTHOG_CONFIG = {"surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocaptureExceptions": false, "supported_compression": ["gzip", "gzip-js"], "default_identified_only": false, "elements_chain_as_string": false};'
+        )
