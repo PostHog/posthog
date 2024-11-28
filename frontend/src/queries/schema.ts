@@ -829,7 +829,7 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     /**
      * Groups aggregation
      */
-    aggregation_group_type_index?: integer
+    aggregation_group_type_index?: integer | null
     /** Sampling rate */
     samplingFactor?: number | null
     /** Modifiers used when performing the query */
