@@ -1,5 +1,6 @@
 import { IconGear, IconTrending } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
@@ -52,10 +53,12 @@ const VariationCell = (
         }
 
         const [current, previous] = value as [number, number]
-        const pctChangeFromPrevious = previous === 0 && current === 0 ? 0 : previous === 0 ? 1 : current / previous - 1
+        const pctChangeFromPrevious = previous === 0 ? null : current / previous - 1
 
         const trend =
-            pctChangeFromPrevious === 0
+            pctChangeFromPrevious === null
+                ? null
+                : pctChangeFromPrevious === 0
                 ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
                 : pctChangeFromPrevious > 0
                 ? {
@@ -68,19 +71,24 @@ const VariationCell = (
                   }
 
         // If current === previous, say "increased by 0%"
-        const tooltip = `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
-            Math.abs(pctChangeFromPrevious),
-            0
-        )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+        const tooltip =
+            pctChangeFromPrevious !== null
+                ? `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
+                      Math.abs(pctChangeFromPrevious),
+                      0
+                  )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+                : null
 
         return (
             <Tooltip title={tooltip}>
-                <div>
+                <div className={clsx({ 'pr-4': !trend })}>
                     {formatNumber(current)}&nbsp;
-                    {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <span style={{ color: trend.color }}>
-                        <trend.Icon color={trend.color} />
-                    </span>
+                    {trend && (
+                        // eslint-disable-next-line react/forbid-dom-props
+                        <span style={{ color: trend.color }}>
+                            <trend.Icon color={trend.color} />
+                        </span>
+                    )}
                 </div>
             </Tooltip>
         )
