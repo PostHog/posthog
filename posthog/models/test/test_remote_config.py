@@ -107,31 +107,54 @@ class TestRemoteConfigJS(_RemoteConfigBase):
 
         # TODO: Come up with a good way of solidly testing this...
         assert js == snapshot(
-            'var POSTHOG_CONFIG = {"surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocaptureExceptions": false, "supported_compression": ["gzip", "gzip-js"], "default_identified_only": false, "elements_chain_as_string": false};'
+            """\
+(function() {
+            window._POSTHOG_CONFIG = {"surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocaptureExceptions": false, "supported_compression": ["gzip", "gzip-js"], "default_identified_only": false, "elements_chain_as_string": false};
+            window._POSTHOG_SITE_APPS = [];
+        })();\
+"""
         )
 
     def test_renders_js_including_site_apps(self):
-        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
-        PluginSourceFile.objects.create(
-            plugin=plugin,
-            filename="site.ts",
-            source="export function inject (){}",
-            transpiled="function inject(){}",
-            status=PluginSourceFile.Status.TRANSPILED,
-        )
-        plugin_config = PluginConfig.objects.create(
-            plugin=plugin,
-            enabled=True,
-            order=1,
-            team=self.team,
-            config={},
-            web_token="tokentoken",
-        )
+        files = [
+            "(function () { return { inject: (data) => console.log('injected!', data)}; })",
+            "(function () { return { inject: (data) => console.log('injected 2!', data)}; })",
+            "(function () { return { inject: (data) => console.log('injected but disabled!', data)}; })",
+        ]
+
+        plugin_configs = []
+
+        for transpiled in files:
+            plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
+            PluginSourceFile.objects.create(
+                plugin=plugin,
+                filename="site.ts",
+                source="IGNORED FOR TESTING",
+                transpiled=transpiled,
+                status=PluginSourceFile.Status.TRANSPILED,
+            )
+            plugin_configs.append(
+                PluginConfig.objects.create(
+                    plugin=plugin,
+                    enabled=True,
+                    order=1,
+                    team=self.team,
+                    config={},
+                    web_token="tokentoken",
+                )
+            )
+
+        plugin_configs[2].enabled = False
 
         self.remote_config.build_config()
         js = self.remote_config.build_js_config()
 
         # TODO: Come up with a good way of solidly testing this...
         assert js == snapshot(
-            'var POSTHOG_CONFIG = {"surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocaptureExceptions": false, "supported_compression": ["gzip", "gzip-js"], "default_identified_only": false, "elements_chain_as_string": false};'
+            """\
+(function() {
+            window._POSTHOG_CONFIG = {"surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocaptureExceptions": false, "supported_compression": ["gzip", "gzip-js"], "default_identified_only": false, "elements_chain_as_string": false};
+            window._POSTHOG_SITE_APPS = [{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:posthog }) } },{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:posthog }) } },{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:posthog }) } }];
+        })();\
+"""
         )

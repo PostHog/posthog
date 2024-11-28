@@ -21,6 +21,7 @@ logger = structlog.get_logger(__name__)
 # - Add tests to ensure that decide uses this config perfectly
 # - Add JS loader that includes only config and other assets (site apps)
 # - Add JS loader including posthog-js
+# - Some way of detecting change to array.js and triggering a refresh job of all configs
 
 # Load the JS content from the frontend buil
 ARRAY_JS_CONTENT_FILE = os.path.join(settings.BASE_DIR, "frontend/dist/array.js")
@@ -168,11 +169,25 @@ class RemoteConfig(UUIDModel):
         return config
 
     def build_js_config(self):
-        # NOTE: This is the JS that will be loaded by the SDK.
-        # It includes the dist JS for the frontend and the JSON config
+        # NOTE: This is the web focused config for the frontend that includes site apps
+
+        from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
+
+        # Add in the site apps as an array of objects
+        # TODO: Should this be an array??
+        site_apps = []
+        for site_app in get_site_apps_for_team(self.team.id):
+            config = get_site_config_from_schema(site_app.config_schema, site_app.config)
+            # NOTE: It is an object as we can later add other properties such as a consent ID
+            site_apps.append(
+                f"{{ token: '{site_app.token}', load: function(posthog) {{ {site_app.source}().inject({{ config:{json.dumps(config)}, posthog:posthog }}) }} }}"
+            )
 
         js_content = f"""
-        var POSTHOG_CONFIG = {json.dumps(self.config)};
+        (function() {{
+            window._POSTHOG_CONFIG = {json.dumps(self.config)};
+            window._POSTHOG_SITE_APPS = [{','.join(site_apps)}];
+        }})();
         """.strip()
 
         return js_content
