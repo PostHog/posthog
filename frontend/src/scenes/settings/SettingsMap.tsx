@@ -14,6 +14,7 @@ import {
 } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
+import { DataColorThemes } from './environment/DataColorThemes'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
@@ -43,7 +44,6 @@ import {
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { WebhookIntegration } from './environment/WebhookIntegration'
-import { DataColorThemes } from './environment/DataColorThemes'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -161,6 +161,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'data-theme',
                 title: 'Data colors',
                 component: <DataColorThemes />,
+                flag: 'INSIGHT_COLORS',
             },
             {
                 id: 'persons-on-events',
