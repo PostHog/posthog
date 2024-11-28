@@ -339,9 +339,10 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 },
                 custom_channel_rules=[
                     CustomChannelRule(
-                        conditions=[CustomChannelCondition(key="utm_source", op="exact", value="test")],
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value="test", id="1")],
                         channel_type="Test",
                         combiner=FilterLogicalOperator.AND_,
+                        id="a",
                     )
                 ],
             )
@@ -355,9 +356,10 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 },
                 custom_channel_rules=[
                     CustomChannelRule(
-                        conditions=[CustomChannelCondition(key="utm_source", op="exact", value=["test", "test2"])],
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value=["test", "test2"], id="1")],
                         channel_type="Test",
                         combiner=FilterLogicalOperator.AND_,
+                        id="a",
                     )
                 ],
             )
@@ -371,9 +373,10 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 },
                 custom_channel_rules=[
                     CustomChannelRule(
-                        conditions=[CustomChannelCondition(key="utm_source", op="exact", value=["test"])],
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value=["test"], id="1")],
                         channel_type="Test",
                         combiner=FilterLogicalOperator.AND_,
+                        id="a",
                     )
                 ],
             )
@@ -388,12 +391,13 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 },
                 custom_channel_rules=[
                     CustomChannelRule(
-                        conditions=[
-                            CustomChannelCondition(key="utm_source", op="exact", value="s"),
-                            CustomChannelCondition(key="utm_medium", op="exact", value="m"),
+                        items=[
+                            CustomChannelCondition(key="utm_source", op="exact", value="s", id="1"),
+                            CustomChannelCondition(key="utm_medium", op="exact", value="m", id="2"),
                         ],
                         channel_type="Test",
                         combiner=FilterLogicalOperator.AND_,
+                        id="a",
                     )
                 ],
             )
@@ -407,14 +411,16 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 },
                 custom_channel_rules=[
                     CustomChannelRule(
-                        conditions=[CustomChannelCondition(key="utm_source", op="exact", value="1")],
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value="1", id="1")],
                         channel_type="Test1",
                         combiner=FilterLogicalOperator.AND_,
+                        id="a",
                     ),
                     CustomChannelRule(
-                        conditions=[CustomChannelCondition(key="utm_source", op="exact", value="2")],
+                        items=[CustomChannelCondition(key="utm_source", op="exact", value="2", id="2")],
                         channel_type="Test2",
                         combiner=FilterLogicalOperator.AND_,
+                        id="b",
                     ),
                 ],
             )

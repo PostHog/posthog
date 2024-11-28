@@ -1,4 +1,4 @@
-import { IconCheck, IconX } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,15 +15,16 @@ import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLog
 import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
-    return alert.state === AlertState.FIRING ? (
-        <span className="text-danger-dark">
-            <IconX />
-        </span>
-    ) : (
-        <span className="text-success-dark">
-            <IconCheck />
-        </span>
-    )
+    switch (alert.state) {
+        case AlertState.FIRING:
+            return <LemonTag type="danger">FIRING</LemonTag>
+        case AlertState.ERRORED:
+            return <LemonTag type="danger">ERRORED</LemonTag>
+        case AlertState.SNOOZED:
+            return <LemonTag type="muted">SNOOZED</LemonTag>
+        case AlertState.NOT_FIRING:
+            return <LemonTag type="success">NOT FIRING</LemonTag>
+    }
 }
 
 interface AlertListItemProps {
@@ -39,8 +40,8 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
         <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
             <div className="flex justify-between flex-auto items-center p-2">
                 <div className="flex flex-row gap-3 items-center">
-                    <AlertStateIndicator alert={alert} />
                     <span>{alert.name}</span>
+                    <AlertStateIndicator alert={alert} />
 
                     {alert.enabled ? (
                         <div className="text-muted pl-3">
@@ -85,8 +86,12 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                 <div className="mb-4">
                     With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
                     not evaluate alerts in real-time, but rather on a schedule (hourly, daily...). Please note that
-                    alerts are in alpha and may not be fully reliable.
+                    alerts are in alpha and may not be fully reliable. <br />
+                    <Link to={urls.alerts()} target="_blank">
+                        View all your alerts here
+                    </Link>
                 </div>
+
                 {alerts.length ? (
                     <div className="space-y-2">
                         <div>

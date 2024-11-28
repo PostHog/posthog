@@ -197,7 +197,9 @@ mod test {
             panic!("Expected a Raw stacktrace")
         };
         assert_eq!(frames.len(), 2);
-        let RawFrame::JavaScript(frame) = &frames[0];
+        let RawFrame::JavaScript(frame) = &frames[0] else {
+            panic!("Expected a JavaScript frame")
+        };
 
         assert_eq!(
             frame.source_url,
@@ -208,7 +210,9 @@ mod test {
         assert_eq!(frame.location.as_ref().unwrap().line, 64);
         assert_eq!(frame.location.as_ref().unwrap().column, 25112);
 
-        let RawFrame::JavaScript(frame) = &frames[1];
+        let RawFrame::JavaScript(frame) = &frames[1] else {
+            panic!("Expected a JavaScript frame")
+        };
         assert_eq!(
             frame.source_url,
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())

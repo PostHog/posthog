@@ -63,7 +63,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                 results.splice(recordIndex, 1, group)
                 // optimistically update local results
                 actions.setResponse({ ...response, results: results })
-                await api.errorTracking.update(group.fingerprint, params)
+                await api.errorTracking.updateIssue(group.fingerprint, params)
             }
         },
     })),

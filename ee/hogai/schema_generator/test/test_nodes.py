@@ -9,9 +9,11 @@ from langchain_core.runnables import RunnableLambda
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from posthog.schema import (
+    AssistantMessage,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
+    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -41,9 +43,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_runs(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            generator_model_mock.return_value = RunnableLambda(
-                lambda _: TestSchema(reasoning_steps=["step"], answer=self.schema).model_dump()
-            )
+            generator_model_mock.return_value = RunnableLambda(lambda _: TestSchema(query=self.schema).model_dump())
             new_state = node.run(
                 {
                     "messages": [HumanMessage(content="Text")],
@@ -54,9 +54,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 new_state,
                 {
-                    "messages": [
-                        VisualizationMessage(answer=self.schema, plan="Plan", reasoning_steps=["step"], done=True)
-                    ],
+                    "messages": [VisualizationMessage(answer=self.schema, plan="Plan", done=True)],
                     "intermediate_steps": None,
                 },
             )
@@ -173,12 +171,77 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[5].content)
         self.assertIn("Follow\nUp", history[5].content)
 
+    def test_agent_reconstructs_typical_conversation(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            {
+                "messages": [
+                    HumanMessage(content="Question 1"),
+                    RouterMessage(content="trends"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
+                    AssistantMessage(content="Summary 1"),
+                    HumanMessage(content="Question 2"),
+                    RouterMessage(content="funnel"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
+                    AssistantMessage(content="Summary 2"),
+                    HumanMessage(content="Question 3"),
+                    RouterMessage(content="funnel"),
+                ],
+                "plan": "Plan 3",
+            }
+        )
+        self.assertEqual(len(history), 8)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("mapping", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("Plan 1", history[1].content)
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Question 1", history[2].content)
+        self.assertEqual(history[3].type, "human")
+        self.assertIn("Plan 2", history[3].content)
+        self.assertEqual(history[4].type, "human")
+        self.assertIn("Question 2", history[4].content)
+        self.assertEqual(history[5].type, "ai")
+        self.assertEqual(history[6].type, "human")
+        self.assertIn("Plan 3", history[6].content)
+        self.assertEqual(history[7].type, "human")
+        self.assertIn("Question 3", history[7].content)
+
+    def test_prompt(self):
+        node = DummyGeneratorNode(self.team)
+        state = {
+            "messages": [
+                HumanMessage(content="Question 1"),
+                RouterMessage(content="trends"),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
+                AssistantMessage(content="Summary 1"),
+                HumanMessage(content="Question 2"),
+                RouterMessage(content="funnel"),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
+                AssistantMessage(content="Summary 2"),
+                HumanMessage(content="Question 3"),
+                RouterMessage(content="funnel"),
+            ],
+            "plan": "Plan 3",
+        }
+        with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
+
+            def assert_prompt(prompt):
+                self.assertEqual(len(prompt), 4)
+                self.assertEqual(prompt[0].type, "system")
+                self.assertEqual(prompt[1].type, "human")
+                self.assertEqual(prompt[2].type, "ai")
+                self.assertEqual(prompt[3].type, "human")
+
+            generator_model_mock.return_value = RunnableLambda(assert_prompt)
+            node.run(state, {})
+
     def test_failover_with_incorrect_schema(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            schema = TestSchema(reasoning_steps=[], answer=None).model_dump()
+            schema = TestSchema(query=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
-            schema["answer"] = []
+            schema["query"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
             new_state = node.run({"messages": [HumanMessage(content="Text")]}, {})
@@ -200,7 +263,7 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
         with patch.object(
             DummyGeneratorNode,
             "_model",
-            return_value=RunnableLambda(lambda _: TestSchema(reasoning_steps=[], answer=self.schema).model_dump()),
+            return_value=RunnableLambda(lambda _: TestSchema(query=self.schema).model_dump()),
         ):
             new_state = node.run(
                 {
@@ -226,9 +289,9 @@ class TestSchemaGeneratorNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            schema = TestSchema(reasoning_steps=[], answer=None).model_dump()
+            schema = TestSchema(query=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
-            schema["answer"] = []
+            schema["query"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
             new_state = node.run(

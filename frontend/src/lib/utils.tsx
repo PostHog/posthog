@@ -236,7 +236,14 @@ export const cohortOperatorMap: Record<string, string> = {
     not_in: 'user not in',
 }
 
+export const stickinessOperatorMap: Record<string, string> = {
+    exact: 'Exactly',
+    gte: 'At least',
+    lte: 'At most (but at least once)',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
+    ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
@@ -501,6 +508,7 @@ export const humanFriendlyMilliseconds = (timestamp: number | undefined): string
 
     return `${(timestamp / 1000).toFixed(2)}s`
 }
+
 export function humanFriendlyDuration(
     d: string | number | null | undefined,
     {
