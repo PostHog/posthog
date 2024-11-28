@@ -104,7 +104,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set = self.get_object()
         # TODO: delete file from s3
         minified = request.FILES["minified"]
-        source_map = request.FILES["sourcemap"]
+        source_map = request.FILES["sourceMap"]
         (storage_ptr, content_hash) = upload_symbol_set(minified, source_map, self.team_id)
         symbol_set.storage_ptr = storage_ptr
         symbol_set.content_hash = content_hash

@@ -77,15 +77,15 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
 
     forms(({ values, actions }) => ({
         uploadSymbolSet: {
-            defaults: { minified: [], sourcemap: [] } as { minified: File[]; sourcemap: File[] },
-            submit: async ({ minified, sourcemap }) => {
-                if (minified.length < 1 || sourcemap.length < 1) {
+            defaults: { minified: [], sourceMap: [] } as { minified: File[]; sourceMap: File[] },
+            submit: async ({ minified, sourceMap }) => {
+                if (minified.length < 1 || sourceMap.length < 1) {
                     lemonToast.error('Please select both a minified file and a source map file')
                     return
                 }
 
                 const minifiedSrc = minified[0]
-                const sourcemapSrc = sourcemap[0]
+                const sourceMapSrc = sourceMap[0]
                 const id = values.uploadSymbolSetId
 
                 if (id == null) {
@@ -94,7 +94,7 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
 
                 const formData = new FormData()
                 formData.append('minified', minifiedSrc)
-                formData.append('sourcemap', sourcemapSrc)
+                formData.append('sourceMap', sourceMapSrc)
                 await api.errorTracking.updateSymbolSet(id, formData)
                 actions.setUploadSymbolSetId(null)
                 actions.loadSymbolSets()
