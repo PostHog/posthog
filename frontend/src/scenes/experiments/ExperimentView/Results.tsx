@@ -16,7 +16,7 @@ export function Results(): JSX.Element {
             <ResultsHeader />
             <SummaryTable />
             <DeltaVizNew />
-            <DeltaViz />
+            {/* <DeltaViz /> */}
             <ResultsQuery targetResults={experimentResults} showTable={true} />
         </div>
     )

@@ -165,27 +165,66 @@ function DeltaChart({
         return HORIZONTAL_PADDING + percentage * (VIEW_BOX_WIDTH - 2 * HORIZONTAL_PADDING)
     }
 
+    const infoPanelWidth = '10%'
+
+    const ticksSvgRef = useRef<SVGSVGElement>(null)
+    const chartSvgRef = useRef<SVGSVGElement>(null)
+    const [ticksHeight, setTicksHeight] = useState<number>(0)
+    const [chartSvgHeight, setChartSvgHeight] = useState<number>(0)
+
+    useEffect(() => {
+        const ticksSvg = ticksSvgRef.current
+        const chartSvg = chartSvgRef.current
+
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const elementName = entry.target === ticksSvg ? 'ticks svg' : 'chart svg'
+                console.log(`${elementName} height:`, entry.contentRect.height)
+
+                if (entry.target === ticksSvg) {
+                    setTicksHeight(entry.contentRect.height)
+                } else if (entry.target === chartSvg) {
+                    setChartSvgHeight(entry.contentRect.height)
+                }
+            }
+        })
+
+        if (ticksSvg) resizeObserver.observe(ticksSvg)
+        if (chartSvg) resizeObserver.observe(chartSvg)
+
+        return () => {
+            resizeObserver.disconnect()
+        }
+    }, [])
+
     return (
         <div style={{ width: '100%' }}>
-            <div
-                style={{
-                    display: 'inline-block',
-                    width: '200px',
-                    verticalAlign: 'top',
-                }}
-            >
+            <div style={{ display: 'inline-block', width: infoPanelWidth, verticalAlign: 'top' }}>
                 {isFirstMetric && (
-                    <div style={{ backgroundColor: 'pink' }}>
-                        <span>top</span>
-                    </div>
+                    <svg
+                        style={{
+                            height: `${ticksHeight}px`,
+                            // backgroundColor: 'pink',
+                            // borderBottom: `1px solid ${COLORS.BOUNDARY_LINES}`,
+                        }}
+                    ></svg>
                 )}
-
-                <div
-                    style={{
-                        backgroundColor: 'lightblue',
-                    }}
-                >
-                    bottom
+                {isFirstMetric && <div style={{ width: '100%', borderTop: `1px solid ${COLORS.BOUNDARY_LINES}` }} />}
+                <div style={{ height: `${chartSvgHeight}px` }}>
+                    {variants.map((variant) => (
+                        <div
+                            key={variant.key}
+                            style={{
+                                // backgroundColor: 'lightblue',
+                                height: `${100 / variants.length}%`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                paddingLeft: '10px',
+                            }}
+                        >
+                            <VariantTag experimentId={experimentId} variantKey={variant.key} />
+                        </div>
+                    ))}
                 </div>
             </div>
 
@@ -193,15 +232,15 @@ function DeltaChart({
             <div
                 style={{
                     display: 'inline-block',
-                    width: 'calc(100% - 200px)',
+                    width: `calc(100% - ${infoPanelWidth})`,
                     verticalAlign: 'top',
                 }}
             >
                 {isFirstMetric && (
                     <svg
+                        ref={ticksSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
                         preserveAspectRatio="xMidYMid meet"
-                        style={{ backgroundColor: '#e8e8e8' }}
                     >
                         {tickValues.map((value, index) => {
                             const x = valueToX(value)
@@ -221,8 +260,13 @@ function DeltaChart({
                         })}
                     </svg>
                 )}
+                {isFirstMetric && <div style={{ width: '100%', borderTop: `1px solid ${COLORS.BOUNDARY_LINES}` }} />}
 
-                <svg viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`} preserveAspectRatio="xMidYMid meet">
+                <svg
+                    ref={chartSvgRef}
+                    viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
+                    preserveAspectRatio="xMidYMid meet"
+                >
                     {/* Vertical grid lines */}
                     {tickValues.map((value, index) => {
                         const x = valueToX(value)
@@ -232,7 +276,7 @@ function DeltaChart({
                                 x1={x}
                                 y1={0}
                                 x2={x}
-                                y2={chartHeight}
+                                y2={chartSvgHeight}
                                 stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
                                 strokeWidth={value === 0 ? 1 : 0.5}
                             />
