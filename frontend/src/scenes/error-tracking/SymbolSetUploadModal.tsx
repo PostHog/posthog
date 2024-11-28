@@ -58,7 +58,7 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                         disabledReason={
                             uploadSymbolSet.minified.length < 1
                                 ? 'Upload a minified source'
-                                : uploadSymbolSet.sourcemap.length < 1
+                                : uploadSymbolSet.sourceMap.length < 1
                                 ? 'Upload a source map'
                                 : undefined
                         }
