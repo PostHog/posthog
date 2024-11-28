@@ -52,10 +52,11 @@ export function Destinations(): JSX.Element {
     )
 }
 export type DestinationsTableProps = {
-    askForFeedback?: boolean
+    hideFeedback?: boolean
+    hideAddDestinationButton?: boolean
 }
 
-export function DestinationsTable({ askForFeedback }: DestinationsTableProps): JSX.Element {
+export function DestinationsTable({ hideFeedback, hideAddDestinationButton }: DestinationsTableProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(pipelineDestinationsLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
@@ -63,7 +64,7 @@ export function DestinationsTable({ askForFeedback }: DestinationsTableProps): J
 
     return (
         <div className="space-y-2">
-            <DestinationsFilters askForFeedback={askForFeedback} />
+            <DestinationsFilters hideFeedback={hideFeedback} hideAddDestinationButton={hideAddDestinationButton} />
 
             <LemonTable
                 dataSource={filteredDestinations}

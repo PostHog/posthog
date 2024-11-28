@@ -11,7 +11,8 @@ export type DestinationsFiltersProps = {
     hideSearch?: boolean
     hideShowPaused?: boolean
     hideKind?: boolean
-    askForFeedback?: boolean
+    hideFeedback?: boolean
+    hideAddDestinationButton?: boolean
 }
 
 export function DestinationsFilters({
@@ -19,6 +20,7 @@ export function DestinationsFilters({
     hideShowPaused,
     hideKind,
     hideFeedback,
+    hideAddDestinationButton = true,
 }: DestinationsFiltersProps): JSX.Element | null {
     const { filters } = useValues(destinationsFiltersLogic)
     const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
@@ -64,7 +66,7 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ kind: e ?? null })}
                     />
                 )}
-                {askForFeedback ? null : <NewButton stage={PipelineStage.Destination} size="small" />}
+                {hideAddDestinationButton ? null : <NewButton stage={PipelineStage.Destination} size="small" />}
             </div>
         </div>
     )
