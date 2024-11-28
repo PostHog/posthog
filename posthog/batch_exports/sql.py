@@ -257,7 +257,7 @@ CREATE OR REPLACE VIEW events_batch_export_unbounded ON CLUSTER {settings.CLICKH
 
 CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT = f"""
 CREATE OR REPLACE VIEW events_batch_export_recent ON CLUSTER {settings.CLICKHOUSE_CLUSTER} AS (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
+    SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
         team_id AS team_id,
         timestamp AS timestamp,
         event AS event,
@@ -274,8 +274,8 @@ CREATE OR REPLACE VIEW events_batch_export_recent ON CLUSTER {settings.CLICKHOUS
     FROM
         events_recent
     PREWHERE
-        events.inserted_at >= {{interval_start:DateTime64}}
-        AND events.inserted_at < {{interval_end:DateTime64}}
+        events_recent.inserted_at >= {{interval_start:DateTime64}}
+        AND events_recent.inserted_at < {{interval_end:DateTime64}}
     WHERE
         team_id = {{team_id:Int64}}
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
