@@ -99,6 +99,7 @@ export function PlayerInspectorControls(): JSX.Element {
                             items={eventsFilters}
                             label={capitalizeFirstLetter(FilterableInspectorListItemTypes.EVENTS)}
                             icon={<IconUnverifiedEvent />}
+                            closeOnClickInside={false}
                         />
                     )}
                     <SettingsMenu
@@ -111,6 +112,7 @@ export function PlayerInspectorControls(): JSX.Element {
                             onClick: () => openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay' }),
                             icon: <IconGear />,
                         }}
+                        closeOnClickInside={false}
                     />
                     <SettingsMenu
                         items={networkFilters}
@@ -123,6 +125,7 @@ export function PlayerInspectorControls(): JSX.Element {
                                 openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-network' }),
                             icon: <IconGear />,
                         }}
+                        closeOnClickInside={false}
                     />
                     {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                         mode !== SessionRecordingPlayerMode.Sharing && (
@@ -147,6 +150,7 @@ export function PlayerInspectorControls(): JSX.Element {
                         }}
                         status={showSearch ? 'danger' : 'default'}
                         title="Search"
+                        className="rounded-[0px]"
                     />
                 </div>
             </div>
