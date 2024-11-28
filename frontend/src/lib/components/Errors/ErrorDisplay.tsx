@@ -129,7 +129,7 @@ function ChainedStackTraces({ exceptionList }: { exceptionList: ErrorTrackingExc
             return []
         })
         loadFromRawIds(frames.map(({ raw_id }) => raw_id))
-    }, [exceptionList, showAllFrames, setShowAllFrames, loadFromRawIds])
+    }, [exceptionList, loadFromRawIds])
 
     return (
         <>
