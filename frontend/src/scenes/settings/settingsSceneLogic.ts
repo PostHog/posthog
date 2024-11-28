@@ -52,9 +52,9 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             // at both Environment and Project levels. Others we want to redirect based on the feature flag.
             if (!section.endsWith('-details') && !section.endsWith('-danger-zone')) {
                 if (values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-                    section = section.replace('project-', 'environment-')
+                    section = section.replace(/^project/, 'environment')
                 } else {
-                    section = section.replace('environment-', 'project-')
+                    section = section.replace(/^environment/, 'project')
                 }
             }
             if (SettingLevelIds.includes(section as SettingLevelId)) {
