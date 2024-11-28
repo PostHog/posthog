@@ -62,7 +62,7 @@ export function InsightVizDisplay({
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
-    const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
         isPaths,
@@ -218,6 +218,10 @@ export function InsightVizDisplay({
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
+
+    if (!theme) {
+        return null
+    }
 
     return (
         <>
