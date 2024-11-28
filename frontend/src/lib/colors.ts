@@ -44,16 +44,9 @@ export type DataColorToken =
     | 'preset-14'
     | 'preset-15'
 
-export type _DataColorTheme = Partial<Record<DataColorToken, string>> & {
+export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
     [key: `preset-${number}`]: string
 }
-
-export type DataColorConfig = {
-    lightModeColor: string
-    darkModeColor: string
-}
-
-export type DataColorTheme = Record<`preset-${number}`, DataColorConfig>
 
 export type DataColorThemeModel = {
     id: number
@@ -72,7 +65,7 @@ export function getColorVar(variable: string): string {
     return colorValue.trim()
 }
 
-export function getDataThemeColor(theme: _DataColorTheme, color: DataColorToken): string {
+export function getDataThemeColor(theme: DataColorTheme, color: DataColorToken): string {
     return theme[color] as string
 }
 

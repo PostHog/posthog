@@ -1,7 +1,7 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { _DataColorTheme, getColorVar } from 'lib/colors'
+import { DataColorTheme, getColorVar } from 'lib/colors'
 
 import type { dataThemeLogicType } from './dataThemeLogicType'
 
@@ -31,7 +31,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         getTheme: [
             (s) => [s.themes, s.defaultTheme],
             (themes, defaultTheme) =>
-                (themeId: string | number): _DataColorTheme | null => {
+                (themeId: string | number): DataColorTheme | null => {
                     let customTheme
 
                     if (Number.isInteger(themeId) && themes != null) {
