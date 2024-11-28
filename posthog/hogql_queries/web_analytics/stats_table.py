@@ -541,7 +541,7 @@ ORDER BY "context.columns.visitors" DESC,
                 # Get the difference between the UNIX timestamp at UTC and the UNIX timestamp at the event's timezone
                 # Value is in milliseconds, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
                 return parse_expr(
-                    "if(or(isNull(properties.$timezone), empty(properties.$timezone), properties.$timezone == 'Etc/Unknown'), NULL, (toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, properties.$timezone)))) - toUnixTimestamp64Milli(timestamp)) / 3600000)"
+                    "if(or(isNull(properties.$timezone), empty(properties.$timezone), properties.$timezone == 'Etc/Unknown'), NULL, (toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, properties.$timezone)))) - toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, 'UTC'))))) / 3600000)"
                 )
             case _:
                 raise NotImplementedError("Breakdown not implemented")
