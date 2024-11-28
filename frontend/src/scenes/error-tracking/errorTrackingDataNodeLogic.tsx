@@ -22,18 +22,15 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     })),
 
     actions({
-        mergeIssues: (indexes: number[]) => ({ indexes }),
-        assignIssue: (recordIndex: number, assigneeId: number | null) => ({
-            recordIndex,
-            assigneeId,
-        }),
+        mergeIssues: (ids: string[]) => ({ ids }),
+        assignIssue: (id: string, assigneeId: number | null) => ({ id, assigneeId }),
     }),
 
     listeners(({ values, actions }) => ({
-        mergeIssues: async ({ indexes }) => {
+        mergeIssues: async ({ ids }) => {
             const results = values.response?.results as ErrorTrackingIssue[]
 
-            const issues = results.filter((_, id) => indexes.includes(id))
+            const issues = results.filter(({ id }) => ids.includes(id))
             const primaryIssue = issues.shift()
 
             if (primaryIssue && issues.length > 0) {
@@ -41,29 +38,34 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                 const mergedIssue = mergeIssues(primaryIssue, issues)
 
                 // optimistically update local results
+                // TODO: handle failed case
                 actions.setResponse({
                     ...values.response,
                     results: results
                         // remove merged issues
-                        .filter((_, id) => !indexes.includes(id))
+                        .filter(({ id }) => !ids.includes(id))
                         .map((issue) =>
                             // replace primary issue
                             mergedIssue.id === issue.id ? mergedIssue : issue
                         ),
                 })
-                await api.errorTracking.merge(primaryIssue.id, mergingIds)
+                await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
             }
         },
-        assignIssue: async ({ recordIndex, assigneeId }) => {
+        assignIssue: async ({ id, assigneeId }) => {
             const response = values.response
             if (response) {
                 const params = { assignee: assigneeId }
                 const results = response.results as ErrorTrackingIssue[]
-                const issue = { ...results[recordIndex], ...params }
-                results.splice(recordIndex, 1, issue)
-                // optimistically update local results
-                actions.setResponse({ ...response, results: results })
-                await api.errorTracking.updateIssue(issue.id, params)
+                const recordIndex = results.findIndex((r) => r.id === id)
+                if (recordIndex > -1) {
+                    const issue = { ...results[recordIndex], ...params }
+                    results.splice(recordIndex, 1, issue)
+                    // optimistically update local results
+                    // TODO: handle failed case
+                    actions.setResponse({ ...response, results: results })
+                    await api.errorTracking.updateIssue(issue.id, params)
+                }
             }
         },
     })),

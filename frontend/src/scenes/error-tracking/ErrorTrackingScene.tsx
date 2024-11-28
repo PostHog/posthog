@@ -27,7 +27,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { query, selectedRowIndexes } = useValues(errorTrackingSceneLogic)
+    const { query, selectedIssueIds } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -55,29 +55,29 @@ export function ErrorTrackingScene(): JSX.Element {
             <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
-            {selectedRowIndexes.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
+            {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
             <Query query={query} context={context} />
         </BindLogic>
     )
 }
 
 const ErrorTrackingActions = (): JSX.Element => {
-    const { selectedRowIndexes } = useValues(errorTrackingSceneLogic)
-    const { setSelectedRowIndexes } = useActions(errorTrackingSceneLogic)
+    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
     const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-bg-3000 flex space-x-1">
-            <LemonButton type="secondary" size="small" onClick={() => setSelectedRowIndexes([])}>
+            <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
                 Unselect all
             </LemonButton>
-            {selectedRowIndexes.length > 1 && (
+            {selectedIssueIds.length > 1 && (
                 <LemonButton
                     type="secondary"
                     size="small"
                     onClick={() => {
-                        mergeIssues(selectedRowIndexes)
-                        setSelectedRowIndexes([])
+                        mergeIssues(selectedIssueIds)
+                        setSelectedIssueIds([])
                     }}
                 >
                     Merge
@@ -110,13 +110,12 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { hasGroupActions } = useValues(errorTrackingLogic)
-    const { selectedRowIndexes } = useValues(errorTrackingSceneLogic)
-    const { setSelectedRowIndexes } = useActions(errorTrackingSceneLogic)
+    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
 
-    const rowIndex = props.recordIndex
     const record = props.record as ErrorTrackingIssue
 
-    const checked = selectedRowIndexes.includes(props.recordIndex)
+    const checked = selectedIssueIds.includes(record.id)
 
     return (
         <div className="flex items-start space-x-1.5 group">
@@ -125,10 +124,10 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
                     checked={checked}
                     onChange={(newValue) => {
-                        setSelectedRowIndexes(
+                        setSelectedIssueIds(
                             newValue
-                                ? [...selectedRowIndexes, rowIndex]
-                                : selectedRowIndexes.filter((id) => id != rowIndex)
+                                ? [...selectedIssueIds, record.id]
+                                : selectedIssueIds.filter((id) => id != record.id)
                         )
                     }}
                 />
@@ -159,10 +158,7 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex justify-center">
-            <AssigneeSelect
-                assignee={record.assignee}
-                onChange={(assigneeId) => assignIssue(props.recordIndex, assigneeId)}
-            />
+            <AssigneeSelect assignee={record.assignee} onChange={(assigneeId) => assignIssue(record.id, assigneeId)} />
         </div>
     )
 }

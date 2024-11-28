@@ -157,7 +157,7 @@ export const errorTrackingIssueEventsQuery = ({
 
     // TODO: fix this where clause. It does not take into account the events
     // associated with issues that have been merged into this primary issue
-    const where = [`eq(${issueId}, properties.$exception_issue_id`]
+    const where = [`eq(${issueId}, properties.$exception_issue_id)`]
 
     const query: EventsQuery = {
         kind: NodeKind.EventsQuery,

@@ -712,7 +712,7 @@ class ApiRequest {
     }
 
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('group').addPathComponent(id)
+        return this.errorTracking(teamId).addPathComponent('issue').addPathComponent(id)
     }
 
     public errorTrackingIssueMerge(id: ErrorTrackingIssue['id']): ApiRequest {
@@ -1865,13 +1865,16 @@ const api = {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
 
-        async merge(
+        async mergeInto(
             primaryIssueId: ErrorTrackingIssue['id'],
             mergingIssueIds: ErrorTrackingIssue['id'][]
         ): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssue(primaryIssueId).create({ data: { ids: mergingIssueIds } })
+            return await new ApiRequest()
+                .errorTrackingIssueMerge(primaryIssueId)
+                .create({ data: { ids: mergingIssueIds } })
         },
-        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<ErrorTrackingIssue> {
+
+        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
             return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
         },
 
