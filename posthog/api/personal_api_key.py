@@ -4,7 +4,9 @@ import uuid
 from rest_framework import response, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
+from django.db.models import QuerySet
 from posthog.models import PersonalAPIKey, User
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.personal_api_key import hash_key_value, mask_key_value
 from posthog.models.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.models.team.team import Team
@@ -112,13 +114,18 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return personal_api_key
 
 
-class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
+class PersonalAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "personal_api_key"
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
     permission_classes = [IsAuthenticated, TimeSensitiveActionPermission]
+    queryset = PersonalAPIKey.objects.none()
 
-    def get_queryset(self):
+    def safely_get_queryset(self, queryset) -> QuerySet:
         return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
+
+    def safely_get_object(self):
+        return self.get_object()
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
