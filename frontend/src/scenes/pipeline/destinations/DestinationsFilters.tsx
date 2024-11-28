@@ -34,7 +34,7 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ search: e })}
                     />
                 )}
-                {askForFeedback ? (
+                {!hideFeedback ? (
                     <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
                         Can't find what you're looking for?
                     </Link>
