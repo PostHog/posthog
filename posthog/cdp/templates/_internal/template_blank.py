@@ -4,8 +4,8 @@ blank_site_app: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
     type="site_app",
     id="template-blank-site-app",
-    name="Blank Site App",
-    description="Run custom code on your website",
+    name="New client-side app",
+    description="Run custom JavaScript on your website. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-03.png",
     category=["Custom", "Analytics"],
     hog="""
@@ -28,8 +28,8 @@ blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
     type="site_destination",
     id="template-blank-site-destination",
-    name="Blank Site Destination",
-    description="Run code on your site when an event is sent to PostHog",
+    name="New client-side destination",
+    description="Run code on your website when an event is sent to PostHog. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-01.png",
     category=["Custom", "Analytics"],
     hog="""
@@ -41,7 +41,8 @@ export async function onLoad({ inputs, posthog }) {
 }
 
 export function onEvent({ posthog, ...globals }) {
-    console.log(`🦔 Sending event: ${globals.event.event}`, globals)
+    const { event, person } = globals
+    console.log(`🦔 Sending event: ${event.event}`, globals)
 }
 """.strip(),
     inputs_schema=[
@@ -51,6 +52,27 @@ export function onEvent({ posthog, ...globals }) {
             "label": "Name",
             "description": "What's your name?",
             "default": "Max",
+        },
+        {
+            "key": "userId",
+            "type": "string",
+            "label": "User ID",
+            "description": "User ID",
+            "default": "{event.distinct_id}",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "additionalProperties",
+            "type": "json",
+            "label": "Additional properties",
+            "description": "Additional properties for the Exported Object.",
+            "default": {
+                "email": "{person.properties.email}",
+                "browser": "{event.properties.$browser}",
+            },
+            "secret": False,
+            "required": True,
         },
     ],
 )
