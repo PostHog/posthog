@@ -1,6 +1,7 @@
-import { IconPause, IconPlay, IconSearch } from '@posthog/icons'
+import { IconCollapse45, IconExpand45, IconPause, IconPlay, IconSearch } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
@@ -136,6 +137,37 @@ function FullScreen(): JSX.Element {
     )
 }
 
+function Maximise(): JSX.Element {
+    const { sidebarOpen, playlistOpen } = useValues(playerSettingsLogic)
+    const { setSidebarOpen, setPlaylistOpen } = useActions(playerSettingsLogic)
+
+    const isMaximised = !sidebarOpen && !playlistOpen
+
+    function onChangeMaximise(): void {
+        setPlaylistOpen(isMaximised)
+        setSidebarOpen(isMaximised)
+    }
+
+    useKeyboardHotkeys(
+        {
+            m: {
+                action: onChangeMaximise,
+            },
+        },
+        []
+    )
+
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={onChangeMaximise}
+            tooltip={`${isMaximised ? 'Open' : 'Close'} other panels (M)`}
+            icon={isMaximised ? <IconCollapse45 /> : <IconExpand45 />}
+            className="text-2xl"
+        />
+    )
+}
+
 export function PlayerController(): JSX.Element {
     return (
         <div className="bg-bg-light flex flex-col select-none">
@@ -150,7 +182,8 @@ export function PlayerController(): JSX.Element {
                         <SeekSkip direction="forward" />
                     </div>
                 </div>
-                <div className="justify-items-end">
+                <div className="flex justify-items-end">
+                    <Maximise />
                     <FullScreen />
                 </div>
             </div>

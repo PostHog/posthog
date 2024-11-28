@@ -73,7 +73,13 @@ export function MetricDisplayOld({ filters }: { filters?: FilterType }): JSX.Ele
 
     return (
         <>
-            {([...(filters?.events || []), ...(filters?.actions || [])] as ActionFilter[])
+            {(
+                [
+                    ...(filters?.events || []),
+                    ...(filters?.actions || []),
+                    ...(filters?.data_warehouse || []),
+                ] as ActionFilter[]
+            )
                 .sort((a, b) => (a.order || 0) - (b.order || 0))
                 .map((event: ActionFilter, idx: number) => (
                     <div key={idx} className="mb-2">
