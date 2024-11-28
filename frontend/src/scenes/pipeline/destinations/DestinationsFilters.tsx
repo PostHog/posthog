@@ -18,7 +18,7 @@ export function DestinationsFilters({
     hideSearch,
     hideShowPaused,
     hideKind,
-    askForFeedback = true,
+    hideFeedback,
 }: DestinationsFiltersProps): JSX.Element | null {
     const { filters } = useValues(destinationsFiltersLogic)
     const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
