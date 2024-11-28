@@ -29,6 +29,7 @@ from posthog.api import (
     capture,
     decide,
     hog_function_template,
+    remote_config,
     router,
     sharing,
     signup,
@@ -210,6 +211,9 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
+    path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
+    path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
+    path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
