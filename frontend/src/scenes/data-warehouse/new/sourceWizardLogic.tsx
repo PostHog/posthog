@@ -625,6 +625,23 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 required: true,
                 placeholder: '',
             },
+            {
+                type: 'switch-group',
+                name: 'temporary-dataset',
+                label: 'Use a different dataset for the temporary tables?',
+                caption:
+                    "We have to create and delete temporary tables when querying your data, this is a requirement of querying large BigQuery tables. We can use a different dataset if you'd like to limit the permissions available to the service account provided.",
+                default: false,
+                fields: [
+                    {
+                        type: 'text',
+                        name: 'temporary_dataset_id',
+                        label: 'Dataset ID for temporary tables',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+            },
         ],
         caption: '',
     },

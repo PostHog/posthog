@@ -94,5 +94,5 @@ def validate_credentials(dataset_id: str, key_file: dict[str, str]) -> bool:
         try:
             bq.get_dataset(bq.dataset(dataset_id), retry=bigquery.DEFAULT_RETRY.with_timeout(5))
             return True
-        except:
+        except Exception:
             return False

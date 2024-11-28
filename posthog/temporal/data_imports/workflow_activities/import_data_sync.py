@@ -351,7 +351,14 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             client_email = model.pipeline.job_inputs.get("client_email")
             token_uri = model.pipeline.job_inputs.get("token_uri")
 
-            destination_table = f"{project_id}.{dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+            temporary_dataset_id = model.pipeline.job_inputs.get("temporary_dataset_id")
+            using_temporary_dataset = (
+                model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None
+            )
+
+            destination_table_dataset_id = temporary_dataset_id if using_temporary_dataset else dataset_id
+            destination_table = f"{project_id}.{destination_table_dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+
             try:
                 source = bigquery_source(
                     dataset_id=dataset_id,
