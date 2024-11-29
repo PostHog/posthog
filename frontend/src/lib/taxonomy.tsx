@@ -387,6 +387,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
                 </span>
             ),
         },
+        $recording_status: {
+            label: 'Session recording status',
+            description: 'The status of session recording at the time the event was captured',
+        },
         // exception tracking
         $cymbal_errors: {
             label: 'Exception processing errors',
