@@ -53,7 +53,8 @@ export const setup2FALogic = kea<setup2FALogicType>([
                     }
                     return {
                         ...state,
-                        backup_codes: generatingCodes.backup_codes,
+                        // Fallback to current backup codes if generating codes fails
+                        backup_codes: generatingCodes?.backup_codes || state.backup_codes,
                     }
                 },
             },
@@ -82,7 +83,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
             },
         ],
         generatingCodes: [
-            false,
+            null as { backup_codes: string[] } | null,
             {
                 generateBackupCodes: async () => {
                     return await api.create('api/users/@me/two_factor_backup_codes/')
