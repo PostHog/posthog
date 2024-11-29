@@ -10,6 +10,7 @@ import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, KNOWN_PROMOTED_PROPERTY_PARENTS } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
+import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { useState } from 'react'
 
 import { EventType, PropertyDefinitionType } from '~/types'
@@ -107,6 +108,14 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             content: (
                 <HTMLElementsDisplay elements={event.elements} selectedText={event.properties['$selected_content']} />
             ),
+        })
+    }
+
+    if (event.elements && autocaptureToImage(event.elements)) {
+        tabs.push({
+            key: 'image',
+            label: 'Image',
+            content: <AutocaptureImageTab elements={event.elements} />,
         })
     }
 

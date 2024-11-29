@@ -370,6 +370,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>Session recording network payload capture config.</span>,
             examples: ['{"recordHeaders": false}'],
         },
+        $configured_session_timeout_ms: {
+            label: 'Configured session timeout',
+            description: <span>Configured session timeout in milliseconds.</span>,
+            examples: ['1800000'],
+        },
+        $replay_script_config: {
+            label: 'Replay script config',
+            description: <span>Sets an alternative recorder script for the web sdk.</span>,
+            examples: ['{"script": "recorder-next""}'],
+        },
         $session_recording_url_trigger_activated_session: {
             label: 'Session recording URL trigger activated session',
             description: (
