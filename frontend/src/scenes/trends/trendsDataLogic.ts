@@ -199,7 +199,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.series, s.querySource, s.isLifecycle],
             (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined | null
                 if (isLifecycle) {
                     firstAggregationGroupTypeIndex = (querySource as LifecycleQuery)?.aggregation_group_type_index
                 } else {
