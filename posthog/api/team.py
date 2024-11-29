@@ -57,6 +57,7 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments."
 
     def has_permission(self, request: request.Request, view) -> bool:
+        return True
         if request.method in CREATE_METHODS:
             try:
                 organization = get_organization_from_view(view)

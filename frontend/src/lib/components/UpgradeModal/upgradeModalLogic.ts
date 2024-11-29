@@ -55,39 +55,52 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
             },
         ],
     }),
+    // selectors(({ actions }) => ({
+    //     guardAvailableFeature: [
+    //         (s) => [s.preflight, s.hasAvailableFeature],
+    //         (preflight, hasAvailableFeature): GuardAvailableFeatureFn => {
+    //             return (featureKey, featureAvailableCallback, options): boolean => {
+    //                 if (!featureKey) {
+    //                     featureAvailableCallback?.()
+    //                     return true
+    //                 }
+    //                 const {
+    //                     guardOnCloud = true,
+    //                     guardOnSelfHosted = true,
+    //                     currentUsage,
+    //                     isGrandfathered,
+    //                 } = options || {}
+    //                 let featureAvailable: boolean
+    //                 if (!preflight) {
+    //                     featureAvailable = false
+    //                 } else if (!guardOnCloud && preflight.cloud) {
+    //                     featureAvailable = true
+    //                 } else if (!guardOnSelfHosted && !preflight.cloud) {
+    //                     featureAvailable = true
+    //                 } else {
+    //                     featureAvailable = hasAvailableFeature(featureKey, currentUsage)
+    //                 }
+
+    //                 if (!featureAvailable) {
+    //                     actions.showUpgradeModal(featureKey, currentUsage, isGrandfathered)
+    //                 } else {
+    //                     featureAvailableCallback?.()
+    //                 }
+
+    //                 return featureAvailable
+    //             }
+    //         },
+    //     ],
+    // })),
     selectors(({ actions }) => ({
         guardAvailableFeature: [
             (s) => [s.preflight, s.hasAvailableFeature],
             (preflight, hasAvailableFeature): GuardAvailableFeatureFn => {
                 return (featureKey, featureAvailableCallback, options): boolean => {
-                    if (!featureKey) {
-                        featureAvailableCallback?.()
-                        return true
-                    }
-                    const {
-                        guardOnCloud = true,
-                        guardOnSelfHosted = true,
-                        currentUsage,
-                        isGrandfathered,
-                    } = options || {}
-                    let featureAvailable: boolean
-                    if (!preflight) {
-                        featureAvailable = false
-                    } else if (!guardOnCloud && preflight.cloud) {
-                        featureAvailable = true
-                    } else if (!guardOnSelfHosted && !preflight.cloud) {
-                        featureAvailable = true
-                    } else {
-                        featureAvailable = hasAvailableFeature(featureKey, currentUsage)
-                    }
-
-                    if (!featureAvailable) {
-                        actions.showUpgradeModal(featureKey, currentUsage, isGrandfathered)
-                    } else {
-                        featureAvailableCallback?.()
-                    }
-
-                    return featureAvailable
+                    // Always call the callback if provided
+                    featureAvailableCallback?.()
+                    // Always return true to indicate the feature is available
+                    return true
                 }
             },
         ],
