@@ -80,7 +80,6 @@ class RemoteConfig(UUIDModel):
                 else False
             ),
             "analytics": {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT},
-            # TODO: IDeally get rid of this as it seems very old and redundant
             "elements_chain_as_string": True,
         }
 
