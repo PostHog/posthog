@@ -217,8 +217,7 @@ class RemoteConfig(UUIDModel):
 
         # TODO:
         # - Sync to S3 bucket and invalidate the CDN cache
-        # - Log a metric for successful and unsuccessful syncs (for alerts)
-        # - Also add some way of hashing the config so that we only sync if it has changed or if the sync had previously failed
+        # - Somewhere store the array.js hash so that we can invalidate it when it changes
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
 
