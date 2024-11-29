@@ -1,6 +1,6 @@
 import './Experiment.scss'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -14,20 +14,17 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { experimentLogic } from './experimentLogic'
+import { ExperimentsDisabledBanner } from './Experiments'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, featureFlags, groupTypes, aggregationLabel } = useValues(experimentLogic)
-    const {
-        addExperimentGroup,
-        removeExperimentGroup,
-        setExperiment,
-        setNewExperimentInsight,
-        createExperiment,
-        setExperimentType,
-    } = useActions(experimentLogic)
+    const { experiment, featureFlags, groupTypes, aggregationLabel, dynamicFeatureFlagKey } = useValues(experimentLogic)
+    const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
+        useActions(experimentLogic)
     const { webExperimentsAvailable } = useValues(experimentsLogic)
 
-    return (
+    return featureFlags[FEATURE_FLAGS.EXPERIMENTS_MIGRATION_DISABLE_UI] ? (
+        <ExperimentsDisabledBanner />
+    ) : (
         <div>
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
@@ -37,7 +34,27 @@ const ExperimentFormFields = (): JSX.Element => {
                     <LemonField
                         name="feature_flag_key"
                         label="Feature flag key"
-                        help="Each experiment is backed by a feature flag. You'll use this key in your code."
+                        help={
+                            <div className="flex items-center space-x-2">
+                                <span>
+                                    Each experiment is backed by a feature flag. You'll use this key in your&nbsp;code.
+                                </span>
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    tooltip={
+                                        dynamicFeatureFlagKey
+                                            ? "Use '" + dynamicFeatureFlagKey + "' as the feature flag key."
+                                            : 'Fill out the experiment name first.'
+                                    }
+                                    onClick={() => {
+                                        setExperiment({ feature_flag_key: dynamicFeatureFlagKey })
+                                    }}
+                                >
+                                    <IconMagicWand className="mr-1" /> Generate
+                                </LemonButton>
+                            </div>
+                        }
                     >
                         <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
                     </LemonField>
@@ -110,7 +127,6 @@ const ExperimentFormFields = (): JSX.Element => {
                                     aggregation_group_type_index: groupTypeIndex ?? undefined,
                                 },
                             })
-                            setNewExperimentInsight()
                         }}
                         options={[
                             { value: -1, label: 'Persons' },
@@ -208,14 +224,12 @@ const ExperimentFormFields = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
-                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && (
-                    <div>
-                        <h3>Holdout group</h3>
-                        <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
-                        <LemonDivider />
-                        <HoldoutSelector />
-                    </div>
-                )}
+                <div>
+                    <h3>Holdout group</h3>
+                    <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
+                    <LemonDivider />
+                    <HoldoutSelector />
+                </div>
             </div>
             <LemonButton
                 className="mt-2"

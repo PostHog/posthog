@@ -159,7 +159,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception: {
             label: 'Exception',
-            description: 'Automatically captured exceptions from the client Sentry integration',
+            description: 'Exceptions - an error or unexpected event in your application',
         },
         $web_vitals: {
             label: 'Web Vitals',
@@ -219,8 +219,20 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     metadata: {
         distinct_id: {
             label: 'Distinct ID',
-            description: 'The current distinct ID of the user',
+            description: 'The current distinct ID of the user.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
+        timestamp: {
+            label: 'Timestamp',
+            description: 'Time the event happened.',
+            examples: ['2023-05-20T15:30:00Z'],
+            system: true,
+        },
+        event: {
+            label: 'Event',
+            description: 'The name of the event.',
+            examples: ['$pageview'],
+            system: true,
         },
     },
     event_properties: {
@@ -376,6 +388,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             ),
         },
         // exception tracking
+        $cymbal_errors: {
+            label: 'Exception processing errors',
+            description: 'Errors encountered while trying to process exceptions',
+            system: true,
+        },
+        $exception_list: {
+            label: 'Exception list',
+            description: 'List of one or more associated exceptions',
+        },
+        // TODO - most of the rest of these are legacy, I think?
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
@@ -750,9 +772,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             system: true,
         },
         $timestamp: {
-            label: 'Timestamp',
-            description: 'Time the event happened.',
-            examples: [new Date().toISOString()],
+            label: 'Timestamp (deprecated)',
+            description:
+                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
+            examples: ['2023-05-20T15:30:00Z'],
+            system: true,
         },
         $sent_at: {
             label: 'Sent At',
@@ -1219,6 +1243,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $surveys_activated: {
             label: 'Surveys Activated',
             description: 'The surveys that were activated for this event.',
+        },
+        $process_person_profile: {
+            label: 'Person Profile processing flag',
+            description: 'The setting from an SDK to control whether an event has person processing enabled',
+        },
+        $dead_clicks_enabled_server_side: {
+            label: 'Dead clicks enabled server side',
+            description: 'Whether dead clicks were enabled in remote config',
         },
         $dead_click_scroll_delay_ms: {
             label: 'Dead click scroll delay in milliseconds',

@@ -1,7 +1,9 @@
 import dataclasses
 import datetime as dt
 import json
+import re
 
+from django.db import close_old_connections
 import posthoganalytics
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -69,6 +71,8 @@ class UpdateExternalDataJobStatusInputs:
 def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
 
+    close_old_connections()
+
     if inputs.job_id is None:
         job: ExternalDataJob | None = (
             ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
@@ -88,11 +92,13 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             f"External data job failed for external data schema {inputs.schema_id} with error: {inputs.internal_error}"
         )
 
+        internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
+
         source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
         non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSource.Type(source.source_type))
 
         if non_retryable_errors is not None:
-            has_non_retryable_error = any(error in inputs.internal_error for error in non_retryable_errors)
+            has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
             if has_non_retryable_error:
                 logger.info("Schema has a non-retryable error - turning off syncing")
                 posthoganalytics.capture(

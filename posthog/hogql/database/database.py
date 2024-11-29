@@ -280,7 +280,9 @@ def create_hogql_database(
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
     )
-    database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type("$virt_initial_channel_type")
+    database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
+        "$virt_initial_channel_type", modifiers.customChannelTypeRules
+    )
 
     for mapping in GroupTypeMapping.objects.filter(team=team):
         if database.events.fields.get(mapping.group_type) is None:

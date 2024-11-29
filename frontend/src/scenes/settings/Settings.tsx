@@ -124,11 +124,7 @@ function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
             {settings.length ? (
                 settings.map((x) => (
                     <div key={x.id} className="relative">
-                        <div
-                            id={x.id}
-                            className="absolute -mt-14" // Account for top bar when scrolling to anchor
-                        />
-                        <h2 className="flex gap-2 items-center">
+                        <h2 id={x.id} className="flex gap-2 items-center">
                             {x.title}
                             <LemonButton icon={<IconLink />} size="small" onClick={() => selectSetting?.(x.id)} />
                         </h2>

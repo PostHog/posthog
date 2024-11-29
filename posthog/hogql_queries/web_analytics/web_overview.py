@@ -159,7 +159,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
         )
 
-        if self.conversion_goal_expr:
+        if self.conversion_goal_expr and self.conversion_goal_expr != ast.Constant(value=None):
             return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
         else:
             return pageview_expr

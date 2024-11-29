@@ -8,6 +8,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProjectType } from '~/types'
 
+import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
 import { userLogic } from './userLogic'
 
@@ -19,7 +20,7 @@ export const projectLogic = kea<projectLogicType>([
         deleteProjectFailure: true,
     }),
     connect(() => ({
-        actions: [userLogic, ['loadUser', 'switchTeam']],
+        actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -57,6 +58,8 @@ export const projectLogic = kea<projectLogicType>([
                     )) as ProjectType
                     breakpoint()
 
+                    // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic
+                    actions.loadCurrentOrganization()
                     actions.loadUser()
 
                     Object.keys(payload).map((property) => {
@@ -88,7 +91,7 @@ export const projectLogic = kea<projectLogicType>([
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
@@ -107,7 +110,7 @@ export const projectLogic = kea<projectLogicType>([
             lemonToast.success('Project has been deleted')
         },
         createProjectSuccess: ({ currentProject }) => {
-            if (currentProject && currentProject.id !== values.currentProject?.id) {
+            if (currentProject) {
                 actions.switchTeam(currentProject.id)
             }
         },

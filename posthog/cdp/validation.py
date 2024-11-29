@@ -2,7 +2,7 @@ import logging
 from typing import Any, Optional
 from rest_framework import serializers
 
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_program, parse_string_template
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,6 @@
 import dataclasses
 
+from django.db import close_old_connections
 from temporalio import activity
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
@@ -22,6 +23,7 @@ class SyncNewSchemasActivityInputs:
 @activity.defn
 def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    close_old_connections()
 
     logger.info("Syncing new -> old schemas")
 
@@ -53,6 +55,8 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         ssh_tunnel_auth_type_passphrase = source.job_inputs.get("ssh_tunnel_auth_type_passphrase")
         ssh_tunnel_auth_type_private_key = source.job_inputs.get("ssh_tunnel_auth_type_private_key")
 
+        using_ssl = str(source.job_inputs.get("using_ssl", True)) == "True"
+
         ssh_tunnel = SSHTunnel(
             enabled=using_ssh_tunnel,
             host=ssh_tunnel_host,
@@ -65,7 +69,15 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         )
 
         sql_schemas = get_sql_schemas_for_source_type(
-            ExternalDataSource.Type(source.source_type), host, port, database, user, password, db_schema, ssh_tunnel
+            ExternalDataSource.Type(source.source_type),
+            host,
+            port,
+            database,
+            user,
+            password,
+            db_schema,
+            ssh_tunnel,
+            using_ssl,
         )
 
         schemas_to_sync = list(sql_schemas.keys())

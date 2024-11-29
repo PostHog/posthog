@@ -290,7 +290,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         hasErrors
                                             ? error ?? 'Query has errors'
                                             : !isValidView
-                                            ? 'All fields must have an alias'
+                                            ? 'Some fields may need an alias'
                                             : ''
                                     }
                                     data-attr="hogql-query-editor-update-view"
@@ -307,7 +307,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         hasErrors
                                             ? error ?? 'Query has errors'
                                             : !isValidView
-                                            ? 'All fields must have an alias'
+                                            ? 'Some fields may need an alias'
                                             : ''
                                     }
                                     data-attr="hogql-query-editor-save-as-view"

@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from django.db import close_old_connections
 from django.db.models import Prefetch, F
 
 from temporalio import activity
@@ -36,6 +37,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
 
     with HeartbeaterSync(factor=30, logger=logger):
+        close_old_connections()
+
         model = ExternalDataJob.objects.prefetch_related(
             "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
         ).get(id=inputs.run_id)
@@ -141,6 +144,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ssh_tunnel_auth_type_passphrase = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_passphrase")
             ssh_tunnel_auth_type_private_key = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_private_key")
 
+            using_ssl = str(model.pipeline.job_inputs.get("using_ssl", True)) == "True"
+
             ssh_tunnel = SSHTunnel(
                 enabled=using_ssh_tunnel,
                 host=ssh_tunnel_host,
@@ -174,6 +179,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         if schema.is_incremental
                         else None,
                         team_id=inputs.team_id,
+                        using_ssl=using_ssl,
                     )
 
                     return _run(
@@ -200,6 +206,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 if schema.is_incremental
                 else None,
                 team_id=inputs.team_id,
+                using_ssl=using_ssl,
             )
 
             return _run(
