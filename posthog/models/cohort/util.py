@@ -395,24 +395,31 @@ def recalculate_cohortpeople(
 
 def clear_stale_cohortpeople(cohort: Cohort, before_version: int) -> None:
     if cohort.version and cohort.version > 0:
+        relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("pk", flat=True)
         stale_count_result = sync_execute(
             STALE_COHORTPEOPLE,
             {
                 "cohort_id": cohort.pk,
-                "team_id": cohort.team_id,
+                "team_ids": relevant_team_ids,
                 "version": before_version,
             },
         )
 
-        if stale_count_result and len(stale_count_result) and len(stale_count_result[0]):
-            stale_count = stale_count_result[0][0]
-            if stale_count > 0:
-                # Don't do anything if it already exists
-                AsyncDeletion.objects.get_or_create(
-                    deletion_type=DeletionType.Cohort_stale,
-                    team_id=cohort.team.pk,
-                    key=f"{cohort.pk}_{before_version}",
-                )
+        team_ids_with_stale_cohortpeople = [row[0] for row in stale_count_result]
+        if team_ids_with_stale_cohortpeople:
+            AsyncDeletion.objects.bulk_create(
+                [
+                    AsyncDeletion(
+                        deletion_type=DeletionType.Cohort_stale,
+                        team_id=team_id,
+                        # Only appending `team_id` if it's not the same as the cohort's `team_id``, so that
+                        # the migration to environments does not accidentally cause duplicate `AsyncDeletion`s
+                        key=f"{cohort.pk}_{before_version}{('_'+team_id) if team_id != cohort.team_id else ''}",
+                    )
+                    for team_id in team_ids_with_stale_cohortpeople
+                ],
+                ignore_conflicts=True,
+            )
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None) -> Optional[int]:
