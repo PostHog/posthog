@@ -1,6 +1,6 @@
 import './ImagePreview.scss'
 
-import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -8,8 +8,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
+import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
 import { DEFAULT_INSPECTOR_ROW_HEIGHT } from 'scenes/session-recordings/player/inspector/PlayerInspectorList'
@@ -18,6 +19,7 @@ import { ElementType } from '~/types'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
+
 export interface ItemEventProps {
     item: InspectorListItemEvent
 }
@@ -138,10 +140,25 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 }
 
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'properties' | 'flags' | 'raw'>('properties')
+
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
     const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[item.data.event]
+
+    const properties = {}
+    const featureFlagProperties = {}
+
+    for (const key of Object.keys(item.data.properties)) {
+        if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
+            if (key.startsWith('$feature') || key === '$active_feature_flags') {
+                featureFlagProperties[key] = item.data.properties[key]
+            } else {
+                properties[key] = item.data.properties[key]
+            }
+        }
+    }
 
     return (
         <div data-attr="item-event" className="font-light w-full">
@@ -168,7 +185,39 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                     item.data.event === '$exception' ? (
                         <ErrorDisplay eventProperties={item.data.properties} />
                     ) : (
-                        <SimpleKeyValueList item={filterProperties(item.data.properties)} promotedKeys={promotedKeys} />
+                        <LemonTabs
+                            size="small"
+                            activeKey={activeTab}
+                            onChange={(newKey) => setActiveTab(newKey)}
+                            tabs={[
+                                {
+                                    key: 'properties',
+                                    label: 'Properties',
+                                    content: (
+                                        <SimpleKeyValueList
+                                            item={filterProperties(properties)}
+                                            promotedKeys={promotedKeys}
+                                        />
+                                    ),
+                                },
+                                {
+                                    key: 'flags',
+                                    label: 'Flags',
+                                    content: (
+                                        <SimpleKeyValueList item={featureFlagProperties} promotedKeys={promotedKeys} />
+                                    ),
+                                },
+                                {
+                                    key: 'raw',
+                                    label: 'Raw',
+                                    content: (
+                                        <pre className="text-xs text-muted-alt whitespace-pre-wrap">
+                                            {JSON.stringify(item.data.properties, null, 2)}
+                                        </pre>
+                                    ),
+                                },
+                            ]}
+                        />
                     )
                 ) : (
                     <div className="text-muted-alt flex gap-1 items-center">

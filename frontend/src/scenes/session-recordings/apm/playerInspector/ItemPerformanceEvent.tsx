@@ -291,6 +291,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             <LemonDivider dashed />
 
             <LemonTabs
+                size="small"
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
                 tabs={[

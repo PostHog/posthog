@@ -1,6 +1,5 @@
 import './EventDetails.scss'
 
-import { Properties } from '@posthog/plugin-scaffold'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -24,9 +23,9 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
     const [showSystemProps, setShowSystemProps] = useState(false)
     const [activeTab, setActiveTab] = useState(event.event === '$exception' ? 'exception' : 'properties')
 
-    const displayedEventProperties: Properties = {}
-    const visibleSystemProperties: Properties = {}
-    const featureFlagProperties: Properties = {}
+    const displayedEventProperties = {}
+    const visibleSystemProperties = {}
+    const featureFlagProperties = {}
     let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] && CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
