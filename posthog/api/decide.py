@@ -263,6 +263,7 @@ def get_decide(request: HttpRequest):
                 if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
                     response["__preview_ingestion_endpoints"] = True
 
+            response["elementsChainAsString"] = True
             response["sessionRecording"] = _session_recording_config_response(request, team, token)
 
             if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
