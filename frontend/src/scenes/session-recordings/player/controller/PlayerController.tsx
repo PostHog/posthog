@@ -4,7 +4,12 @@ import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import {
+    SettingsBar,
+    SettingsButton,
+    SettingsMenu,
+    SettingsToggle,
+} from 'scenes/session-recordings/components/PanelSettings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     PLAYBACK_SPEEDS,
@@ -94,14 +99,13 @@ function SkipInactivity(): JSX.Element {
 }
 
 function InspectDOM(): JSX.Element {
-    const { explorerMode, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { openExplorer } = useActions(sessionRecordingPlayerLogic)
 
     return (
-        <SettingsToggle
+        <SettingsButton
             title="View the DOM at this point in time in the recording"
             label="Inspect DOM"
-            active={!!explorerMode}
             data-attr="explore-dom"
             onClick={() => openExplorer()}
             disabledReason={
@@ -114,12 +118,12 @@ function InspectDOM(): JSX.Element {
 
 function PlayerBottomSettings(): JSX.Element {
     return (
-        <div className="flex flex-row bg-bg-3000 w-full overflow-hidden border-t font-light text-small">
+        <SettingsBar border="top">
             <SkipInactivity />
             <ShowMouseTail />
             <SetPlaybackSpeed />
             <InspectDOM />
-        </div>
+        </SettingsBar>
     )
 }
 

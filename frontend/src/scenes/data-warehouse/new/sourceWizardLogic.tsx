@@ -254,6 +254,23 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: 'public',
             },
             {
+                type: 'select',
+                name: 'use_ssl',
+                label: 'Use SSL?',
+                defaultValue: '1',
+                required: true,
+                options: [
+                    {
+                        value: '1',
+                        label: 'Yes',
+                    },
+                    {
+                        value: '0',
+                        label: 'No',
+                    },
+                ],
+            },
+            {
                 name: 'ssh-tunnel',
                 label: 'Use SSH tunnel?',
                 type: 'switch-group',
