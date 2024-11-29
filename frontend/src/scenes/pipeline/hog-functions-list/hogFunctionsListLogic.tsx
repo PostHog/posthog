@@ -34,7 +34,7 @@ import { hogFunctionsListFiltersLogic } from './hogFunctionsListFiltersLogic'
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<Destination> {}
+export interface Fuse extends FuseClass<Destination | SiteApp> {}
 
 export interface HogFunctionsListLogicProps {
     types: HogFunctionTypeType[]
@@ -59,9 +59,9 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
     })),
     actions({
-        toggleNode: (func: Destination, enabled: boolean) => ({ func, enabled }),
+        toggleNode: (func: Destination | SiteApp, enabled: boolean) => ({ func, enabled }),
         toggleNodeHogFunction: (func: FunctionDestination, enabled: boolean) => ({ func, enabled }),
-        deleteNode: (func: Destination) => ({ func }),
+        deleteNode: (func: Destination | SiteApp) => ({ func }),
         deleteNodeBatchExport: (func: BatchExportDestination) => ({ func }),
         deleteNodeHogFunction: (func: FunctionDestination) => ({ func }),
         deleteNodeWebhook: (func: WebhookDestination) => ({ func }),
@@ -278,7 +278,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
 
         filteredFunctions: [
             (s) => [s.filters, s.functions, s.functionsFuse],
-            (filters, functions, functionsFuse): Destination[] => {
+            (filters, functions, functionsFuse): (Destination | SiteApp)[] => {
                 const { search, showPaused, kind } = filters
 
                 return (search ? functionsFuse.search(search).map((x) => x.item) : functions).filter((fn) => {
@@ -295,7 +295,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
 
         hiddenFunctions: [
             (s) => [s.functions, s.filteredFunctions],
-            (functions, filteredFunctions): Destination[] => {
+            (functions, filteredFunctions): (Destination | SiteApp)[] => {
                 return functions.filter((fn) => !filteredFunctions.includes(fn))
             },
         ],
@@ -317,7 +317,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         deleteNode: ({ func }) => {
             switch (func.backend) {
                 case PipelineBackend.Plugin:
-                    actions.deleteNodeWebhook(func)
+                    actions.deleteNodeWebhook(func as WebhookDestination)
                     break
                 case PipelineBackend.BatchExport:
                     actions.deleteNodeBatchExport(func)

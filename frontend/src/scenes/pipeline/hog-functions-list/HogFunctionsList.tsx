@@ -18,7 +18,7 @@ import { hogFunctionUrl } from '../hogfunctions/urls'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { Destination, PipelineBackend } from '../types'
+import { Destination, PipelineBackend, SiteApp } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { HogFunctionsListFilters } from './HogFunctionsListFilters'
 import { hogFunctionsListFiltersLogic } from './hogFunctionsListFiltersLogic'
@@ -150,9 +150,9 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                                   title: 'Frequency',
                                   key: 'interval',
                                   render: function RenderFrequency(_, destination) {
-                                      return destination.interval
+                                      return 'interval' in destination ? destination.interval : null
                                   },
-                              } as LemonTableColumn<Destination, any>,
+                              } as LemonTableColumn<Destination | SiteApp, any>,
                           ]
                         : []),
                     ...(showFrequencyHistory
@@ -176,10 +176,10 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                                           </Link>
                                       )
                                   },
-                              } as LemonTableColumn<Destination, any>,
+                              } as LemonTableColumn<Destination | SiteApp, any>,
                           ]
                         : []),
-                    updatedAtColumn() as LemonTableColumn<Destination, any>,
+                    updatedAtColumn() as LemonTableColumn<Destination | SiteApp, any>,
                     {
                         title: 'Status',
                         key: 'enabled',

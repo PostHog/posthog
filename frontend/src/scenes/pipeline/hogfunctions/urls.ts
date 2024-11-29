@@ -10,7 +10,7 @@ export function hogFunctionNewUrl(type: HogFunctionTypeType, template?: string):
         : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), template ? `hog-${template}` : undefined)
 }
 
-export function hogFunctionUrl(type: HogFunctionTypeType, id?: string): string {
+export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: string): string {
     if (type === 'email') {
         return id ? urls.messagingProvider(id) : urls.messagingProviders()
     } else if (type === 'broadcast') {
@@ -39,6 +39,6 @@ export function hogFunctionTypeToPipelineStage(type: string): PipelineStage {
         case 'site-app':
             return PipelineStage.SiteApp
         default:
-            throw new Error(`Unknown hog function type: ${type}`)
+            return PipelineStage.Destination
     }
 }
