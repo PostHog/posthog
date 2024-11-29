@@ -180,6 +180,14 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
+        # Plugins are a special case because they don't belong to a team, instead they belong to an organization
+        if resource == "plugin":
+            return {
+                "team__organization_id": str(self._organization_id),
+                "resource": resource,
+                "resource_id": resource_id,
+            }
+
         return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
