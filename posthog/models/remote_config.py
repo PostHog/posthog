@@ -14,6 +14,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
 from posthog.models.team import Team
+from posthog.storage.object_storage import object_storage_client
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "posthog_remote_config_sync",
@@ -204,11 +205,43 @@ class RemoteConfig(UUIDModel):
         js_content = self.build_js_config()
 
         js_content = f"""
-        {js_content}
         {ARRAY_JS_CONTENT}
+
+        {js_content}
         """
 
         return js_content
+
+    def sync_to_cdn(self):
+        # TODO: Verify we really want to store this in the shared bucket...
+        # TODO: Add cache invalidation for whatever our choice of CDN is - or let it have a small enough cache time (e.g. 5 mins or something)
+
+        object_storage_client().write(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            key=f"array/{self.team.api_token}/config",
+            content=json.dumps(self.config),
+            extras={
+                "ContentType": "application/json",
+            },
+        )
+
+        object_storage_client().write(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            key=f"array/{self.team.api_token}/config.js",
+            content=self.build_js_config(),
+            extras={
+                "ContentType": "application/javascript",
+            },
+        )
+
+        object_storage_client().write(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            key=f"array/{self.team.api_token}/array.js",
+            content=self.build_array_js_config(),
+            extras={
+                "ContentType": "application/javascript",
+            },
+        )
 
     def sync(self):
         """
@@ -229,6 +262,7 @@ class RemoteConfig(UUIDModel):
                 return
 
             self.config = config
+            self.sync_to_cdn()
             self.synced_at = timezone.now()
             self.save()
 
