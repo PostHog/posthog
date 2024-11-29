@@ -167,18 +167,9 @@ const Header = (): JSX.Element => {
     return (
         <PageHeader
             buttons={
-                <>
-                    <LemonButton
-                        onClick={() => {
-                            throw Error('Oh my!')
-                        }}
-                    >
-                        Send an exception
-                    </LemonButton>
-                    <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
-                        Configure
-                    </LemonButton>
-                </>
+                <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
+                    Configure
+                </LemonButton>
             }
         />
     )
