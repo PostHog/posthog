@@ -52,6 +52,11 @@ TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionTyp
 
 
 class HogFunction(UUIDModel):
+    class Meta:
+        indexes = [
+            models.Index(fields=["type", "enabled", "team"]),
+        ]
+
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")

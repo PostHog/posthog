@@ -32,4 +32,8 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
+        migrations.AddIndex(
+            model_name="hogfunction",
+            index=models.Index(fields=["type", "enabled", "team"], name="posthog_hog_type_6f8967_idx"),
+        ),
     ]
