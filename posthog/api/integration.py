@@ -107,6 +107,11 @@ class IntegrationViewSet(
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
 
+        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id)
+
+        if len(conversion_actions) == 0:
+            return Response({"conversionActions": []})
+
         conversion_actions = [
             {
                 "id": conversionAction["conversionAction"]["id"],
