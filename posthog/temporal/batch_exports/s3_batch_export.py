@@ -32,6 +32,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_data_interval,
     iter_model_records,
     start_batch_export_run,
+    wait_for_delta_past_data_interval_end,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
@@ -568,6 +569,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
         get_client(team_id=inputs.team_id, clickhouse_url=clickhouse_url) as client,
     ):
+        if is_5_min_batch_export:
+            await wait_for_delta_past_data_interval_end(end_at)
+
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 

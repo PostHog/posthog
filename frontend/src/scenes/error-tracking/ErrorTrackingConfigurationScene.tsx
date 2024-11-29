@@ -1,9 +1,10 @@
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
+import { IconRevert, IconTrash, IconUpload } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonDialog, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -43,25 +44,48 @@ const SymbolSetTable = ({
     missing?: boolean
 }): JSX.Element => {
     const { symbolSetsLoading } = useValues(errorTrackingSymbolSetLogic)
-    const { deleteSymbolSet } = useActions(errorTrackingSymbolSetLogic)
+    const { deleteSymbolSet, setUploadSymbolSetId } = useActions(errorTrackingSymbolSetLogic)
 
     const columns: LemonTableColumns<ErrorTrackingSymbolSet> = [
         { title: missing && 'Missing symbol sets', dataIndex: 'ref' },
+        { title: 'Created At', dataIndex: 'created_at', render: (data) => humanFriendlyDetailedTime(data as string) },
         {
             dataIndex: 'id',
             render: (_, { id }) => {
                 return (
-                    <div className="flex justify-end">
-                        {!missing && (
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                tooltip="Delete symbol set"
-                                icon={<IconTrash />}
-                                onClick={() => deleteSymbolSet(id)}
-                                className="py-1"
-                            />
-                        )}
+                    <div className="flex justify-end space-x-1">
+                        <LemonButton
+                            type={missing ? 'primary' : 'secondary'}
+                            size="xsmall"
+                            tooltip={missing ? 'Upload symbol set' : 'Replace symbol set'}
+                            icon={missing ? <IconUpload /> : <IconRevert />}
+                            onClick={() => setUploadSymbolSetId(id)}
+                            className="py-1"
+                        >
+                            {missing && 'Upload'}
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            tooltip="Delete symbol set"
+                            icon={<IconTrash />}
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: 'Delete symbol set',
+                                    description: 'Are you sure you want to delete this symbol set?',
+                                    secondaryButton: {
+                                        type: 'secondary',
+                                        children: 'Cancel',
+                                    },
+                                    primaryButton: {
+                                        type: 'primary',
+                                        onClick: () => deleteSymbolSet(id),
+                                        children: 'Delete',
+                                    },
+                                })
+                            }
+                            className="py-1"
+                        />
                     </div>
                 )
             },
