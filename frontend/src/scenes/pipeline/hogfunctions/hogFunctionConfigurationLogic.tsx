@@ -12,6 +12,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -169,7 +170,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         return id ?? templateId ?? 'new'
     }),
     connect({
-        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes'], userLogic, ['hasAvailableFeature']],
+        values: [
+            projectLogic,
+            ['currentProjectId', 'currentProject'],
+            groupsModel,
+            ['groupTypes'],
+            userLogic,
+            ['hasAvailableFeature'],
+        ],
     }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     actions({
@@ -525,8 +533,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentTeam, s.groupTypes],
-            (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
+            (s) => [s.configuration, s.currentProject, s.groupTypes],
+            (configuration, currentProject, groupTypes): HogFunctionInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
@@ -541,7 +549,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
-                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
+                        url: `${window.location.origin}/project/${currentProject?.id}/events/`,
                     },
                     person: {
                         id: personId,
@@ -553,9 +561,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                     groups: {},
                     project: {
-                        id: currentTeam?.id || 0,
-                        name: currentTeam?.name || '',
-                        url: `${window.location.origin}/project/${currentTeam?.id}`,
+                        id: currentProject?.id || 0,
+                        name: currentProject?.name || '',
+                        url: `${window.location.origin}/project/${currentProject?.id}`,
                     },
                     source: {
                         name: configuration?.name ?? 'Unnamed',
@@ -891,7 +899,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
             const { id, name, type } = values.hogFunction
             await deleteWithUndo({
-                endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
+                endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
                     id,
                     name,
