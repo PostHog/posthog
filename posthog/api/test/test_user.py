@@ -1040,7 +1040,7 @@ class TestStaffUserAPI(APIBaseTest):
     def test_add_2fa(self, patch_is_valid):
         patch_is_valid.return_value = Mock()
         self._create_user("newuser@posthog.com", password="12345678")
-        response = self.client.get(f"/api/users/@me/start_2fa_setup/")
+        response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
         response = self.client.post(f"/api/users/@me/validate_2fa/", {"token": 123456})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
