@@ -94,7 +94,7 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
 
                 const formData = new FormData()
                 formData.append('minified', minifiedSrc)
-                formData.append('sourceMap', sourceMapSrc)
+                formData.append('source_map', sourceMapSrc)
                 await api.errorTracking.updateSymbolSet(id, formData)
                 actions.setUploadSymbolSetId(null)
                 actions.loadSymbolSets()

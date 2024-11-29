@@ -104,7 +104,7 @@ class TestErrorTracking(APIBaseTest):
                 # Note - we just use the source map twice, because we don't expect the API to do
                 # any validation here - cymbal does the parsing work.
                 # TODO - we could have the api validate these contents before uploading, if we wanted
-                data = {"sourceMap": image, "minified": image}
+                data = {"source_map": image, "minified": image}
                 response = self.client.patch(
                     f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
                     data,
