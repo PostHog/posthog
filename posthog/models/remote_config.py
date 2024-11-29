@@ -5,6 +5,8 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
+from prometheus_client import Counter
+from sentry_sdk import capture_exception
 import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
@@ -12,6 +14,12 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
 from posthog.models.team import Team
+
+CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
+    "posthog_remote_config_sync",
+    "Number of times the remote config sync task has been run",
+    labelnames=["result"],
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -23,7 +31,7 @@ logger = structlog.get_logger(__name__)
 # - Add JS loader including posthog-js
 # - Some way of detecting change to array.js and triggering a refresh job of all configs
 
-# Load the JS content from the frontend buil
+# Load the JS content from the frontend build
 ARRAY_JS_CONTENT_FILE = os.path.join(settings.BASE_DIR, "frontend/dist/array.js")
 ARRAY_JS_CONTENT = open(ARRAY_JS_CONTENT_FILE).read()
 
@@ -36,7 +44,7 @@ class RemoteConfig(UUIDModel):
     /decide fallback
     """
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.OneToOneField("Team", on_delete=models.CASCADE)
     config = models.JSONField()
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
@@ -207,23 +215,39 @@ class RemoteConfig(UUIDModel):
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
         """
 
-        self.config = self.build_config()
-        self.synced_at = timezone.now()
-        self.save()
+        # TODO:
+        # - Sync to S3 bucket and invalidate the CDN cache
+        # - Log a metric for successful and unsuccessful syncs (for alerts)
+        # - Also add some way of hashing the config so that we only sync if it has changed or if the sync had previously failed
+
+        logger.info(f"Syncing RemoteConfig for team {self.team_id}")
+
+        try:
+            config = self.build_config()
+            # Compare the config to the current one and only update if it has changed
+            if config == self.config:
+                logger.info(f"RemoteConfig for team {self.team_id} has not changed. Skipping sync.")
+                return
+
+            self.config = config
+            self.synced_at = timezone.now()
+            self.save()
+
+            CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="success").inc()
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to sync RemoteConfig for team {self.team_id}", exception=str(e))
+            CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
+            raise
 
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
 
 
 def rebuild_remote_config(team: "Team"):
-    # TODO: Add metrics so that we can graph and alert on this. Capture exceptions for errors as these will be critical
-    logger.info("RemoteConfig rebuild triggered", team_id=team.id)
-    try:
-        remote_config = RemoteConfig.objects.get(team=team)
-    except RemoteConfig.DoesNotExist:
-        remote_config = RemoteConfig(team=team)
+    from posthog.tasks.remote_config import update_team_remote_config
 
-    remote_config.sync()
+    update_team_remote_config.delay(team.id)
 
 
 @receiver(post_save, sender=Team)
