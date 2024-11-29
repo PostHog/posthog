@@ -2,7 +2,7 @@ import './PlayerInspectorList.scss'
 
 import { useActions, useValues } from 'kea'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
 import { FilterableInspectorListItemTypes } from '~/types'
@@ -100,10 +100,10 @@ function ShowOnlyMatching(): JSX.Element {
 
 export function PlayerInspectorBottomSettings(): JSX.Element {
     return (
-        <div className="flex flex-row bg-bg-3000 w-full overflow-hidden border-t font-light text-small">
+        <SettingsBar border="top">
             <SyncScrolling />
             <ShowOnlyMatching />
             <HideProperties />
-        </div>
+        </SettingsBar>
     )
 }
