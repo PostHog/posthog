@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import ANY, MagicMock, patch
 from uuid import uuid4
 
@@ -15,7 +15,7 @@ from posthog.warehouse.models import ExternalDataSource
 
 
 @freeze_time("2024-01-01T00:01:00Z")  # A Monday
-class TestperiodicDigestReport(APIBaseTest):
+class TestPeriodicDigestReport(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.distinct_id = str(uuid4())
@@ -214,8 +214,12 @@ class TestperiodicDigestReport(APIBaseTest):
                 name="Test Dashboard",
             )
 
+        with freeze_time("2024-01-16T00:01:00Z"):
+            end_date = datetime.now()
+            begin_date = end_date - timedelta(days=2)
+
         # Run the periodic digest report task with custom dates
-        send_all_periodic_digest_reports(begin_date="2024-01-14T00:00:00Z", end_date="2024-01-16T00:00:00Z")
+        send_all_periodic_digest_reports(begin_date=begin_date.isoformat(), end_date=end_date.isoformat())
 
         # Check that the capture event was called with the correct data
         expected_properties = {
@@ -227,8 +231,8 @@ class TestperiodicDigestReport(APIBaseTest):
             "users_who_signed_up": [],
             "users_who_signed_up_count": 0,
             "period": {
-                "end_inclusive": "2024-01-16T00:00:00+00:00",
-                "start_inclusive": "2024-01-14T00:00:00+00:00",
+                "end_inclusive": "2024-01-16T00:01:00",
+                "start_inclusive": "2024-01-14T00:01:00",
             },
             "plugins_enabled": {},
             "plugins_installed": {},
