@@ -683,6 +683,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         client_email = key_file.get("client_email")
         token_uri = key_file.get("token_uri")
 
+        temporary_dataset = request.data.get("temporary-dataset", {})
+        using_temporary_dataset = temporary_dataset.get("enabled", False)
+        temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
+
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
@@ -697,6 +701,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "private_key_id": private_key_id,
                 "client_email": client_email,
                 "token_uri": token_uri,
+                "using_temporary_dataset": using_temporary_dataset,
+                "temporary_dataset_id": temporary_dataset_id,
             },
             prefix=prefix,
         )

@@ -19,6 +19,7 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
                 {({ value, onChange }) => (
                     <>
+                        {!!field.caption && <p>{field.caption}</p>}
                         <LemonSwitch
                             checked={value === undefined || value === null ? lastValue?.['enabled'] : value}
                             onChange={onChange}

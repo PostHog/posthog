@@ -1,14 +1,13 @@
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel
 
 from ee.hogai.assistant import AssistantGraph
 from ee.hogai.eval.utils import EvalBaseTest
 from ee.hogai.utils import AssistantNodeName
-from posthog.schema import HumanMessage
+from posthog.schema import AssistantFunnelsQuery, HumanMessage
 
 
 class TestEvalFunnelGenerator(EvalBaseTest):
-    def _call_node(self, query: str, plan: str) -> BaseModel:
+    def _call_node(self, query: str, plan: str) -> AssistantFunnelsQuery:
         graph: CompiledStateGraph = (
             AssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.FUNNEL_GENERATOR)
