@@ -46,7 +46,7 @@ export const STL: Record<string, STLFunction> = {
             if (!options?.external?.regex?.match) {
                 throw new Error('Set options.external.regex.match for RegEx support')
             }
-            return options.external.regex.match(args[1], args[0])
+            return !args[0] || !args[1] ? false : options.external.regex.match(args[1], args[0])
         },
         minArgs: 2,
         maxArgs: 2,

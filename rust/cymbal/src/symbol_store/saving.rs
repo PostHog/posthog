@@ -1,6 +1,7 @@
 use axum::async_trait;
 use chrono::{DateTime, Utc};
 
+use sha2::{Digest, Sha512};
 use sqlx::PgPool;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -35,6 +36,7 @@ pub struct SymbolSetRecord {
     pub storage_ptr: Option<String>,
     pub failure_reason: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub content_hash: Option<String>,
 }
 
 // This is the "intermediate" symbol set data. Rather than a simple `Vec<u8>`, the saving layer
@@ -75,6 +77,8 @@ impl<F> Saving<F> {
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
         // Generate a new opaque key, appending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
+        let mut content_hasher = Sha512::new();
+        content_hasher.update(&data);
 
         let record = SymbolSetRecord {
             id: Uuid::now_v7(),
@@ -83,6 +87,7 @@ impl<F> Saving<F> {
             storage_ptr: Some(key.clone()),
             failure_reason: None,
             created_at: Utc::now(),
+            content_hash: Some(format!("{:x}", content_hasher.finalize())),
         };
 
         self.s3_client.put(&self.bucket, &key, data).await?;
@@ -106,6 +111,7 @@ impl<F> Saving<F> {
             storage_ptr: None,
             failure_reason: Some(serde_json::to_string(&reason)?),
             created_at: Utc::now(),
+            content_hash: None,
         }
         .save(&self.pool)
         .await?;
@@ -132,7 +138,7 @@ where
         info!("Fetching symbol set data for {}", set_ref);
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
             if let Some(storage_ptr) = record.storage_ptr {
-                info!("Found symbol set data for {}", set_ref);
+                info!("Found s3 saved symbol set data for {}", set_ref);
                 let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
                 metrics::counter!(SAVED_SYMBOL_SET_LOADED).increment(1);
                 return Ok(Saveable {
@@ -227,7 +233,7 @@ impl SymbolSetRecord {
     {
         let record = sqlx::query_as!(
             SymbolSetRecord,
-            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason
+            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason, content_hash
             FROM posthog_errortrackingsymbolset
             WHERE team_id = $1 AND ref = $2"#,
             team_id,
@@ -244,15 +250,16 @@ impl SymbolSetRecord {
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         sqlx::query!(
-            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4"#,
+            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4, content_hash = $7"#,
             self.id,
             self.team_id,
             self.set_ref,
             self.storage_ptr,
             self.failure_reason,
-            self.created_at
+            self.created_at,
+            self.content_hash
         )
         .execute(e)
         .await?;
@@ -269,6 +276,7 @@ mod test {
     use mockall::predicate;
     use reqwest::Url;
     use sqlx::PgPool;
+    use symbolic::sourcemapcache::SourceMapCacheWriter;
 
     use crate::{
         config::Config,
@@ -282,6 +290,18 @@ mod test {
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
+
+    fn get_sourcemapcache_bytes() -> Vec<u8> {
+        let mut result = Vec::new();
+        let writer = SourceMapCacheWriter::new(
+            core::str::from_utf8(MINIFIED).unwrap(),
+            core::str::from_utf8(MAP).unwrap(),
+        )
+        .unwrap();
+
+        writer.serialize(&mut result).unwrap();
+        result
+    }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_successful_lookup(db: PgPool) {
@@ -310,7 +330,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::eq(Vec::from(MAP)),
+                predicate::always(), // We won't assert on the contents written
             )
             .returning(|_, _, _| Ok(()))
             .once();
@@ -321,7 +341,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Vec::from(MAP)));
+            .returning(|_, _| Ok(get_sourcemapcache_bytes()));
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(

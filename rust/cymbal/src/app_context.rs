@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 use crate::{
-    config::Config,
+    config::{init_global_state, Config},
     error::UnhandledError,
     frames::resolver::Resolver,
     hack::kafka::{create_kafka_producer, KafkaContext, SingleTopicConsumer},
@@ -33,6 +33,7 @@ pub struct AppContext {
 
 impl AppContext {
     pub async fn new(config: &Config) -> Result<Self, UnhandledError> {
+        init_global_state(config);
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
             .register("worker".to_string(), Duration::from_secs(60))

@@ -23,6 +23,7 @@ import {
     IconLive,
     IconNight,
     IconNotebook,
+    IconPalette,
     IconPeople,
     IconPeopleFilled,
     IconPieChart,
@@ -857,6 +858,11 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                 executor: () => {
                                     actions.updateUser({ theme_mode: 'system' })
                                 },
+                            },
+                            {
+                                icon: IconPalette,
+                                display: 'Add custom CSS',
+                                executor: () => push(urls.customCss()),
                             },
                         ],
                     }),

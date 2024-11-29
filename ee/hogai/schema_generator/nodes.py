@@ -99,8 +99,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             "messages": [
                 VisualizationMessage(
                     plan=generated_plan,
-                    reasoning_steps=message.reasoning_steps,
-                    answer=message.answer,
+                    answer=message.query,
                     done=True,
                 )
             ],
@@ -145,7 +144,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         human_messages, visualization_messages = filter_visualization_conversation(messages)
         first_ai_message = True
 
-        for human_message, ai_message in itertools.zip_longest(human_messages, visualization_messages):
+        for idx, (human_message, ai_message) in enumerate(
+            itertools.zip_longest(human_messages, visualization_messages)
+        ):
+            # Plans go first
             if ai_message:
                 conversation.append(
                     HumanMessagePromptTemplate.from_template(
@@ -162,6 +164,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     ).format(plan=generated_plan)
                 )
 
+            # Then questions
             if human_message:
                 conversation.append(
                     HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
@@ -169,7 +172,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     )
                 )
 
-            if ai_message:
+            # Then schemas, but include only last generated schema because it doesn't need more context.
+            if ai_message and idx + 1 == len(visualization_messages):
                 conversation.append(
                     LangchainAssistantMessage(content=ai_message.answer.model_dump_json() if ai_message.answer else "")
                 )

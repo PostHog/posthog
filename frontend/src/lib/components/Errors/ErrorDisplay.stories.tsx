@@ -10,32 +10,41 @@ const meta: Meta<typeof ErrorDisplay> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/error_tracking/stack_frames/contexts/': {
-                    rawId: {
-                        before: [
-                            {
-                                number: 7,
-                                line: '    const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)',
+                '/api/projects/:team_id/error_tracking/stack_frames/': {
+                    results: [
+                        {
+                            id: '123456789',
+                            raw_id: 'rawId',
+                            contents: {},
+                            resolved: true,
+                            context: {
+                                before: [
+                                    {
+                                        number: 7,
+                                        line: '    const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)',
+                                    },
+                                    {
+                                        number: 8,
+                                        line: '',
+                                    },
+                                    { number: 9, line: '    useEffect(() => {' },
+                                ],
+                                line: { number: 10, line: '        loadFrameContexts({ frames })' },
+                                after: [
+                                    { number: 11, line: '    }, [frames, loadFrameContexts])' },
+                                    {
+                                        number: 12,
+                                        line: '',
+                                    },
+                                    {
+                                        number: 13,
+                                        line: '    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0',
+                                    },
+                                ],
                             },
-                            {
-                                number: 8,
-                                line: '',
-                            },
-                            { number: 9, line: '    useEffect(() => {' },
-                        ],
-                        line: { number: 10, line: '        loadFrameContexts({ frames })' },
-                        after: [
-                            { number: 11, line: '    }, [frames, loadFrameContexts])' },
-                            {
-                                number: 12,
-                                line: '',
-                            },
-                            {
-                                number: 13,
-                                line: '    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0',
-                            },
-                        ],
-                    },
+                            symbol_set_ref: 'https://static.posthog.com/chunks.js',
+                        },
+                    ],
                 },
             },
         }),
@@ -206,6 +215,7 @@ export function ChainedErrorStack(): JSX.Element {
                         type: 'ZeroDivisionError',
                         value: 'division by zero',
                         stacktrace: {
+                            type: 'resolved',
                             frames: [
                                 {
                                     source: '/posthog-python/example2.py',
@@ -225,6 +235,7 @@ export function ChainedErrorStack(): JSX.Element {
                         type: 'CustomException',
                         value: 'This is a custom exception',
                         stacktrace: {
+                            type: 'resolved',
                             frames: [
                                 {
                                     source: '/Users/neilkakkar/Project/posthog-python/example2.py',
@@ -269,6 +280,37 @@ export function StackTraceWithLineContext(): JSX.Element {
                         },
                     },
                 ],
+            })}
+        />
+    )
+}
+
+export function Stacktraceless(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
+                    },
+                ],
+            })}
+        />
+    )
+}
+
+export function WithCymbalErrors(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
+                    },
+                ],
+                $cymbal_errors: ['This is an ingestion error', 'This is a second one'],
             })}
         />
     )
