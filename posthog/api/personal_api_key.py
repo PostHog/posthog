@@ -124,11 +124,7 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             return True
 
-        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
-        if view.action != "retrieve":
-            return False
-
-        return True
+        return view.action == "retrieve"
 
     def has_object_permission(self, request, view, item: PersonalAPIKey) -> bool:
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
