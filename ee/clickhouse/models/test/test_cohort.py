@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Optional
 
 from django.utils import timezone
 from freezegun import freeze_time
@@ -35,11 +36,12 @@ def _create_action(**kwargs):
 
 
 class TestCohort(ClickhouseTestMixin, BaseTest):
-    def _get_cohortpeople(self, cohort: Cohort):
+    def _get_cohortpeople(self, cohort: Cohort, *, team_id: Optional[int] = None):
+        team_id = team_id or cohort.team_id
         return sync_execute(
             GET_COHORTPEOPLE_BY_COHORT_ID,
             {
-                "team_id": self.team.pk,
+                "team_id": team_id,
                 "cohort_id": cohort.pk,
                 "version": cohort.version,
             },
@@ -1370,3 +1372,45 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # Should have p1 in this cohort even if version is different
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 1)
+
+    def test_calculate_people_ch_in_multiteam_project(self):
+        # Create another team in the same project
+        team2 = Team.objects.create(organization=self.organization, project=self.team.project)
+
+        # Create people in team 1
+        _person1_team1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"$some_prop": "else"},
+        )
+        person2_team1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"$some_prop": "something"},
+        )
+        # Create people in team 2 with same property
+        person1_team2 = _create_person(
+            team_id=team2.pk,
+            distinct_ids=["person1_team2"],
+            properties={"$some_prop": "something"},
+        )
+        _person2_team2 = _create_person(
+            team_id=team2.pk,
+            distinct_ids=["person2_team2"],
+            properties={"$some_prop": "else"},
+        )
+        # Create cohort in team 2 (but same project as team 1)
+        shared_cohort = Cohort.objects.create(
+            team=team2,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="shared cohort",
+        )
+        # Calculate cohort
+        shared_cohort.calculate_people_ch(pending_version=0)
+
+        # Verify shared_cohort is now calculated for both teams
+        results_team1 = self._get_cohortpeople(shared_cohort, team_id=self.team.pk)
+        results_team2 = self._get_cohortpeople(shared_cohort, team_id=team2.pk)
+
+        self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
+        self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
