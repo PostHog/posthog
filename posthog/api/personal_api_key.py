@@ -2,16 +2,15 @@ from typing import cast
 import uuid
 
 from rest_framework import response, serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, BasePermission
 
-from django.db.models import QuerySet
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey, User
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.personal_api_key import hash_key_value, mask_key_value
 from posthog.models.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.permissions import TimeSensitiveActionPermission, APIScopePermission
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in personalAPIKeysLogic.tsx
@@ -113,22 +112,47 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return personal_api_key
 
 
-class PersonalAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "personal_api_key"
+class PersonalApiKeySelfAccessPermission(BasePermission):
+    """
+    Personal API Keys can only access their own key and only for retrieval
+    """
+
+    message = "This action does not support Personal API Key access"
+
+    def has_permission(self, request, view) -> bool:
+        # This permission check only applies to the personal api key
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return True
+
+        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
+        if view.action != "retrieve":
+            return False
+
+        return True
+
+    def has_object_permission(self, request, view, item: PersonalAPIKey) -> bool:
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return True
+
+        return request.successful_authenticator.personal_api_key == item
+
+
+class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
-    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
+    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, PersonalApiKeySelfAccessPermission]
+    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
     queryset = PersonalAPIKey.objects.none()
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def get_queryset(self):
         return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
 
-    def safely_get_object(self, queryset) -> PersonalAPIKey:
+    def get_object(self) -> PersonalAPIKey:
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             return self.request.successful_authenticator.personal_api_key
 
-        return super().safely_get_object(queryset)
+        return super().get_object()
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
