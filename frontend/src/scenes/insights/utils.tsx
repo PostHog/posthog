@@ -545,14 +545,14 @@ export function getTrendResultCustomizationColorToken(
 
 export function getFunnelResultCustomizationColorToken(
     resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined,
-    theme: DataColorTheme,
+    theme: DataColorTheme | null | undefined,
     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
     disableFunnelBreakdownBaseline?: boolean
 ): DataColorToken {
     const resultCustomization = getFunnelResultCustomization(dataset, resultCustomizations)
 
     const datasetPosition = getFunnelDatasetPosition(dataset, disableFunnelBreakdownBaseline)
-    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+    const tokenIndex = (datasetPosition % Object.keys(theme || {}).length) + 1
 
     return resultCustomization && resultCustomization.color
         ? resultCustomization.color

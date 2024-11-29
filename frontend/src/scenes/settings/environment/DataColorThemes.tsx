@@ -26,7 +26,9 @@ export function DataColorThemes(): JSX.Element {
                         title: 'Name',
                         dataIndex: 'name',
                         key: 'name',
-                        render: (name, theme) => <LemonTableLink onClick={() => selectTheme(theme.id)} title={name} />,
+                        render: (name, theme) => (
+                            <LemonTableLink onClick={() => selectTheme(theme.id)} title={name as string} />
+                        ),
                     },
                     {
                         title: 'Official',

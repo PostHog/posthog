@@ -21,9 +21,8 @@ export const dataColorThemesLogic = kea<dataColorThemesLogicType>([
             }
 
             if (id === 'new') {
-                // TODO: better way to detect the posthog default theme - likely is_global and trait
-                const defaultTheme = values.themes.find((theme) => theme.name.includes('Default'))
-                const { id, name, is_global, ...newTheme } = defaultTheme
+                const defaultTheme = values.themes.find((theme) => theme.is_global)
+                const { id, name, is_global, ...newTheme } = defaultTheme!
                 actions.openModal(newTheme)
             }
 

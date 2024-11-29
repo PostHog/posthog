@@ -43,7 +43,7 @@ export function DataColorThemeModal(): JSX.Element {
                 </LemonField>
                 <LemonLabel>Colors</LemonLabel>
                 <LemonTable
-                    dataSource={theme?.colors?.map((color, index) => ({
+                    dataSource={(theme?.colors || []).map((color, index) => ({
                         name: `preset-${index + 1}`,
                         color,
                         index,

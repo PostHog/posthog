@@ -17,30 +17,44 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
         removeColor: (index: number) => ({ index }),
     }),
     reducers({
-        theme: [
-            null as null | DataColorThemeModel,
-            {
-                openModal: (_, { theme }) => theme,
-                closeModal: () => null,
-                addColor: (theme) => ({
+        theme: {
+            openModal: (_, { theme }) => theme,
+            closeModal: () => null,
+            addColor: (theme) => {
+                if (theme == null) {
+                    return null
+                }
+                return {
                     ...theme,
                     colors: [...theme.colors, theme.colors[theme.colors.length - 1] || '#1d4aff'],
-                }),
-                duplicateColor: (theme, { index }) => ({
+                }
+            },
+            duplicateColor: (theme, { index }) => {
+                if (theme == null) {
+                    return null
+                }
+                return {
                     ...theme,
                     colors: theme.colors.flatMap((color, idx) => (idx === index ? [color, color] : [color])),
-                }),
-                removeColor: (theme, { index }) => ({
+                }
+            },
+            removeColor: (theme, { index }) => {
+                if (theme == null) {
+                    return null
+                }
+                return {
                     ...theme,
                     colors: theme.colors.filter((_, idx) => idx !== index),
-                }),
+                }
             },
-        ],
+        },
     }),
     forms(({ actions }) => ({
         theme: {
-            submit: async ({ id, name, colors }, breakpoint) => {
-                const payload: DataColorThemeModel = {
+            defaults: null as DataColorThemeModel | null,
+            submit: async (formValues, breakpoint) => {
+                const { id, name, colors } = formValues || {}
+                const payload: Partial<DataColorThemeModel> = {
                     name,
                     colors,
                 }
@@ -48,13 +62,8 @@ export const dataColorThemesModalLogic = kea<dataColorThemesModalLogicType>([
                 breakpoint()
 
                 try {
-                    const updatedTheme = id
-                        ? await api.dataColorThemes.update(id, payload)
-                        : await api.dataColorThemes.create(payload)
-
+                    id ? await api.dataColorThemes.update(id, payload) : await api.dataColorThemes.create(payload)
                     actions.closeModal()
-
-                    return updatedTheme
                 } catch (error: any) {
                     if (error.data?.attr && error.data?.detail) {
                         const field = error.data?.attr?.replace(/_/g, ' ')
