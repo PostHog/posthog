@@ -342,7 +342,16 @@ def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
 def recalculate_cohortpeople(
     cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
-    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team_id)
+    # All environments where the cohort is present
+    relevant_teams = Team.objects.filter(project_id=cohort.team.project_id)
+    for team in relevant_teams:
+        _recalculate_cohortpeople_for_team(cohort, pending_version, team, initiating_user_id=initiating_user_id)
+
+
+def _recalculate_cohortpeople_for_team(
+    cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
+) -> Optional[int]:
+    hogql_context = HogQLContext(within_non_hogql_query=True, team=team)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
     before_count = get_cohort_size(cohort)
@@ -350,14 +359,14 @@ def recalculate_cohortpeople(
     if before_count:
         logger.warn(
             "Recalculating cohortpeople starting",
-            team_id=cohort.team_id,
+            team_id=team.id,
             cohort_id=cohort.pk,
             size_before=before_count,
         )
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", team_id=cohort.team_id, query_type="CohortsQuery")
+    tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQuery")
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
 
@@ -367,7 +376,7 @@ def recalculate_cohortpeople(
             **cohort_params,
             **hogql_context.values,
             "cohort_id": cohort.pk,
-            "team_id": cohort.team_id,
+            "team_id": team.id,
             "new_version": pending_version,
         },
         settings={
