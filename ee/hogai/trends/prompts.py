@@ -52,7 +52,7 @@ Available math aggregation types for event's property values are:
 - 95th percentile
 - 99th percentile
 
-Available math aggregation types counting by users who completed an event are:
+Available math aggregation types counting number of events completed per user (intensity of usage) are:
 - average
 - minimum
 - maximum
