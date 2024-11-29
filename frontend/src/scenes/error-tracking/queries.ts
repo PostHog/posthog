@@ -180,7 +180,7 @@ export const errorTrackingIssueEventsQuery = ({
     return query
 }
 
-export const errorTrackingGroupBreakdownQuery = ({
+export const errorTrackingIssueBreakdownQuery = ({
     breakdownProperty,
     dateRange,
     filterTestAccounts,
