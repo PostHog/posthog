@@ -385,7 +385,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (querySource, actions) => (querySource ? getAllEventNames(querySource, actions) : []),
         ],
 
-        theme: [(s) => [s.getTheme, s.querySource], (getTheme, querySource) => getTheme(querySource.dataColorTheme)],
+        theme: [(s) => [s.getTheme, s.querySource], (getTheme, querySource) => getTheme(querySource?.dataColorTheme)],
     }),
 
     listeners(({ actions, values, props }) => ({

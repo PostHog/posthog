@@ -1,7 +1,6 @@
 import { IconBadge } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { DataColorTheme } from 'lib/colors'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -47,11 +46,11 @@ export function DataColorThemes(): JSX.Element {
                 onChange={(value) => {
                     const theme = themes.find((theme) => theme.id === value)
                     LemonDialog.open({
-                        title: `Change the default data theme to "${theme.name}"?`,
+                        title: `Change the default data theme to "${theme!.name}"?`,
                         description: 'This changes the default colors used when visualizing data in insights.',
                         primaryButton: {
                             children: 'Change default theme',
-                            onClick: () => updateCurrentTeam({ default_data_theme: value }),
+                            onClick: () => updateCurrentTeam({ default_data_theme: value! }),
                         },
                         secondaryButton: {
                             children: 'Cancel',

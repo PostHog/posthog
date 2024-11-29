@@ -1,10 +1,20 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { DataColorTheme } from 'lib/colors'
+
 import { DataColorThemeModel } from '~/types'
 
 import type { dataThemeLogicType } from './dataThemeLogicType'
 import { teamLogic } from './teamLogic'
+
+/** Returns a data color theme from the backend side theme model. */
+export function convertApiTheme(apiTheme: DataColorThemeModel): DataColorTheme {
+    return apiTheme.colors.reduce((theme, color, index) => {
+        theme[`preset-${index + 1}`] = color
+        return theme
+    }, {})
+}
 
 export const dataThemeLogic = kea<dataThemeLogicType>([
     path(['scenes', 'dataThemeLogic']),
@@ -26,8 +36,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                 }
 
                 const environmentTheme = themes.find((theme) => theme.id === currentTeam.default_data_theme)
-                // TODO: better way to detect the posthog default theme
-                return environmentTheme || themes.find((theme) => theme.id === 1)
+                return environmentTheme || themes.find((theme) => theme.is_global)
             },
         ],
         getTheme: [
@@ -41,17 +50,11 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                     }
 
                     if (customTheme) {
-                        return customTheme.colors.reduce((theme, color, index) => {
-                            theme[`preset-${index + 1}`] = color
-                            return theme
-                        }, {})
+                        return convertApiTheme(customTheme)
                     }
 
                     if (defaultTheme) {
-                        return defaultTheme.colors.reduce((theme, color, index) => {
-                            theme[`preset-${index + 1}`] = color
-                            return theme
-                        }, {})
+                        return convertApiTheme(defaultTheme)
                     }
 
                     return null
