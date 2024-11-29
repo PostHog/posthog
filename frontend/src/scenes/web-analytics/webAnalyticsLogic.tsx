@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
@@ -6,11 +6,12 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
 
+import { hogqlQuery } from '~/queries/query'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -186,12 +187,17 @@ export enum GeographyTab {
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
     TIMEZONES = 'TIMEZONES',
+    LANGUAGES = 'LANGUAGES',
 }
 
 export interface WebAnalyticsStatusCheck {
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
+}
+
+export enum ConversionGoalWarning {
+    CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
 }
 
 export const GEOIP_PLUGIN_URLS = [
@@ -269,6 +275,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         openAsNewInsight: (tileId: TileId, tabId?: string) => {
             return { tileId, tabId }
         },
+        setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -453,6 +460,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+            },
+        ],
+        conversionGoalWarning: [
+            null as ConversionGoalWarning | null,
+            {
+                setConversionGoalWarning: (_, { warning }) => warning,
             },
         ],
     }),
@@ -989,6 +1002,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       'Timezones',
                                       WebStatsBreakdown.Timezone
                                   ),
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.LANGUAGES,
+                                      'Languages',
+                                      'Languages',
+                                      WebStatsBreakdown.Language
+                                  ),
                               ],
                           }
                         : null,
@@ -1489,18 +1509,68 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
             }
         }
+
         return {
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
             },
-            setConversionGoal: ({ conversionGoal }) => {
-                checkGraphsTabIsCompatibleWithConversionGoal(values.graphsTab, conversionGoal)
-            },
+            setConversionGoal: [
+                ({ conversionGoal }) => {
+                    checkGraphsTabIsCompatibleWithConversionGoal(values.graphsTab, conversionGoal)
+                },
+                ({ conversionGoal }, breakpoint) =>
+                    checkCustomEventConversionGoalHasSessionIdsHelper(
+                        conversionGoal,
+                        breakpoint,
+                        actions.setConversionGoalWarning,
+                        values.featureFlags
+                    ),
+            ],
         }
+    }),
+    afterMount(({ actions, values }) => {
+        checkCustomEventConversionGoalHasSessionIdsHelper(
+            values.conversionGoal,
+            undefined,
+            actions.setConversionGoalWarning,
+            values.featureFlags
+        ).catch(() => {
+            // ignore, this warning is just a nice-to-have, no point showing an error to the user
+        })
     }),
 ])
 
 const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {
     const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
     return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+}
+
+const checkCustomEventConversionGoalHasSessionIdsHelper = async (
+    conversionGoal: WebAnalyticsConversionGoal | null,
+    breakpoint: BreakPointFunction | undefined,
+    setConversionGoalWarning: (warning: ConversionGoalWarning | null) => void,
+    featureFlags: FeatureFlagsSet
+): Promise<void> => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION]) {
+        return
+    }
+
+    if (!conversionGoal || !('customEventName' in conversionGoal) || !conversionGoal.customEventName) {
+        setConversionGoalWarning(null)
+        return
+    }
+    const { customEventName } = conversionGoal
+    // check if we have any conversion events from the last week without sessions ids
+
+    const response = await hogqlQuery(
+        `select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
+        { event: customEventName }
+    )
+    breakpoint?.()
+    const row = response.results[0]
+    if (row[0]) {
+        setConversionGoalWarning(ConversionGoalWarning.CustomEventWithNoSessionId)
+    } else {
+        setConversionGoalWarning(null)
+    }
 }

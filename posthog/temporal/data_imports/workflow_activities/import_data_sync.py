@@ -144,6 +144,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ssh_tunnel_auth_type_passphrase = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_passphrase")
             ssh_tunnel_auth_type_private_key = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_private_key")
 
+            using_ssl = str(model.pipeline.job_inputs.get("using_ssl", True)) == "True"
+
             ssh_tunnel = SSHTunnel(
                 enabled=using_ssh_tunnel,
                 host=ssh_tunnel_host,
@@ -177,6 +179,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         if schema.is_incremental
                         else None,
                         team_id=inputs.team_id,
+                        using_ssl=using_ssl,
                     )
 
                     return _run(
@@ -203,6 +206,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 if schema.is_incremental
                 else None,
                 team_id=inputs.team_id,
+                using_ssl=using_ssl,
             )
 
             return _run(

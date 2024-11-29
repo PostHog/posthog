@@ -48,8 +48,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             if self.query.includeBounceRate:
                 return self.to_entry_bounce_query()
+
         if self._has_session_properties():
-            return self._to_main_query_with_session_properties()
+            self._to_main_query_with_session_properties()
         return self.to_main_query()
 
     def to_main_query(self) -> ast.SelectQuery:
@@ -57,7 +58,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
             query = parse_select(
                 """
 SELECT
-    breakdown_value AS "context.columns.breakdown_value",
+    {processed_breakdown_value} AS "context.columns.breakdown_value",
     uniq(filtered_person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
@@ -77,11 +78,13 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
                 placeholders={
                     "breakdown_value": self._counts_breakdown_value(),
+                    "processed_breakdown_value": self._processed_breakdown_value(),
                     "where_breakdown": self.where_breakdown(),
                     "all_properties": self._all_properties(),
                     "date_from": self._date_from(),
@@ -89,6 +92,10 @@ ORDER BY "context.columns.visitors" DESC,
                 },
             )
         assert isinstance(query, ast.SelectQuery)
+
+        if self._include_extra_aggregation_value():
+            query.select.append(self._extra_aggregation_value())
+
         return query
 
     def _to_main_query_with_session_properties(self) -> ast.SelectQuery:
@@ -96,7 +103,7 @@ ORDER BY "context.columns.visitors" DESC,
             query = parse_select(
                 """
 SELECT
-    breakdown_value AS "context.columns.breakdown_value",
+    {processed_breakdown_value} AS "context.columns.breakdown_value",
     uniq(filtered_person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
@@ -118,11 +125,13 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
                 placeholders={
                     "breakdown_value": self._counts_breakdown_value(),
+                    "processed_breakdown_value": self._processed_breakdown_value(),
                     "where_breakdown": self.where_breakdown(),
                     "event_properties": self._event_properties(),
                     "session_properties": self._session_properties(),
@@ -131,6 +140,10 @@ ORDER BY "context.columns.visitors" DESC,
                 },
             )
         assert isinstance(query, ast.SelectQuery)
+
+        if self.query.breakdownBy == WebStatsBreakdown.LANGUAGE:
+            query.select.append(self._extra_aggregation_value())
+
         return query
 
     def to_entry_bounce_query(self) -> ast.SelectQuery:
@@ -162,6 +175,7 @@ FROM (
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -269,6 +283,7 @@ LEFT JOIN (
 ) AS scroll
 ON counts.breakdown_value = scroll.breakdown_value
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -346,6 +361,7 @@ LEFT JOIN (
 ) as bounce
 ON counts.breakdown_value = bounce.breakdown_value
 ORDER BY "context.columns.visitors" DESC,
+"context.columns.views" DESC,
 "context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
@@ -433,13 +449,27 @@ ORDER BY "context.columns.visitors" DESC,
         results_mapped = map_columns(
             results,
             {
+                0: self._join_with_aggregation_value,  # breakdown_value
                 1: self._unsample,  # views
                 2: self._unsample,  # visitors
             },
         )
 
+        columns = response.columns
+
+        if self.query.breakdownBy == WebStatsBreakdown.LANGUAGE:
+            # Keep only first 3 columns, we don't need the aggregation value in the frontend
+            results_mapped = [[column for idx, column in enumerate(row) if idx < 3] for row in results_mapped]
+
+            # Remove this before returning it to the frontend
+            columns = (
+                [column for column in response.columns if column != "context.columns.aggregation_value"]
+                if response.columns is not None
+                else response.columns
+            )
+
         return WebStatsTableQueryResponse(
-            columns=response.columns,
+            columns=columns,
             results=results_mapped,
             timings=response.timings,
             types=response.types,
@@ -447,6 +477,12 @@ ORDER BY "context.columns.visitors" DESC,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def _join_with_aggregation_value(self, breakdown_value: str, row: list):
+        if self.query.breakdownBy != WebStatsBreakdown.LANGUAGE:
+            return breakdown_value
+
+        return f"{breakdown_value}-{row[3]}"  # Fourth value is the aggregation value
 
     def _counts_breakdown_value(self):
         match self.query.breakdownBy:
@@ -499,12 +535,34 @@ ORDER BY "context.columns.visitors" DESC,
                 )
             case WebStatsBreakdown.CITY:
                 return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
+            case WebStatsBreakdown.LANGUAGE:
+                return ast.Field(chain=["properties", "$browser_language"])
             case WebStatsBreakdown.TIMEZONE:
-                # Timezone offsets would be slightly more useful, but that's not easily achievable
-                # with Clickhouse, we might attempt to change this in the future
-                return ast.Field(chain=["properties", "$timezone"])
+                # Get the difference between the UNIX timestamp at UTC and the UNIX timestamp at the event's timezone
+                # Value is in milliseconds, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
+                return parse_expr(
+                    "if(or(isNull(properties.$timezone), empty(properties.$timezone), properties.$timezone == 'Etc/Unknown'), NULL, (toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, properties.$timezone)))) - toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, 'UTC'))))) / 3600000)"
+                )
             case _:
                 raise NotImplementedError("Breakdown not implemented")
+
+    def _processed_breakdown_value(self):
+        if self.query.breakdownBy != WebStatsBreakdown.LANGUAGE:
+            return ast.Field(chain=["breakdown_value"])
+
+        return parse_expr("arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 1)")
+
+    def _include_extra_aggregation_value(self):
+        return self.query.breakdownBy == WebStatsBreakdown.LANGUAGE
+
+    def _extra_aggregation_value(self):
+        match self.query.breakdownBy:
+            case WebStatsBreakdown.LANGUAGE:
+                return parse_expr(
+                    "arrayElement(topK(1)(arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 2)), 1) AS `context.columns.aggregation_value`"
+                )
+            case _:
+                raise NotImplementedError("Aggregation value not exists")
 
     def where_breakdown(self):
         match self.query.breakdownBy:
