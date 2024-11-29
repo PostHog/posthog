@@ -25,7 +25,7 @@ class HogFunctionSubTemplate:
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "free"]
+    status: Literal["alpha", "beta", "stable", "free", "client-side"]
     type: Literal[
         "destination",
         "site_destination",
