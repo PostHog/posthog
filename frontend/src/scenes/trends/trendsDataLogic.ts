@@ -261,7 +261,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                         theme,
                         dataset
                     )
-                    return theme?.[colorToken]
+                    return theme?.[colorToken] || null
                 }
             },
         ],

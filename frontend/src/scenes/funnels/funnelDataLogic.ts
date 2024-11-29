@@ -420,7 +420,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         dataset,
                         props?.cachedInsight?.disable_baseline
                     )
-                    return theme?.[colorToken]
+                    return theme?.[colorToken] || null
                 }
             },
         ],
