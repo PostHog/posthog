@@ -14,6 +14,7 @@ import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, 
 import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from '../hogfunctions/HogFunctionStatusIndicator'
+import { hogFunctionUrl } from '../hogfunctions/urls'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
@@ -30,7 +31,7 @@ export interface HogFunctionsListProps {
 }
 
 export function HogFunctionsList({ types }: HogFunctionsListProps): JSX.Element {
-    const { destinations, loading } = useValues(hogFunctionsListLogic({ types }))
+    const { functions, loading } = useValues(hogFunctionsListLogic({ types }))
 
     return (
         <>
@@ -48,7 +49,7 @@ export function HogFunctionsList({ types }: HogFunctionsListProps): JSX.Element 
                             description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
                             docsURL="https://posthog.com/docs/cdp"
                             actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                            isEmpty={destinations.length === 0 && !loading}
+                            isEmpty={functions.length === 0 && !loading}
                         />
                     </PayGateMini>
                 </>
@@ -81,9 +82,7 @@ export function HogFunctionsList({ types }: HogFunctionsListProps): JSX.Element 
 
 export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
-        hogFunctionsListLogic({ types })
-    )
+    const { loading, filteredFunctions, functions, hiddenFunctions } = useValues(hogFunctionsListLogic({ types }))
     const { toggleNode, deleteNode } = useActions(hogFunctionsListLogic({ types }))
     const { resetFilters } = useActions(hogFunctionsListFiltersLogic({ types }))
 
@@ -100,7 +99,7 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
             <HogFunctionsListFilters types={types} hideKind={types.includes('site_app')} />
 
             <LemonTable
-                dataSource={filteredDestinations}
+                dataSource={filteredFunctions}
                 size="small"
                 loading={loading}
                 columns={[
@@ -129,10 +128,9 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                         render: function RenderPluginName(_, destination) {
                             return (
                                 <LemonTableLink
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Destination,
-                                        destination.id,
-                                        PipelineNodeTab.Configuration
+                                    to={hogFunctionUrl(
+                                        'stage' in destination ? destination.stage : 'destination',
+                                        String(destination.id)
                                     )}
                                     title={
                                         <>
@@ -239,7 +237,7 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                     },
                 ]}
                 emptyState={
-                    destinations.length === 0 && !loading ? (
+                    functions.length === 0 && !loading ? (
                         'No destinations found'
                     ) : (
                         <>
@@ -249,9 +247,9 @@ export function HogFunctionsListTable({ types }: HogFunctionsListProps): JSX.Ele
                 }
             />
 
-            {hiddenDestinations.length > 0 && (
+            {hiddenFunctions.length > 0 && (
                 <div className="text-muted-alt">
-                    {hiddenDestinations.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
+                    {hiddenFunctions.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
                 </div>
             )}
         </div>

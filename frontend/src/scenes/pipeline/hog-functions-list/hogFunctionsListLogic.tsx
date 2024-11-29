@@ -26,6 +26,7 @@ import {
     Destination,
     FunctionDestination,
     PipelineBackend,
+    SiteApp,
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
@@ -58,12 +59,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
     })),
     actions({
-        toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
-        toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
-        deleteNode: (destination: Destination) => ({ destination }),
-        deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
-        deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
-        deleteNodeWebhook: (destination: WebhookDestination) => ({ destination }),
+        toggleNode: (func: Destination, enabled: boolean) => ({ func, enabled }),
+        toggleNodeHogFunction: (func: FunctionDestination, enabled: boolean) => ({ func, enabled }),
+        deleteNode: (func: Destination) => ({ func }),
+        deleteNodeBatchExport: (func: BatchExportDestination) => ({ func }),
+        deleteNodeHogFunction: (func: FunctionDestination) => ({ func }),
+        deleteNodeWebhook: (func: WebhookDestination) => ({ func }),
 
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
@@ -97,15 +98,15 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     }
                     return pluginConfigs
                 },
-                toggleNodeWebhook: async ({ destination, enabled }) => {
+                toggleNodeWebhook: async ({ func, enabled }) => {
                     const { pluginConfigs, plugins } = values
-                    const pluginConfig = pluginConfigs[destination.id]
+                    const pluginConfig = pluginConfigs[func.id]
                     const plugin = plugins[pluginConfig.plugin]
                     capturePluginEvent(`plugin ${enabled ? 'enabled' : 'disabled'}`, plugin, pluginConfig)
-                    const response = await api.update(`api/plugin_config/${destination.id}`, {
+                    const response = await api.update(`api/plugin_config/${func.id}`, {
                         enabled,
                     })
-                    return { ...pluginConfigs, [destination.id]: response }
+                    return { ...pluginConfigs, [func.id]: response }
                 },
                 updatePluginConfig: ({ pluginConfig }) => {
                     return {
@@ -114,12 +115,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     }
                 },
 
-                deleteNodeWebhook: async ({ destination }) => {
+                deleteNodeWebhook: async ({ func }) => {
                     await deleteWithUndo({
                         endpoint: `environments/${teamLogic.values.currentTeamId}/plugin_configs`,
                         object: {
-                            id: destination.id,
-                            name: destination.name,
+                            id: func.id,
+                            name: func.name,
                         },
                         callback: (undo) => {
                             if (undo) {
@@ -129,7 +130,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     })
 
                     const pluginConfigs = { ...values.pluginConfigs }
-                    delete pluginConfigs[destination.id]
+                    delete pluginConfigs[func.id]
 
                     return pluginConfigs
                 },
@@ -144,21 +145,21 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     )
                     return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
                 },
-                toggleNodeBatchExport: async ({ destination, enabled }) => {
-                    const batchExport = values.batchExportConfigs[destination.id]
+                toggleNodeBatchExport: async ({ func, enabled }) => {
+                    const batchExport = values.batchExportConfigs[func.id]
                     if (enabled) {
-                        await api.batchExports.unpause(destination.id)
+                        await api.batchExports.unpause(func.id)
                     } else {
-                        await api.batchExports.pause(destination.id)
+                        await api.batchExports.pause(func.id)
                     }
                     captureBatchExportEvent(`batch export ${enabled ? 'enabled' : 'disabled'}`, batchExport)
-                    return { ...values.batchExportConfigs, [destination.id]: { ...batchExport, paused: !enabled } }
+                    return { ...values.batchExportConfigs, [func.id]: { ...batchExport, paused: !enabled } }
                 },
-                deleteNodeBatchExport: async ({ destination }) => {
-                    await api.batchExports.delete(destination.id)
+                deleteNodeBatchExport: async ({ func }) => {
+                    await api.batchExports.delete(func.id)
 
                     const batchExportConfigs = { ...values.batchExportConfigs }
-                    delete batchExportConfigs[destination.id]
+                    delete batchExportConfigs[func.id]
 
                     return batchExportConfigs
                 },
@@ -176,16 +177,16 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     return (await api.hogFunctions.list(undefined, props.types)).results
                 },
 
-                deleteNodeHogFunction: async ({ destination }) => {
-                    if (destination.backend !== PipelineBackend.HogFunction) {
+                deleteNodeHogFunction: async ({ func }) => {
+                    if (func.backend !== PipelineBackend.HogFunction) {
                         return values.hogFunctions
                     }
 
                     await deleteWithUndo({
                         endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
                         object: {
-                            id: destination.hog_function.id,
-                            name: destination.name,
+                            id: func.hog_function.id,
+                            name: func.name,
                         },
                         callback: (undo) => {
                             if (undo) {
@@ -194,12 +195,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         },
                     })
 
-                    return values.hogFunctions.filter((hogFunction) => hogFunction.id !== destination.hog_function.id)
+                    return values.hogFunctions.filter((hogFunction) => hogFunction.id !== func.hog_function.id)
                 },
-                toggleNodeHogFunction: async ({ destination, enabled }) => {
+                toggleNodeHogFunction: async ({ func, enabled }) => {
                     const { hogFunctions } = values
-                    const hogFunctionIndex = hogFunctions.findIndex((hf) => hf.id === destination.hog_function.id)
-                    const response = await api.hogFunctions.update(destination.hog_function.id, {
+                    const hogFunctionIndex = hogFunctions.findIndex((hf) => hf.id === func.hog_function.id)
+                    const response = await api.hogFunctions.update(func.hog_function.id, {
                         enabled,
                     })
                     return [
@@ -226,9 +227,16 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionsLoading) =>
                 pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionsLoading,
         ],
-        destinations: [
+        functions: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user, s.featureFlags],
-            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user, featureFlags): Destination[] => {
+            (
+                pluginConfigs,
+                plugins,
+                batchExportConfigs,
+                hogFunctions,
+                user,
+                featureFlags
+            ): (Destination | SiteApp)[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
@@ -237,43 +245,47 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     httpEnabled ? true : config.destination.type !== ('HTTP' as const)
                 )
 
-                const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
-                    ([] as (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[])
-                        .concat(hogFunctions)
-                        .concat(
-                            Object.values(pluginConfigs).map((pluginConfig) => ({
-                                ...pluginConfig,
-                                plugin_info: plugins[pluginConfig.plugin] || null,
-                            }))
-                        )
-                        .concat(rawBatchExports)
-                const convertedDestinations = rawDestinations.map((d) =>
-                    convertToPipelineNode(d, PipelineStage.Destination)
+                const rawfunctions: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] = (
+                    [] as (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[]
                 )
-                const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
+                    .concat(hogFunctions)
+                    .concat(
+                        Object.values(pluginConfigs).map((pluginConfig) => ({
+                            ...pluginConfig,
+                            plugin_info: plugins[pluginConfig.plugin] || null,
+                        }))
+                    )
+                    .concat(rawBatchExports)
+                const convertedFunctions = rawfunctions.map((d) =>
+                    convertToPipelineNode(
+                        d,
+                        'type' in d && d.type === 'site_app' ? PipelineStage.SiteApp : PipelineStage.Destination
+                    )
+                )
+                const enabledFirst = convertedFunctions.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
             },
         ],
-        destinationsFuse: [
-            (s) => [s.destinations],
-            (destinations): Fuse => {
-                return new FuseClass(destinations || [], {
+        functionsFuse: [
+            (s) => [s.functions],
+            (functions): Fuse => {
+                return new FuseClass(functions || [], {
                     keys: ['name', 'description'],
                     threshold: 0.3,
                 })
             },
         ],
 
-        filteredDestinations: [
-            (s) => [s.filters, s.destinations, s.destinationsFuse],
-            (filters, destinations, destinationsFuse): Destination[] => {
+        filteredFunctions: [
+            (s) => [s.filters, s.functions, s.functionsFuse],
+            (filters, functions, functionsFuse): Destination[] => {
                 const { search, showPaused, kind } = filters
 
-                return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
-                    if (kind && dest.backend !== kind) {
+                return (search ? functionsFuse.search(search).map((x) => x.item) : functions).filter((fn) => {
+                    if (kind && fn.backend !== kind) {
                         return false
                     }
-                    if (!showPaused && !dest.enabled) {
+                    if (!showPaused && !fn.enabled) {
                         return false
                     }
                     return true
@@ -281,37 +293,37 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             },
         ],
 
-        hiddenDestinations: [
-            (s) => [s.destinations, s.filteredDestinations],
-            (destinations, filteredDestinations): Destination[] => {
-                return destinations.filter((dest) => !filteredDestinations.includes(dest))
+        hiddenFunctions: [
+            (s) => [s.functions, s.filteredFunctions],
+            (functions, filteredFunctions): Destination[] => {
+                return functions.filter((fn) => !filteredFunctions.includes(fn))
             },
         ],
     }),
     listeners(({ values, actions }) => ({
-        toggleNode: ({ destination, enabled }) => {
-            if (enabled && !values.canEnableDestination(destination)) {
+        toggleNode: ({ func, enabled }) => {
+            if (enabled && !values.canEnableDestination(func)) {
                 lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                 return
             }
-            if (destination.backend === PipelineBackend.Plugin) {
-                actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
-            } else if (destination.backend === PipelineBackend.BatchExport) {
-                actions.toggleNodeBatchExport({ destination: destination, enabled: enabled })
-            } else if (destination.backend === PipelineBackend.HogFunction) {
-                actions.toggleNodeHogFunction(destination, enabled)
+            if (func.backend === PipelineBackend.Plugin) {
+                actions.toggleNodeWebhook({ func, enabled })
+            } else if (func.backend === PipelineBackend.BatchExport) {
+                actions.toggleNodeBatchExport({ func, enabled })
+            } else if (func.backend === PipelineBackend.HogFunction) {
+                actions.toggleNodeHogFunction(func, enabled)
             }
         },
-        deleteNode: ({ destination }) => {
-            switch (destination.backend) {
+        deleteNode: ({ func }) => {
+            switch (func.backend) {
                 case PipelineBackend.Plugin:
-                    actions.deleteNodeWebhook(destination)
+                    actions.deleteNodeWebhook(func)
                     break
                 case PipelineBackend.BatchExport:
-                    actions.deleteNodeBatchExport(destination)
+                    actions.deleteNodeBatchExport(func)
                     break
                 case PipelineBackend.HogFunction:
-                    actions.deleteNodeHogFunction(destination)
+                    actions.deleteNodeHogFunction(func)
                     break
             }
         },

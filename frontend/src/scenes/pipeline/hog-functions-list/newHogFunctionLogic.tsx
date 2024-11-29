@@ -18,6 +18,7 @@ import {
 
 import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
+import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { PipelineBackend } from '../types'
 import { RenderBatchExportIcon } from '../utils'
 import { hogFunctionsListFiltersLogic } from './hogFunctionsListFiltersLogic'
@@ -151,16 +152,3 @@ export const newHogFunctionLogic = kea<newHogFunctionLogicType>([
         actions.loadHogFunctionTemplates()
     }),
 ])
-
-function hogFunctionTypeToPipelineStage(type: string): PipelineStage {
-    switch (type) {
-        case 'site_destination':
-            return PipelineStage.Destination
-        case 'destination':
-            return PipelineStage.Destination
-        case 'site_app':
-            return PipelineStage.SiteApp
-        default:
-            throw new Error(`Unknown hog function type: ${type}`)
-    }
-}
