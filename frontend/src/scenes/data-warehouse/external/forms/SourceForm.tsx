@@ -141,7 +141,24 @@ export function SourceFormComponent({ sourceConfig, showPrefix = true, jobInputs
             </Group>
             {showPrefix && (
                 <LemonField name="prefix" label="Table Prefix (optional)">
-                    <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
+                    {({ value, onChange }) => (
+                        <>
+                            <LemonInput
+                                className="ph-ignore-input"
+                                data-attr="prefix"
+                                placeholder="internal_"
+                                value={value}
+                                onChange={onChange}
+                            />
+                            <p>
+                                Example table name:{' '}
+                                <strong>
+                                    {value}
+                                    {sourceConfig.name.toLowerCase()}_table_name
+                                </strong>
+                            </p>
+                        </>
+                    )}
                 </LemonField>
             )}
         </div>
