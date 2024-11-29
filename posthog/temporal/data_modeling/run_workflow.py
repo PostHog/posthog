@@ -23,6 +23,7 @@ from deltalake import DeltaTable
 from django.conf import settings
 from dlt.common.libs.deltalake import get_delta_tables
 
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
@@ -344,7 +345,9 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
     """A dlt source representing a HogQL table given by a HogQL query."""
 
     async def get_hogql_rows():
-        response = await asyncio.to_thread(execute_hogql_query, query, team)
+        settings = HogQLGlobalSettings(max_execution_time=60 * 10)  # 10 mins, same as the /query endpoint async workers
+
+        response = await asyncio.to_thread(execute_hogql_query, query, team, settings=settings)
 
         if not response.columns:
             raise EmptyHogQLResponseColumnsError()
