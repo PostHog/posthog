@@ -153,15 +153,15 @@ class TestPeriodicDigestReport(APIBaseTest):
                 {
                     "name": "Launched Experiment",
                     "id": launched_experiment.id,
-                    "start_date": launched_experiment.start_date.isoformat(),
+                    "start_date": launched_experiment.start_date.isoformat(),  # type: ignore
                 }
             ],
             "new_experiments_completed": [
                 {
                     "name": "Completed Experiment",
                     "id": completed_experiment.id,
-                    "start_date": completed_experiment.start_date.isoformat(),
-                    "end_date": completed_experiment.end_date.isoformat(),
+                    "start_date": completed_experiment.start_date.isoformat(),  # type: ignore
+                    "end_date": completed_experiment.end_date.isoformat(),  # type: ignore
                 }
             ],
             "new_external_data_sources": [
@@ -174,7 +174,7 @@ class TestPeriodicDigestReport(APIBaseTest):
                 {
                     "name": "Test Survey",
                     "id": survey.id,
-                    "start_date": survey.start_date.isoformat(),
+                    "start_date": survey.start_date.isoformat(),  # type: ignore
                     "description": "Test Description",
                 }
             ],
