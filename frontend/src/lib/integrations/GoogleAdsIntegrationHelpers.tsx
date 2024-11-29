@@ -1,6 +1,6 @@
 import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { GoogleAdsConversionActionType, IntegrationType } from '~/types'
 
@@ -56,6 +56,12 @@ export function GoogleAdsConversionActionPicker({
         () => getGoogleAdsConversionActionOptions(googleAdsConversionActions),
         [googleAdsConversionActions]
     )
+
+    useEffect(() => {
+        if (requiresFieldValue) {
+            loadGoogleAdsConversionActions(requiresFieldValue)
+        }
+    }, [loadGoogleAdsConversionActions, requiresFieldValue])
 
     return (
         <>
