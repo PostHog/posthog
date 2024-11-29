@@ -176,7 +176,7 @@ class OauthIntegration:
                 name_path="hub_domain",
             )
         elif kind == "google-ads":
-            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
+            if not settings.GOOGLE_ADS_APP_CLIENT_ID or not settings.GOOGLE_ADS_APP_CLIENT_SECRET:
                 raise NotImplementedError("Google Ads app not configured")
 
             return OauthConfig(
@@ -186,8 +186,8 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
-                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
+                client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords email",
                 id_path="sub",
                 name_path="email",
