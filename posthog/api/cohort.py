@@ -14,6 +14,7 @@ from posthog.models.feature_flag.flag_matching import (
 )
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.property.property import Property, PropertyGroup
+from posthog.models.team.team import Team
 from posthog.queries.base import property_group_to_Q
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.renderers import SafeJSONRenderer
@@ -208,7 +209,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             )
 
                     if prop.type == "cohort":
-                        nested_cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
                         dependent_cohorts = get_dependent_cohorts(nested_cohort)
                         for dependent_cohort in [nested_cohort, *dependent_cohorts]:
                             if (
@@ -480,7 +481,7 @@ class LegacyCohortViewSet(CohortViewSet):
 
 def will_create_loops(cohort: Cohort) -> bool:
     # Loops can only be formed when trying to update a Cohort, not when creating one
-    team_id = cohort.team_id
+    project_id = cohort.team.project_id
 
     # We can model this as a directed graph, where each node is a Cohort and each edge is a reference to another Cohort
     # There's a loop only if there's a cycle in the directed graph. The "directed" bit is important.
@@ -501,7 +502,7 @@ def will_create_loops(cohort: Cohort) -> bool:
                     return True
                 elif property.value not in seen_cohorts:
                     try:
-                        nested_cohort = Cohort.objects.get(pk=property.value, team_id=team_id)
+                        nested_cohort = Cohort.objects.get(pk=property.value, team__project_id=project_id)
                     except Cohort.DoesNotExist:
                         raise ValidationError("Invalid Cohort ID in filter")
 
@@ -623,15 +624,16 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: dict[
 
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000):
     # :TODO: Find a way to incorporate this into the same code path as feature flag evaluation
+    team: Team = Team.objects.get(pk=team_id)
     try:
-        feature_flag = FeatureFlag.objects.get(team_id=team_id, key=flag)
+        feature_flag = FeatureFlag.objects.get(team__project_id=team.project_id, key=flag)
     except FeatureFlag.DoesNotExist:
         return []
 
     if not feature_flag.active or feature_flag.deleted or feature_flag.aggregation_group_type_index is not None:
         return []
 
-    cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id)
     matcher_cache = FlagsMatcherCache(team_id)
     uuids_to_add_to_cohort = []
     cohorts_cache: dict[int, CohortOrEmpty] = {}
@@ -640,7 +642,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # TODO: Consider disabling flags with cohorts for creating static cohorts
         # because this is currently a lot more inefficient for flag matching,
         # as we're required to go to the database for each person.
-        cohorts_cache = {cohort.pk: cohort for cohort in Cohort.objects.filter(team_id=team_id, deleted=False)}
+        cohorts_cache = {
+            cohort.pk: cohort for cohort in Cohort.objects.filter(team__project_id=team.project_id, deleted=False)
+        }
 
     default_person_properties = {}
     for condition in feature_flag.conditions:
