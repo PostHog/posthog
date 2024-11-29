@@ -266,6 +266,7 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         await logger.aexception("Failed to materialize model %s due to error: ", model.label, str(err))
         await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label))
     else:
+        await logger.ainfo("Materialized model %s", model.label)
         await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
     finally:
         queue.task_done()
