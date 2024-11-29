@@ -1,8 +1,9 @@
 import { IconCheckCircle, IconCopy, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
 import { setup2FALogic } from 'scenes/authentication/setup2FALogic'
@@ -85,8 +86,7 @@ export function TwoFactorAuthentication(): JSX.Element {
                                     size="small"
                                     className="absolute top-4 right-4"
                                     onClick={() => {
-                                        void navigator.clipboard.writeText(status.backup_codes.join('\n') || '')
-                                        lemonToast.success('Backup codes copied to clipboard')
+                                        void copyToClipboard(status.backup_codes.join('\n') || '', 'backup codes')
                                     }}
                                 >
                                     Copy
