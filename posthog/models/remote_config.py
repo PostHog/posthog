@@ -56,6 +56,7 @@ class RemoteConfig(UUIDModel):
 
         team: Team = self.team
 
+        # TODO: Add the token to the config so that it is verifiable as a standalone file
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
             "supported_compression": ["gzip", "gzip-js"],
@@ -80,10 +81,7 @@ class RemoteConfig(UUIDModel):
             ),
             "analytics": {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT},
             # TODO: IDeally get rid of this as it seems very old and redundant
-            "elements_chain_as_string": bool(
-                settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
-                and str(team.id) not in settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
-            ),
+            "elements_chain_as_string": True,
         }
 
         # MARK: Session Recording
