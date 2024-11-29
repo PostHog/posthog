@@ -197,7 +197,7 @@ class UserAccessControl:
 
         if self._team and resource != "project":
             common_filters["team_id"] = self._team.id
-        else:
+        elif self._organization_id:
             common_filters["team__organization_id"] = str(self._organization_id)
 
         return common_filters
