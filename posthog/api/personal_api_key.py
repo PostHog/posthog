@@ -146,7 +146,8 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     def get_object(self) -> PersonalAPIKey:
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            return self.request.successful_authenticator.personal_api_key
+            authenticator = cast(PersonalAPIKeyAuthentication, self.request.successful_authenticator)
+            return authenticator.personal_api_key
 
         return super().get_object()
 
