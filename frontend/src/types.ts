@@ -4055,6 +4055,7 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
     configuration?: {
         experiments_optimized?: boolean
+        experiments_timestamp_field?: string | null
     }
 }
 

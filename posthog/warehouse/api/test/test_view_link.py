@@ -42,7 +42,7 @@ class TestViewLinkQuery(APIBaseTest):
                 "source_table_key": "uuid",
                 "joining_table_key": "id",
                 "field_name": "some_field",
-                "configuration": {"experiments_optimized": True},
+                "configuration": {"experiments_optimized": True, "experiments_timestamp_field": "timestamp"},
             },
         )
         self.assertEqual(response.status_code, 201, response.content)
@@ -59,7 +59,7 @@ class TestViewLinkQuery(APIBaseTest):
                 "joining_table_name": "persons",
                 "joining_table_key": "id",
                 "field_name": "some_field",
-                "configuration": {"experiments_optimized": True},
+                "configuration": {"experiments_optimized": True, "experiments_timestamp_field": "timestamp"},
             },
         )
 
@@ -116,7 +116,7 @@ class TestViewLinkQuery(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/warehouse_view_links/{join.id}/",
-            {"configuration": {"experiments_optimized": True}},
+            {"configuration": {"experiments_optimized": True, "experiments_timestamp_field": "timestamp"}},
         )
         self.assertEqual(response.status_code, 200, response.content)
         view_link = response.json()
@@ -132,11 +132,13 @@ class TestViewLinkQuery(APIBaseTest):
                 "joining_table_name": "persons",
                 "joining_table_key": "id",
                 "field_name": "some_field",
-                "configuration": {"experiments_optimized": True},
+                "configuration": {"experiments_optimized": True, "experiments_timestamp_field": "timestamp"},
             },
         )
         join.refresh_from_db()
-        self.assertEqual(join.configuration, {"experiments_optimized": True})
+        self.assertEqual(
+            join.configuration, {"experiments_optimized": True, "experiments_timestamp_field": "timestamp"}
+        )
 
     def test_delete(self):
         response = self.client.post(

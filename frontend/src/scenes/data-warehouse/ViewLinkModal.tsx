@@ -60,6 +60,7 @@ export function ViewLinkForm(): JSX.Element {
         joiningIsUsingHogQLExpression,
         isViewLinkSubmitting,
         experimentsOptimized,
+        experimentsTimestampField,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -69,6 +70,7 @@ export function ViewLinkForm(): JSX.Element {
         selectSourceKey,
         selectJoiningKey,
         setExperimentsOptimized,
+        selectExperimentsTimestampField,
     } = useActions(viewLinkLogic)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -157,16 +159,31 @@ export function ViewLinkForm(): JSX.Element {
                 {'events' === selectedJoiningTableName && (
                     <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />
-                        <div>
-                            <h3 className="l4 mt-2">Experiment optimizations</h3>
-                            <Field name="experiments_optimized">
-                                <LemonCheckbox
-                                    checked={experimentsOptimized}
-                                    onChange={(checked) => setExperimentsOptimized(checked)}
-                                    fullWidth
-                                    label="Optimize table join for use with experiments"
-                                />
-                            </Field>
+                        <div className="mt-4 flex flex-row justify-between w-full">
+                            <div className="mr-4">
+                                <span className="l4">Optimize for experiments</span>
+                                <Field name="experiments_optimized">
+                                    <LemonCheckbox
+                                        className="mt-2"
+                                        checked={experimentsOptimized}
+                                        onChange={(checked) => setExperimentsOptimized(checked)}
+                                        fullWidth
+                                        label="Limit join to most recent matching event based on&nbsp;timestamp"
+                                    />
+                                </Field>
+                            </div>
+                            <div className="w-60 shrink-0">
+                                <span className="l4">Timestamp field</span>
+                                <Field name="experiments_timestamp_field">
+                                    <LemonSelect
+                                        fullWidth
+                                        onSelect={selectExperimentsTimestampField}
+                                        value={experimentsTimestampField ?? undefined}
+                                        options={joiningTableKeys}
+                                        placeholder="Select a key"
+                                    />
+                                </Field>
+                            </div>
                         </div>
                     </div>
                 )}

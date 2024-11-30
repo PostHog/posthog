@@ -42,6 +42,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setError: (error: string) => ({ error }),
         setFieldName: (fieldName: string) => ({ fieldName }),
         setExperimentsOptimized: (experimentsOptimized: boolean) => ({ experimentsOptimized }),
+        selectExperimentsTimestampField: (experimentsTimestampField: string | null) => ({ experimentsTimestampField }),
         clearModalFields: true,
     })),
     reducers({
@@ -110,6 +111,14 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 clearModalFields: () => false,
             },
         ],
+        experimentsTimestampField: [
+            null as string | null,
+            {
+                selectExperimentsTimestampField: (_, { experimentsTimestampField }) => experimentsTimestampField,
+                toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_timestamp_field ?? null,
+                clearModalFields: () => null,
+            },
+        ],
         isJoinTableModalOpen: [
             false,
             {
@@ -147,6 +156,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             field_name: values.fieldName,
                             configuration: {
                                 experiments_optimized: values.experimentsOptimized,
+                                experiments_timestamp_field: values.experimentsTimestampField ?? undefined,
                             },
                         })
 
@@ -170,6 +180,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             field_name: values.fieldName,
                             configuration: {
                                 experiments_optimized: values.experimentsOptimized,
+                                experiments_timestamp_field: values.experimentsTimestampField ?? undefined,
                             },
                         })
 
@@ -189,6 +200,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     listeners(({ actions }) => ({
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)
+        },
+        setExperimentsOptimized: ({ experimentsOptimized }) => {
+            if (!experimentsOptimized) {
+                actions.selectExperimentsTimestampField(null)
+            }
         },
     })),
     selectors({
