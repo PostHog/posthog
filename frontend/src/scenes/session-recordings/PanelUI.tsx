@@ -2,27 +2,79 @@ import clsx from 'clsx'
 
 export function PanelsUI(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2">
-            <div>
+        <Container column className="max-h-[350px]">
+            <Container>
                 <Panel className="bg-[red]">
                     <>Filters</>
                 </Panel>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-                <div className="flex gap-2 flex-wrap">
+            </Container>
+            <Container wrap priority className="min-h-0">
+                <Container wrap>
                     <Panel className="bg-[yellow] min-w-[250px]">
                         <>Playlist</>
                     </Panel>
-                </div>
-                <div className="flex gap-2 flex-1 flex-wrap">
-                    <Panel priority={1} className="bg-[green] flex-1 min-w-[200px] flex-grow-[2]">
+                </Container>
+
+                <Container wrap priority className="min-h-0">
+                    <Panel priority className="bg-[green] border border-8 border-[blue] min-w-[300px]">
                         <>Main content</>
                     </Panel>
-                    <Panel priority={2} className="bg-[pink] min-w-[250px] flex-grow-[1]">
-                        <>Inspector</>
+                    <Panel className="bg-[pink] min-w-[250px] min-h-0 overflow-y-auto">
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
                     </Panel>
-                </div>
-            </div>
+                </Container>
+            </Container>
+        </Container>
+    )
+}
+
+function Container({
+    children,
+    column,
+    wrap,
+    priority,
+    className,
+}: {
+    children: React.ReactNode
+    column?: boolean
+    wrap?: boolean
+    priority?: boolean
+    className?: string
+}): JSX.Element {
+    return (
+        <div
+            className={clsx(
+                'flex gap-2',
+                column && 'flex-col',
+                wrap && 'flex-wrap',
+                priority ? 'flex-[10]' : 'grow basis-0',
+                className
+            )}
+        >
+            {children}
         </div>
     )
 }
@@ -34,14 +86,12 @@ function Panel({
 }: {
     className?: string
     children: JSX.Element
-    priority?: number
+    priority?: boolean
 }): JSX.Element {
-    const priorityClass = ''
-
     return (
-        <div className={clsx(className, priorityClass)}>
+        <div className={clsx(className, priority ? 'flex-[10]' : 'flex-1')}>
             <div>Header</div>
-            <div>{children}</div>
+            {children}
         </div>
     )
 }
