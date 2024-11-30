@@ -4,6 +4,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.organization import Organization
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.test.base import BaseTest
 
@@ -73,6 +74,23 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         # Create a user without an organization
         user_without_org = User.objects.create(email="no-org@posthog.com", password="testtest")
         user_access_control = UserAccessControl(user_without_org)
+
+        assert user_access_control._organization_membership is None
+        assert user_access_control._organization is None
+        assert user_access_control._user_role_ids == []
+
+    def test_organization_with_no_project_or_team(self):
+        organization = Organization.objects.create(name="No project or team")
+        user = User.objects.create_and_join(organization, "no-project-or-team@posthog.com", "testtest")
+        user_access_control = UserAccessControl(user, organization_id=organization.id)
+
+        assert user_access_control._organization_membership is not None
+        assert user_access_control._organization == organization
+
+    def test_organization_with_no_project_or_team_and_no_organization_id(self):
+        organization = Organization.objects.create(name="No project or team")
+        user = User.objects.create_and_join(organization, "no-project-or-team@posthog.com", "testtest")
+        user_access_control = UserAccessControl(user)
 
         assert user_access_control._organization_membership is None
         assert user_access_control._organization is None

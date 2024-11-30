@@ -1,8 +1,14 @@
 use crate::api::errors::FlagError;
 use crate::cohort::cohort_models::Cohort;
 use crate::flags::flag_matching::{PostgresReader, TeamId};
+use crate::metrics::metrics_consts::{
+    COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER, DB_COHORT_ERRORS_COUNTER,
+    DB_COHORT_READS_COUNTER,
+};
 use moka::future::Cache;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
 
 /// CohortCacheManager manages the in-memory cache of cohorts using `moka` for caching.
 ///
@@ -12,8 +18,8 @@ use std::time::Duration;
 ///
 /// ```text
 /// CohortCacheManager {
-///     postgres_reader: PostgresReader,
-///     per_team_cohorts: Cache<TeamId, Vec<Cohort>> {
+///     reader: PostgresReader,
+///     cache: Cache<TeamId, Vec<Cohort>> {
 ///         // Example:
 ///         2: [
 ///             Cohort { id: 1, name: "Power Users", filters: {...} },
@@ -22,35 +28,37 @@ use std::time::Duration;
 ///         5: [
 ///             Cohort { id: 3, name: "Beta Users", filters: {...} }
 ///         ]
-///     }
+///     },
+///     fetch_lock: Mutex<()> // Manager-wide lock
 /// }
 /// ```
 ///
 #[derive(Clone)]
 pub struct CohortCacheManager {
-    postgres_reader: PostgresReader,
-    per_team_cohort_cache: Cache<TeamId, Vec<Cohort>>,
+    reader: PostgresReader,
+    cache: Cache<TeamId, Vec<Cohort>>,
+    fetch_lock: Arc<Mutex<()>>, // Added fetch_lock
 }
 
 impl CohortCacheManager {
     pub fn new(
-        postgres_reader: PostgresReader,
+        reader: PostgresReader,
         max_capacity: Option<u64>,
         ttl_seconds: Option<u64>,
     ) -> Self {
-        // We use the size of the cohort list (i.e., the number of cohorts for a given team)as the weight of the entry
-        let weigher =
-            |_: &TeamId, value: &Vec<Cohort>| -> u32 { value.len().try_into().unwrap_or(u32::MAX) };
+        // We use the size of the cohort list (i.e., the number of cohorts for a given team) as the weight of the entry
+        let weigher = |_: &TeamId, value: &Vec<Cohort>| -> u32 { value.len() as u32 };
 
         let cache = Cache::builder()
             .time_to_live(Duration::from_secs(ttl_seconds.unwrap_or(300))) // Default to 5 minutes
             .weigher(weigher)
-            .max_capacity(max_capacity.unwrap_or(10_000)) // Default to 10,000 cohorts
+            .max_capacity(max_capacity.unwrap_or(100_000)) // Default to 100,000 cohorts
             .build();
 
         Self {
-            postgres_reader,
-            per_team_cohort_cache: cache,
+            reader,
+            cache,
+            fetch_lock: Arc::new(Mutex::new(())), // Initialize the lock
         }
     }
 
@@ -58,16 +66,57 @@ impl CohortCacheManager {
     ///
     /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
     /// caches the result upon successful retrieval, and then returns it.
-    pub async fn get_cohorts_for_team(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
-        if let Some(cached_cohorts) = self.per_team_cohort_cache.get(&team_id).await {
+    pub async fn get_cohorts(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
+        // First check cache before acquiring lock
+        if let Some(cached_cohorts) = self.cache.get(&team_id).await {
+            common_metrics::inc(
+                COHORT_CACHE_HIT_COUNTER,
+                &[("team_id".to_string(), team_id.to_string())],
+                1,
+            );
             return Ok(cached_cohorts.clone());
         }
-        let fetched_cohorts = Cohort::list_from_pg(self.postgres_reader.clone(), team_id).await?;
-        self.per_team_cohort_cache
-            .insert(team_id, fetched_cohorts.clone())
-            .await;
 
-        Ok(fetched_cohorts)
+        // Acquire the lock before fetching
+        let _lock = self.fetch_lock.lock().await;
+
+        // Double-check the cache after acquiring lock
+        if let Some(cached_cohorts) = self.cache.get(&team_id).await {
+            common_metrics::inc(
+                COHORT_CACHE_HIT_COUNTER,
+                &[("team_id".to_string(), team_id.to_string())],
+                1,
+            );
+            return Ok(cached_cohorts.clone());
+        }
+
+        // If we get here, we have a cache miss
+        common_metrics::inc(
+            COHORT_CACHE_MISS_COUNTER,
+            &[("team_id".to_string(), team_id.to_string())],
+            1,
+        );
+
+        // Attempt to fetch from DB
+        match Cohort::list_from_pg(self.reader.clone(), team_id).await {
+            Ok(fetched_cohorts) => {
+                common_metrics::inc(
+                    DB_COHORT_READS_COUNTER,
+                    &[("team_id".to_string(), team_id.to_string())],
+                    1,
+                );
+                self.cache.insert(team_id, fetched_cohorts.clone()).await;
+                Ok(fetched_cohorts)
+            }
+            Err(e) => {
+                common_metrics::inc(
+                    DB_COHORT_ERRORS_COUNTER,
+                    &[("team_id".to_string(), team_id.to_string())],
+                    1,
+                );
+                Err(e)
+            }
+        }
     }
 }
 
@@ -116,18 +165,18 @@ mod tests {
             Some(1), // 1-second TTL
         );
 
-        let cohorts = cohort_cache.get_cohorts_for_team(team_id).await?;
+        let cohorts = cohort_cache.get_cohorts(team_id).await?;
         assert_eq!(cohorts.len(), 1);
         assert_eq!(cohorts[0].team_id, team_id);
 
-        let cached_cohorts = cohort_cache.per_team_cohort_cache.get(&team_id).await;
+        let cached_cohorts = cohort_cache.cache.get(&team_id).await;
         assert!(cached_cohorts.is_some());
 
         // Wait for TTL to expire
         sleep(Duration::from_secs(2)).await;
 
         // Attempt to retrieve from cache again
-        let cached_cohorts = cohort_cache.per_team_cohort_cache.get(&team_id).await;
+        let cached_cohorts = cohort_cache.cache.get(&team_id).await;
         assert!(cached_cohorts.is_none(), "Cache entry should have expired");
 
         Ok(())
@@ -152,11 +201,11 @@ mod tests {
             let team_id = team.id;
             inserted_team_ids.push(team_id);
             setup_test_cohort(writer_client.clone(), team_id, None).await?;
-            cohort_cache.get_cohorts_for_team(team_id).await?;
+            cohort_cache.get_cohorts(team_id).await?;
         }
 
-        cohort_cache.per_team_cohort_cache.run_pending_tasks().await;
-        let cache_size = cohort_cache.per_team_cohort_cache.entry_count();
+        cohort_cache.cache.run_pending_tasks().await;
+        let cache_size = cohort_cache.cache.entry_count();
         assert_eq!(
             cache_size, max_capacity,
             "Cache size should be equal to max_capacity"
@@ -165,26 +214,23 @@ mod tests {
         let new_team = insert_new_team_in_pg(writer_client.clone(), None).await?;
         let new_team_id = new_team.id;
         setup_test_cohort(writer_client.clone(), new_team_id, None).await?;
-        cohort_cache.get_cohorts_for_team(new_team_id).await?;
+        cohort_cache.get_cohorts(new_team_id).await?;
 
-        cohort_cache.per_team_cohort_cache.run_pending_tasks().await;
-        let cache_size_after = cohort_cache.per_team_cohort_cache.entry_count();
+        cohort_cache.cache.run_pending_tasks().await;
+        let cache_size_after = cohort_cache.cache.entry_count();
         assert_eq!(
             cache_size_after, max_capacity,
             "Cache size should remain equal to max_capacity after eviction"
         );
 
         let evicted_team_id = &inserted_team_ids[0];
-        let cached_cohorts = cohort_cache
-            .per_team_cohort_cache
-            .get(evicted_team_id)
-            .await;
+        let cached_cohorts = cohort_cache.cache.get(evicted_team_id).await;
         assert!(
             cached_cohorts.is_none(),
             "Least recently used cache entry should have been evicted"
         );
 
-        let cached_new_team = cohort_cache.per_team_cohort_cache.get(&new_team_id).await;
+        let cached_new_team = cohort_cache.cache.get(&new_team_id).await;
         assert!(
             cached_new_team.is_some(),
             "Newly added cache entry should be present"
@@ -194,25 +240,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_cohorts_for_team() -> Result<(), anyhow::Error> {
+    async fn test_get_cohorts() -> Result<(), anyhow::Error> {
         let writer_client = setup_pg_writer_client(None).await;
         let reader_client = setup_pg_reader_client(None).await;
         let team_id = setup_test_team(writer_client.clone()).await?;
         let _cohort = setup_test_cohort(writer_client.clone(), team_id, None).await?;
         let cohort_cache = CohortCacheManager::new(reader_client.clone(), None, None);
 
-        let cached_cohorts = cohort_cache.per_team_cohort_cache.get(&team_id).await;
+        let cached_cohorts = cohort_cache.cache.get(&team_id).await;
         assert!(cached_cohorts.is_none(), "Cache should initially be empty");
 
-        let cohorts = cohort_cache.get_cohorts_for_team(team_id).await?;
+        let cohorts = cohort_cache.get_cohorts(team_id).await?;
         assert_eq!(cohorts.len(), 1);
         assert_eq!(cohorts[0].team_id, team_id);
 
-        let cached_cohorts = cohort_cache
-            .per_team_cohort_cache
-            .get(&team_id)
-            .await
-            .unwrap();
+        let cached_cohorts = cohort_cache.cache.get(&team_id).await.unwrap();
         assert_eq!(cached_cohorts.len(), 1);
         assert_eq!(cached_cohorts[0].team_id, team_id);
 

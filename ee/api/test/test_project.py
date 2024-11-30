@@ -105,6 +105,16 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
             },
         )
 
+    def test_rename_project_as_org_member_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(f"/api/projects/@current/", {"name": "Erinaceus europaeus"})
+        self.project.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.project.name, "Erinaceus europaeus")
+
     def test_list_projects_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
