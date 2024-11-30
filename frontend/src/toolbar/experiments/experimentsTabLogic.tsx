@@ -102,7 +102,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         saveExperiment: (formValues: ExperimentForm) => ({ formValues }),
         showButtonExperiments: true,
         hideButtonExperiments: true,
-        showEditSelector: () => ({}),
         setShowExperimentsTooltip: (showExperimentsTooltip: boolean) => ({ showExperimentsTooltip }),
         setElementSelector: (selector: string, index: number) => ({ selector, index }),
     }),
@@ -130,12 +129,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             {
                 showButtonExperiments: () => true,
                 hideButtonExperiments: () => false,
-            },
-        ],
-        editSelectorShowing: [
-            false,
-            {
-                showEditSelector: () => true,
             },
         ],
         selectedExperimentId: [

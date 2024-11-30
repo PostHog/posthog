@@ -27,10 +27,11 @@ export function WebExperimentTransformField({
     const [transformSelected, setTransformSelected] = useState(
         transform.html && transform.html.length > 0 ? 'html' : 'text'
     )
-    const { experimentForm, inspectingElement, selectedVariant, selectedElementType, editSelectorShowing } =
-        useValues(experimentsTabLogic)
-    const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex, showEditSelector } =
+    const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
+    const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
         useActions(experimentsTabLogic)
+
+    const [editSelectorShowing, setEditSelectorShowing] = useState(false)
 
     return (
         <>
@@ -75,7 +76,7 @@ export function WebExperimentTransformField({
                                         type="tertiary"
                                         icon={<IconPencil />}
                                         onClick={() => {
-                                            showEditSelector()
+                                            setEditSelectorShowing(true)
                                         }}
                                     >
                                         Edit selector
