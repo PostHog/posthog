@@ -1105,7 +1105,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "ai", "ai/viz", "ai/failure", "ai/router"],
+            "enum": ["human", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/router"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -1307,7 +1307,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Changes the visualization type. `ActionsLineGraph` - if the user wants to see dynamics in time like a line graph. Prefer this option. `ActionsLineGraphCumulative` - if the user wants to see cumulative dynamics across time. `ActionsBarValue` - if the data is categorical and needs to be visualized as a bar chart. `ActionsBar` - if the data is categorical and can be visualized as a stacked bar chart. `ActionsPie` - if the data is easy to understand in a pie chart. `BoldNumber` - if the user asks a question where you can answer with a single number. You can't use this option with breakdowns. `ActionsTable` - if the user wants to see a table. `ActionsAreaGraph` - if the data is better visualized in an area graph. `WorldMap` - if the user has only one series and wants to see data from particular countries. It can only be used with the `$geoip_country_name` breakdown.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. You can't use this with breakdown; use when user explicitly asks for a single output number. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "ActionsLineGraph",
                         "ActionsBar",
@@ -1896,7 +1896,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingGroup"
+                        "$ref": "#/definitions/ErrorTrackingIssue"
                     },
                     "type": "array"
                 },
@@ -3922,6 +3922,9 @@
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
+                "id": {
+                    "type": "string"
+                },
                 "key": {
                     "$ref": "#/definitions/CustomChannelField"
                 },
@@ -3942,7 +3945,7 @@
                     ]
                 }
             },
-            "required": ["key", "op"],
+            "required": ["key", "op", "id"],
             "type": "object"
         },
         "CustomChannelField": {
@@ -3962,14 +3965,17 @@
                 "combiner": {
                     "$ref": "#/definitions/FilterLogicalOperator"
                 },
-                "conditions": {
+                "id": {
+                    "type": "string"
+                },
+                "items": {
                     "items": {
                         "$ref": "#/definitions/CustomChannelCondition"
                     },
                     "type": "array"
                 }
             },
-            "required": ["conditions", "combiner", "channel_type"],
+            "required": ["items", "combiner", "channel_type", "id"],
             "type": "object"
         },
         "CustomEventConversionGoal": {
@@ -4577,7 +4583,7 @@
                                 },
                                 "results": {
                                     "items": {
-                                        "$ref": "#/definitions/ErrorTrackingGroup"
+                                        "$ref": "#/definitions/ErrorTrackingIssue"
                                     },
                                     "type": "array"
                                 },
@@ -5346,6 +5352,29 @@
         "Day": {
             "type": "integer"
         },
+        "DefaultChannelTypes": {
+            "enum": [
+                "Cross Network",
+                "Paid Search",
+                "Paid Social",
+                "Paid Video",
+                "Paid Shopping",
+                "Paid Unknown",
+                "Direct",
+                "Organic Search",
+                "Organic Social",
+                "Organic Video",
+                "Organic Shopping",
+                "Push",
+                "SMS",
+                "Audio",
+                "Email",
+                "Referral",
+                "Affiliate",
+                "Unknown"
+            ],
+            "type": "string"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -5472,7 +5501,7 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
-        "ErrorTrackingGroup": {
+        "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
                 "assignee": {
@@ -5481,31 +5510,19 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "exception_type": {
-                    "type": ["string", "null"]
-                },
-                "fingerprint": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "first_seen": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
                     "type": "string"
                 },
                 "last_seen": {
                     "format": "date-time",
                     "type": "string"
                 },
-                "merged_fingerprints": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
+                "name": {
+                    "type": ["string", "null"]
                 },
                 "occurrences": {
                     "type": "number"
@@ -5523,13 +5540,12 @@
                 "volume": {}
             },
             "required": [
-                "fingerprint",
-                "exception_type",
-                "merged_fingerprints",
+                "id",
+                "name",
+                "description",
                 "occurrences",
                 "sessions",
                 "users",
-                "description",
                 "first_seen",
                 "last_seen",
                 "assignee",
@@ -5559,11 +5575,8 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "fingerprint": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
+                "issueId": {
+                    "type": "string"
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -5632,7 +5645,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingGroup"
+                        "$ref": "#/definitions/ErrorTrackingIssue"
                     },
                     "type": "array"
                 },
@@ -6947,8 +6960,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -8037,8 +8057,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8087,8 +8114,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8137,8 +8171,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8187,8 +8228,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8237,8 +8285,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8340,8 +8395,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8743,8 +8805,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -9830,7 +9899,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/ErrorTrackingGroup"
+                                "$ref": "#/definitions/ErrorTrackingIssue"
                             },
                             "type": "array"
                         },
@@ -10503,7 +10572,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/ErrorTrackingGroup"
+                                "$ref": "#/definitions/ErrorTrackingIssue"
                             },
                             "type": "array"
                         },
@@ -11278,6 +11347,30 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "ReasoningMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "done": {
+                    "const": true,
+                    "type": "boolean"
+                },
+                "substeps": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "ai/reasoning",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content", "done"],
+            "type": "object"
+        },
         "RecordingOrder": {
             "enum": [
                 "duration",
@@ -11567,8 +11660,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -11691,6 +11791,9 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/VisualizationMessage"
+                },
+                {
+                    "$ref": "#/definitions/ReasoningMessage"
                 },
                 {
                     "$ref": "#/definitions/AssistantMessage"
@@ -12176,6 +12279,19 @@
                 },
                 "showValuesOnSeries": {
                     "type": "boolean"
+                },
+                "stickinessCriteria": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "operator": {
+                            "$ref": "#/definitions/StickinessOperator"
+                        },
+                        "value": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": ["operator", "value"],
+                    "type": "object"
                 }
             },
             "type": "object"
@@ -12214,6 +12330,10 @@
                 }
             },
             "type": "object"
+        },
+        "StickinessOperator": {
+            "enum": ["gte", "lte", "exact"],
+            "type": "string"
         },
         "StickinessQuery": {
             "additionalProperties": false,
@@ -12744,8 +12864,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -12872,19 +12999,6 @@
                 },
                 "plan": {
                     "type": "string"
-                },
-                "reasoning_steps": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
                 },
                 "type": {
                     "const": "ai/viz",
@@ -13332,7 +13446,9 @@
                 "DeviceType",
                 "Country",
                 "Region",
-                "City"
+                "City",
+                "Timezone",
+                "Language"
             ],
             "type": "string"
         },

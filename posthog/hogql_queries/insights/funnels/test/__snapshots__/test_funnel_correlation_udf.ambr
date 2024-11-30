@@ -1504,7 +1504,8 @@
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
-  GROUP BY name
+  GROUP BY name,
+           prop
   HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), ifNull(notIn((prop).1, []), 0))
   LIMIT 100
   UNION ALL
@@ -1608,7 +1609,8 @@
         WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
-  GROUP BY name
+  GROUP BY name,
+           prop
   HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), ifNull(notIn((prop).1, []), 0))
   LIMIT 100
   UNION ALL

@@ -19,12 +19,15 @@ from posthog.schema import (
     AssistantMessage,
     FailureMessage,
     HumanMessage,
+    ReasoningMessage,
     RootAssistantMessage,
     RouterMessage,
     VisualizationMessage,
 )
 
-AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage, RouterMessage]
+AssistantMessageUnion = Union[
+    AssistantMessage, HumanMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage
+]
 
 
 class Conversation(BaseModel):

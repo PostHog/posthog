@@ -9,12 +9,12 @@ import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { question, thread, threadLoading } = useValues(maxLogic)
+    const { question, threadGrouped, threadLoading } = useValues(maxLogic)
     const { askMax, setQuestion } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
-    const isFloating = thread.length > 0
+    const isFloating = threadGrouped.length > 0
 
     useEffect(() => {
         if (!threadLoading) {
@@ -27,7 +27,7 @@ export function QuestionInput(): JSX.Element {
             className={clsx(
                 !isFloating
                     ? 'w-[min(44rem,100%)] relative'
-                    : 'w-full max-w-192 sticky z-10 self-center p-1 mx-4 mb-3 bottom-3 border border-[var(--glass-border-3000)] rounded-[0.625rem] backdrop-blur bg-[var(--glass-bg-3000)]'
+                    : 'w-full max-w-[43rem] sticky z-10 self-center p-1 mx-4 mb-3 bottom-3 border border-[var(--glass-border-3000)] rounded-lg backdrop-blur bg-[var(--glass-bg-3000)]'
             )}
         >
             <LemonTextArea

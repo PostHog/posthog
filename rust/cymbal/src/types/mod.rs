@@ -76,8 +76,8 @@ pub struct OutputErrProps {
 impl Exception {
     pub fn include_in_fingerprint(&self, h: &mut Sha512) {
         h.update(self.exception_type.as_bytes());
-        h.update(self.exception_message.as_bytes());
         let Some(Stacktrace::Resolved { frames }) = &self.stack else {
+            h.update(self.exception_message.as_bytes());
             return;
         };
 
@@ -197,7 +197,9 @@ mod test {
             panic!("Expected a Raw stacktrace")
         };
         assert_eq!(frames.len(), 2);
-        let RawFrame::JavaScript(frame) = &frames[0];
+        let RawFrame::JavaScript(frame) = &frames[0] else {
+            panic!("Expected a JavaScript frame")
+        };
 
         assert_eq!(
             frame.source_url,
@@ -208,7 +210,9 @@ mod test {
         assert_eq!(frame.location.as_ref().unwrap().line, 64);
         assert_eq!(frame.location.as_ref().unwrap().column, 25112);
 
-        let RawFrame::JavaScript(frame) = &frames[1];
+        let RawFrame::JavaScript(frame) = &frames[1] else {
+            panic!("Expected a JavaScript frame")
+        };
         assert_eq!(
             frame.source_url,
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())

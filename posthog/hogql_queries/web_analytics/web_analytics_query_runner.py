@@ -237,7 +237,7 @@ WHERE
             right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
         )
 
-    def _unsample(self, n: Optional[int | float]):
+    def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:
             return None
 
@@ -265,4 +265,4 @@ def _sample_rate_from_count(count: int) -> SamplingRate:
 
 
 def map_columns(results, mapper: dict[int, typing.Callable]):
-    return [[mapper[i](data) if i in mapper else data for i, data in enumerate(row)] for row in results]
+    return [[mapper[i](data, row) if i in mapper else data for i, data in enumerate(row)] for row in results]

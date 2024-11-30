@@ -61,19 +61,14 @@ def generate_trends_schema() -> dict:
     schema = AssistantTrendsQuery.model_json_schema()
     return {
         "name": "output_insight_schema",
-        "description": "Outputs the JSON schema of a funnel insight",
+        "description": "Outputs the JSON schema of a trends insight",
         "parameters": {
             "type": "object",
             "properties": {
-                "reasoning_steps": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
-                },
-                "answer": dereference_schema(schema),
+                "query": dereference_schema(schema),
             },
             "additionalProperties": False,
-            "required": ["reasoning_steps", "answer"],
+            "required": ["query"],
         },
     }
 

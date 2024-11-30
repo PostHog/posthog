@@ -18,10 +18,10 @@ export interface ErrorTrackingStackFrameRecord {
     id: string
     raw_id: string
     created_at: string
-    symbol_set: string
     resolved: boolean
     context: ErrorTrackingStackFrameContext | null
     contents: ErrorTrackingStackFrame // For now, while we're not 100% on content structure
+    symbol_set_ref: ErrorTrackingSymbolSet['ref']
 }
 
 export type ErrorTrackingStackFrameContext = {
