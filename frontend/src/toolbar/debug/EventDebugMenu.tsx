@@ -1,35 +1,87 @@
-import { IconSearch } from '@posthog/icons'
+import { BaseIcon, IconCheck, IconEye, IconLogomark, IconSearch, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { SettingsBar, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
 
 import { ToolbarMenu } from '../bar/ToolbarMenu'
 
+function showEventMenuItem(
+    label: string,
+    count: number,
+    icon: JSX.Element,
+    isActive: boolean,
+    onClick: () => void
+): LemonMenuItem {
+    return {
+        label: (
+            <div className="w-full flex flex-row justify-between items-center">
+                <div className="flex flex-row items-center gap-1">
+                    {isActive ? <IconCheck /> : <BaseIcon />}
+                    {icon}
+                    {label}
+                </div>
+                <span
+                    // without setting fontVariant to none a single digit number between brackets gets rendered as a ligature 🤷
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ fontVariant: 'none' }}
+                >
+                    ({count})
+                </span>
+            </div>
+        ),
+        active: isActive,
+        onClick: onClick,
+    }
+}
+
 export const EventDebugMenu = (): JSX.Element => {
     const {
-        searchText,
-        filteredEvents,
-        isCollapsedEventRow,
-        expandedEvent,
-        hideRecordingSnapshots,
-        snapshotCount,
-        eventCount,
-        filteredProperties,
         searchVisible,
+        searchText,
+        isCollapsedEventRow,
+        activeFilteredEvents,
+        searchFilteredEventsCount,
+        expandedEvent,
+        selectedEventTypes,
     } = useValues(eventDebugMenuLogic)
-    const { markExpanded, setHideRecordingSnapshots, setSearchText, setSearchVisible } = useActions(eventDebugMenuLogic)
+    const { markExpanded, setSelectedEventType, setSearchText, setSearchVisible } = useActions(eventDebugMenuLogic)
 
+    const showEventsMenuItems = [
+        showEventMenuItem(
+            'PostHog Events',
+            searchFilteredEventsCount['posthog'],
+            <IconLogomark />,
+            selectedEventTypes.includes('posthog'),
+            () => setSelectedEventType('posthog', !selectedEventTypes.includes('posthog'))
+        ),
+        showEventMenuItem(
+            'Custom Events',
+            searchFilteredEventsCount['custom'],
+            <IconVideoCamera />,
+            selectedEventTypes.includes('custom'),
+            () => setSelectedEventType('custom', !selectedEventTypes.includes('custom'))
+        ),
+        showEventMenuItem(
+            'Replay Events',
+            searchFilteredEventsCount['snapshot'],
+            <IconUnverifiedEvent />,
+            selectedEventTypes.includes('snapshot'),
+            () => setSelectedEventType('snapshot', !selectedEventTypes.includes('snapshot'))
+        ),
+    ]
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
                 <div className="flex flex-col pb-2 space-y-1">
                     <div className="flex justify-center flex-col">
-                        <SettingsBar border="none" className="justify-end">
+                        <SettingsBar border="bottom" className="justify-end">
                             <div className="flex-1 text-sm">
                                 View events from this page as they are sent to PostHog.
                             </div>
@@ -41,23 +93,21 @@ export const EventDebugMenu = (): JSX.Element => {
                             />
                         </SettingsBar>
                         {searchVisible && (
-                            <div className="flex flex-row items-center justify-between space-x-2">
-                                <LemonInput
-                                    size="xsmall"
-                                    fullWidth={true}
-                                    type="search"
-                                    value={searchText}
-                                    onChange={setSearchText}
-                                />
-                            </div>
+                            <LemonInput
+                                size="xsmall"
+                                fullWidth={true}
+                                type="search"
+                                value={searchText}
+                                onChange={setSearchText}
+                            />
                         )}
                     </div>
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="flex flex-col space-y-1">
-                    {filteredEvents.length ? (
-                        filteredEvents.map((e) => {
+                    {activeFilteredEvents.length ? (
+                        activeFilteredEvents.map((e) => {
                             return (
                                 <div
                                     className="-mx-1 py-1 px-2 cursor-pointer"
@@ -77,12 +127,8 @@ export const EventDebugMenu = (): JSX.Element => {
                                     >
                                         <div className="my-1 ml-1 pl-2 border-l-2">
                                             <SimpleKeyValueList
-                                                item={filteredProperties(e.properties)}
-                                                emptyMessage={
-                                                    searchText && searchType === 'properties'
-                                                        ? 'No matching properties'
-                                                        : 'No properties'
-                                                }
+                                                item={e.properties}
+                                                emptyMessage={searchText ? 'No matching properties' : 'No properties'}
                                             />
                                         </div>
                                     </AnimatedCollapsible>
@@ -91,7 +137,7 @@ export const EventDebugMenu = (): JSX.Element => {
                         })
                     ) : (
                         <div className="px-4 py-2">
-                            {searchText && eventCount
+                            {searchText && !!activeFilteredEvents.length
                                 ? 'Nothing matches your search.'
                                 : 'Interact with your page and then come back to the toolbar to see what events were generated.'}
                         </div>
@@ -99,13 +145,12 @@ export const EventDebugMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer noPadding>
-                <SettingsBar border="top" className="justify-around">
-                    <span>Seen {eventCount} events.</span>
-                    <SettingsToggle
-                        title="Snapshot events can be used to debug session replay issues."
-                        label={`${hideRecordingSnapshots ? 'Show' : 'Hide'} ${snapshotCount} snapshot events`}
-                        active={hideRecordingSnapshots}
-                        onClick={() => setHideRecordingSnapshots(!hideRecordingSnapshots)}
+                <SettingsBar border="top" className="justify-end">
+                    <SettingsMenu
+                        items={showEventsMenuItems}
+                        highlightWhenActive={false}
+                        icon={<IconEye />}
+                        label={`Showing ${activeFilteredEvents.length} events`}
                     />
                 </SettingsBar>
             </ToolbarMenu.Footer>
