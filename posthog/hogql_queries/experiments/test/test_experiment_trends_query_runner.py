@@ -137,7 +137,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         distinct_id = pa.array(["user_control_0", "user_test_1", "user_test_2", "user_test_3", "user_extra"])
         amount = pa.array([100, 50, 75, 80, 90])
-        names = ["id", "timestamp", "distinct_id", "amount"]
+        names = ["id", "dw_timestamp", "dw_distinct_id", "amount"]
 
         pq.write_to_dataset(
             pa.Table.from_arrays([id, timestamp, distinct_id, amount], names=names),
@@ -163,8 +163,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             columns={
                 "id": "String",
-                "timestamp": "DateTime64(3, 'UTC')",
-                "distinct_id": "String",
+                "dw_timestamp": "DateTime64(3, 'UTC')",
+                "dw_distinct_id": "String",
                 "amount": "Int64",
             },
             credential=credential,
@@ -173,11 +173,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         DataWarehouseJoin.objects.create(
             team=self.team,
             source_table_name=table_name,
-            source_table_key="distinct_id",
+            source_table_key="dw_distinct_id",
             joining_table_name="events",
             joining_table_key="distinct_id",
             field_name="events",
-            configuration={"experiments_optimized": True},
+            configuration={"experiments_optimized": True, "experiments_timestamp_field": "dw_timestamp"},
         )
         return table_name
 
@@ -504,10 +504,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[
                 DataWarehouseNode(
                     id=table_name,
-                    distinct_id_field="distinct_id",
-                    id_field="distinct_id",
+                    distinct_id_field="dw_distinct_id",
+                    id_field="id",
                     table_name=table_name,
-                    timestamp_field="timestamp",
+                    timestamp_field="dw_timestamp",
                 )
             ]
         )
@@ -597,10 +597,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[
                 DataWarehouseNode(
                     id=table_name,
-                    distinct_id_field="distinct_id",
-                    id_field="distinct_id",
+                    distinct_id_field="dw_distinct_id",
+                    id_field="id",
                     table_name=table_name,
-                    timestamp_field="timestamp",
+                    timestamp_field="dw_timestamp",
                 )
             ]
         )

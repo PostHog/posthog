@@ -97,14 +97,19 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return _join_function
 
-    def join_function_for_experiments(
-        self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None
-    ):
+    def join_function_for_experiments(self):
         def _join_function_for_experiments(
             join_to_add: LazyJoinToAdd,
             context: HogQLContext,
             node: SelectQuery,
         ):
+            if not self.configuration.get("experiments_optimized"):
+                raise ResolutionError("experiments_optimized is not enabled for this join")
+
+            timestamp_field = self.configuration.get("experiments_timestamp_field")
+            if not timestamp_field:
+                raise ResolutionError("experiments_timestamp_field is not set for this join")
+
             return ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
@@ -147,7 +152,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                                 left=ast.Field(
                                     chain=[
                                         join_to_add.from_table,
-                                        "distinct_id",
+                                        self.source_table_key,
                                     ]
                                 ),
                                 op=ast.CompareOperationOp.Eq,
@@ -157,7 +162,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                                 left=ast.Field(
                                     chain=[
                                         join_to_add.from_table,
-                                        "timestamp",
+                                        timestamp_field,
                                     ]
                                 ),
                                 op=ast.CompareOperationOp.GtEq,
