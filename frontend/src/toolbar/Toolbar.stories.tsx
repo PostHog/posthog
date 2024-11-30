@@ -37,7 +37,6 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        waitForLoadersToDisappear: false,
     },
 }
 export default meta
