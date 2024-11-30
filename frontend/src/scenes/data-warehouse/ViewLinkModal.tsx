@@ -161,7 +161,7 @@ export function ViewLinkForm(): JSX.Element {
                         <LemonDivider className="mt-4 mb-4" />
                         <div className="mt-4 flex flex-row justify-between w-full">
                             <div className="mr-4">
-                                <span className="l4">Optimize for experiments</span>
+                                <span className="l4">Optimize for Experiments</span>
                                 <Field name="experiments_optimized">
                                     <LemonCheckbox
                                         className="mt-2"
@@ -173,7 +173,7 @@ export function ViewLinkForm(): JSX.Element {
                                 </Field>
                             </div>
                             <div className="w-60 shrink-0">
-                                <span className="l4">Timestamp field</span>
+                                <span className="l4">Timestamp Field</span>
                                 <Field name="experiments_timestamp_field">
                                     <LemonSelect
                                         fullWidth
