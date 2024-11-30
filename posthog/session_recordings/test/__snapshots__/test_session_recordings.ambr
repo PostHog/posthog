@@ -640,12 +640,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '437'
+          AND "ee_accesscontrol"."resource_id" = '422'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '437'
+             AND "ee_accesscontrol"."resource_id" = '422'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -847,7 +847,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -1043,7 +1044,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -1688,12 +1690,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -1895,7 +1897,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2042,7 +2045,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2441,12 +2445,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -2648,7 +2652,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2701,7 +2706,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2793,7 +2799,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3129,12 +3136,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -3336,7 +3343,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3532,7 +3540,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3881,12 +3890,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -4088,7 +4097,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4233,7 +4243,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4597,12 +4608,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -4804,7 +4815,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4993,7 +5005,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5395,12 +5408,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -5602,7 +5615,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5659,12 +5673,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -5774,7 +5788,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6034,7 +6049,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6091,12 +6107,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -6206,7 +6222,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6556,12 +6573,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -6763,7 +6780,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6915,7 +6933,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -7248,12 +7267,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -7455,7 +7474,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -7602,7 +7622,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -7997,12 +8018,12 @@
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '444'
+          AND "ee_accesscontrol"."resource_id" = '429'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '444'
+             AND "ee_accesscontrol"."resource_id" = '429'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
          OR ("ee_accesscontrol"."organization_member_id" IS NULL
@@ -8204,7 +8225,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -8257,7 +8279,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -8349,7 +8372,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
