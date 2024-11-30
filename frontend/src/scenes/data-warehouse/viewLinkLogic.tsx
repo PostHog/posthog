@@ -206,6 +206,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 actions.selectExperimentsTimestampField(null)
             }
         },
+        selectExperimentsTimestampField: ({ experimentsTimestampField }) => {
+            if (experimentsTimestampField) {
+                actions.setExperimentsOptimized(true)
+            }
+        },
     })),
     selectors({
         selectedSourceTable: [
