@@ -4054,7 +4054,7 @@ export interface DataWarehouseViewLink {
     created_by?: UserBasicType | null
     created_at?: string | null
     configuration?: {
-        experiments_optimized: boolean
+        experiments_optimized?: boolean
     }
 }
 
