@@ -947,6 +947,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 2
 
+        response.results.sort(key=lambda r: r["count"])
+
         assert response.results[0]["label"] == "Formula (A+B)"
         assert response.results[0]["breakdown_value"] == cohort1.pk
         assert response.results[0]["count"] == 9
