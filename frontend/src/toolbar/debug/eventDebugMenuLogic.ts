@@ -34,6 +34,8 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             '',
             {
                 setSearchText: (_, { searchText }) => searchText,
+                // reset search on toggle
+                setSearchVisible: () => '',
             },
         ],
         selectedEventTypes: [
@@ -55,10 +57,7 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             [] as EventType[],
             {
                 addEvent: (state, { event }) => {
-                    if (!event.uuid) {
-                        event.uuid = uuid()
-                    }
-                    return [event, ...state]
+                    return [{ ...event, uuid: event.uuid || uuid() }, ...state]
                 },
             },
         ],

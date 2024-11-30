@@ -1,7 +1,9 @@
 import { BaseIcon, IconCheck, IconEye, IconLogomark, IconSearch, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { TZLabel } from 'lib/components/TZLabel'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -9,6 +11,7 @@ import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-record
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
+import { EventType } from '~/types'
 
 import { ToolbarMenu } from '../bar/ToolbarMenu'
 
@@ -39,6 +42,23 @@ function showEventMenuItem(
         active: isActive,
         onClick: onClick,
     }
+}
+
+function EventTimestamp({ e }: { e: EventType }): JSX.Element {
+    const ts = dayjs(e.timestamp)
+
+    let formatString = 'HH:mm:ss'
+    // if we're watching events around midnight, show the day as well for yesterday's events
+    if (!ts.isSame(dayjs(), 'day')) {
+        formatString = 'ddd HH:mm:ss'
+    }
+
+    return (
+        <div>
+            <span>{ts.format(formatString)}</span>
+            <span className="text-xxs text-muted">{ts.format('.SSS')}</span>
+        </div>
+    )
 }
 
 export const EventDebugMenu = (): JSX.Element => {
@@ -116,11 +136,13 @@ export const EventDebugMenu = (): JSX.Element => {
                                         expandedEvent === e.uuid ? markExpanded(null) : markExpanded(e.uuid || null)
                                     }}
                                 >
-                                    <div className="flex flex-row justify-between">
-                                        <div>{e.event}</div>
-                                        <div>
-                                            <TZLabel time={e.timestamp} />
-                                        </div>
+                                    <div className="flex flex-row justify-between hover:bg-bg-light hover:text-text-3000-light">
+                                        <EventTimestamp e={e} />
+                                        <PropertyKeyInfo
+                                            value={e.event}
+                                            type={TaxonomicFilterGroupType.Events}
+                                            disableIcon={true}
+                                        />
                                     </div>
                                     <AnimatedCollapsible
                                         collapsed={e.uuid === undefined ? true : isCollapsedEventRow(e.uuid)}
