@@ -7779,6 +7779,9 @@
                         },
                         {
                             "$ref": "#/definitions/FunnelCorrelationActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessActorsQuery"
                         }
                     ]
                 }
