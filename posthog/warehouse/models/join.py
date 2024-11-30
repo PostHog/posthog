@@ -106,9 +106,9 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not self.configuration.get("experiments_optimized"):
                 raise ResolutionError("experiments_optimized is not enabled for this join")
 
-            timestamp_field = self.configuration.get("experiments_timestamp_field")
-            if not timestamp_field:
-                raise ResolutionError("experiments_timestamp_field is not set for this join")
+            timestamp_key = self.configuration.get("experiments_timestamp_key")
+            if not timestamp_key:
+                raise ResolutionError("experiments_timestamp_key is not set for this join")
 
             return ast.JoinExpr(
                 table=ast.SelectQuery(
@@ -165,7 +165,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                                 left=ast.Field(
                                     chain=[
                                         join_to_add.from_table,
-                                        timestamp_field,
+                                        timestamp_key,
                                     ]
                                 ),
                                 op=ast.CompareOperationOp.GtEq,

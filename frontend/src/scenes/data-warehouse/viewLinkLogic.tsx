@@ -42,7 +42,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setError: (error: string) => ({ error }),
         setFieldName: (fieldName: string) => ({ fieldName }),
         setExperimentsOptimized: (experimentsOptimized: boolean) => ({ experimentsOptimized }),
-        selectExperimentsTimestampField: (experimentsTimestampField: string | null) => ({ experimentsTimestampField }),
+        selectExperimentsTimestampKey: (experimentsTimestampKey: string | null) => ({ experimentsTimestampKey }),
         clearModalFields: true,
     })),
     reducers({
@@ -111,11 +111,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 clearModalFields: () => false,
             },
         ],
-        experimentsTimestampField: [
+        experimentsTimestampKey: [
             null as string | null,
             {
-                selectExperimentsTimestampField: (_, { experimentsTimestampField }) => experimentsTimestampField,
-                toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_timestamp_field ?? null,
+                selectExperimentsTimestampKey: (_, { experimentsTimestampKey }) => experimentsTimestampKey,
+                toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_timestamp_key ?? null,
                 clearModalFields: () => null,
             },
         ],
@@ -156,7 +156,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             field_name: values.fieldName,
                             configuration: {
                                 experiments_optimized: values.experimentsOptimized,
-                                experiments_timestamp_field: values.experimentsTimestampField ?? undefined,
+                                experiments_timestamp_key: values.experimentsTimestampKey ?? undefined,
                             },
                         })
 
@@ -180,7 +180,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             field_name: values.fieldName,
                             configuration: {
                                 experiments_optimized: values.experimentsOptimized,
-                                experiments_timestamp_field: values.experimentsTimestampField ?? undefined,
+                                experiments_timestamp_key: values.experimentsTimestampKey ?? undefined,
                             },
                         })
 
@@ -203,11 +203,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         },
         setExperimentsOptimized: ({ experimentsOptimized }) => {
             if (!experimentsOptimized) {
-                actions.selectExperimentsTimestampField(null)
+                actions.selectExperimentsTimestampKey(null)
             }
         },
-        selectExperimentsTimestampField: ({ experimentsTimestampField }) => {
-            if (experimentsTimestampField) {
+        selectExperimentsTimestampKey: ({ experimentsTimestampKey }) => {
+            if (experimentsTimestampKey) {
                 actions.setExperimentsOptimized(true)
             }
         },

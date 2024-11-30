@@ -60,7 +60,7 @@ export function ViewLinkForm(): JSX.Element {
         joiningIsUsingHogQLExpression,
         isViewLinkSubmitting,
         experimentsOptimized,
-        experimentsTimestampField,
+        experimentsTimestampKey,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -70,7 +70,7 @@ export function ViewLinkForm(): JSX.Element {
         selectSourceKey,
         selectJoiningKey,
         setExperimentsOptimized,
-        selectExperimentsTimestampField,
+        selectExperimentsTimestampKey,
     } = useActions(viewLinkLogic)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -173,12 +173,12 @@ export function ViewLinkForm(): JSX.Element {
                                 </Field>
                             </div>
                             <div className="w-60 shrink-0">
-                                <span className="l4">Timestamp Field</span>
-                                <Field name="experiments_timestamp_field">
+                                <span className="l4">Source Timestamp Key</span>
+                                <Field name="experiments_timestamp_key">
                                     <LemonSelect
                                         fullWidth
-                                        onSelect={selectExperimentsTimestampField}
-                                        value={experimentsTimestampField ?? undefined}
+                                        onSelect={selectExperimentsTimestampKey}
+                                        value={experimentsTimestampKey ?? undefined}
                                         options={sourceTableKeys}
                                         placeholder="Select a key"
                                     />
