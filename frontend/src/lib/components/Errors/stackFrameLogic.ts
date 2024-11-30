@@ -29,6 +29,9 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                 loadFromRawIds: async ({ rawIds }) => {
                     const loadedRawIds = Object.keys(values.stackFrameRecords)
                     rawIds = rawIds.filter((rawId) => !loadedRawIds.includes(rawId))
+                    if (rawIds.length === 0) {
+                        return values.stackFrameRecords
+                    }
                     const { results } = await api.errorTracking.stackFrames(rawIds)
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },

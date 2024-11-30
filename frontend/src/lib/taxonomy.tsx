@@ -159,7 +159,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception: {
             label: 'Exception',
-            description: 'Automatically captured exceptions from the client Sentry integration',
+            description: 'Exceptions - an error or unexpected event in your application',
         },
         $web_vitals: {
             label: 'Web Vitals',
@@ -388,6 +388,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             ),
         },
         // exception tracking
+        $cymbal_errors: {
+            label: 'Exception processing errors',
+            description: 'Errors encountered while trying to process exceptions',
+            system: true,
+        },
+        $exception_list: {
+            label: 'Exception list',
+            description: 'List of one or more associated exceptions',
+        },
+        // TODO - most of the rest of these are legacy, I think?
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',

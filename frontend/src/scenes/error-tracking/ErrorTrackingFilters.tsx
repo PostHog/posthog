@@ -140,17 +140,19 @@ export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element
                     </div>
                 )}
             </div>
-            {hasGroupActions && !isGroup && (
-                <div className="flex items-center gap-1">
-                    <span>Assigned to:</span>
-                    <MemberSelect
-                        value={assignee}
-                        onChange={(user) => {
-                            setAssignee(user?.id || null)
-                        }}
-                    />
-                </div>
-            )}
+            <div className="flex items-center gap-1">
+                {hasGroupActions && !isGroup && (
+                    <>
+                        <span>Assigned to:</span>
+                        <MemberSelect
+                            value={assignee}
+                            onChange={(user) => {
+                                setAssignee(user?.id || null)
+                            }}
+                        />
+                    </>
+                )}
+            </div>
         </div>
     )
 }
