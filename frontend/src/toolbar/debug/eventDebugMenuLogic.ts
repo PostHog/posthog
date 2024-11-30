@@ -14,16 +14,16 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
     })),
     actions({
         addEvent: (event: EventType) => ({ event }),
-        markExpanded: (id: string | null) => ({ id }),
-        setShowRecordingSnapshots: (show: boolean) => ({ show }),
+        markExpanded: (id: string | null | undefined) => ({ id }),
+        setHideRecordingSnapshots: (hide: boolean) => ({ hide }),
         setSearchText: (searchText: string) => ({ searchText }),
-        setSearchType: (searchType: 'events' | 'properties') => ({ searchType }),
+        setSearchVisible: (visible: boolean) => ({ visible }),
     }),
     reducers({
-        searchType: [
-            'events' as 'events' | 'properties',
+        searchVisible: [
+            false,
             {
-                setSearchType: (_, { searchType }) => searchType,
+                setSearchVisible: (_, { visible }) => visible,
             },
         ],
         searchText: [
@@ -44,15 +44,15 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             },
         ],
         expandedEvent: [
-            null as string | null,
+            null as string | null | undefined,
             {
                 markExpanded: (_, { id }) => id,
             },
         ],
-        showRecordingSnapshots: [
-            false,
+        hideRecordingSnapshots: [
+            true,
             {
-                setShowRecordingSnapshots: (_, { show }) => show,
+                setHideRecordingSnapshots: (_, { hide }) => hide,
             },
         ],
     }),
@@ -68,29 +68,30 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         snapshotCount: [(s) => [s.events], (events) => events.filter((e) => e.event === '$snapshot').length],
         eventCount: [(s) => [s.events], (events) => events.filter((e) => e.event !== '$snapshot').length],
         filteredEvents: [
-            (s) => [s.showRecordingSnapshots, s.events, s.searchText, s.searchType],
-            (showRecordingSnapshots, events, searchText, searchType) => {
+            (s) => [s.hideRecordingSnapshots, s.events, s.searchText, s.isCollapsedEventRow],
+            (hideRecordingSnapshots, events, searchText, isCollapsedEventRow) => {
                 return events
                     .filter((e) => {
-                        if (showRecordingSnapshots) {
+                        if (e.event !== '$snapshot') {
                             return true
                         }
-                        return e.event !== '$snapshot'
+                        return !hideRecordingSnapshots
                     })
                     .filter((e) => {
-                        if (searchType === 'events') {
+                        if (isCollapsedEventRow(e.uuid)) {
                             return e.event.includes(searchText)
                         }
+                        // the current expanded row is always included
                         return true
                     })
             },
         ],
         filteredProperties: [
-            (s) => [s.searchText, s.searchType],
-            (searchText, searchType) => {
+            (s) => [s.searchText],
+            (searchText) => {
                 return (p: Record<string, any>): Record<string, any> => {
                     // return a new object with only the properties where key or value match the search text
-                    if (searchType === 'properties') {
+                    if (searchText.trim() !== '') {
                         return Object.fromEntries(
                             Object.entries(p).filter(([key, value]) => {
                                 return key.includes(searchText) || (value && value.toString().includes(searchText))

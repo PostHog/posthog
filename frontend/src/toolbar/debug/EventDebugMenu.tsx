@@ -1,9 +1,9 @@
+import { IconSearch } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { SettingsBar, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
@@ -12,49 +12,45 @@ import { ToolbarMenu } from '../bar/ToolbarMenu'
 
 export const EventDebugMenu = (): JSX.Element => {
     const {
-        searchType,
         searchText,
         filteredEvents,
         isCollapsedEventRow,
         expandedEvent,
-        showRecordingSnapshots,
+        hideRecordingSnapshots,
         snapshotCount,
         eventCount,
         filteredProperties,
+        searchVisible,
     } = useValues(eventDebugMenuLogic)
-    const { setSearchType, markExpanded, setShowRecordingSnapshots, setSearchText } = useActions(eventDebugMenuLogic)
+    const { markExpanded, setHideRecordingSnapshots, setSearchText, setSearchVisible } = useActions(eventDebugMenuLogic)
 
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
                 <div className="flex flex-col pb-2 space-y-1">
-                    <div className="flex flex-row justify-around items-center">
-                        <span className="text-xs">Seen {eventCount} events.</span>
-                        <LemonCheckbox
-                            checked={showRecordingSnapshots}
-                            onChange={(c) => setShowRecordingSnapshots(c)}
-                            label={`Show ${snapshotCount} snapshot events`}
-                            size="small"
-                        />
-                    </div>
                     <div className="flex justify-center flex-col">
-                        <div className="flex flex-row items-center justify-between space-x-2">
-                            <span>search:</span>
-                            <LemonSegmentedButton
-                                size="small"
-                                value={searchType}
-                                options={[
-                                    {
-                                        value: 'events',
-                                        label: 'events',
-                                    },
-                                    { value: 'properties', label: 'properties' },
-                                ]}
-                                onChange={setSearchType}
+                        <SettingsBar border="none" className="justify-end">
+                            <div className="flex-1 text-sm">
+                                View events from this page as they are sent to PostHog.
+                            </div>
+                            <SettingsToggle
+                                label="Search"
+                                icon={<IconSearch />}
+                                active={searchVisible}
+                                onClick={() => setSearchVisible(!searchVisible)}
                             />
-
-                            <LemonInput fullWidth={true} type="search" value={searchText} onChange={setSearchText} />
-                        </div>
+                        </SettingsBar>
+                        {searchVisible && (
+                            <div className="flex flex-row items-center justify-between space-x-2">
+                                <LemonInput
+                                    size="xsmall"
+                                    fullWidth={true}
+                                    type="search"
+                                    value={searchText}
+                                    onChange={setSearchText}
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
             </ToolbarMenu.Header>
@@ -95,15 +91,23 @@ export const EventDebugMenu = (): JSX.Element => {
                         })
                     ) : (
                         <div className="px-4 py-2">
-                            {searchText && searchType === 'events'
-                                ? 'No events match your search.'
+                            {searchText && eventCount
+                                ? 'Nothing matches your search.'
                                 : 'Interact with your page and then come back to the toolbar to see what events were generated.'}
                         </div>
                     )}
                 </div>
             </ToolbarMenu.Body>
-            <ToolbarMenu.Footer>
-                <span className="text-xs">View events from this page as they are sent to PostHog.</span>
+            <ToolbarMenu.Footer noPadding>
+                <SettingsBar border="top" className="justify-around">
+                    <span>Seen {eventCount} events.</span>
+                    <SettingsToggle
+                        title="Snapshot events can be used to debug session replay issues."
+                        label={`${hideRecordingSnapshots ? 'Show' : 'Hide'} ${snapshotCount} snapshot events`}
+                        active={hideRecordingSnapshots}
+                        onClick={() => setHideRecordingSnapshots(!hideRecordingSnapshots)}
+                    />
+                </SettingsBar>
             </ToolbarMenu.Footer>
         </ToolbarMenu>
     )
