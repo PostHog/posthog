@@ -2,24 +2,22 @@ import clsx from 'clsx'
 
 export function PanelsUI(): JSX.Element {
     return (
-        <Container column className="max-h-[350px] h-[350px]">
-            <Container>
+        <Container className="max-h-[615px] h-[615px]">
+            <Container column>
                 <Panel className="bg-[red]">
                     <>Filters</>
                 </Panel>
+                <Panel priority className="bg-[yellow] min-w-[250px]">
+                    <>Playlist</>
+                </Panel>
             </Container>
-            <Container wrap priority className="min-h-0">
-                <Container wrap>
-                    <Panel className="bg-[yellow] min-w-[250px]">
-                        <>Playlist</>
-                    </Panel>
-                </Container>
 
-                <Container wrap priority className="h-full">
-                    <Panel priority className="bg-[green] border border-8 border-[blue] min-w-[300px]">
-                        <>Main content</>
-                    </Panel>
-                    <Panel className="bg-[pink] min-w-[250px] overflow-y-auto flex flex-col">
+            <Container priority className="h-full overflow-y-auto min-w-[300px]">
+                <Panel priority className="bg-[green] border border-8 border-[blue] min-w-[300px] h-full">
+                    <>Main content</>
+                </Panel>
+                <Panel className="bg-[pink] min-w-[250px] overflow-y-auto">
+                    <div className="flex flex-col">
                         <div>Content</div>
                         <div>Content</div>
                         <div>Content</div>
@@ -44,8 +42,24 @@ export function PanelsUI(): JSX.Element {
                         <div>Content</div>
                         <div>Content</div>
                         <div>Content</div>
-                    </Panel>
-                </Container>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                    </div>
+                </Panel>
             </Container>
         </Container>
     )
@@ -54,22 +68,19 @@ export function PanelsUI(): JSX.Element {
 function Container({
     children,
     column,
-    wrap,
     priority,
     className,
 }: {
     children: React.ReactNode
     column?: boolean
-    wrap?: boolean
     priority?: boolean
     className?: string
 }): JSX.Element {
     return (
         <div
             className={clsx(
-                'flex gap-2 h-full',
+                'flex gap-2 flex-wrap',
                 column && 'flex-col',
-                wrap && 'flex-wrap',
                 priority ? 'flex-[10]' : 'grow basis-0',
                 className
             )}
