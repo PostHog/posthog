@@ -103,6 +103,9 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             context: HogQLContext,
             node: SelectQuery,
         ):
+            if self.joining_table_name != "events":
+                raise ResolutionError("experiments_optimized is only supported for events table")
+
             if not self.configuration.get("experiments_optimized"):
                 raise ResolutionError("experiments_optimized is not enabled for this join")
 
