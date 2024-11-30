@@ -2,7 +2,7 @@ import clsx from 'clsx'
 
 export function PanelsUI(): JSX.Element {
     return (
-        <Container column className="max-h-[350px]">
+        <Container column className="max-h-[350px] h-[350px]">
             <Container>
                 <Panel className="bg-[red]">
                     <>Filters</>
@@ -15,11 +15,11 @@ export function PanelsUI(): JSX.Element {
                     </Panel>
                 </Container>
 
-                <Container wrap priority className="min-h-0">
+                <Container wrap priority className="h-full">
                     <Panel priority className="bg-[green] border border-8 border-[blue] min-w-[300px]">
                         <>Main content</>
                     </Panel>
-                    <Panel className="bg-[pink] min-w-[250px] min-h-0 overflow-y-auto">
+                    <Panel className="bg-[pink] min-w-[250px] overflow-y-auto flex flex-col">
                         <div>Content</div>
                         <div>Content</div>
                         <div>Content</div>
@@ -67,7 +67,7 @@ function Container({
     return (
         <div
             className={clsx(
-                'flex gap-2',
+                'flex gap-2 h-full',
                 column && 'flex-col',
                 wrap && 'flex-wrap',
                 priority ? 'flex-[10]' : 'grow basis-0',
@@ -89,7 +89,7 @@ function Panel({
     priority?: boolean
 }): JSX.Element {
     return (
-        <div className={clsx(className, priority ? 'flex-[10]' : 'flex-1')}>
+        <div className={clsx('h-full', className, priority ? 'flex-[10]' : 'flex-1')}>
             <div>Header</div>
             {children}
         </div>
