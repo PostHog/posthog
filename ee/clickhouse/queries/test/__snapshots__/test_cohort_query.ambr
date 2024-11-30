@@ -613,6 +613,30 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
   '''
+  SELECT persons.id AS id
+  FROM
+    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test2'), 0))))))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  WHERE or(ifNull(equals(persons.properties___name, 'test'), 0), ifNull(equals(persons.properties___name, 'test2'), 0))
+  ORDER BY persons.id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.4
+  '''
   
   SELECT id
   FROM person

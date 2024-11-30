@@ -95,27 +95,7 @@ class HogQLCohortQuery:
         if not self.cohort_query._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
-
-            # This works
-            # ActorsQuery(properties=c.properties.to_dict())
-
-            # This just queries based on person properties and stuff
-            # Need to figure out how to turn these cohort properties into a set of person properties
-            # actors_query = ActorsQuery(properties=self.cohort.properties.to_dict())
-            # query_runner = ActorsQueryRunner(team=self.cohort.team, query=actors_query)
             return self._actors_query()
-
-        # self._get_conditions()
-        # self.get_performed_event_condition()
-
-        # Work on getting testing passing
-        # current test: test_performed_event
-        # special code this for test_performed_event
-        # self.properties["values"][0]["values"][0]
-
-        # self.get_performed_event_condition()
-        # property = self._outer_property_groups.values[0].values[0]
-        # self.get_performed_event_condition(property)
 
         select_query = self._get_conditions()
 
@@ -196,14 +176,6 @@ class HogQLCohortQuery:
         if prop.explicit_datetime:
             # Explicit datetime filter, can be a relative or absolute date, follows same convention
             # as all analytics datetime filters
-            # date_param = f"{prepend}_explicit_date_{idx}"
-            # target_datetime = relative_date_parse(prop.explicit_datetime, self._team.timezone_info)
-
-            # Do this to create global filters for the entire query
-            # relative_date = self._get_relative_interval_from_explicit_date(target_datetime, self._team.timezone_info)
-            # self._check_earliest_date(relative_date)
-
-            # return f"timestamp > %({date_param})s", {f"{date_param}": target_datetime}
             date_from = prop.explicit_datetime
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
@@ -227,11 +199,6 @@ class HogQLCohortQuery:
             series = [ActionsNode(id=int(prop.key))] * (count + 1)
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
-
-        # negation here means we're excluding users, not including them
-        # for example (users who have performed action "click here" 1 or less times)
-        # we subtract the set of users we get back from the set (we require a positive cohort thing somewhere)
-        # negation = False
 
         funnelStep: int = None
 
