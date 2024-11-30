@@ -179,7 +179,7 @@ export function ViewLinkForm(): JSX.Element {
                                         fullWidth
                                         onSelect={selectExperimentsTimestampField}
                                         value={experimentsTimestampField ?? undefined}
-                                        options={joiningTableKeys}
+                                        options={sourceTableKeys}
                                         placeholder="Select a key"
                                     />
                                 </Field>
