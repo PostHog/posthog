@@ -106,6 +106,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             false as boolean,
             {
                 setExperimentsOptimized: (_, { experimentsOptimized }) => experimentsOptimized,
+                toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_optimized ?? false,
+                clearModalFields: () => false,
             },
         ],
         isJoinTableModalOpen: [
