@@ -21,7 +21,8 @@ from posthog.schema import (
     StickinessQuery,
     TrendsQuery,
     FunnelsQuery,
-    LifecycleQuery, StickinessActorsQuery,
+    LifecycleQuery,
+    StickinessActorsQuery,
 )
 from posthog.types import InsightActorsQueryNode
 
@@ -66,7 +67,7 @@ class InsightActorsQueryRunner(QueryRunner):
             query = cast(StickinessActorsQuery, self.query)
             return stickiness_runner.to_actors_query(
                 interval_num=int(query.day) if query.day is not None else None,
-                operator=query.operator
+                operator=getattr(query, "operator", None),
             )
         elif isinstance(self.source_runner, LifecycleQueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
