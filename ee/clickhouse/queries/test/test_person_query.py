@@ -2,8 +2,6 @@ import pytest
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.client import sync_execute
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery

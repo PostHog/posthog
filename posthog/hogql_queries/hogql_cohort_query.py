@@ -1,19 +1,16 @@
-from typing import Literal, Optional, Union, Any, cast
+from typing import Literal, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
-from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery, SetOperator
+from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_global_properties
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Filter, Cohort, Team, Property
-from posthog.models.cohort.util import get_count_operator
 from posthog.models.property import PropertyGroup
 from posthog.queries.foss_cohort_query import (
     validate_interval,
@@ -43,14 +40,13 @@ from posthog.schema import (
     PersonsOnEventsMode,
 )
 from posthog.queries.cohort_query import CohortQuery
-from posthog.temporal.tests.utils.datetimes import date_range
 
 
 class TestWrapperCohortQuery(CohortQuery):
     def __init__(self, filter: Filter, team: Team):
         cohort_query = CohortQuery(filter=filter, team=team)
         hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
-        hogql_query = hogql_cohort_query.query_str("hogql")
+        # hogql_query = hogql_cohort_query.query_str("hogql")
         self.result = execute_hogql_query(hogql_cohort_query.get_query(), team)
         super().__init__(filter=filter, team=team)
 
@@ -125,12 +121,14 @@ class HogQLCohortQuery:
 
         if self.cohort_query._should_join_persons and self.cohort_query._inner_property_groups:
             actors_query = self._actors_query()
+            """
             hogql_actors = print_ast(
                 actors_query,
                 HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
                 dialect="hogql",
                 pretty=True,
             )
+            """
             if self.cohort_query.should_pushdown_persons:
                 if (
                     self.cohort_query._person_on_events_mode
@@ -155,12 +153,14 @@ class HogQLCohortQuery:
                         f"{fields}",
                     )"""
 
+        """
         hogql = print_ast(
             select_query,
             HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
             dialect="hogql",
             pretty=True,
         )
+        """
 
         return select_query
 
@@ -460,7 +460,7 @@ class HogQLCohortQuery:
 
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         def build_conditions(
-            prop: Optional[Union[PropertyGroup, Property]]
+            prop: Optional[Union[PropertyGroup, Property]],
         ) -> (None | ast.SelectQuery | ast.SelectSetQuery, bool):
             if not prop:
                 # What do we do here?
@@ -468,13 +468,14 @@ class HogQLCohortQuery:
 
             if isinstance(prop, PropertyGroup):
                 queries = []
-                for idx, property in enumerate(prop.values):
+                for property in prop.values:
                     query, negation = build_conditions(property)  # type: ignore
                     if query is not None:
                         queries.append((query, negation))
 
                 all_negated = all(x[1] for x in queries)
                 all_not_negated = all(not x[1] for x in queries)
+                """
                 hogql = [
                     print_ast(
                         query,
@@ -484,6 +485,7 @@ class HogQLCohortQuery:
                     )
                     for query, negation in queries
                 ]
+                """
                 negated = False
                 if prop.type == PropertyOperatorType.OR:
                     if all_negated or all_not_negated:
