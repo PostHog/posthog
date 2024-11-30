@@ -23,6 +23,8 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { allExperiments, sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
     const { apiURL } = useValues(toolbarConfigLogic)
 
+    const isWebExperimentsDisabled = Boolean(window?.parent?.posthog?.config?.disable_web_experiments)
+
     useEffect(() => {
         getExperiments()
     }, [])
@@ -30,7 +32,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
-                {window.parent.posthog?.config?.disable_web_experiments && (
+                {isWebExperimentsDisabled && (
                     <div className="p-2">
                         <LemonBanner type="warning">
                             Web experiments are disabled in your PostHog web snippet configuration. To run experiments,
