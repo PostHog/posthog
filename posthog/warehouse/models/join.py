@@ -113,7 +113,10 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             return ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
-                        ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain]))
+                        ast.Alias(
+                            alias=name,
+                            expr=ast.Field(chain=["events", *(chain if isinstance(chain, list | tuple) else [chain])]),
+                        )
                         for name, chain in {
                             **join_to_add.fields_accessed,
                             "timestamp": ["timestamp"],
