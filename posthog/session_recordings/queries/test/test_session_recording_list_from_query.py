@@ -1636,12 +1636,12 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 1,
                 ["both_log_filters"],
             ),
-            # Case 5: OR matches both (update assertion if TODO behavior changes)
+            # Case 5: OR matches both
             (
                 '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
                 "OR",
-                0,  # Adjust this to match the correct behavior once implemented
-                [],
+                2,
+                ["both_log_filters", "one_log_filter"],
             ),
         ]
     )
@@ -3078,97 +3078,97 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_by_console_text(
         self,
         console_log_filters: str,
         operand: Literal["AND", "OR"],
         expected_session_ids: list[str],
     ) -> None:
-        with freeze_time("2021-01-21T20:00:00.000Z"):
-            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
-            # Create sessions
-            produce_replay_summary(
-                distinct_id="user",
-                session_id="with-logs-session",
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-                console_log_count=4,
-                log_messages={
-                    "info": [
-                        "log message 1",
-                        "log message 2",
-                        "log message 3",
-                        "log message 4",
-                    ]
-                },
-            )
-            produce_replay_summary(
-                distinct_id="user",
-                session_id="with-warns-session",
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-                console_warn_count=5,
-                log_messages={
-                    "warn": [
-                        "warn message 1",
-                        "warn message 2",
-                        "warn message 3",
-                        "warn message 4",
-                        "warn message 5",
-                    ]
-                },
-            )
-            produce_replay_summary(
-                distinct_id="user",
-                session_id="with-errors-session",
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-                console_error_count=4,
-                log_messages={
-                    "error": [
-                        "error message 1",
-                        "error message 2",
-                        "error message 3",
-                        "error message 4",
-                    ]
-                },
-            )
-            produce_replay_summary(
-                distinct_id="user",
-                session_id="with-two-session",
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-                console_error_count=4,
-                console_log_count=3,
-                log_messages={
-                    "error": [
-                        "error message 1",
-                        "error message 2",
-                        "error message 3",
-                        "error message 4",
-                    ],
-                    "info": ["log message 1", "log message 2", "log message 3"],
-                },
-            )
-            produce_replay_summary(
-                distinct_id="user",
-                session_id="with-no-matches-session",
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-                console_error_count=4,
-                console_log_count=3,
-                log_messages={
-                    "info": ["log message 1", "log message 2", "log message 3"],
-                },
-            )
+        # Create sessions
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="with-logs-session",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_log_count=4,
+            log_messages={
+                "info": [
+                    "log message 1",
+                    "log message 2",
+                    "log message 3",
+                    "log message 4",
+                ]
+            },
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="with-warns-session",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_warn_count=5,
+            log_messages={
+                "warn": [
+                    "warn message 1",
+                    "warn message 2",
+                    "warn message 3",
+                    "warn message 4",
+                    "warn message 5",
+                ]
+            },
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="with-errors-session",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_error_count=4,
+            log_messages={
+                "error": [
+                    "error message 1",
+                    "error message 2",
+                    "error message 3",
+                    "error message 4",
+                ]
+            },
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="with-two-session",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_error_count=4,
+            console_log_count=3,
+            log_messages={
+                "error": [
+                    "error message 1",
+                    "error message 2",
+                    "error message 3",
+                    "error message 4",
+                ],
+                "info": ["log message 1", "log message 2", "log message 3"],
+            },
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="with-no-matches-session",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_error_count=4,
+            console_log_count=3,
+            log_messages={
+                "info": ["log message 1", "log message 2", "log message 3"],
+            },
+        )
 
-            # Perform the filtering and validate results
-            session_recordings, _, _ = self._filter_recordings_by(
-                {"console_log_filters": console_log_filters, "operand": operand}
-            )
+        # Perform the filtering and validate results
+        session_recordings, _, _ = self._filter_recordings_by(
+            {"console_log_filters": console_log_filters, "operand": operand}
+        )
 
-            assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(expected_session_ids)
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(expected_session_ids)
 
     @snapshot_clickhouse_queries
     def test_filter_for_recordings_by_snapshot_source(self):

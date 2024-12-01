@@ -1646,12 +1646,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 1,
                 ["both_log_filters"],
             ),
-            # Case 5: OR matches both (update assertion if TODO behavior changes)
+            # Case 5: OR matches both
             (
                 '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
                 "OR",
-                0,  # Adjust this to match the correct behavior once implemented
-                [],
+                2,
+                ["both_log_filters", "one_log_filter"],
             ),
         ]
     )
@@ -3059,8 +3059,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
     @parameterized.expand(
         [
             # Case 1: OR operand, message 4 matches in warn and error
@@ -3083,6 +3081,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_by_console_text(
         self,
         console_log_filters: str,
