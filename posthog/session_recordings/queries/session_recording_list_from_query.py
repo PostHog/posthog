@@ -306,7 +306,6 @@ class SessionRecordingListFromQuery:
                     team=self._team,
                 ),
             )
-            breakpoint()
 
             optional_exprs.append(
                 ast.CompareOperation(
