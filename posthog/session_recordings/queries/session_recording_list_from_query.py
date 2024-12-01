@@ -11,7 +11,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_global_properties
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, Property, Entity, Action
@@ -26,6 +25,8 @@ from posthog.schema import (
     NodeKind,
     EventsNode,
     ActionsNode,
+    PropertyGroupFilterValue,
+    FilterLogicalOperator,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
@@ -150,7 +151,7 @@ class SessionRecordingListFromQuery:
 
     @cached_property
     def _test_account_filters(self) -> list[Property]:
-        return [clean_global_properties(p) for p in self._team.test_account_filters]
+        return [Property(**p) for p in self._team.test_account_filters]
 
     @property
     def ttl_days(self):
@@ -294,12 +295,18 @@ class SessionRecordingListFromQuery:
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=self.ast_operand(
-                    exprs=[
-                        property_to_expr(self._query.console_log_filters, team=self._team),
-                    ]
+                where=property_to_expr(
+                    # convert to a property group so we can insert the correct operand
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_
+                        if self.property_operand == "AND"
+                        else FilterLogicalOperator.OR_,
+                        values=self._query.console_log_filters,
+                    ),
+                    team=self._team,
                 ),
             )
+            breakpoint()
 
             optional_exprs.append(
                 ast.CompareOperation(

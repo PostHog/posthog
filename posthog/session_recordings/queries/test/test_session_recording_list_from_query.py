@@ -3059,6 +3059,12 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "OR",
                 ["with-errors-session", "with-two-session", "with-warns-session", "with-logs-session"],
             ),
+            # Case 2: AND operand, message 4 matches in log, warn, and error
+            (
+                '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "icontains", "type": "log_entry"}]',
+                "AND",
+                ["with-errors-session", "with-two-session", "with-warns-session"],
+            ),
             # Case 2: AND operand, message 5 matches only in warn
             (
                 '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
