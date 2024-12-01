@@ -75,3 +75,18 @@
     height: var(--session-recordings-panel-height);
     max-height: var(--session-recordings-panel-height);
 }
+
+.PanelLayout__right {
+    container: replay-primary-panels / inline-size;
+}
+
+// .child {
+//     display: flex;
+//     flex-direction: column;
+// }
+
+@container replay-primary-panels (width > 600px) {
+    .PanelLayout__inspector {
+        height: 100%;
+    }
+}

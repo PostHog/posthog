@@ -12,11 +12,11 @@ export function PanelsUI(): JSX.Element {
                 </Panel>
             </PanelContainer>
 
-            <PanelContainer priority className="h-full overflow-y-auto min-w-[300px]">
+            <PanelContainer priority className="PanelLayout__right h-full overflow-y-auto min-w-[300px]">
                 <Panel priority className="bg-[green] border border-8 border-[blue] min-w-[300px] min-h-[300px]">
                     <>Main content</>
                 </Panel>
-                <Panel className="h-full bg-[pink] min-w-[250px] overflow-y-auto">
+                <Panel className="PanelLayout__inspector bg-[pink] min-w-[250px] overflow-y-auto">
                     <div className="flex flex-col">
                         <div>Content</div>
                         <div>Content</div>
