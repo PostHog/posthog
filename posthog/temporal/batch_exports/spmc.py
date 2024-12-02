@@ -324,7 +324,7 @@ async def run_consumer_loop(
         RecordBatchConsumerNonRetryableExceptionGroup: When all consumer tasks fail
             with non-retryable errors.
     """
-    consumer_tasks_pending = set()
+    consumer_tasks_pending: set[asyncio.Task] = set()
     consumer_tasks_done = set()
     consumer_number = 0
     records_completed = 0
