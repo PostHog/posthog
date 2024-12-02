@@ -33,6 +33,7 @@ from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_TRANSPILED_FILTERS,
     TYPES_WITH_JAVASCRIPT_SOURCE,
 )
+from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
@@ -191,7 +192,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 # Upon creation, this code will be run before the model has an "id".
                 # If that's the case, the code just makes sure transpilation doesn't throw. We'll re-transpile after creation.
                 id = str(instance.id) if instance else "__"
-                attrs["transpiled"] = get_transpiled_function(id, attrs["hog"], attrs["filters"], attrs["inputs"], team)
+                try:
+                    attrs["transpiled"] = get_transpiled_function(
+                        id, attrs["hog"], attrs["filters"], attrs["inputs"], team
+                    )
+                except TranspilerError:
+                    raise serializers.ValidationError({"hog": f"Error in TypeScript code"})
                 attrs["bytecode"] = None
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"])

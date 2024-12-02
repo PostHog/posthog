@@ -989,3 +989,59 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?types=destination,email")
         assert len(response.json()["results"]) == 2
+
+    def test_create_hog_function_with_site_app_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site App Function",
+                "hog": "export function onLoad() { console.log('Hello, site_app'); }",
+                "type": "site_app",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is None
+        assert "Hello, site_app" in response.json()["transpiled"]
+
+    def test_create_hog_function_with_site_destination_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site Destination Function",
+                "hog": "export function onLoad() { console.log('Hello, site_destination'); }",
+                "type": "site_destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is None
+        assert "Hello, site_destination" in response.json()["transpiled"]
+
+    def test_transpiled_field_not_populated_for_other_types(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Regular Function",
+                "hog": "fetch(inputs.url);",
+                "type": "destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is not None
+        assert response.json()["transpiled"] is None
+
+    def test_create_hog_function_with_invalid_typescript(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Invalid Site App Function",
+                "hog": "export function onLoad() { console.log('Missing closing brace');",
+                "type": "site_app",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "detail" in response.json()
+        assert "Error in TypeScript code" in response.json()["detail"]

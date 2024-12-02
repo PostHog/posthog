@@ -303,6 +303,10 @@ class PluginLogEntryType(StrEnum):
     ERROR = "ERROR"
 
 
+class TranspilerError(Exception):
+    pass
+
+
 def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
     from posthog.settings.base_variables import BASE_DIR
 
@@ -317,7 +321,7 @@ def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> 
 
     if process.returncode != 0:
         error = stderr.decode()
-        raise Exception(error)
+        raise TranspilerError(error)
     return stdout.decode()
 
 
