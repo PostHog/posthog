@@ -77,7 +77,6 @@ def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[
     return [asdict(WebJsUrl(source[0], site_app_url(source), "site_app")) for source in sources]
 
 
-# TODO: check if we need indexes
 def get_decide_site_functions(team: "Team", using_database: str = "default") -> list[dict]:
     from posthog.models import HogFunction
 
