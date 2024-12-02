@@ -56,6 +56,7 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # If we failed to resolve this symbol set, we store the reason here, so
     # we can return the language-relevant error in the future.
     failure_reason = models.TextField(null=True, blank=True)
+    content_hash = models.TextField(null=True, blank=False)
 
     class Meta:
         indexes = [

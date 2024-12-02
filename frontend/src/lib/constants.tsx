@@ -234,6 +234,7 @@ export const FEATURE_FLAGS = {
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
     WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION: 'web-analytics-warn-custom-event-no-session', // owner: @robbie-c #team-web-analytics
     REMOTE_CONFIG: 'remote-config', // owner: @benjackwhite
+    TWO_FACTOR_UI: 'two-factor-ui', // owner: @zach
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
