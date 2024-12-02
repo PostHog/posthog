@@ -17,7 +17,6 @@ from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.schema import RecordingsQuery
 from posthog.session_recordings.queries.session_recording_list_from_query import (
-    SessionRecordingListFromFilters,
     SessionRecordingQueryResult,
 )
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -729,7 +728,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         # but the page view event is outside TTL
         self.create_event(
             user,
-            self.an_hour_ago - relativedelta(days=SessionRecordingListFromFilters.SESSION_RECORDINGS_DEFAULT_LIMIT + 1),
+            self.an_hour_ago - relativedelta(days=SessionRecordingListFromQuery.SESSION_RECORDINGS_DEFAULT_LIMIT + 1),
             properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
         )
 
@@ -4024,7 +4023,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id=session_id_two,
             team_id=self.team.id,
             mouse_activity_count=100,
-            first_timestamp=(self.an_hour_ago),
+            first_timestamp=self.an_hour_ago,
         )
         produce_replay_summary(
             session_id=session_id_three,
