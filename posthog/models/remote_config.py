@@ -43,10 +43,6 @@ class RemoteConfig(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
 
-    @property
-    def sync_pending(self):
-        return self.updated_at > self.synced_at if self.synced_at else True
-
     def build_config(self):
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
@@ -61,6 +57,7 @@ class RemoteConfig(UUIDModel):
         # TODO: Add the token to the config so that it is verifiable as a standalone file
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
+            "token": team.api_token,
             "supported_compression": ["gzip", "gzip-js"],
             "has_feature_flags": FeatureFlag.objects.filter(team=team, active=True, deleted=False).count() > 0,
             "capture_dead_clicks": bool(team.capture_dead_clicks),
@@ -131,7 +128,6 @@ class RemoteConfig(UUIDModel):
 
         # MARK: Quota limiting
         if settings.EE_AVAILABLE:
-            # NOTE: Add listener for quota limits changing
             from ee.billing.quota_limiting import (
                 QuotaLimitingCaches,
                 QuotaResource,
@@ -144,7 +140,7 @@ class RemoteConfig(UUIDModel):
 
             if team.api_token in limited_tokens_recordings:
                 config["quota_limited"] = ["recordings"]
-                config["sessionRecording"] = False
+                config["session_recording"] = False
 
         config["surveys"] = True if team.surveys_opt_in else False
         config["heatmaps"] = True if team.heatmaps_opt_in else False
