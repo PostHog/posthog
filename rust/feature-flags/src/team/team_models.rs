@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
 
-#[derive(Clone, Debug, Deserialize, Serialize,sqlx::FromRow)]
+#[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
     pub id: i32,
     pub name: String,

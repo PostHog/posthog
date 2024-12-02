@@ -173,7 +173,8 @@ mod tests {
                 format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, target_token),
                 serialized_team,
             )
-            .await.expect("Failed to write data to redis");
+            .await
+            .expect("Failed to write data to redis");
 
         let team_from_redis = Team::from_redis(client.clone(), target_token.clone())
             .await
