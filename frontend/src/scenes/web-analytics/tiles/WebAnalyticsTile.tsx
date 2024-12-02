@@ -97,7 +97,7 @@ const VariationCell = (
                     {trend && (
                         // eslint-disable-next-line react/forbid-dom-props
                         <span style={{ color: trend.color }}>
-                            <trend.Icon color={trend.color} />
+                            <trend.Icon color={trend.color} className="ml-1" />
                         </span>
                     )}
                 </div>
@@ -285,47 +285,47 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: BreakdownValueCell,
         },
         bounce_rate: {
-            title: <span className="pr-4">Bounce Rate</span>,
+            title: <span className="pr-5">Bounce Rate</span>,
             render: VariationCell({ isPercentage: true, reverseColors: true }),
             align: 'right',
         },
         views: {
-            title: <span className="pr-4">Views</span>,
+            title: <span className="pr-5">Views</span>,
             render: VariationCell(),
             align: 'right',
         },
         clicks: {
-            title: <span className="pr-4">Clicks</span>,
+            title: <span className="pr-5">Clicks</span>,
             render: VariationCell(),
             align: 'right',
         },
         visitors: {
-            title: <span className="pr-4">Visitors</span>,
+            title: <span className="pr-5">Visitors</span>,
             render: VariationCell(),
             align: 'right',
         },
         average_scroll_percentage: {
-            title: <span className="pr-4">Average Scroll</span>,
+            title: <span className="pr-5">Average Scroll</span>,
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         scroll_gt80_percentage: {
-            title: <span className="pr-4">Deep Scroll Rate</span>,
+            title: <span className="pr-5">Deep Scroll Rate</span>,
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         total_conversions: {
-            title: <span className="pr-4">Total Conversions</span>,
+            title: <span className="pr-5">Total Conversions</span>,
             render: VariationCell(),
             align: 'right',
         },
         conversion_rate: {
-            title: <span className="pr-4">Conversion Rate</span>,
+            title: <span className="pr-5">Conversion Rate</span>,
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         converting_users: {
-            title: <span className="pr-4">Converting Users</span>,
+            title: <span className="pr-5">Converting Users</span>,
             render: VariationCell(),
             align: 'right',
         },
