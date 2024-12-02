@@ -36,13 +36,16 @@ export const OverviewTab = (): JSX.Element => {
                         event ? (
                             <div className="h-full overflow-auto">
                                 <div className="bg-bg-light p-1 flex justify-end border-b min-h-[42px]">
-                                    {mightHaveRecording(event.properties) && (
-                                        <ViewRecordingButton
-                                            size="small"
-                                            sessionId={event.properties.$session_id}
-                                            timestamp={event.timestamp}
-                                        />
-                                    )}
+                                    <ViewRecordingButton
+                                        size="small"
+                                        sessionId={event.properties.$session_id}
+                                        timestamp={event.timestamp}
+                                        disabledReason={
+                                            mightHaveRecording(event.properties)
+                                                ? undefined
+                                                : 'Replay was not active when capturing this event'
+                                        }
+                                    />
                                 </div>
                                 <div className="pl-2">
                                     <ErrorDisplay eventProperties={event.properties} />

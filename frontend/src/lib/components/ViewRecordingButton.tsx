@@ -11,7 +11,7 @@ export default function ViewRecordingButton({
     sessionId,
     timestamp,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className'> & {
+}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason'> & {
     sessionId: string
     timestamp?: string | Dayjs
 }): JSX.Element {

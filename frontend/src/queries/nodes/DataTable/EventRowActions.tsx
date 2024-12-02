@@ -53,14 +53,17 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             Copy link to event
                         </LemonButton>
                     )}
-                    {mightHaveRecording(event.properties) && (
-                        <ViewRecordingButton
-                            fullWidth
-                            sessionId={event.properties.$session_id}
-                            timestamp={event.timestamp}
-                            data-attr="events-table-usage"
-                        />
-                    )}
+                    <ViewRecordingButton
+                        fullWidth
+                        sessionId={event.properties.$session_id}
+                        timestamp={event.timestamp}
+                        disabledReason={
+                            mightHaveRecording(event.properties)
+                                ? undefined
+                                : 'Replay was not active when capturing this event'
+                        }
+                        data-attr="events-table-usage"
+                    />
                     {insightUrl && (
                         <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage">
                             Try out in Insights
