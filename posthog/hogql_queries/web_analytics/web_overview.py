@@ -98,7 +98,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         return property_to_expr(properties, team=self.team, scope="event")
 
     @cached_property
-    def conversion_goal_expr(self) -> ast.Expr:
+    def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
             action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
             return action_to_expr(action)
@@ -109,10 +109,10 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 right=ast.Constant(value=self.query.conversionGoal.customEventName),
             )
         else:
-            return ast.Constant(value=None)
+            return None
 
     @cached_property
-    def conversion_person_id_expr(self) -> ast.Expr:
+    def conversion_person_id_expr(self) -> Optional[ast.Expr]:
         if self.conversion_goal_expr:
             return ast.Call(
                 name="any",
@@ -128,7 +128,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 ],
             )
         else:
-            return ast.Constant(value=None)
+            return None
 
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:
@@ -147,11 +147,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             return ast.Call(name="count", args=[])
 
     @cached_property
-    def conversion_count_expr(self) -> ast.Expr:
+    def conversion_count_expr(self) -> Optional[ast.Expr]:
         if self.conversion_goal_expr:
             return ast.Call(name="countIf", args=[self.conversion_goal_expr])
         else:
-            return ast.Constant(value=None)
+            return None
 
     @cached_property
     def event_type_expr(self) -> ast.Expr:
@@ -196,13 +196,12 @@ HAVING and(
                 "date_range_end": end,
                 "event_properties": self.event_properties(),
                 "session_properties": self.session_properties(),
-                "conversion_person_id_expr": self.conversion_person_id_expr,
                 "event_type_expr": self.event_type_expr,
             },
         )
         assert isinstance(parsed_select, ast.SelectQuery)
 
-        if self.query.conversionGoal:
+        if self.conversion_count_expr and self.conversion_person_id_expr:
             parsed_select.select.append(ast.Alias(alias="conversion_count", expr=self.conversion_count_expr))
             parsed_select.select.append(ast.Alias(alias="conversion_person_id", expr=self.conversion_person_id_expr))
         else:

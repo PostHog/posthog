@@ -124,6 +124,10 @@ export function percentage(
     maximumFractionDigits: number = 2,
     fixedPrecision: boolean = false
 ): string {
+    if (division === Infinity) {
+        return '∞%'
+    }
+
     return division.toLocaleString('en-US', {
         style: 'percent',
         maximumFractionDigits,
