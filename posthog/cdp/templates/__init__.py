@@ -41,7 +41,7 @@ from .google_cloud_storage.template_google_cloud_storage import (
 from .airtable.template_airtable import template as airtable
 from .brevo.template_brevo import template as brevo
 from ._internal.template_broadcast import template_new_broadcast as _broadcast
-from ._internal.template_blank import blank_site_destination, blank_site_app
+from ._internal.template_blank import blank_site_destination
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
