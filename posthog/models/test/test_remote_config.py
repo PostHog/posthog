@@ -1,4 +1,3 @@
-from unittest.mock import MagicMock, call, patch
 from inline_snapshot import snapshot
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile

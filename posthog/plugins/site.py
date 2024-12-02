@@ -1,6 +1,5 @@
 from dataclasses import asdict, dataclass
 from hashlib import md5
-import json
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
