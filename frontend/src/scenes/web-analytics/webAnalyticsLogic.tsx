@@ -5,7 +5,7 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { Link, PostHogComResourcesURL } from 'lib/lemon-ui/Link/Link'
+import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
@@ -91,7 +91,7 @@ interface BaseTile {
 }
 
 export interface Docs {
-    url?: PostHogComResourcesURL
+    url?: PostHogComDocsURL
     title: string
     description: string | JSX.Element
 }

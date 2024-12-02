@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
-import { PostHogComResourcesURL } from 'lib/lemon-ui/Link/Link'
+import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
@@ -210,7 +210,7 @@ export const WebTabs = ({
         query: QuerySchema
         docs:
             | {
-                  url?: PostHogComResourcesURL
+                  url?: PostHogComDocsURL
                   title: string
                   description: string | JSX.Element
               }
@@ -280,7 +280,7 @@ export const WebTabs = ({
 }
 
 export interface LearnMorePopoverProps {
-    url?: PostHogComResourcesURL
+    url?: PostHogComDocsURL
     title: string
     description: string | JSX.Element
 }
