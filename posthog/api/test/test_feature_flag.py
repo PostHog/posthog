@@ -6257,7 +6257,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             multivariate_flag_enabled_variant.id,
             FeatureFlagStatus.STALE,
-            'Currently, this flag will always use the variant "test"',
+            'This flag will always use the variant "test"',
         )
 
         # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
@@ -6380,7 +6380,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             multivariate_flag_enabled_release_with_override.id,
             FeatureFlagStatus.STALE,
-            'Currently, this flag will always use the variant "test"',
+            'This flag will always use the variant "test"',
         )
 
         # Request status for boolean flag with empty filters
@@ -6394,7 +6394,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             boolean_flag_empty_filters.id,
             FeatureFlagStatus.STALE,
-            'Currently, this boolean flag will always evaluate to "true"',
+            'This boolean flag will always evaluate to "true"',
         )
 
         # Request status for boolean flag with no fully enabled release conditions
@@ -6462,7 +6462,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             boolean_flag_enabled_release_condition.id,
             FeatureFlagStatus.STALE,
-            'Currently, this boolean flag will always evaluate to "true"',
+            'This boolean flag will always evaluate to "true"',
         )
 
         # Request status for a boolean flag with no enabled release conditions and has
