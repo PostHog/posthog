@@ -11,7 +11,7 @@ export function ToolbarMenu({ children, className }: ToolbarMenuProps): JSX.Elem
 }
 
 ToolbarMenu.Header = function ToolbarMenuHeader({ children, className, noPadding }: ToolbarMenuProps): JSX.Element {
-    return <div className={clsx(!noPadding && 'pt-1 px-1', className)}>{children}</div>
+    return <div className={clsx(!noPadding && 'px-1 pt-1', className)}>{children}</div>
 }
 
 ToolbarMenu.Body = function ToolbarMenuBody({ children, className, noPadding }: ToolbarMenuProps): JSX.Element {
@@ -24,7 +24,7 @@ ToolbarMenu.Body = function ToolbarMenuBody({ children, className, noPadding }: 
 
 ToolbarMenu.Footer = function ToolbarMenufooter({ children, className, noPadding }: ToolbarMenuProps): JSX.Element {
     return (
-        <div className={clsx(!noPadding && 'p2', 'flex flex-row items-center border-t gap-2', className)}>
+        <div className={clsx(!noPadding && 'p-1', 'flex flex-row items-center border-t gap-2', className)}>
             {children}
         </div>
     )
