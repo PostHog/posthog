@@ -1,6 +1,6 @@
 from django.test import TestCase
 from posthog.cdp.site_functions import get_transpiled_function
-from posthog.models.action.action import Action
+from posthog.models.action.action import Action, ActionStepJSON
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.plugin import TranspilerError
@@ -22,8 +22,8 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_basic(self):
         id = "123"
         source = 'export function onLoad() { console.log("Hello, World!"); }'
-        filters = {}
-        inputs = {}
+        filters: dict = {}
+        inputs: dict = {}
         team = self.team
 
         result = get_transpiled_function(id, source, filters, inputs, team)
@@ -35,7 +35,7 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_static_input(self):
         id = "123"
         source = "export function onLoad() { console.log(inputs.message); }"
-        filters = {}
+        filters: dict = {}
         inputs = {"message": {"value": "Hello, Inputs!"}}
         team = self.team
 
@@ -49,7 +49,7 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_template_input(self):
         id = "123"
         source = "export function onLoad() { console.log(inputs.greeting); }"
-        filters = {}
+        filters: dict = {}
         inputs = {"greeting": {"value": "Hello, {person.properties.name}!"}}
         team = self.team
 
@@ -66,8 +66,8 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_filters(self):
         id = "123"
         source = "export function onEvent(event) { console.log(event.event); }"
-        filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
-        inputs = {}
+        filters: dict = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
+        inputs: dict = {}
         team = self.team
 
         result = get_transpiled_function(id, source, filters, inputs, team)
@@ -81,7 +81,7 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_invalid_template_input(self):
         id = "123"
         source = "export function onLoad() { console.log(inputs.greeting); }"
-        filters = {}
+        filters: dict = {}
         inputs = {"greeting": {"value": "Hello, {person.properties.nonexistent_property}!"}}
         team = self.team
 
@@ -94,8 +94,8 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_syntax_error_in_source(self):
         id = "123"
         source = 'export function onLoad() { console.log("Missing closing brace");'
-        filters = {}
-        inputs = {}
+        filters: dict = {}
+        inputs: dict = {}
         team = self.team
 
         with self.assertRaises(TranspilerError):
@@ -104,7 +104,7 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_complex_inputs(self):
         id = "123"
         source = "export function onLoad() { console.log(inputs.complexInput); }"
-        filters = {}
+        filters: dict = {}
         inputs = {
             "complexInput": {
                 "value": {
@@ -125,8 +125,8 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_empty_inputs(self):
         id = "123"
         source = 'export function onLoad() { console.log("No inputs"); }'
-        filters = {}
-        inputs = {}
+        filters: dict = {}
+        inputs: dict = {}
         team = self.team
 
         result = get_transpiled_function(id, source, filters, inputs, team)
@@ -138,7 +138,7 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_non_template_string(self):
         id = "123"
         source = "export function onLoad() { console.log(inputs.staticMessage); }"
-        filters = {}
+        filters: dict = {}
         inputs = {"staticMessage": {"value": "This is a static message."}}
         team = self.team
 
@@ -153,7 +153,7 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_list_inputs(self):
         id = "123"
         source = "export function onLoad() { console.log(inputs.messages); }"
-        filters = {}
+        filters: dict = {}
         inputs = {"messages": {"value": ["Hello", "World", "{person.properties.name}"]}}
         team = self.team
 
@@ -167,8 +167,11 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_event_filter(self):
         id = "123"
         source = "export function onEvent(event) { console.log(event.properties.url); }"
-        filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events"}], "filter_test_accounts": True}
-        inputs = {}
+        filters: dict = {
+            "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+            "filter_test_accounts": True,
+        }
+        inputs: dict = {}
         team = self.team
         # Assume that team.test_account_filters is set up
         team.test_account_filters = [{"key": "email", "value": "@test.com", "operator": "icontains", "type": "person"}]
@@ -188,7 +191,7 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_groups(self):
         id = "123"
         source = "export function onLoad() { console.log(inputs.groupInfo); }"
-        filters = {}
+        filters: dict = {}
         inputs = {"groupInfo": {"value": "{groups['company']}"}}
         team = self.team
 
@@ -205,7 +208,7 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_with_missing_group(self):
         id = "123"
         source = "export function onLoad() { console.log(inputs.groupInfo); }"
-        filters = {}
+        filters: dict = {}
         inputs = {"groupInfo": {"value": "{groups['nonexistent']}"}}
         team = self.team
 
@@ -217,17 +220,17 @@ class TestSiteFunctions(TestCase):
         self.assertIn('__getProperty(__getGlobal("groups"), "nonexistent"', result)
 
     def test_get_transpiled_function_with_complex_filters(self):
-        action = Action.objects.create(
-            team=self.team, name="Test Action", steps=[{"event": "$pageview", "url": "https://example.com"}]
-        )
+        action = Action.objects.create(team=self.team, name="Test Action")
+        action.steps = [ActionStepJSON(event="$pageview", url="https://example.com")]
+        action.save()
         id = "123"
         source = "export function onEvent(event) { console.log(event.event); }"
-        filters = {
+        filters: dict = {
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
             "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions"}],
             "filter_test_accounts": True,
         }
-        inputs = {}
+        inputs: dict = {}
         team = self.team
         result = get_transpiled_function(id, source, filters, inputs, team)
 
