@@ -1,0 +1,25 @@
+.SessionReplay__layout {
+    --session-recordings-panel-height: calc(
+        100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom)
+    );
+
+    height: var(--session-recordings-panel-height);
+    max-height: var(--session-recordings-panel-height);
+    container: replay-panel-layout / inline-size;
+}
+
+@container replay-panel-layout (width < 585px) {
+    .PanelLayout__playlist {
+        max-height: 250px;
+    }
+}
+
+.PanelLayout__right {
+    container: replay-primary-panels / inline-size;
+}
+
+@container replay-primary-panels (width > 585px) {
+    .PanelLayout__inspector {
+        height: 100%;
+    }
+}

@@ -1,14 +1,35 @@
+import './SessionReplay.scss'
+
 import clsx from 'clsx'
 
 export function PanelsUI(): JSX.Element {
     return (
-        <PanelContainer className="SessionRecordings__panel-layout">
-            <PanelContainer className="flex-col">
+        <PanelContainer className="SessionReplay__layout">
+            <PanelContainer className="flex-col min-w-[250px]">
                 <Panel className="bg-[red]">
                     <>Filters</>
                 </Panel>
-                <Panel priority className="bg-[yellow] min-w-[250px]">
-                    <>Playlist</>
+                <Panel priority className="PanelLayout__playlist bg-[yellow]">
+                    <div className="flex flex-col">
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                        <div>Content</div>
+                    </div>
                 </Panel>
             </PanelContainer>
 
@@ -75,7 +96,7 @@ function PanelContainer({
     className?: string
 }): JSX.Element {
     return (
-        <div className={clsx('flex gap-2 flex-wrap', priority ? 'flex-[10]' : 'grow basis-0', className)}>
+        <div className={clsx('flex flex-wrap gap-2', priority ? 'flex-[10]' : 'grow basis-0', className)}>
             {children}
         </div>
     )
