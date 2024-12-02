@@ -467,7 +467,7 @@ class S3Consumer(Consumer):
         s3_upload: S3MultiPartUpload,
     ):
         super().__init__(heartbeater, heartbeat_details, data_interval_start)
-        self.heartbeat_details = heartbeat_details
+        self.heartbeat_details: S3HeartbeatDetails = heartbeat_details
         self.s3_upload = s3_upload
 
     async def flush(
