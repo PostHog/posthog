@@ -60,6 +60,40 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
+    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None, compare=None):
+        compare = self.query.compare if compare is None else compare
+
+        if compare:
+            expr = ast.Call(
+                name=function_name + "If",
+                params=params,
+                args=[
+                    ast.Field(chain=[column_name]),
+                    ast.Call(
+                        name="and",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=["start_timestamp"]),
+                                right=start,
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Lt,
+                                left=ast.Field(chain=["start_timestamp"]),
+                                right=end,
+                            ),
+                        ],
+                    ),
+                ],
+            )
+        else:
+            expr = ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
+
+        if alias is not None:
+            expr = ast.Alias(alias=alias, expr=expr)
+
+        return expr
+
     def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(
