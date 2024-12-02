@@ -6957,8 +6957,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -8047,8 +8054,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8097,8 +8111,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8147,8 +8168,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8197,8 +8225,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8247,8 +8282,15 @@
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8350,8 +8392,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -8753,8 +8802,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -11598,8 +11654,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/InsightDateRange",
@@ -12795,8 +12858,15 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",

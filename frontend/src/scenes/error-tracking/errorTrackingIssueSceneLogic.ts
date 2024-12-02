@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingIssue } from '~/queries/schema'
 import { Breadcrumb } from '~/types'
 
-import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
+import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
 
@@ -25,7 +25,7 @@ export interface ErrorTrackingEvent {
     }
 }
 
-export interface ErrorTrackingGroupSceneLogicProps {
+export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
 }
 
@@ -34,9 +34,9 @@ export enum IssueTab {
     Breakdowns = 'breakdowns',
 }
 
-export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
-    path((key) => ['scenes', 'error-tracking', 'errorTrackingGroupSceneLogic', key]),
-    props({} as ErrorTrackingGroupSceneLogicProps),
+export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
+    path((key) => ['scenes', 'error-tracking', 'errorTrackingIssueSceneLogic', key]),
+    props({} as ErrorTrackingIssueSceneLogicProps),
     key((props) => props.id),
 
     connect({
@@ -142,7 +142,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         path: urls.errorTracking(),
                     },
                     {
-                        key: [Scene.ErrorTrackingGroup, exceptionType],
+                        key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
                     },
                 ]

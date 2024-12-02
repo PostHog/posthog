@@ -76,8 +76,8 @@ pub struct OutputErrProps {
 impl Exception {
     pub fn include_in_fingerprint(&self, h: &mut Sha512) {
         h.update(self.exception_type.as_bytes());
-        h.update(self.exception_message.as_bytes());
         let Some(Stacktrace::Resolved { frames }) = &self.stack else {
+            h.update(self.exception_message.as_bytes());
             return;
         };
 

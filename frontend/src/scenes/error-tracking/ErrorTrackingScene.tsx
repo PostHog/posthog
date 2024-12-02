@@ -8,6 +8,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -164,12 +165,25 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
 }
 
 const Header = (): JSX.Element => {
+    const { user } = useValues(userLogic)
+
     return (
         <PageHeader
             buttons={
-                <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
-                    Configure
-                </LemonButton>
+                <>
+                    {user?.is_staff ? (
+                        <LemonButton
+                            onClick={() => {
+                                throw Error('Oh my!')
+                            }}
+                        >
+                            Send an exception
+                        </LemonButton>
+                    ) : null}
+                    <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
+                        Configure
+                    </LemonButton>
+                </>
             }
         />
     )
