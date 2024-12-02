@@ -60,8 +60,10 @@ const VariationCell = (
         const pctChangeFromPrevious =
             previous === 0 && current === 0 // Special case, render as flatline
                 ? 0
-                : current === null || previous === null || previous === 0
+                : current === null
                 ? null
+                : previous === null || previous === 0
+                ? Infinity
                 : current / previous - 1
 
         const trend =
