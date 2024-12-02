@@ -6,6 +6,7 @@ from posthog.admin.admins import (
     TeamAdmin,
     DashboardAdmin,
     DashboardTemplateAdmin,
+    DataColorThemeAdmin,
     InsightAdmin,
     ExperimentAdmin,
     FeatureFlagAdmin,
@@ -30,6 +31,7 @@ from posthog.models import (
     DashboardTemplate,
     Insight,
     Experiment,
+    DataColorTheme,
     FeatureFlag,
     AsyncDeletion,
     InstanceSetting,
@@ -53,6 +55,7 @@ admin.site.register(User, UserAdmin)
 admin.site.register(Dashboard, DashboardAdmin)
 admin.site.register(DashboardTemplate, DashboardTemplateAdmin)
 admin.site.register(Insight, InsightAdmin)
+admin.site.register(DataColorTheme, DataColorThemeAdmin)
 
 admin.site.register(Experiment, ExperimentAdmin)
 admin.site.register(FeatureFlag, FeatureFlagAdmin)

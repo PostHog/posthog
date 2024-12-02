@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
@@ -60,6 +61,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'interval',
                 'insightData',
                 'insightDataError',
+                'theme',
             ],
             groupsModel,
             ['aggregationLabel'],
@@ -84,7 +86,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
     }),
 
-    selectors(() => ({
+    selectors(({ props }) => ({
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
@@ -406,6 +408,21 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.steps],
             (steps) =>
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
+        ],
+
+        getFunnelsColor: [
+            (s) => [s.resultCustomizations, s.theme],
+            (resultCustomizations, theme) => {
+                return (dataset) => {
+                    const colorToken = getFunnelResultCustomizationColorToken(
+                        resultCustomizations,
+                        theme,
+                        dataset,
+                        props?.cachedInsight?.disable_baseline
+                    )
+                    return theme?.[colorToken] || null
+                }
+            },
         ],
     })),
 

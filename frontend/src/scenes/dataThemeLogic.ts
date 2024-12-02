@@ -1,54 +1,67 @@
-import { kea, path, selectors } from 'kea'
-import { DataColorTheme, getColorVar } from 'lib/colors'
+import { afterMount, connect, kea, path, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { DataColorTheme } from 'lib/colors'
+
+import { DataColorThemeModel } from '~/types'
 
 import type { dataThemeLogicType } from './dataThemeLogicType'
+import { teamLogic } from './teamLogic'
 
-const POSTHOG_THEME: DataColorTheme = {
-    'preset-1': getColorVar('data-color-1'),
-    'preset-2': getColorVar('data-color-2'),
-    'preset-3': getColorVar('data-color-3'),
-    'preset-4': getColorVar('data-color-4'),
-    'preset-5': getColorVar('data-color-5'),
-    'preset-6': getColorVar('data-color-6'),
-    'preset-7': getColorVar('data-color-7'),
-    'preset-8': getColorVar('data-color-8'),
-    'preset-9': getColorVar('data-color-9'),
-    'preset-10': getColorVar('data-color-10'),
-    'preset-11': getColorVar('data-color-11'),
-    'preset-12': getColorVar('data-color-12'),
-    'preset-13': getColorVar('data-color-13'),
-    'preset-14': getColorVar('data-color-14'),
-    'preset-15': getColorVar('data-color-15'),
-}
-
-const D3_SCHEME_CATEGORY_10: DataColorTheme = {
-    'preset-1': '#1f77b4',
-    'preset-2': '#ff7f0e',
-    'preset-3': '#2ca02c',
-    'preset-4': '#d62728',
-    'preset-5': '#9467bd',
-    'preset-6': '#8c564b',
-    'preset-7': '#e377c2',
-    'preset-8': '#7f7f7f',
-    'preset-9': '#bcbd22',
-    'preset-10': '#17becf',
+/** Returns a data color theme from the backend side theme model. */
+export function convertApiTheme(apiTheme: DataColorThemeModel): DataColorTheme {
+    return apiTheme.colors.reduce((theme, color, index) => {
+        theme[`preset-${index + 1}`] = color
+        return theme
+    }, {})
 }
 
 export const dataThemeLogic = kea<dataThemeLogicType>([
     path(['scenes', 'dataThemeLogic']),
-    selectors({
+    connect({ values: [teamLogic, ['currentTeam']] }),
+    loaders({
         themes: [
-            () => [],
-            () => ({
-                posthog: POSTHOG_THEME,
-                d3_category_10: D3_SCHEME_CATEGORY_10,
-            }),
+            null as null | DataColorThemeModel[],
+            {
+                loadThemes: async () => await api.dataColorThemes.list(),
+            },
+        ],
+    }),
+    selectors({
+        defaultTheme: [
+            (s) => [s.currentTeam, s.themes],
+            (currentTeam, themes) => {
+                if (!currentTeam || !themes) {
+                    return null
+                }
+
+                const environmentTheme = themes.find((theme) => theme.id === currentTeam.default_data_theme)
+                return environmentTheme || themes.find((theme) => theme.is_global)
+            },
         ],
         getTheme: [
-            (s) => [s.themes],
-            (themes) =>
-                (theme: string): DataColorTheme =>
-                    themes[theme],
+            (s) => [s.themes, s.defaultTheme],
+            (themes, defaultTheme) =>
+                (themeId: string | number | null | undefined): DataColorTheme | null => {
+                    let customTheme
+
+                    if (Number.isInteger(themeId) && themes != null) {
+                        customTheme = themes.find((theme) => theme.id === themeId)
+                    }
+
+                    if (customTheme) {
+                        return convertApiTheme(customTheme)
+                    }
+
+                    if (defaultTheme) {
+                        return convertApiTheme(defaultTheme)
+                    }
+
+                    return null
+                },
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadThemes()
     }),
 ])

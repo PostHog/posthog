@@ -837,6 +837,8 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
+    /** Colors used in the insight's visualization */
+    dataColorTheme?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
 }

@@ -4,14 +4,12 @@ import { LemonButton, LemonButtonProps, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DataColorToken } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ResultCustomizationBy } from '~/queries/schema'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
@@ -26,7 +24,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
     )
     const { closeModal, setColorToken, save } = useActions(resultCustomizationsModalLogic(insightProps))
 
-    const { isTrends, isFunnels } = useValues(insightVizDataLogic)
+    const { isTrends, isFunnels, querySource } = useValues(insightVizDataLogic)
 
     const { getTheme } = useValues(dataThemeLogic)
 
@@ -34,7 +32,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
         return null
     }
 
-    const theme = getTheme('posthog')
+    const theme = getTheme(querySource?.dataColorTheme)
 
     return (
         <LemonModal
@@ -66,7 +64,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
 
             <h3 className="l4 mt-2 mb-2">Color</h3>
             <div className="flex flex-wrap gap-1">
-                {Object.keys(theme).map((key) => (
+                {Object.keys(theme || {}).map((key) => (
                     <ColorGlyphButton
                         key={key as DataColorToken}
                         colorToken={key as DataColorToken}
@@ -137,11 +135,12 @@ type ColorGlyphButtonProps = {
 }
 
 function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonProps): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
     const { getTheme } = useValues(dataThemeLogic)
 
-    const theme = getTheme('posthog')
-    const color = theme[colorToken] as string
+    const { querySource } = useValues(insightVizDataLogic)
+
+    const theme = getTheme(querySource?.dataColorTheme)
+    const color = theme?.[colorToken] as string
 
     return (
         <LemonButton
@@ -149,17 +148,7 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
             className="ResultCustomizationsModal__ColorGlyphButton"
             onClick={onClick}
         >
-            <SeriesGlyph
-                style={{
-                    borderColor: color,
-                    color: color,
-                    backgroundColor: isDarkModeOn
-                        ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3)
-                        : hexToRGBA(color, 0.5),
-                }}
-            >
-                <></>
-            </SeriesGlyph>
+            <ColorGlyph color={color} />
         </LemonButton>
     )
 }

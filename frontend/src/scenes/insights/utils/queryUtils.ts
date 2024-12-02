@@ -150,6 +150,8 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             resultCustomizationBy: undefined,
         }
 
+        cleanedQuery.dataColorTheme = undefined
+
         if (isInsightQueryWithSeries(cleanedQuery)) {
             cleanedQuery.series = cleanedQuery.series.map((entity) => {
                 const { custom_name, ...cleanedEntity } = entity

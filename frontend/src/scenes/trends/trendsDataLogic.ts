@@ -7,6 +7,7 @@ import {
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
+    getTrendResultCustomizationColorToken,
 } from 'scenes/insights/utils'
 
 import { EventsNode, InsightQueryNode, LifecycleQuery, MathType, TrendsFilter, TrendsQuery } from '~/queries/schema'
@@ -69,6 +70,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'vizSpecificOptions',
                 'yAxisScaleType',
                 'resultCustomizationBy',
+                'theme',
             ],
         ],
         actions: [
@@ -248,6 +250,21 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
         resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
+
+        getTrendsColor: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.theme],
+            (resultCustomizationBy, resultCustomizations, theme) => {
+                return (dataset) => {
+                    const colorToken = getTrendResultCustomizationColorToken(
+                        resultCustomizationBy,
+                        resultCustomizations,
+                        theme,
+                        dataset
+                    )
+                    return theme?.[colorToken] || null
+                }
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({

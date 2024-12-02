@@ -2,17 +2,11 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { DataColorToken } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { RESULT_CUSTOMIZATION_DEFAULT } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import {
-    getFunnelDatasetKey,
-    getFunnelResultCustomizationColorToken,
-    getTrendResultCustomizationColorToken,
-    getTrendResultCustomizationKey,
-} from 'scenes/insights/utils'
+import { getFunnelDatasetKey, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -31,11 +25,13 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             insightVizDataLogic,
             ['isTrends', 'isFunnels', 'insightFilter'],
             trendsDataLogic(props),
-            ['resultCustomizationBy as resultCustomizationByRaw', 'resultCustomizations as trendsResultCustomizations'],
+            [
+                'resultCustomizationBy as resultCustomizationByRaw',
+                'resultCustomizations as trendsResultCustomizations',
+                'getTrendsColor',
+            ],
             funnelDataLogic(props),
-            ['resultCustomizations as funnelsResultCustomizations'],
-            dataThemeLogic,
-            ['getTheme'],
+            ['resultCustomizations as funnelsResultCustomizations', 'getFunnelsColor'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -79,43 +75,16 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
-            (s) => [
-                s.isTrends,
-                s.isFunnels,
-                s.resultCustomizationBy,
-                s.trendsResultCustomizations,
-                s.funnelsResultCustomizations,
-                s.getTheme,
-                s.dataset,
-            ],
-            (
-                isTrends,
-                isFunnels,
-                resultCustomizationBy,
-                trendsResultCustomizations,
-                funnelsResultCustomizations,
-                getTheme,
-                dataset
-            ): DataColorToken | null => {
+            (s) => [s.isTrends, s.isFunnels, s.getTrendsColor, s.getFunnelsColor, s.dataset],
+            (isTrends, isFunnels, getTrendsColor, getFunnelsColor, dataset): DataColorToken | null => {
                 if (!dataset) {
                     return null
                 }
 
-                const theme = getTheme('posthog')
-
                 if (isTrends) {
-                    return getTrendResultCustomizationColorToken(
-                        resultCustomizationBy,
-                        trendsResultCustomizations,
-                        theme,
-                        dataset as IndexedTrendResult
-                    )
+                    return getTrendsColor(dataset as IndexedTrendResult)
                 } else if (isFunnels) {
-                    return getFunnelResultCustomizationColorToken(
-                        funnelsResultCustomizations,
-                        theme,
-                        dataset as FlattenedFunnelStepByBreakdown
-                    )
+                    return getFunnelsColor(dataset as FlattenedFunnelStepByBreakdown)
                 }
 
                 return null

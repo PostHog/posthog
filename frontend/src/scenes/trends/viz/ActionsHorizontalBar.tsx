@@ -1,8 +1,7 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel, getTrendResultCustomizationColorToken } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -34,23 +33,13 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
-        resultCustomizationBy,
-        resultCustomizations,
+        getTrendsColor,
+        theme,
     } = useValues(trendsDataLogic(insightProps))
-    const { getTheme } = useValues(dataThemeLogic)
-    const theme = getTheme('posthog')
 
     function updateData(): void {
         const _data = [...indexedResults]
-        const colorList = indexedResults.map((dataset) => {
-            const colorToken = getTrendResultCustomizationColorToken(
-                resultCustomizationBy,
-                resultCustomizations,
-                theme,
-                dataset
-            )
-            return theme[colorToken]
-        })
+        const colorList = indexedResults.map(getTrendsColor)
 
         setData([
             {
@@ -83,7 +72,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults])
+    }, [indexedResults, theme])
 
     return data && total > 0 ? (
         <LineGraph
