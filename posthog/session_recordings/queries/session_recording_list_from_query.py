@@ -7,6 +7,7 @@ import posthoganalytics
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperation
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -166,6 +167,7 @@ class SessionRecordingListFromQuery:
             team=self._team,
             query_type="SessionRecordingListQuery",
             modifiers=self._hogql_query_modifiers,
+            settings=HogQLGlobalSettings(allow_experimental_analyzer=False),  # This needs to be turned on eventually
         )
 
         return SessionRecordingQueryResult(
