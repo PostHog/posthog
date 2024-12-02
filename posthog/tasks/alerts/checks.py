@@ -2,7 +2,7 @@ import time
 import traceback
 
 from datetime import datetime, timedelta, UTC
-from typing import Any, cast
+from typing import cast
 from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
@@ -36,8 +36,7 @@ from posthog.tasks.alerts.utils import (
     alert_calculation_interval_to_relativedelta,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
-from posthog.ph_client import get_ph_client
-from posthoganalytics import Posthog
+from posthog.ph_client import ph_us_client
 
 
 logger = structlog.get_logger(__name__)
@@ -77,13 +76,6 @@ ALERT_COMPUTED_COUNTER = Counter(
 ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
 
-def _capture_ph_event(ph_client: Posthog | None, *args: Any, **kwargs: Any) -> None:
-    if ph_client:
-        ph_client.capture(*args, **kwargs)
-
-    return None
-
-
 @shared_task(ignore_result=True)
 def checks_cleanup_task() -> None:
     AlertCheck.clean_up_old_checks()
@@ -99,7 +91,6 @@ def alerts_backlog_task() -> None:
     - hourly alerts - alerts that haven't been checked in the last hour + 5min
     - daily alerts - alerts that haven't been checked in the last hour + 15min
     """
-    ph_client = get_ph_client()
     now = datetime.now(UTC)
 
     hourly_alerts_breaching_sla = AlertConfiguration.objects.filter(
@@ -111,16 +102,6 @@ def alerts_backlog_task() -> None:
     ).count()
 
     HOURLY_ALERTS_BACKLOG_GAUGE.set(hourly_alerts_breaching_sla)
-
-    _capture_ph_event(
-        ph_client,
-        ANIRUDH_DISTINCT_ID,
-        "alert check backlog",
-        properties={
-            "alert_check_frequency": AlertCalculationInterval.HOURLY,
-            "backlog": hourly_alerts_breaching_sla,
-        },
-    )
 
     now = datetime.now(UTC)
 
@@ -134,20 +115,27 @@ def alerts_backlog_task() -> None:
 
     DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
 
-    _capture_ph_event(
-        ph_client,
-        ANIRUDH_DISTINCT_ID,
-        "alert check backlog",
-        properties={
-            "alert_check_frequency": AlertCalculationInterval.DAILY,
-            "backlog": daily_alerts_breaching_sla,
-        },
-    )
+    with ph_us_client() as capture_ph_event:
+        capture_ph_event(
+            ANIRUDH_DISTINCT_ID,
+            "alert check backlog",
+            properties={
+                "calculation_interval": AlertCalculationInterval.DAILY,
+                "backlog": daily_alerts_breaching_sla,
+            },
+        )
+
+        capture_ph_event(
+            ANIRUDH_DISTINCT_ID,
+            "alert check backlog",
+            properties={
+                "calculation_interval": AlertCalculationInterval.HOURLY,
+                "backlog": hourly_alerts_breaching_sla,
+            },
+        )
 
     # sleeping 30s for prometheus to pick up the metrics sent during task
     time.sleep(30)
-    if ph_client:
-        ph_client.shutdown()
 
 
 @shared_task(
@@ -228,12 +216,11 @@ def check_alerts_task() -> None:
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
 def check_alert_task(alert_id: str) -> None:
-    check_alert(alert_id)
+    with ph_us_client() as capture_ph_event:
+        check_alert(alert_id, capture_ph_event)
 
 
-def check_alert(alert_id: str) -> None:
-    ph_client = get_ph_client()
-
+def check_alert(alert_id: str, capture_ph_event: callable = lambda *args, **kwargs: None) -> None:
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -276,14 +263,13 @@ def check_alert(alert_id: str) -> None:
     alert.save()
 
     try:
-        check_alert_and_notify_atomically(alert, ph_client)
+        check_alert_and_notify_atomically(alert, capture_ph_event)
     except Exception as err:
         ALERT_CHECK_ERROR_COUNTER.inc()
         user = cast(User, alert.created_by)
 
-        _capture_ph_event(
-            ph_client,
-            cast(str, user.distinct_id),
+        capture_ph_event(
+            user.distinct_id,
             "alert check failed",
             properties={
                 "alert_id": alert.id,
@@ -312,12 +298,9 @@ def check_alert(alert_id: str) -> None:
         alert.is_calculating = False
         alert.save()
 
-        if ph_client:
-            ph_client.shutdown()
-
 
 @transaction.atomic
-def check_alert_and_notify_atomically(alert: AlertConfiguration, ph_client: Posthog | None) -> None:
+def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_event: callable) -> None:
     """
     Computes insight results, checks alert for breaches and notifies user.
     Only commits updates to alert state if all of the above complete successfully.
@@ -331,12 +314,12 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, ph_client: Post
     user = cast(User, alert.created_by)
 
     # Event to count alert checks
-    _capture_ph_event(
-        ph_client,
-        cast(str, user.distinct_id),
+    capture_ph_event(
+        user.distinct_id,
         "alert check",
         properties={
             "alert_id": alert.id,
+            "calculation_interval": alert.calculation_interval,
         },
     )
 
@@ -354,9 +337,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, ph_client: Post
     except Exception as err:
         error_message = f"Alert id = {alert.id}, failed to evaluate"
 
-        _capture_ph_event(
-            ph_client,
-            cast(str, user.distinct_id),
+        capture_ph_event(
+            user.distinct_id,
             "alert check failed",
             properties={
                 "alert_id": alert.id,
@@ -393,9 +375,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, ph_client: Post
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
 
-        _capture_ph_event(
-            ph_client,
-            cast(str, user.distinct_id),
+        capture_ph_event(
+            user.distinct_id,
             "alert check failed",
             properties={
                 "alert_id": alert.id,
