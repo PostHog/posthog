@@ -91,17 +91,19 @@ const VariationCell = (
                 : null
 
         return (
-            <Tooltip title={tooltip}>
-                <div className={clsx({ 'pr-4': !trend })}>
-                    {formatNumber(current)}&nbsp;
-                    {trend && (
-                        // eslint-disable-next-line react/forbid-dom-props
-                        <span style={{ color: trend.color }}>
-                            <trend.Icon color={trend.color} className="ml-1" />
-                        </span>
-                    )}
-                </div>
-            </Tooltip>
+            <div className={clsx({ 'pr-4': !trend })}>
+                <Tooltip title={tooltip}>
+                    <span>
+                        {formatNumber(current)}&nbsp;
+                        {trend && (
+                            // eslint-disable-next-line react/forbid-dom-props
+                            <span style={{ color: trend.color }}>
+                                <trend.Icon color={trend.color} className="ml-1" />
+                            </span>
+                        )}
+                    </span>
+                </Tooltip>
+            </div>
         )
     }
 }
