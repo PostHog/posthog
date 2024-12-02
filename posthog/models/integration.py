@@ -490,11 +490,11 @@ class GoogleAdsIntegration:
                 )
                 raise Exception(f"There was an internal error")
 
-            response = response.json()
+            data = response.json()
             accounts_with_name.append(
                 {
                     "id": account.split("/")[1],
-                    "name": response[0]["results"][0]["customerClient"].get("descriptiveName", "Google Ads account"),
+                    "name": data[0]["results"][0]["customerClient"].get("descriptiveName", "Google Ads account"),
                 }
             )
 
