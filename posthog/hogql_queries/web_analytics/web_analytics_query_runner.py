@@ -18,7 +18,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     EventPropertyFilter,
-    WebTopClicksQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     PersonPropertyFilter,
@@ -29,9 +28,7 @@ from posthog.schema import (
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
-WebQueryNode = Union[
-    WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery
-]
+WebQueryNode = Union[WebOverviewQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
