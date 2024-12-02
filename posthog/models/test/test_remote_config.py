@@ -31,25 +31,26 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.updated_at
         assert self.remote_config.synced_at
 
-        assert self.remote_config.config == (
+        assert self.remote_config.config == snapshot(
             {
-                "supported_compression": ["gzip", "gzip-js"],
-                "has_feature_flags": False,
-                "capture_dead_clicks": False,
-                "capture_performance": {
-                    "network_timing": True,
-                    "web_vitals": False,
-                    "web_vitals_allowed_metrics": None,
-                },
-                "autocapture_opt_out": False,
-                "autocaptureExceptions": False,
-                "analytics": {"endpoint": "/i/v0/e/"},
-                "elements_chain_as_string": True,
-                "session_recording": False,
+                "token": "phc_12345",
                 "surveys": False,
                 "heatmaps": False,
-                "default_identified_only": False,
+                "analytics": {"endpoint": "/i/v0/e/"},
                 "site_apps": [],
+                "has_feature_flags": False,
+                "session_recording": False,
+                "autocapture_opt_out": False,
+                "capture_dead_clicks": False,
+                "capture_performance": {
+                    "web_vitals": False,
+                    "network_timing": True,
+                    "web_vitals_allowed_metrics": None,
+                },
+                "supported_compression": ["gzip", "gzip-js"],
+                "autocapture_exceptions": False,
+                "default_identified_only": False,
+                "elements_chain_as_string": True,
             }
         )
 
@@ -99,7 +100,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.autocapture_exceptions_opt_in = True
         self.team.save()
         self.remote_config.refresh_from_db()
-        assert self.remote_config.config["autocaptureExceptions"] == {"endpoint": "/e/"}
+        assert self.remote_config.config["autocapture_exceptions"] == {"endpoint": "/e/"}
 
 
 class TestRemoteConfigSync(_RemoteConfigBase):
@@ -134,7 +135,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-            window._POSTHOG_CONFIG = {"surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocaptureExceptions": false, "supported_compression": ["gzip", "gzip-js"], "default_identified_only": false, "elements_chain_as_string": true};
+            window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "supported_compression": ["gzip", "gzip-js"], "autocapture_exceptions": false, "default_identified_only": false, "elements_chain_as_string": true};
             window._POSTHOG_SITE_APPS = [];
         })();\
 """
@@ -178,7 +179,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
         assert js == snapshot(
             """\
 (function() {
-            window._POSTHOG_CONFIG = {"surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "autocaptureExceptions": false, "supported_compression": ["gzip", "gzip-js"], "default_identified_only": false, "elements_chain_as_string": true};
+            window._POSTHOG_CONFIG = {"token": "phc_12345", "surveys": false, "heatmaps": false, "analytics": {"endpoint": "/i/v0/e/"}, "site_apps": [], "has_feature_flags": false, "session_recording": false, "autocapture_opt_out": false, "capture_dead_clicks": false, "capture_performance": {"web_vitals": false, "network_timing": true, "web_vitals_allowed_metrics": null}, "supported_compression": ["gzip", "gzip-js"], "autocapture_exceptions": false, "default_identified_only": false, "elements_chain_as_string": true};
             window._POSTHOG_SITE_APPS = [{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:posthog }) } },{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:posthog }) } },{ token: 'tokentoken', load: function(posthog) { (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:posthog }) } }];
         })();\
 """

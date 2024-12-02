@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Optional
 from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_save
@@ -25,8 +26,19 @@ logger = structlog.get_logger(__name__)
 
 
 # Load the JS content from the frontend build
-ARRAY_JS_CONTENT_FILE = os.path.join(settings.BASE_DIR, "frontend/dist/array.js")
-ARRAY_JS_CONTENT = open(ARRAY_JS_CONTENT_FILE).read()
+
+
+_array_js_content: Optional[str] = None
+
+
+def get_array_js_content():
+    global _array_js_content
+
+    if _array_js_content is None:
+        with open(os.path.join(settings.BASE_DIR, "frontend/dist/array.js")) as f:
+            _array_js_content = f.read()
+
+    return _array_js_content
 
 
 class RemoteConfig(UUIDModel):
@@ -193,7 +205,7 @@ class RemoteConfig(UUIDModel):
         js_content = self.build_js_config()
 
         js_content = f"""
-        {ARRAY_JS_CONTENT}
+        {get_array_js_content()}
 
         {js_content}
         """
