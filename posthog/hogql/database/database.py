@@ -409,7 +409,9 @@ def create_hogql_database(
                 from_field=from_field,
                 to_field=to_field,
                 join_table=joining_table,
-                join_function=join.join_function(),
+                join_function=join.join_function_for_experiments()
+                if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
+                else join.join_function(),
             )
 
             if join.source_table_name == "persons":
