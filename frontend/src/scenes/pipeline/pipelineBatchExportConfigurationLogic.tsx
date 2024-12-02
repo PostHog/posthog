@@ -189,6 +189,12 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             type: 'integer',
             schema_valid: true,
         },
+        created_at: {
+            name: 'created_at',
+            hogql_value: 'created_at',
+            type: 'datetime',
+            schema_valid: true,
+        },
     },
 }
 

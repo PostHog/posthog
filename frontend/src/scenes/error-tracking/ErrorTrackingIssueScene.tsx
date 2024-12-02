@@ -10,14 +10,14 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 
 import { AssigneeSelect } from './AssigneeSelect'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
-import { errorTrackingGroupSceneLogic } from './errorTrackingGroupSceneLogic'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { OverviewTab } from './groups/OverviewTab'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
 export const scene: SceneExport = {
-    component: ErrorTrackingGroupScene,
-    logic: errorTrackingGroupSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof errorTrackingGroupSceneLogic)['props'] => ({ id }),
+    component: ErrorTrackingIssueScene,
+    logic: errorTrackingIssueSceneLogic,
+    paramsToProps: ({ params: { id } }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id }),
 }
 
 const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
@@ -27,9 +27,9 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     pending_release: 'Pending release',
 }
 
-export function ErrorTrackingGroupScene(): JSX.Element {
-    const { issue, issueLoading, hasGroupActions } = useValues(errorTrackingGroupSceneLogic)
-    const { updateIssue, loadIssue } = useActions(errorTrackingGroupSceneLogic)
+export function ErrorTrackingIssueScene(): JSX.Element {
+    const { issue, issueLoading, hasGroupActions } = useValues(errorTrackingIssueSceneLogic)
+    const { updateIssue, loadIssue } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
         // don't like doing this but scene logics do not unmount after being loaded
