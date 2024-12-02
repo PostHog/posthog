@@ -521,6 +521,7 @@ class JSONLBatchExportWriter(BatchExportWriter):
         self,
         max_bytes: int,
         flush_callable: FlushCallable,
+        schema: pa.Schema,
         compression: None | str = None,
         default: typing.Callable = str,
     ):
@@ -591,7 +592,7 @@ class CSVBatchExportWriter(BatchExportWriter):
         self,
         max_bytes: int,
         flush_callable: FlushCallable,
-        field_names: collections.abc.Sequence[str],
+        schema: pa.Schema,
         extras_action: typing.Literal["raise", "ignore"] = "ignore",
         delimiter: str = ",",
         quote_char: str = '"',
@@ -605,7 +606,7 @@ class CSVBatchExportWriter(BatchExportWriter):
             flush_callable=flush_callable,
             file_kwargs={"compression": compression},
         )
-        self.field_names = field_names
+        self.field_names = schema.names
         self.extras_action: typing.Literal["raise", "ignore"] = extras_action
         self.delimiter = delimiter
         self.quote_char = quote_char
