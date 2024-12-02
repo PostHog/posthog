@@ -5882,68 +5882,6 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class RecordingsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    actions: Optional[list[dict[str, Any]]] = None
-    console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
-    date_from: Optional[str] = "-3d"
-    date_to: Optional[str] = None
-    events: Optional[list[dict[str, Any]]] = None
-    filter_test_accounts: Optional[bool] = None
-    having_predicates: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
-    kind: Literal["RecordingsQuery"] = "RecordingsQuery"
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
-    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
-    person_uuid: Optional[str] = None
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingPropertyFilter,
-                LogEntryPropertyFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
-    response: Optional[RecordingsQueryResponse] = None
-    session_ids: Optional[list[str]] = None
-    user_modified_filters: Optional[dict[str, Any]] = None
-
-
 class RetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6696,6 +6634,72 @@ class QueryResponseAlternative(
         QueryResponseAlternative40,
         QueryResponseAlternative41,
     ]
+
+
+class RecordingsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[list[dict[str, Any]]] = None
+    console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
+    date_from: Optional[str] = "-3d"
+    date_to: Optional[str] = None
+    events: Optional[list[dict[str, Any]]] = None
+    filter_test_accounts: Optional[bool] = None
+    having_predicates: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    kind: Literal["RecordingsQuery"] = "RecordingsQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+    person_uuid: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                PropertyGroupFilter,
+                PropertyGroupFilterValue,
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                ],
+            ]
+        ]
+    ] = None
+    response: Optional[RecordingsQueryResponse] = None
+    session_ids: Optional[list[str]] = None
+    user_modified_filters: Optional[dict[str, Any]] = None
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

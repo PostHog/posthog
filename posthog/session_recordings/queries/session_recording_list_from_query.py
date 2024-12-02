@@ -16,7 +16,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvail
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, Property, Entity, Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import PropertyGroup
 from posthog.schema import (
     QueryTiming,
     HogQLQueryModifiers,
@@ -29,6 +28,7 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     FilterLogicalOperator,
     RecordingOrder,
+    PropertyGroupFilter,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
@@ -39,26 +39,26 @@ from posthog.types import AnyPropertyFilter
 logger = structlog.get_logger(__name__)
 
 
-def is_event_property(p: AnyPropertyFilter) -> bool:
+def is_event_property(p: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
     return p_type == "event" or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
 
 
-def is_person_property(p: AnyPropertyFilter) -> bool:
+def is_person_property(p: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
     return p_type == "person" or (p_type == "hogql" and "person.properties" in p_key)
 
 
-def is_group_property(p: AnyPropertyFilter) -> bool:
+def is_group_property(p: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return p_type == "group"
 
 
-def is_cohort_property(p: AnyPropertyFilter) -> bool:
+def is_cohort_property(p: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
-    return p_type and "cohort" in p_type
+    return bool(p_type and "cohort" in p_type)
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -68,14 +68,16 @@ class SessionRecordingQueryResult(NamedTuple):
 
 
 class UnexpectedQueryProperties(Exception):
-    def __init__(self, remaining_properties: list[AnyPropertyFilter] | None):
+    def __init__(
+        self, remaining_properties: list[AnyPropertyFilter | PropertyGroupFilterValue | PropertyGroupFilter] | None
+    ):
         self.remaining_properties = remaining_properties
         super().__init__(f"Unexpected properties in query: {remaining_properties}")
 
 
 def _strip_person_and_event_and_cohort_properties(
-    properties: list[AnyPropertyFilter] | None,
-) -> list[AnyPropertyFilter] | None:
+    properties: list[AnyPropertyFilter | PropertyGroupFilterValue | PropertyGroupFilter] | None,
+) -> list[AnyPropertyFilter | PropertyGroupFilterValue | PropertyGroupFilter] | None:
     if not properties:
         return None
 
@@ -168,7 +170,7 @@ class SessionRecordingListFromQuery:
         self._query = query
         if self._query.filter_test_accounts:
             self._query.properties = self._query.properties or []
-            self._query.properties += self._test_account_filters
+            self._query.properties.append(self._test_account_filters)
 
         self._paginator = HogQLHasMorePaginator(
             limit=query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=query.offset or 0
@@ -401,11 +403,11 @@ class PersonsPropertiesSubQuery:
         return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
 
     @cached_property
-    def person_properties(self) -> PropertyGroup | None:
+    def person_properties(self) -> PropertyGroupFilterValue | None:
         person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
-            PropertyGroup(
-                type=self.property_operand,
+            PropertyGroupFilterValue(
+                type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
                 values=person_property_groups,
             )
             if person_property_groups
@@ -454,11 +456,11 @@ HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
         return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
 
     @cached_property
-    def cohort_properties(self) -> PropertyGroup | None:
+    def cohort_properties(self) -> PropertyGroupFilterValue | None:
         cohort_property_groups = [g for g in (self._query.properties or []) if is_cohort_property(g)]
         return (
-            PropertyGroup(
-                type=self.property_operand,
+            PropertyGroupFilterValue(
+                type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
                 values=cohort_property_groups,
             )
             if cohort_property_groups
@@ -548,18 +550,19 @@ class PersonsIdCompareOperation:
 
 
 def _entity_to_expr(entity: EventsNode | ActionsNode) -> ast.Expr:
-    if entity.kind == NodeKind.ACTIONS_NODE and entity.id is not None:
+    # KLUDGE: we should be able to use NodeKind.ActionsNode here but mypy :shrug:
+    if entity.kind == "ActionsNode":
         action = Action.objects.get(pk=entity.id)
         return action_to_expr(action)
+    else:
+        if entity.event is None:
+            return ast.Constant(value=True)
 
-    if entity.event is None:
-        return ast.Constant(value=True)
-
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["events", "event"]),
-        right=ast.Constant(value=entity.name),
-    )
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value=entity.name),
+        )
 
 
 class ReplayFiltersEventsSubQuery:
@@ -759,7 +762,7 @@ class ReplayFiltersEventsSubQuery:
         return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
 
     @cached_property
-    def person_properties(self) -> PropertyGroup | None:
+    def person_properties(self) -> PropertyGroupFilterValue | None:
         person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
             PropertyGroupFilterValue(
