@@ -1343,7 +1343,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        self.asserodoRaises(ValueError, lambda: CohortQuery(filter=filter, team=self.team))
+        self.assertRaises(ValueError, lambda: CohortQuery(filter=filter, team=self.team))
 
     def test_negation_with_simplify_filters(self):
         _create_person(

@@ -49,6 +49,17 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
+class DataCheckWrapperCohortQuery(CohortQuery):
+    def __init__(self, filter: Filter, team: Team):
+        cohort_query = CohortQuery(filter=filter, team=team)
+        try:
+            hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
+            self.result = execute_hogql_query(hogql_cohort_query.get_query(), team)
+        except Exception as e:
+            pass
+        super().__init__(filter=filter, team=team)
+
+
 def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> tuple[str, dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort, index, prepend="")
@@ -59,7 +70,7 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
 
     from posthog.queries.cohort_query import CohortQuery
 
-    query_builder = CohortQuery(
+    query_builder = DataCheckWrapperCohortQuery(
         Filter(
             data={"properties": cohort.properties},
             team=cohort.team,
@@ -337,18 +348,6 @@ def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
         return count_result[0][0]
     else:
         return None
-
-
-def recalculate_cohortpeople_hogql(
-    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
-) -> Optional[int]:
-    # TODO(@aspicer): Handle static cohorts
-
-    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
-    HogQLCohortQuery(cohort)
-    return 0
-    # return cohort_query.get_query()
 
 
 def recalculate_cohortpeople(
