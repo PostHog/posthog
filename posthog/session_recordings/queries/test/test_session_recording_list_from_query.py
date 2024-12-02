@@ -16,7 +16,7 @@ from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.schema import RecordingsQuery
-from posthog.session_recordings.queries.session_recording_list_from_filters import (
+from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromFilters,
     SessionRecordingQueryResult,
 )
