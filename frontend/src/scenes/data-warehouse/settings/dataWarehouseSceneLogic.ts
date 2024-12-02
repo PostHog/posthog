@@ -286,7 +286,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     query: query,
                 }
                 const oldView = values.viewsMapById[values.editingView]
-                const newView: DatabaseSchemaViewTable = {
+                const newView: DatabaseSchemaViewTable & { types: string[][] } = {
                     ...oldView,
                     query: newViewQuery,
                     types,
