@@ -35,4 +35,4 @@ OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
 )
 
 # Bucket for storing public files like configs, team specific array.js etc.
-OBJECT_STORAGE_ARRAY_BUCKET = os.getenv("OBJECT_STORAGE_ARRAY_BUCKET", "")
+OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET = os.getenv("OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET", "")

@@ -202,12 +202,12 @@ class RemoteConfig(UUIDModel):
         return js_content
 
     def sync_to_cdn(self):
-        if not settings.OBJECT_STORAGE_ARRAY_BUCKET:
-            logger.warning("OBJECT_STORAGE_ARRAY_BUCKET is not set. Skipping RemoteConfig sync.")
+        if not settings.OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET:
+            logger.warning("OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET is not set. Skipping RemoteConfig sync.")
             return
 
         object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_ARRAY_BUCKET,
+            bucket=settings.OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET,
             key=f"array/{self.team.api_token}/config",
             content=json.dumps(self.config),
             extras={
@@ -216,7 +216,7 @@ class RemoteConfig(UUIDModel):
         )
 
         object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_ARRAY_BUCKET,
+            bucket=settings.OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET,
             key=f"array/{self.team.api_token}/config.js",
             content=self.build_js_config(),
             extras={
@@ -225,7 +225,7 @@ class RemoteConfig(UUIDModel):
         )
 
         object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_ARRAY_BUCKET,
+            bucket=settings.OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET,
             key=f"array/{self.team.api_token}/array.js",
             content=self.build_array_js_config(),
             extras={

@@ -130,7 +130,7 @@ class TestRemoteConfigSync(_RemoteConfigBase):
 
         mock_client.write.return_value = None
 
-        with self.settings(OBJECT_STORAGE_ARRAY_BUCKET="test-bucket"):
+        with self.settings(OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET="test-bucket"):
             self.remote_config.sync(force=True)
 
         calls = mock_client.write.call_args_list
