@@ -39,19 +39,25 @@ logger = structlog.get_logger(__name__)
 
 
 def is_event_property(p: AnyPropertyFilter) -> bool:
-    return p.type == "event" or (p.type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p.key)))
+    p_type = getattr(p, "type", None)
+    p_key = getattr(p, "key", "")
+    return p_type == "event" or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
 
 
 def is_person_property(p: AnyPropertyFilter) -> bool:
-    return p.type == "person" or (p.type == "hogql" and "person.properties" in p.key)
+    p_type = getattr(p, "type", None)
+    p_key = getattr(p, "key", "")
+    return p_type == "person" or (p_type == "hogql" and "person.properties" in p_key)
 
 
 def is_group_property(p: AnyPropertyFilter) -> bool:
-    return p.type == "group"
+    p_type = getattr(p, "type", None)
+    return p_type == "group"
 
 
 def is_cohort_property(p: AnyPropertyFilter) -> bool:
-    return "cohort" in p.type
+    p_type = getattr(p, "type", None)
+    return "cohort" in p_type
 
 
 class SessionRecordingQueryResult(NamedTuple):
