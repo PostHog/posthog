@@ -66,8 +66,8 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             probabilities = calculate_probabilities(control_variant, test_variants)
             significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
             credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
-        except Exception:
-            raise
+        except Exception as e:
+            raise ValueError(f"Error calculating experiment funnel results: {str(e)}") from e
 
         return ExperimentFunnelsQueryResponse(
             kind="ExperimentFunnelsQuery",
