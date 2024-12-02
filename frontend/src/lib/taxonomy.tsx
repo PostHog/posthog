@@ -92,6 +92,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
         },
+        $$heatmap: {
+            label: 'Heatmap',
+            description: 'Heatmap events carry heatmap data to the backend, they do not contribute to event counts.',
+        },
         $copy_autocapture: {
             label: 'Clipboard autocapture',
             description: 'Selected text automatically captured when a user copies or cuts.',
@@ -386,6 +390,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
                     Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.
                 </span>
             ),
+        },
+        $recording_status: {
+            label: 'Session recording status',
+            description: 'The status of session recording at the time the event was captured',
         },
         // exception tracking
         $cymbal_errors: {
