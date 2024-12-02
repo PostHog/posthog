@@ -1440,7 +1440,7 @@ export function resolveWebhookService(webhookUrl: string): string {
     return 'your webhook service'
 }
 
-function hexToRGB(hex: string): { r: number; g: number; b: number } {
+export function hexToRGB(hex: string): { r: number; g: number; b: number } {
     const originalString = hex.trim()
     const hasPoundSign = originalString[0] === '#'
     let originalColor = hasPoundSign ? originalString.slice(1) : originalString
