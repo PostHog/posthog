@@ -2440,7 +2440,9 @@ const api = {
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
         },
-        async googleAdsAccounts(id: IntegrationType['id']): Promise<{ accessibleAccounts: { id: string }[] }> {
+        async googleAdsAccounts(
+            id: IntegrationType['id']
+        ): Promise<{ accessibleAccounts: { id: string; name: string }[] }> {
             return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
         },
         async googleAdsConversionActions(
