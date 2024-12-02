@@ -213,11 +213,14 @@ class RemoteConfig(UUIDModel):
         return js_content
 
     def sync_to_cdn(self):
-        # TODO: Verify we really want to store this in the shared bucket...
         # TODO: Add cache invalidation for whatever our choice of CDN is - or let it have a small enough cache time (e.g. 5 mins or something)
 
+        if not settings.OBJECT_STORAGE_ARRAY_BUCKET:
+            logger.warning("OBJECT_STORAGE_ARRAY_BUCKET is not set. Skipping RemoteConfig sync.")
+            return
+
         object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_BUCKET,
+            bucket=settings.OBJECT_STORAGE_ARRAY_BUCKET,
             key=f"array/{self.team.api_token}/config",
             content=json.dumps(self.config),
             extras={
@@ -226,7 +229,7 @@ class RemoteConfig(UUIDModel):
         )
 
         object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_BUCKET,
+            bucket=settings.OBJECT_STORAGE_ARRAY_BUCKET,
             key=f"array/{self.team.api_token}/config.js",
             content=self.build_js_config(),
             extras={
@@ -235,7 +238,7 @@ class RemoteConfig(UUIDModel):
         )
 
         object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_BUCKET,
+            bucket=settings.OBJECT_STORAGE_ARRAY_BUCKET,
             key=f"array/{self.team.api_token}/array.js",
             content=self.build_array_js_config(),
             extras={
@@ -243,7 +246,7 @@ class RemoteConfig(UUIDModel):
             },
         )
 
-    def sync(self):
+    def sync(self, force=False):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
         """
@@ -257,7 +260,7 @@ class RemoteConfig(UUIDModel):
         try:
             config = self.build_config()
             # Compare the config to the current one and only update if it has changed
-            if config == self.config:
+            if config == self.config and not force:
                 logger.info(f"RemoteConfig for team {self.team_id} has not changed. Skipping sync.")
                 return
 
