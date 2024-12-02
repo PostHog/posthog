@@ -339,6 +339,18 @@ def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
         return None
 
 
+def recalculate_cohortpeople_hogql(
+    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
+) -> Optional[int]:
+    # TODO(@aspicer): Handle static cohorts
+
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    HogQLCohortQuery(cohort)
+    return 0
+    # return cohort_query.get_query()
+
+
 def recalculate_cohortpeople(
     cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
