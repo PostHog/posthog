@@ -84,9 +84,9 @@ class FeatureFlagStatusChecker:
                 flag
             )
         if multivariate and is_multivariate_flag_fully_enabled:
-            return True, f'Currently, this flag will always use the variant "{fully_enabled_variant_name}"'
+            return True, f'This flag will always use the variant "{fully_enabled_variant_name}"'
         elif self.is_boolean_flag_fully_enabled(flag):
-            return True, 'Currently, this boolean flag will always evaluate to "true"'
+            return True, 'This boolean flag will always evaluate to "true"'
 
         return False, ""
 
