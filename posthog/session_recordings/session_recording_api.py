@@ -1068,7 +1068,7 @@ def list_recordings(
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
-            person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if person:
                 recording.person = person
 
