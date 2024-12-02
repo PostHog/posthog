@@ -3,6 +3,7 @@ import traceback
 
 from datetime import datetime, timedelta, UTC
 from typing import cast
+from collections.abc import Callable
 from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
@@ -220,7 +221,7 @@ def check_alert_task(alert_id: str) -> None:
         check_alert(alert_id, capture_ph_event)
 
 
-def check_alert(alert_id: str, capture_ph_event: callable = lambda *args, **kwargs: None) -> None:
+def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -300,7 +301,7 @@ def check_alert(alert_id: str, capture_ph_event: callable = lambda *args, **kwar
 
 
 @transaction.atomic
-def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_event: callable) -> None:
+def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_event: Callable) -> None:
     """
     Computes insight results, checks alert for breaches and notifies user.
     Only commits updates to alert state if all of the above complete successfully.
