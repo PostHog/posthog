@@ -28,8 +28,12 @@ const getGoogleAdsConversionActionOptions = (
     return googleAdsConversionActions
         ? googleAdsConversionActions.map(({ id, name }) => ({
               key: id,
-              labelComponent: <span className="flex items-center">{name}</span>,
-              label: name,
+              labelComponent: (
+                  <span className="flex items-center">
+                      {name} ({id})
+                  </span>
+              ),
+              label: `${name} (${id})`,
           }))
         : null
 }
