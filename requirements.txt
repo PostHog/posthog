@@ -499,7 +499,7 @@ pyasn1-modules==0.3.0
     # via google-auth
 pycparser==2.20
     # via cffi
-pydantic==2.10.2
+pydantic==2.9.2
     # via
     #   -r requirements.in
     #   langchain
@@ -507,7 +507,7 @@ pydantic==2.10.2
     #   langfuse
     #   langsmith
     #   openai
-pydantic-core==2.27.1
+pydantic-core==2.23.4
     # via pydantic
 pyjwt==2.4.0
     # via
