@@ -7,7 +7,9 @@ from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
+from posthog.event_usage import groups
 from posthog.models import ProxyRecord
+from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
@@ -77,15 +79,16 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         )
 
         serializer = self.get_serializer(record)
+        organization = Organization.objects.get(id=record.organization_id)
         posthoganalytics.capture(
             request.user.distinct_id,
-            "proxy record created",
+            "managed reverse proxy created",
             properties={
-                "organization_id": record.organization_id,
                 "proxy_record_id": record.id,
                 "domain": record.domain,
                 "target_cname": record.target_cname,
             },
+            groups=groups(organization),
         )
         return Response(serializer.data)
 
