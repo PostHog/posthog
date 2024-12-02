@@ -5,16 +5,14 @@ import {
     IconNotebook,
     IconPin,
     IconPinFilled,
-    IconSearch,
     IconShare,
     IconTrash,
 } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconComment } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Fragment } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -79,7 +77,7 @@ function PinToPlaylistButton({
 }
 
 export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
-    const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
     const nodeLogic = useNotebookNode()
@@ -101,7 +99,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
     }
 
     const commonProps: Partial<LemonButtonProps> = {
-        size: 'small',
+        size: 'xsmall',
     }
 
     const buttonContent = (label: string): JSX.Element => {
@@ -165,14 +163,6 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                     ) : null}
 
                     <PinToPlaylistButton buttonContent={buttonContent} {...commonProps} />
-
-                    <LemonButton
-                        size="small"
-                        onClick={() => setIsFullScreen(!isFullScreen)}
-                        tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
-                    >
-                        <IconFullScreen className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
-                    </LemonButton>
                 </>
             ) : null}
         </div>
@@ -181,8 +171,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
 
 const MenuActions = (): JSX.Element => {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { exportRecordingToFile, openExplorer, deleteRecording, setIsFullScreen } =
-        useActions(sessionRecordingPlayerLogic)
+    const { exportRecordingToFile, deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const { fetchSimilarRecordings } = useActions(sessionRecordingDataLogic(logicProps))
 
     const hasMobileExportFlag = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
@@ -212,11 +201,6 @@ const MenuActions = (): JSX.Element => {
             icon: <IconDownload />,
             tooltip: 'Export recording to a file. This can be loaded later into PostHog for playback.',
         },
-        {
-            label: 'Explore DOM',
-            onClick: openExplorer,
-            icon: <IconSearch />,
-        },
         hasMobileExport && {
             label: 'Export mobile replay to file',
             onClick: () => exportRecordingToFile(true),
@@ -239,8 +223,8 @@ const MenuActions = (): JSX.Element => {
     ]
 
     return (
-        <LemonMenu items={items}>
-            <LemonButton size="small" icon={<IconEllipsis />} />
+        <LemonMenu items={items} buttonSize="xsmall">
+            <LemonButton size="xsmall" icon={<IconEllipsis />} />
         </LemonMenu>
     )
 }

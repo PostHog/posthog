@@ -32,7 +32,7 @@ export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element 
                     />
                 </LemonField>
                 <LemonButton htmlType="submit" data-attr="2fa-setup" fullWidth type="primary" center loading={false}>
-                    Login
+                    Submit
                 </LemonButton>
             </Form>
         </>

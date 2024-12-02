@@ -6,7 +6,11 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         ["__STLToString"],
     ],
     "match": [
-        "function match (str, pattern) { return new RegExp(pattern).test(str) }",
+        "function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }",
+        [],
+    ],
+    "__imatch": [
+        "function __imatch (str, pattern) { return !str || !pattern ? false : new RegExp(pattern, 'i').test(str) }",
         [],
     ],
     "like": [
@@ -825,11 +829,8 @@ function __like(str, pattern, caseInsensitive = false) {
         """
 function __getProperty(objectOrArray, key, nullish) {
     if ((nullish && !objectOrArray) || key === 0) { return null }
-    if (Array.isArray(objectOrArray)) {
-        return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
-    } else {
-        return objectOrArray[key]
-    }
+    if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
+    else { return objectOrArray[key] }
 }
 """,
         [],
@@ -837,15 +838,8 @@ function __getProperty(objectOrArray, key, nullish) {
     "__setProperty": [
         """
 function __setProperty(objectOrArray, key, value) {
-    if (Array.isArray(objectOrArray)) {
-        if (key > 0) {
-            objectOrArray[key - 1] = value
-        } else {
-            objectOrArray[objectOrArray.length + key] = value
-        }
-    } else {
-        objectOrArray[key] = value
-    }
+    if (Array.isArray(objectOrArray)) { if (key > 0) { objectOrArray[key - 1] = value } else { objectOrArray[objectOrArray.length + key] = value } }
+    else { objectOrArray[key] = value }
     return objectOrArray
 }
 """,
