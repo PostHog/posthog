@@ -23,8 +23,6 @@ from typing import Any, cast, Optional
 
 from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
-from django.db.models.expressions import F
-from django.utils import timezone
 from rest_framework import serializers, viewsets, request, status
 from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
@@ -53,7 +51,7 @@ from posthog.constants import (
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
-from posthog.models import Cohort, FeatureFlag, User, Person
+from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
@@ -140,14 +138,14 @@ class CohortSerializer(serializers.ModelSerializer):
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
-            insert_cohort_from_query.delay(cohort.pk)
+            insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
             if existing_cohort_id:
                 filter_data = {**filter_data, "from_cohort_id": existing_cohort_id}
             if filter_data:
-                insert_cohort_from_insight_filter.delay(cohort.pk, filter_data)
+                insert_cohort_from_insight_filter.delay(cohort.pk, filter_data, self.context["team_id"])
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
@@ -174,7 +172,7 @@ class CohortSerializer(serializers.ModelSerializer):
         decoded_file = file.read().decode("utf-8").splitlines()
         reader = csv.reader(decoded_file)
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
-        calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
+        calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails, team_id=self.context["team_id"])
 
     def validate_query(self, query: Optional[dict]) -> Optional[dict]:
         if not query:
@@ -196,7 +194,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 instance = cast(Cohort, self.instance)
                 cohort_id = instance.pk
                 flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
-                    team_id=self.context["team_id"], active=True, deleted=False
+                    team__project_id=self.context["project_id"], active=True, deleted=False
                 )
                 cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
 
@@ -230,7 +228,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
-        user = cast(User, request.user)
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
@@ -241,22 +238,31 @@ class CohortSerializer(serializers.ModelSerializer):
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
+            relevant_team_ids = (
+                Team.objects.order_by("id").filter(project_id=cohort.team.project_id).values_list("id", flat=True)
+            )
             cohort.deleted = deleted_state
             if deleted_state:
                 # De-attach from experiments
                 cohort.experiment_set.set([])
 
-                AsyncDeletion.objects.get_or_create(
-                    deletion_type=DeletionType.Cohort_full,
-                    team_id=cohort.team.pk,
-                    key=f"{cohort.pk}_{cohort.version}",
-                    created_by=user,
+                AsyncDeletion.objects.bulk_create(
+                    [
+                        AsyncDeletion(
+                            deletion_type=DeletionType.Cohort_full,
+                            team_id=team_id,
+                            # Only appending `team_id` if it's not the same as the cohort's `team_id``, so that
+                            # the migration to environments does not accidentally cause duplicate `AsyncDeletion`s
+                            key=f"{cohort.pk}_{cohort.version}{('_'+team_id) if team_id != cohort.team_id else ''}",
+                        )
+                        for team_id in relevant_team_ids
+                    ],
+                    ignore_conflicts=True,
                 )
             else:
                 AsyncDeletion.objects.filter(
                     deletion_type=DeletionType.Cohort_full,
-                    team_id=cohort.team.pk,
-                    key=f"{cohort.pk}_{cohort.version}",
+                    key__startswith=f"{cohort.pk}_{cohort.version}",  # We target this _prefix_, so all teams are covered
                 ).delete()
         elif not cohort.is_static:
             cohort.is_calculating = True
@@ -476,7 +482,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    param_derived_from_user_current_team = "project_id"
+    param_derived_from_user_current_team = "team_id"
 
 
 def will_create_loops(cohort: Cohort) -> bool:
@@ -515,23 +521,21 @@ def will_create_loops(cohort: Cohort) -> bool:
     return dfs_loop_helper(cohort, set(), set())
 
 
-def insert_cohort_people_into_pg(cohort: Cohort):
+def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     ids = sync_execute(
-        "SELECT person_id FROM {} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s".format(
-            PERSON_STATIC_COHORT_TABLE
-        ),
-        {"cohort_id": cohort.pk, "team_id": cohort.team.pk},
+        f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+        {"cohort_id": cohort.pk, "team_id": team_id},
     )
     cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])
 
 
-def insert_cohort_query_actors_into_ch(cohort: Cohort):
-    context = HogQLContext(enable_select_queries=True, team_id=cohort.team.pk)
+def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team_id: int):
+    context = HogQLContext(enable_select_queries=True, team_id=team_id)
     query = print_cohort_hogql_query(cohort, context)
     insert_actors_into_cohort_by_query(cohort, query, {}, context)
 
 
-def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict):
+def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: int):
     from_existing_cohort_id = filter_data.get("from_cohort_id")
     context: HogQLContext
 
@@ -544,7 +548,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict):
             ORDER BY person_id
         """
         params = {
-            "team_id": cohort.team.pk,
+            "team_id": team_id,
             "from_cohort_id": existing_cohort.pk,
             "version": existing_cohort.version,
         }
@@ -594,32 +598,19 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict):
     insert_actors_into_cohort_by_query(cohort, query, params, context)
 
 
-def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: dict[str, Any], context: HogQLContext):
-    try:
-        sync_execute(
-            INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
-            {
-                "cohort_id": cohort.pk,
-                "_timestamp": datetime.now(),
-                "team_id": cohort.team.pk,
-                **context.values,
-                **params,
-            },
-        )
-
-        cohort.is_calculating = False
-        cohort.last_calculation = timezone.now()
-        cohort.errors_calculating = 0
-        cohort.last_error_at = None
-        cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating", "last_error_at"])
-    except Exception as err:
-        if settings.DEBUG:
-            raise
-        cohort.is_calculating = False
-        cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.last_error_at = timezone.now()
-        cohort.save(update_fields=["errors_calculating", "is_calculating", "last_error_at"])
-        capture_exception(err)
+def insert_actors_into_cohort_by_query(
+    cohort: Cohort, query: str, params: dict[str, Any], context: HogQLContext, *, team_id: int
+):
+    sync_execute(
+        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
+        {
+            "cohort_id": cohort.pk,
+            "_timestamp": datetime.now(),
+            "team_id": team_id,
+            **context.values,
+            **params,
+        },
+    )
 
 
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000):

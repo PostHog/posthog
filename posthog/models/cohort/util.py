@@ -34,13 +34,10 @@ from posthog.models.cohort.sql import (
     STALE_COHORTPEOPLE,
 )
 from posthog.models.person.sql import (
-    GET_LATEST_PERSON_SQL,
-    GET_PERSON_IDS_BY_FILTER,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
-from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -75,14 +72,14 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     return query, params
 
 
-def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str:
+def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
     query = get_query_runner(
-        cast(dict, cohort.query), team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
+        cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
 
     for select_query in extract_select_queries(query):
@@ -109,7 +106,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
-    create_default_modifiers_for_team(cohort.team, hogql_context.modifiers)
+    create_default_modifiers_for_team(team, hogql_context.modifiers)
     return print_ast(query, context=hogql_context, dialect="clickhouse")
 
 
@@ -250,22 +247,23 @@ def format_filter_query(
     hogql_context: HogQLContext,
     id_column: str = "distinct_id",
     custom_match_field="person_id",
+    *,
+    team: Team,
 ) -> tuple[str, dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index, hogql_context, custom_match_field=custom_match_field)
+    person_query, params = format_cohort_subquery(
+        cohort, index, hogql_context, custom_match_field=custom_match_field, team=team
+    )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
         id_column=id_column,
-        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
+        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.id),
     )
     return person_id_query, params
 
 
 def format_cohort_subquery(
-    cohort: Cohort,
-    index: int,
-    hogql_context: HogQLContext,
-    custom_match_field="person_id",
+    cohort: Cohort, index: int, hogql_context: HogQLContext, custom_match_field="person_id"
 ) -> tuple[str, dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
@@ -277,46 +275,13 @@ def format_cohort_subquery(
     return person_query, params
 
 
-def get_person_ids_by_cohort_id(
-    team: Team,
-    cohort_id: int,
-    limit: Optional[int] = None,
-    offset: Optional[int] = None,
-):
-    from posthog.models.property.util import parse_prop_grouped_clauses
-
-    filter = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
-    filter_query, filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk,
-        property_group=filter.property_groups,
-        table_name="pdi",
-        hogql_context=filter.hogql_context,
-    )
-
-    results = insight_sync_execute(
-        GET_PERSON_IDS_BY_FILTER.format(
-            person_query=GET_LATEST_PERSON_SQL,
-            distinct_query=filter_query,
-            query="",
-            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
-            offset="OFFSET %(offset)s" if offset else "",
-            limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
-        ),
-        {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
-        query_type="get_person_ids_by_cohort_id",
-        team_id=team.pk,
-    )
-
-    return [str(row[0]) for row in results]
-
-
-def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, team: Team):
+def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
     persons = [
         {
             "id": str(uuid.uuid4()),
             "person_id": str(person_uuid),
             "cohort_id": cohort_id,
-            "team_id": team.pk,
+            "team_id": team_id,
             "_timestamp": datetime.now(),
         }
         for person_uuid in person_uuids
@@ -324,12 +289,12 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
-def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
+def get_static_cohort_size(cohort: Cohort, *, team_id: int) -> Optional[int]:
     count_result = sync_execute(
         GET_STATIC_COHORT_SIZE_SQL,
         {
             "cohort_id": cohort.pk,
-            "team_id": cohort.team_id,
+            "team_id": team_id,
         },
     )
 
@@ -343,18 +308,23 @@ def recalculate_cohortpeople(
     cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
     # All environments where the cohort is present
-    relevant_teams = Team.objects.filter(project_id=cohort.team.project_id)
+    relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
+    counts: list[int] = []
     for team in relevant_teams:
-        _recalculate_cohortpeople_for_team(cohort, pending_version, team, initiating_user_id=initiating_user_id)
+        count_for_team = _recalculate_cohortpeople_for_team(
+            cohort, pending_version, team, initiating_user_id=initiating_user_id
+        )
+        counts.append(count_for_team)
+    return counts[0]
 
 
 def _recalculate_cohortpeople_for_team(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ) -> Optional[int]:
     hogql_context = HogQLContext(within_non_hogql_query=True, team=team)
-    cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
+    cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context, team=team)
 
-    before_count = get_cohort_size(cohort)
+    before_count = get_cohort_size(cohort, team_id=team.id)
 
     if before_count:
         logger.warn(
@@ -388,12 +358,12 @@ def _recalculate_cohortpeople_for_team(
         workload=Workload.OFFLINE,
     )
 
-    count = get_cohort_size(cohort, override_version=pending_version)
+    count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
 
     if count is not None and before_count is not None:
         logger.warn(
             "Recalculating cohortpeople done",
-            team_id=cohort.team_id,
+            team_id=team.id,
             cohort_id=cohort.pk,
             size_before=before_count,
             size=count,
@@ -431,13 +401,13 @@ def clear_stale_cohortpeople(cohort: Cohort, before_version: int) -> None:
             )
 
 
-def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None) -> Optional[int]:
+def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {
             "cohort_id": cohort.pk,
             "version": override_version if override_version is not None else cohort.version,
-            "team_id": cohort.team_id,
+            "team_id": team_id,
         },
         workload=Workload.OFFLINE,
     )
@@ -561,7 +531,7 @@ def get_dependent_cohorts(
                     continue
             else:
                 current_cohort = Cohort.objects.db_manager(using_database).get(
-                    pk=cohort_id, team_id=cohort.team_id, deleted=False
+                    pk=cohort_id, team__project_id=cohort.team.project_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort
             if current_cohort.id not in seen_cohort_ids:

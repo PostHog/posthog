@@ -9,12 +9,13 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.cohort.util import format_filter_query, get_person_ids_by_cohort_id
+from posthog.models.cohort.util import format_filter_query
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
 from posthog.schema import PersonsOnEventsMode
 from posthog.test.base import (
@@ -26,6 +27,7 @@ from posthog.test.base import (
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
 )
+from posthog.models.person.sql import GET_LATEST_PERSON_SQL, GET_PERSON_IDS_BY_FILTER
 
 
 def _create_action(**kwargs):
@@ -33,6 +35,37 @@ def _create_action(**kwargs):
     name = kwargs.pop("name")
     action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
     return action
+
+
+def get_person_ids_by_cohort_id(
+    team_id: int,
+    cohort_id: int,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+):
+    from posthog.models.property.util import parse_prop_grouped_clauses
+
+    filter = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
+    filter_query, filter_params = parse_prop_grouped_clauses(
+        team_id=team_id,
+        property_group=filter.property_groups,
+        table_name="pdi",
+        hogql_context=filter.hogql_context,
+    )
+
+    results = sync_execute(
+        GET_PERSON_IDS_BY_FILTER.format(
+            person_query=GET_LATEST_PERSON_SQL,
+            distinct_query=filter_query,
+            query="",
+            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
+            offset="OFFSET %(offset)s" if offset else "",
+            limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
+        ),
+        {**filter_params, "team_id": team_id, "offset": offset, "limit": limit},
+    )
+
+    return [str(row[0]) for row in results]
 
 
 class TestCohort(ClickhouseTestMixin, BaseTest):
@@ -454,7 +487,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team_id, cohort.id)
         self.assertEqual(len(results), 2)
         self.assertIn(str(user1.uuid), results)
         self.assertIn(str(user3.uuid), results)
@@ -470,7 +503,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["1", "123"])
         cohort = Cohort.objects.get()
-        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team_id, cohort.id)
         self.assertEqual(len(results), 2)
         self.assertEqual(cohort.is_calculating, False)
 
@@ -485,12 +518,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people_ch(pending_version=0)
-        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team_id, cohort.id)
         self.assertEqual(len(results), 3)
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
-        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team_id, cohort.id)
         self.assertEqual(len(results), 3)
 
     @snapshot_clickhouse_insert_cohortpeople_queries
