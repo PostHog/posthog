@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain } from 'lib/utils'
+import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { proxyLogicType } from './proxyLogicType'
@@ -68,7 +69,10 @@ export const proxyLogic = kea<proxyLogicType>([
     listeners(({ actions, values }) => ({
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
-        createRecordSuccess: () => actions.loadRecords(),
+        createRecordSuccess: () => {
+            actions.loadRecords()
+            posthog.capture('proxy_record_created')
+        },
         maybeRefreshRecords: () => {
             if (values.shouldRefreshRecords) {
                 actions.loadRecords()
