@@ -14,7 +14,6 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDModel, execute_with_timeout
 
 from posthog.models.team import Team
-from posthog.storage.object_storage import object_storage_client
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "posthog_remote_config_sync",
@@ -201,38 +200,6 @@ class RemoteConfig(UUIDModel):
 
         return js_content
 
-    def sync_to_cdn(self):
-        if not settings.OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET:
-            logger.warning("OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET is not set. Skipping RemoteConfig sync.")
-            return
-
-        object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET,
-            key=f"array/{self.team.api_token}/config",
-            content=json.dumps(self.config),
-            extras={
-                "ContentType": "application/json",
-            },
-        )
-
-        object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET,
-            key=f"array/{self.team.api_token}/config.js",
-            content=self.build_js_config(),
-            extras={
-                "ContentType": "application/javascript",
-            },
-        )
-
-        object_storage_client().write(
-            bucket=settings.OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET,
-            key=f"array/{self.team.api_token}/array.js",
-            content=self.build_array_js_config(),
-            extras={
-                "ContentType": "application/javascript",
-            },
-        )
-
     def sync(self, force=False):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
@@ -248,7 +215,7 @@ class RemoteConfig(UUIDModel):
                 return
 
             self.config = config
-            self.sync_to_cdn()
+            # TODO: Invalidate caches - in particular this will be the Cloudflare CDN cache
             self.synced_at = timezone.now()
             self.save()
 

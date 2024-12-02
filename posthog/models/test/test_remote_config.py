@@ -123,41 +123,6 @@ class TestRemoteConfigSync(_RemoteConfigBase):
         self.remote_config.sync()
         assert synced_at < self.remote_config.synced_at  # type: ignore
 
-    @patch("posthog.models.remote_config.object_storage_client")
-    def test_writes_files_to_s3_if_enabled(self, mock_storage_client):
-        mock_client = MagicMock()
-        mock_storage_client.return_value = mock_client
-
-        mock_client.write.return_value = None
-
-        with self.settings(OBJECT_STORAGE_SDK_PUBLIC_ASSETS_BUCKET="test-bucket"):
-            self.remote_config.sync(force=True)
-
-        calls = mock_client.write.call_args_list
-        assert len(calls) == 3
-
-        assert calls[0].kwargs == snapshot(
-            {
-                "bucket": "test-bucket",
-                "key": "array/phc_12345/config",
-                "content": '{"supported_compression": ["gzip", "gzip-js"], "has_feature_flags": false, "capture_dead_clicks": false, "capture_performance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elements_chain_as_string": true, "session_recording": false, "surveys": false, "heatmaps": false, "default_identified_only": false, "site_apps": []}',
-                "extras": {"ContentType": "application/json"},
-            }
-        )
-        assert calls[1].kwargs == snapshot(
-            {
-                "bucket": "test-bucket",
-                "key": "array/phc_12345/config.js",
-                "content": """\
-(function() {
-            window._POSTHOG_CONFIG = {"supported_compression": ["gzip", "gzip-js"], "has_feature_flags": false, "capture_dead_clicks": false, "capture_performance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elements_chain_as_string": true, "session_recording": false, "surveys": false, "heatmaps": false, "default_identified_only": false, "site_apps": []};
-            window._POSTHOG_SITE_APPS = [];
-        })();\
-""",
-                "extras": {"ContentType": "application/javascript"},
-            }
-        )
-
 
 class TestRemoteConfigJS(_RemoteConfigBase):
     def test_renders_js_including_config(self):
