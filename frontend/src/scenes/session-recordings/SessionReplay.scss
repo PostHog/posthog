@@ -24,6 +24,7 @@
     }
 
     .PanelLayout__playlist {
+        flex: 1 1 0% !important;
         min-width: var(--panel-playlist-min-width);
     }
 
@@ -59,7 +60,6 @@
 
         .PanelLayout__primary {
             height: 100%;
-            overflow-y: auto;
         }
     }
 
@@ -72,6 +72,12 @@
 
         .PanelLayout__playlist {
             max-height: 150px;
+        }
+    }
+
+    @container replay-panel-layout (508px < width < 716px) {
+        .PanelLayout__primary {
+            overflow-y: auto;
         }
     }
 }
