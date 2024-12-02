@@ -57,9 +57,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
-    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None, compare=None):
-        compare = self.query.compare if compare is None else compare
-
+    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None, compare=False):
         if compare:
             expr = ast.Call(
                 name=function_name + "If",
