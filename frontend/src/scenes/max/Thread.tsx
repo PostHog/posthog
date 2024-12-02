@@ -15,9 +15,10 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { twMerge } from 'tailwind-merge'
 
 import { Query } from '~/queries/Query/Query'
 import {
@@ -75,14 +76,19 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                     className="mt-1 border"
                 />
             </Tooltip>
-            <div className="flex flex-col gap-2 min-w-0">
+            <div
+                className={clsx(
+                    'flex flex-col gap-2 min-w-0 w-full',
+                    groupType === 'human' ? 'items-end' : 'items-start'
+                )}
+            >
                 {messages.map((message, messageIndex) => {
                     if (isHumanMessage(message)) {
                         return (
                             <MessageTemplate
                                 key={messageIndex}
                                 type="human"
-                                className={message.status === 'error' ? 'border-danger' : undefined}
+                                boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
                                 <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
                             </MessageTemplate>
@@ -120,7 +126,7 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
                     return null // We currently skip other types of messages
                 })}
                 {messages.at(-1)?.status === 'error' && (
-                    <MessageTemplate type="ai" className="border-warning">
+                    <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
                             <i>Max is generating this answer one more time because the previous attempt has failed.</i>
@@ -132,17 +138,28 @@ function MessageGroup({ messages, isFinal: isGroupFinal, index: messageGroupInde
     )
 }
 
-const MessageTemplate = React.forwardRef<
-    HTMLDivElement,
-    { type: 'human' | 'ai'; className?: string; action?: React.ReactNode; children: React.ReactNode }
->(function MessageTemplate({ type, children, className, action }, ref) {
+interface MessageTemplateProps {
+    type: 'human' | 'ai'
+    action?: React.ReactNode
+    className?: string
+    boxClassName?: string
+    children: React.ReactNode
+}
+
+const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
+    { type, children, className, boxClassName, action },
+    ref
+) {
     return (
-        <div className={clsx('flex flex-col gap-1', type === 'human' ? 'items-end' : 'items-start')} ref={ref}>
+        <div
+            className={twMerge('flex flex-col gap-1 w-full', type === 'human' ? 'items-end' : 'items-start', className)}
+            ref={ref}
+        >
             <div
-                className={clsx(
+                className={twMerge(
                     'border py-2 px-3 rounded-lg bg-bg-light',
                     type === 'human' && 'font-medium',
-                    className
+                    boxClassName
                 )}
             >
                 {children}
@@ -166,7 +183,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     return (
         <MessageTemplate
             type="ai"
-            className={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
+            boxClassName={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
             ref={ref}
             action={
                 message.status === 'completed' &&
@@ -210,8 +227,8 @@ function VisualizationAnswer({
         ? null
         : query && (
               <>
-                  <MessageTemplate type="ai">
-                      <div className="h-96 flex">
+                  <MessageTemplate type="ai" className="w-full" boxClassName="w-full">
+                      <div className="min-h-80 flex">
                           <Query query={query} readOnly embedded />
                       </div>
                       <div className="relative mb-1">
@@ -264,7 +281,6 @@ function SuccessActions({
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
-    const hasScrolledFeedbackInputIntoView = useRef<boolean>(false)
 
     const [relevantHumanMessage, relevantVisualizationMessage] = useMemo(() => {
         // We need to find the relevant visualization message (which might be a message earlier if the most recent one
@@ -335,16 +351,7 @@ function SuccessActions({
                 )}
             </div>
             {feedbackInputStatus !== 'hidden' && (
-                <MessageTemplate
-                    type="ai"
-                    ref={(el) => {
-                        if (el && !hasScrolledFeedbackInputIntoView.current) {
-                            // When the feedback input is first rendered, scroll it into view
-                            el.scrollIntoView({ behavior: 'smooth' })
-                            hasScrolledFeedbackInputIntoView.current = true
-                        }
-                    }}
-                >
+                <MessageTemplate type="ai">
                     <div className="flex items-center">
                         <h4 className="m-0 text-sm grow">
                             {feedbackInputStatus === 'pending'

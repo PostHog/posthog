@@ -178,12 +178,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div
-                    className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
-                        'p-2 h-10': !isFullScreen,
-                        'p-1 px-3 text-xs h-12': isFullScreen,
-                    })}
-                >
+                <div className="flex items-center justify-between gap-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
                     {sessionPlayerMetaDataLoading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (

@@ -8,6 +8,7 @@ use tracing::{info, warn};
 use crate::{
     config::Config,
     error::{Error, JsResolveErr},
+    hack::js_data::JsData,
     metric_consts::{
         SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND,
         SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
@@ -29,16 +30,20 @@ pub struct OwnedSourceMapCache {
 }
 
 impl OwnedSourceMapCache {
-    pub fn new(data: Vec<u8>, r: impl ToString) -> Result<Self, JsResolveErr> {
+    pub fn new(data: Vec<u8>) -> Result<Self, symbolic::sourcemapcache::Error> {
         // Pass-through parse once to assert we're given valid data, so the unwrap below
         // is safe.
-        SourceMapCache::parse(&data).map_err(|e| {
-            JsResolveErr::InvalidSourceMapCache(format!(
-                "Got error {} for url {}",
-                e,
-                r.to_string()
-            ))
-        })?;
+        SourceMapCache::parse(&data)?;
+        Ok(Self { data })
+    }
+
+    pub fn from_source_and_map(
+        source: &str,
+        sourcemap: &str,
+    ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
+        let mut data = Vec::with_capacity(source.len() + sourcemap.len() + 128);
+        let smcw = SourceMapCacheWriter::new(source, sourcemap)?;
+        smcw.serialize(&mut data).unwrap();
         Ok(Self { data })
     }
 
@@ -77,22 +82,11 @@ impl Fetcher for SourcemapProvider {
 
         let sourcemap = fetch_source_map(&self.client, sourcemap_url.clone()).await?;
 
-        // TOTAL GUESS at a reasonable capacity here, btw
-        let mut cache_bytes = Vec::with_capacity(minified_source.len() + sourcemap.len());
-
-        let writer = SourceMapCacheWriter::new(&minified_source, &sourcemap).map_err(|e| {
-            JsResolveErr::InvalidSourceMapCache(format!(
-                "Failed to construct sourcemap cache: {}, for sourcemap url {}",
-                e, sourcemap_url
-            ))
-        })?;
-
-        // UNWRAP: writing into a vector always succeeds
-        writer.serialize(&mut cache_bytes).unwrap();
+        let data = JsData::from_source_and_map(minified_source, sourcemap);
 
         start.label("found_data", "true").fin();
 
-        Ok(cache_bytes)
+        Ok(data.to_bytes())
     }
 }
 
@@ -102,9 +96,11 @@ impl Parser for SourcemapProvider {
     type Set = OwnedSourceMapCache;
     async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let sm = OwnedSourceMapCache::new(data, "parse")?;
+        let smc = JsData::from_bytes(data)
+            .and_then(JsData::to_smc)
+            .map_err(JsResolveErr::from)?;
         start.label("success", "true").fin();
-        Ok(sm)
+        Ok(smc)
     }
 }
 
