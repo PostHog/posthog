@@ -54,7 +54,6 @@ class RemoteConfig(UUIDModel):
 
         team: Team = self.team
 
-        # TODO: Add the token to the config so that it is verifiable as a standalone file
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
             "token": team.api_token,
@@ -169,7 +168,6 @@ class RemoteConfig(UUIDModel):
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         # Add in the site apps as an array of objects
-        # TODO: Should this be an array??
         site_apps = []
         for site_app in get_site_apps_for_team(self.team.id):
             config = get_site_config_from_schema(site_app.config_schema, site_app.config)
@@ -202,8 +200,6 @@ class RemoteConfig(UUIDModel):
         return js_content
 
     def sync_to_cdn(self):
-        # TODO: Add cache invalidation for whatever our choice of CDN is - or let it have a small enough cache time (e.g. 5 mins or something)
-
         if not settings.OBJECT_STORAGE_ARRAY_BUCKET:
             logger.warning("OBJECT_STORAGE_ARRAY_BUCKET is not set. Skipping RemoteConfig sync.")
             return
@@ -239,10 +235,6 @@ class RemoteConfig(UUIDModel):
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint
         """
-
-        # TODO:
-        # - Sync to S3 bucket and invalidate the CDN cache
-        # - Somewhere store the array.js hash so that we can invalidate it when it changes
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
 
