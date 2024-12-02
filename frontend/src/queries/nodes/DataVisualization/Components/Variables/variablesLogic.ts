@@ -37,7 +37,7 @@ export const variablesLogic = kea<variablesLogicType>([
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
         values: [
             dataVisualizationLogic,
-            ['query', 'insightLogicProps'],
+            ['query', 'dashboardId'],
             variableDataLogic,
             ['variables', 'variablesLoading'],
             featureFlagLogic,
@@ -124,9 +124,9 @@ export const variablesLogic = kea<variablesLogicType>([
             },
         ],
         showVariablesBar: [
-            (state) => [state.insightLogicProps],
-            (insightLogicProps) => {
-                return !insightLogicProps.dashboardId
+            (state) => [state.dashboardId],
+            (dashboardId) => {
+                return !dashboardId
             },
         ],
     }),
