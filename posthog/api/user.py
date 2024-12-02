@@ -60,7 +60,7 @@ from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
-from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
+from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
@@ -356,12 +356,6 @@ class UserViewSet(
     filterset_fields = ["is_staff"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
-
-    def dangerously_get_permissions(self):
-        if self.action in ["two_factor_start_setup", "two_factor_backup_codes", "two_factor_disable"]:
-            return [permission() for permission in [IsAuthenticated, APIScopePermission, TimeSensitiveActionPermission]]
-
-        return super().dangerously_get_permissions()
 
     def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]

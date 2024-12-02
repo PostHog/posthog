@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import type { twoFactorLogicType } from './TwoFactorLogicType'
 import type { twoFactorLogicType } from './twoFactorLogicType'
 
 export interface TwoFactorForm {
