@@ -4455,6 +4455,7 @@ export interface SourceFieldSwitchGroupConfig {
     label: string
     default: string | number | boolean
     fields: SourceFieldConfig[]
+    caption?: string
 }
 
 export interface SourceFieldFileUploadConfig {

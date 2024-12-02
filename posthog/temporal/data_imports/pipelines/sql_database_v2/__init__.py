@@ -65,6 +65,7 @@ def sql_source_for_type(
     schema: str,
     table_names: list[str],
     db_incremental_field_last_value: Optional[Any],
+    using_ssl: Optional[bool] = True,
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
@@ -89,11 +90,16 @@ def sql_source_for_type(
             f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
         )
     elif source_type == ExternalDataSource.Type.MYSQL:
-        # We have to get DEBUG in temporal workers cos we're not loading Django in the same way as the app
-        is_debug = get_from_env("DEBUG", False, type_cast=str_to_bool)
-        ssl_ca = "/etc/ssl/cert.pem" if is_debug else "/etc/ssl/certs/ca-certificates.crt"
+        query_params = ""
+
+        if using_ssl:
+            # We have to get DEBUG in temporal workers cos we're not loading Django in the same way as the app
+            is_debug = get_from_env("DEBUG", False, type_cast=str_to_bool)
+            ssl_ca = "/etc/ssl/cert.pem" if is_debug else "/etc/ssl/certs/ca-certificates.crt"
+            query_params = f"ssl_ca={ssl_ca}&ssl_verify_cert=false"
+
         credentials = ConnectionStringCredentials(
-            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}&ssl_verify_cert=false"
+            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?{query_params}"
         )
 
         # PlanetScale needs this to be set

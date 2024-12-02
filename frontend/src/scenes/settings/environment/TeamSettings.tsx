@@ -29,14 +29,6 @@ export function TeamDisplayName(): JSX.Element {
 
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
-    if (currentTeam?.is_demo) {
-        return (
-            <p>
-                <i>The demo {displayNoun} cannot be renamed.</i>
-            </p>
-        )
-    }
-
     return (
         <div className="space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />

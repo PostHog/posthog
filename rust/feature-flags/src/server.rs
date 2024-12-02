@@ -27,8 +27,7 @@ where
 
     // TODO - we should have a dedicated URL for both this and the writer – the reader will read
     // from the replica, and the writer will write to the main database.
-    let postgres_reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
-    {
+    let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!("Failed to create read Postgres client: {}", e);
@@ -36,7 +35,7 @@ where
         }
     };
 
-    let postgres_writer =
+    let writer =
         // TODO - we should have a dedicated URL for both this and the reader – the reader will read
         // from the replica, and the writer will write to the main database.
         match get_pool(&config.write_database_url, config.max_pg_connections).await {
@@ -55,7 +54,11 @@ where
         }
     };
 
-    let cohort_cache = Arc::new(CohortCacheManager::new(postgres_reader.clone(), None, None));
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        reader.clone(),
+        Some(config.cache_max_cohort_entries),
+        Some(config.cache_ttl_seconds),
+    ));
 
     let health = HealthRegistry::new("liveness");
 
@@ -68,8 +71,8 @@ where
     // You can decide which client to pass to the router, or pass both if needed
     let app = router::router(
         redis_client,
-        postgres_reader,
-        postgres_writer,
+        reader,
+        writer,
         cohort_cache,
         geoip_service,
         health,

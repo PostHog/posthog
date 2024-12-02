@@ -92,6 +92,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
         },
+        $$heatmap: {
+            label: 'Heatmap',
+            description: 'Heatmap events carry heatmap data to the backend, they do not contribute to event counts.',
+        },
         $copy_autocapture: {
             label: 'Clipboard autocapture',
             description: 'Selected text automatically captured when a user copies or cuts.',
@@ -159,7 +163,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception: {
             label: 'Exception',
-            description: 'Automatically captured exceptions from the client Sentry integration',
+            description: 'Exceptions - an error or unexpected event in your application',
         },
         $web_vitals: {
             label: 'Web Vitals',
@@ -387,7 +391,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
                 </span>
             ),
         },
+        $recording_status: {
+            label: 'Session recording status',
+            description: 'The status of session recording at the time the event was captured',
+        },
         // exception tracking
+        $cymbal_errors: {
+            label: 'Exception processing errors',
+            description: 'Errors encountered while trying to process exceptions',
+            system: true,
+        },
+        $exception_list: {
+            label: 'Exception list',
+            description: 'List of one or more associated exceptions',
+        },
+        // TODO - most of the rest of these are legacy, I think?
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',

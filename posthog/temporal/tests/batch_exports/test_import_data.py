@@ -88,6 +88,7 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
             incremental_field=None,
             incremental_field_type=None,
             team_id=team.id,
+            using_ssl=True,
         )
 
 
@@ -128,6 +129,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
             incremental_field=None,
             incremental_field_type=None,
             team_id=team.id,
+            using_ssl=True,
         )
 
 
@@ -186,4 +188,5 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
             incremental_field=None,
             incremental_field_type=None,
             team_id=team.id,
+            using_ssl=True,
         )

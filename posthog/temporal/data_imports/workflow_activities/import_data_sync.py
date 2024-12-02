@@ -182,6 +182,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ssh_tunnel_auth_type_passphrase = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_passphrase")
             ssh_tunnel_auth_type_private_key = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_private_key")
 
+            using_ssl = str(model.pipeline.job_inputs.get("using_ssl", True)) == "True"
+
             ssh_tunnel = SSHTunnel(
                 enabled=using_ssh_tunnel,
                 host=ssh_tunnel_host,
@@ -218,6 +220,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         if schema.is_incremental
                         else None,
                         team_id=inputs.team_id,
+                        using_ssl=using_ssl,
                     )
 
                     return _run(
@@ -245,6 +248,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 else None,
                 db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 team_id=inputs.team_id,
+                using_ssl=using_ssl,
             )
 
             return _run(
@@ -397,7 +401,14 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             client_email = model.pipeline.job_inputs.get("client_email")
             token_uri = model.pipeline.job_inputs.get("token_uri")
 
-            destination_table = f"{project_id}.{dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+            temporary_dataset_id = model.pipeline.job_inputs.get("temporary_dataset_id")
+            using_temporary_dataset = (
+                model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None
+            )
+
+            destination_table_dataset_id = temporary_dataset_id if using_temporary_dataset else dataset_id
+            destination_table = f"{project_id}.{destination_table_dataset_id}.__posthog_import_{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+
             try:
                 source = bigquery_source(
                     dataset_id=dataset_id,
