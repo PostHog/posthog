@@ -122,7 +122,9 @@ class PipelineNonDLT:
 
         file_uris = delta_table.file_uris()
         self._logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
-        prepare_s3_files_for_querying(self._job.folder_path(), self._resource_name, file_uris)
+        prepare_s3_files_for_querying(
+            self._job.folder_path(), self._resource_name, file_uris, ExternalDataJob.PipelineVersion.V2
+        )
 
         self._logger.debug("Validating schema and updating table")
 

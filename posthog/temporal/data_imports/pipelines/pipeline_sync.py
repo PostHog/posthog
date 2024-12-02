@@ -457,6 +457,9 @@ def validate_schema_and_update_table_sync(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=run_id)
 
+    using_v2_pipeline = job.pipeline_version == ExternalDataJob.PipelineVersion.V2
+    pipeline_version = ExternalDataJob.PipelineVersion(job.pipeline_version)
+
     credential = get_or_create_datawarehouse_credential(
         team_id=team_id,
         access_key=settings.AIRBYTE_BUCKET_KEY,
@@ -506,23 +509,26 @@ def validate_schema_and_update_table_sync(
         assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
         # Temp fix #2 for Delta tables without table_format
-        try:
-            table_created.get_columns()
-        except Exception as e:
-            if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
-                logger.exception("get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e)
-
-                table_created.format = DataWarehouseTable.TableFormat.Delta
+        if not using_v2_pipeline:
+            try:
                 table_created.get_columns()
-                table_created.save()
+            except Exception as e:
+                if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
+                    logger.exception(
+                        "get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e
+                    )
 
-                logger.info("Delta format worked - updating table to use Delta")
-            else:
-                raise
+                    table_created.format = DataWarehouseTable.TableFormat.Delta
+                    table_created.get_columns()
+                    table_created.save()
+
+                    logger.info("Delta format worked - updating table to use Delta")
+                else:
+                    raise
 
         # If using new non-DLT pipeline
-        if table_schema_dict is not None:
-            raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
+        if using_v2_pipeline and table_schema_dict is not None:
+            raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns(pipeline_version=pipeline_version)
             db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
             columns = {}
@@ -570,7 +576,7 @@ def validate_schema_and_update_table_sync(
             .get(id=_schema_id, team_id=team_id)
         )
 
-        if schema_model:
+        if not using_v2_pipeline and schema_model:
             schema_model.table = table_created
             schema_model.save()
 
