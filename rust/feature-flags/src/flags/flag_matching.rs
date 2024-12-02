@@ -475,10 +475,39 @@ impl FeatureFlagMatcher {
 
         // Step 2: Fetch and cache properties for remaining flags
         if !flags_needing_db_properties.is_empty() {
-            let group_type_indexes: HashSet<GroupTypeIndex> = flags_needing_db_properties
+            let group_type_indexes_required: HashSet<GroupTypeIndex> = flags_needing_db_properties
                 .iter()
                 .filter_map(|flag| flag.get_group_type_index())
                 .collect();
+
+            // Map group names to group_type_index and group_keys
+            let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
+                .groups
+                .iter()
+                .filter_map(|(group_type, group_key_value)| {
+                    let group_key = group_key_value.as_str()?.to_string();
+                    self.group_type_mapping_cache
+                        .group_types_to_indexes
+                        .get(group_type)
+                        .cloned()
+                        .map(|group_type_index| (group_type_index, group_key))
+                })
+                .collect();
+
+            // Extract group_keys that are relevant to the required group_type_indexes
+            let group_keys: HashSet<String> = group_type_to_key_map
+                .iter()
+                .filter_map(|(group_type_index, group_key)| {
+                    if group_type_indexes_required.contains(group_type_index) {
+                        Some(group_key.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Extract group_type_indexes for the required flags
+            let group_type_indexes: HashSet<GroupTypeIndex> = group_type_indexes_required.clone();
 
             let reader = self.reader.clone();
             let distinct_id = self.distinct_id.clone();
@@ -490,6 +519,7 @@ impl FeatureFlagMatcher {
                 distinct_id,
                 team_id,
                 &group_type_indexes,
+                &group_keys,
             )
             .await
             {
@@ -1088,8 +1118,43 @@ impl FeatureFlagMatcher {
 
         let reader = self.reader.clone();
         let team_id = self.team_id;
+        // groups looks like this {"project": "project_123"}
+        // and then the group type index looks like this {"project": 1}
+        // so I want my group keys to look like this ["project_123"],
+        // but they need to be aware of the different group types
+        // Retrieve group_type_name using group_type_index from the cache
+        let group_type_mapping = self
+            .group_type_mapping_cache
+            .group_type_index_to_group_type_map()
+            .await?;
+        let group_type_name = match group_type_mapping.get(&group_type_index) {
+            Some(name) => name.clone(),
+            None => {
+                error!(
+                    "No group_type_name found for group_type_index {}",
+                    group_type_index
+                );
+                return Err(FlagError::NoGroupTypeMappings);
+            }
+        };
+
+        // Retrieve the corresponding group_key from self.groups using group_type_name
+        let group_key = match self.groups.get(&group_type_name) {
+            Some(Value::String(key)) => key.clone(),
+            Some(_) => {
+                error!(
+                    "Group key for group_type_name '{}' is not a string",
+                    group_type_name
+                );
+                return Err(FlagError::NoGroupTypeMappings);
+            }
+            None => {
+                // If there's no group_key provided for this group_type_name, we consider that there are no properties to fetch
+                return Ok(HashMap::new());
+            }
+        };
         let db_properties =
-            fetch_group_properties_from_db(reader, team_id, group_type_index).await?;
+            fetch_group_properties_from_db(reader, team_id, group_type_index, group_key).await?;
 
         inc(
             DB_GROUP_PROPERTIES_READS_COUNTER,
@@ -1170,6 +1235,7 @@ impl FeatureFlagMatcher {
                 .cloned()
                 .unwrap_or_default();
 
+            // TODO do empty string if this is empty, to keep parity
             Ok(group_key.to_string())
         } else {
             // Person-based flag
@@ -1490,52 +1556,63 @@ fn build_cohort_dependency_graph(
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns the result.
+/// Enhanced with detailed logging for better traceability and debuggability.
 async fn fetch_and_locally_cache_all_properties(
     properties_cache: &mut PropertiesCache,
     reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
     group_type_indexes: &HashSet<GroupTypeIndex>,
+    group_keys: &HashSet<String>,
 ) -> Result<(), FlagError> {
     let mut conn = reader.as_ref().get_connection().await?;
 
     let query = r#"
-        SELECT 
-            person.person_id,
-            person.person_properties,
-            group_properties.group_properties
-        FROM (
-            SELECT 
-                "posthog_person"."id" AS person_id,
-                "posthog_person"."properties" AS person_properties
-            FROM "posthog_person"
-            INNER JOIN "posthog_persondistinctid" 
-                ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
-            WHERE 
-                "posthog_persondistinctid"."distinct_id" = $1
-                AND "posthog_persondistinctid"."team_id" = $2
-                AND "posthog_person"."team_id" = $2
-            LIMIT 1
-        ) AS person,
-        (
-            SELECT 
-                json_object_agg(
-                    "posthog_group"."group_type_index", 
-                    "posthog_group"."group_properties"
-                ) AS group_properties
-            FROM "posthog_group"
-            WHERE 
-                "posthog_group"."team_id" = $2
-                AND "posthog_group"."group_type_index" = ANY($3)
-        ) AS group_properties
+        SELECT
+            (
+                SELECT "posthog_person"."id"
+                FROM "posthog_person"
+                INNER JOIN "posthog_persondistinctid"
+                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
+                WHERE
+                    "posthog_persondistinctid"."distinct_id" = $1
+                    AND "posthog_persondistinctid"."team_id" = $2
+                    AND "posthog_person"."team_id" = $2
+                LIMIT 1
+            ) AS person_id,
+            (
+                SELECT "posthog_person"."properties"
+                FROM "posthog_person"
+                INNER JOIN "posthog_persondistinctid"
+                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
+                WHERE
+                    "posthog_persondistinctid"."distinct_id" = $1
+                    AND "posthog_persondistinctid"."team_id" = $2
+                    AND "posthog_person"."team_id" = $2
+                LIMIT 1
+            ) AS person_properties,
+            (
+                SELECT
+                    json_object_agg(
+                        "posthog_group"."group_type_index",
+                        "posthog_group"."group_properties"
+                    )
+                FROM "posthog_group"
+                WHERE
+                    "posthog_group"."team_id" = $2
+                    AND "posthog_group"."group_type_index" = ANY($3)
+                    AND "posthog_group"."group_key" = ANY($4)
+            ) AS group_properties
     "#;
 
     let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
+    let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
     let row: (Option<i32>, Option<Value>, Option<Value>) = sqlx::query_as(query)
         .bind(&distinct_id)
-        .bind(team_id)
+        .bind(&team_id)
         .bind(&group_type_indexes_vec)
+        .bind(&group_keys_vec) // Bind group_keys_vec to $4
         .fetch_optional(&mut *conn)
         .await?
         .unwrap_or((None, None, None));
@@ -1629,6 +1706,7 @@ async fn fetch_group_properties_from_db(
     reader: PostgresReader,
     team_id: TeamId,
     group_type_index: GroupTypeIndex,
+    group_key: String,
 ) -> Result<HashMap<String, Value>, FlagError> {
     let mut conn = reader.as_ref().get_connection().await?;
 
@@ -1636,13 +1714,15 @@ async fn fetch_group_properties_from_db(
         SELECT "posthog_group"."group_properties"
         FROM "posthog_group"
         WHERE ("posthog_group"."team_id" = $1
-                AND "posthog_group"."group_type_index" = $2)
+                AND "posthog_group"."group_type_index" = $2
+                AND "posthog_group"."group_key" = $3)
         LIMIT 1
     "#;
 
     let row: Option<Value> = sqlx::query_scalar(query)
         .bind(team_id)
         .bind(group_type_index)
+        .bind(group_key)
         .fetch_optional(&mut *conn)
         .await?;
 

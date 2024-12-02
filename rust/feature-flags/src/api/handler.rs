@@ -100,7 +100,9 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .await?;
 
     let distinct_id = request.extract_distinct_id()?;
+    println!("request: {:?}", request);
     let groups = request.groups.clone();
+    println!("groups: {:?}", groups);
     let team_id = team.id;
     let person_property_overrides = get_person_property_overrides(
         !request.geoip_disable.unwrap_or(false),

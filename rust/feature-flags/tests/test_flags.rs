@@ -8,8 +8,9 @@ use crate::common::*;
 
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
-    insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_new_team_in_redis,
-    insert_person_for_team_in_pg, setup_pg_reader_client, setup_redis_client,
+    create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
+    insert_new_team_in_redis, insert_person_for_team_in_pg, setup_pg_reader_client,
+    setup_redis_client,
 };
 
 pub mod common;
@@ -502,14 +503,9 @@ async fn it_handles_flag_with_group_properties() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_feature_flags_json() -> Result<()> {
-    // Clone the default test configuration
+async fn test_feature_flags_with_json_payloads() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-
-    // Define the distinct ID for the person
     let distinct_id = "example_id".to_string();
-
-    // Setup Redis client
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
 
@@ -523,7 +519,6 @@ async fn test_feature_flags_json() -> Result<()> {
         .await
         .unwrap();
 
-    // Create a new person with the specified email and store in PostgreSQL
     insert_person_for_team_in_pg(
         pg_client.clone(),
         team.id,
@@ -532,7 +527,6 @@ async fn test_feature_flags_json() -> Result<()> {
     )
     .await?;
 
-    // Define the feature flag with a property filter on email
     let flag_json = json!([{
         "id": 1,
         "key": "filter-by-property",
@@ -551,7 +545,7 @@ async fn test_feature_flags_json() -> Result<()> {
                             "type": "person",
                         }
                     ],
-                    "rollout_percentage": null, // Equivalent to None in Rust
+                    "rollout_percentage": null,
                 }
             ],
             "payloads": {
@@ -562,30 +556,21 @@ async fn test_feature_flags_json() -> Result<()> {
         },
     }]);
 
-    // Insert the feature flag into Redis for the team
     insert_flags_for_team_in_redis(redis_client, team.id, Some(flag_json.to_string())).await?;
 
-    // Initialize the server with the given configuration
     let server = ServerHandle::for_config(config).await;
 
-    // Define the payload for the flags request, specifying API version 3
     let payload = json!({
         "token": token,
         "distinct_id": distinct_id,
     });
 
-    // Send the flags request to the server
     let res = server.send_flags_request(payload.to_string()).await;
 
-    // Assert that the response status is 200 OK
     assert_eq!(StatusCode::OK, res.status());
 
-    // Parse the JSON response
     let json_data = res.json::<Value>().await?;
 
-    println!("json_data: {:?}", json_data);
-
-    // Assert that the featureFlagPayloads contains the expected payload
     assert_json_include!(
         actual: json_data,
         expected: json!({
@@ -599,165 +584,162 @@ async fn test_feature_flags_json() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_feature_flags_json_multivariate() -> Result<()> {
-    // Clone the default test configuration
+async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "example_id".to_string();
 
-    // Setup Redis and PostgreSQL clients
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
 
-    // Insert a new team into Redis and update app_urls
     let team = insert_new_team_in_redis(redis_client.clone())
         .await
-        .expect("Failed to insert new team in Redis");
-
-    // Update the team in PostgreSQL if necessary
+        .unwrap();
     insert_new_team_in_pg(pg_client.clone(), Some(team.id))
         .await
-        .expect("Failed to insert new team in PostgreSQL");
+        .unwrap();
+    let token = team.api_token;
 
-    let token = team.api_token.clone();
-
-    // Create a new person with distinct_ids and properties
-    insert_person_for_team_in_pg(
+    // Create a group of type "organization" (group_type_index 1) with group_key "foo" and specific properties
+    create_group_in_pg(
         pg_client.clone(),
         team.id,
-        "example_id".to_string(),
-        Some(json!({"email": "tim@posthog.com"})),
+        "organization",
+        "foo",
+        json!({"email": "posthog@example.com"}),
     )
-    .await
-    .expect("Failed to insert person in PostgreSQL");
+    .await?;
 
-    // Define the feature flags
-    let feature_flags = json!([
+    // Create a group of type "project" (group_type_index 0) with group_key "bar" and specific properties
+    create_group_in_pg(
+        pg_client.clone(),
+        team.id,
+        "project",
+        "bar",
+        json!({"name": "Project Bar"}),
+    )
+    .await?;
+
+    // Define feature flags
+    let flags_json = json!([
         {
             "id": 1,
-            "key": "beta-feature",
-            "name": "Beta feature",
-            "active": true,
-            "deleted": false,
-            "team_id": team.id,
-            "rollout_percentage": 50,
-            "created_by": "user_id", // Adjust as needed
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 50
-                    }
-                ]
-            }
-        },
-        {
-            "id": 2,
-            "key": "default-flag",
+            "key": "default-no-prop-group-flag",
             "name": "This is a feature flag with default params, no filters.",
             "active": true,
             "deleted": false,
             "team_id": team.id,
-            "rollout_percentage": null,
-            "created_by": "user_id", // Adjust as needed
             "filters": {
+                "aggregation_group_type_index": 0,
+                "groups": [{"rollout_percentage": null}]
+            }
+        },
+        {
+            "id": 2,
+            "key": "groups-flag",
+            "name": "This is a group-based flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "aggregation_group_type_index": 1,
                 "groups": [
                     {
-                        "properties": [],
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "posthog",
+                                "operator": "icontains",
+                                "type": "group",
+                                "group_type_index": 1
+                            }
+                        ],
                         "rollout_percentage": null
                     }
                 ]
             }
-        },
-        {
-            "id": 3,
-            "key": "multivariate-flag",
-            "name": "This is a feature flag with multiple variants.",
-            "active": true,
-            "deleted": false,
-            "team_id": team.id,
-            "rollout_percentage": null,
-            "created_by": "user_id", // Adjust as needed
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": null
-                    }
-                ],
-                "multivariate": {
-                    "variants": [
-                        {
-                            "key": "first-variant",
-                            "name": "First Variant",
-                            "rollout_percentage": 50
-                        },
-                        {
-                            "key": "second-variant",
-                            "name": "Second Variant",
-                            "rollout_percentage": 25
-                        },
-                        {
-                            "key": "third-variant",
-                            "name": "Third Variant",
-                            "rollout_percentage": 25
-                        }
-                    ]
-                },
-                "payloads": {
-                    "first-variant": { "color": "blue" }
-                }
-            }
         }
     ]);
 
-    // Insert the feature flags into Redis for the team
-    insert_flags_for_team_in_redis(redis_client, team.id, Some(feature_flags.to_string()))
-        .await
-        .expect("Failed to insert feature flags into Redis");
+    // Insert the feature flags into Redis
+    insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flags_json.to_string()))
+        .await?;
 
-    // Initialize the server with the given configuration
     let server = ServerHandle::for_config(config).await;
 
+    // First Decision: Without specifying any groups
     {
-        let response = server
-            .send_flags_request(
-                json!({
-                    "token": token,
-                    "distinct_id": "example_id",
-                })
-                .to_string(),
-            )
-            .await;
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id
+        });
 
-        assert_eq!(response.status(), StatusCode::OK, "API v3 request failed");
+        let res = server.send_flags_request(payload.to_string()).await;
+        assert_eq!(res.status(), StatusCode::OK);
 
-        let json_data = response.json::<Value>().await?;
-        assert!(
-            json_data.get("featureFlags").is_some(),
-            "featureFlags missing in response"
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorWhileComputingFlags": false,
+                "featureFlags": {
+                    "default-no-prop-group-flag": true,
+                    "groups-flag": false
+                }
+            })
         );
-        assert!(
-            json_data.get("featureFlagPayloads").is_some(),
-            "featureFlagPayloads missing in response"
-        );
+    }
 
-        // Check the variant of 'multivariate-flag'
-        let variant = json_data["featureFlags"]["multivariate-flag"]
-            .as_str()
-            .expect("multivariate-flag variant is not a string");
-        assert!(
-            ["first-variant", "second-variant", "third-variant"].contains(&variant),
-            "Unexpected variant for multivariate-flag: {}",
-            variant
-        );
+    // Second Decision: With non-matching group overrides
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": "foo2", // Does not match existing group_key "foo"
+                "project": "bar"         // Matches existing project group
+            }
+        });
 
-        // Check the payload for 'multivariate-flag'
-        let payload = json_data["featureFlagPayloads"]["multivariate-flag"]
-            .as_object()
-            .expect("Payload for multivariate-flag is not an object");
-        assert_eq!(
-            payload.get("color"),
-            Some(&Value::String("blue".to_string())),
-            "Unexpected payload for multivariate-flag"
+        let res = server.send_flags_request(payload.to_string()).await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorWhileComputingFlags": false,
+                "featureFlags": {
+                    "default-no-prop-group-flag": true,
+                    "groups-flag": false
+                }
+            })
+        );
+    }
+
+    // Third Decision: With matching group overrides
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": "foo", // Matches existing group_key for organization "foo"
+                "project": "bar"       // Matches existing group_key for project "bar"
+            }
+        });
+
+        let res = server.send_flags_request(payload.to_string()).await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorWhileComputingFlags": false,
+                "featureFlags": {
+                    "default-no-prop-group-flag": true,
+                    "groups-flag": true
+                }
+            })
         );
     }
 
