@@ -34,6 +34,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
     start_produce_batch_export_record_batches,
 )
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -49,12 +54,6 @@ from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     set_status_to_running_task,
 )
-from posthog.temporal.batch_exports.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-    DateRange,
-    should_resume_from_activity_heartbeat,
-)
-
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
@@ -174,16 +173,25 @@ class BigQueryClient(bigquery.Client):
         project_id: str,
         dataset_id: str,
         table_id: str,
-        table_schema: list[bigquery.SchemaField],
         not_found_ok: bool = True,
     ) -> None:
         """Delete a table in BigQuery."""
         fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
-        table = bigquery.Table(fully_qualified_name, schema=table_schema)
+        table = bigquery.Table(fully_qualified_name)
 
         await asyncio.to_thread(self.delete_table, table, not_found_ok=not_found_ok)
 
         return None
+
+    async def aget_table(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table_id: str,
+    ) -> bigquery.Table:
+        """Get a table in BigQuery."""
+        fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
+        return await asyncio.to_thread(self.get_table, fully_qualified_name)
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -197,25 +205,23 @@ class BigQueryClient(bigquery.Client):
         delete: bool = True,
         create: bool = True,
     ) -> collections.abc.AsyncGenerator[bigquery.Table, None]:
-        """Manage a table in BigQuery by ensure it exists while in context."""
+        """Manage a table in BigQuery by ensuring it exists while in context."""
         if create is True:
             table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
         else:
-            fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
-            table = bigquery.Table(fully_qualified_name, schema=table_schema)
+            table = await self.aget_table(project_id, dataset_id, table_id)
 
         try:
             yield table
         finally:
             if delete is True:
-                await self.adelete_table(project_id, dataset_id, table_id, table_schema, not_found_ok)
+                await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
 
     async def amerge_person_tables(
         self,
         final_table: bigquery.Table,
         stage_table: bigquery.Table,
         merge_key: collections.abc.Iterable[bigquery.SchemaField],
-        update_fields: collections.abc.Iterable[bigquery.SchemaField] | None = None,
         person_version_key: str = "person_version",
         person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
@@ -233,12 +239,7 @@ class BigQueryClient(bigquery.Client):
         values = ""
         field_names = ""
 
-        if not update_fields:
-            update_clause_fields = final_table.schema
-        else:
-            update_clause_fields = update_fields
-
-        for n, field in enumerate(update_clause_fields):
+        for n, field in enumerate(final_table.schema):
             if n > 0:
                 update_clause += ", "
                 values += ", "
@@ -409,6 +410,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             include_events=inputs.include_events,
             fields=fields,
             destination_default_fields=bigquery_default_fields(),
+            use_latest_schema=True,
             extra_query_parameters=extra_query_parameters,
         )
 
@@ -475,17 +477,17 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         with bigquery_client(inputs) as bq_client:
             async with (
                 bq_client.managed_table(
-                    inputs.project_id,
-                    inputs.dataset_id,
-                    inputs.table_id,
-                    schema,
+                    project_id=inputs.project_id,
+                    dataset_id=inputs.dataset_id,
+                    table_id=inputs.table_id,
+                    table_schema=schema,
                     delete=False,
                 ) as bigquery_table,
                 bq_client.managed_table(
-                    inputs.project_id,
-                    inputs.dataset_id,
-                    stage_table_name,
-                    schema,
+                    project_id=inputs.project_id,
+                    dataset_id=inputs.dataset_id,
+                    table_id=stage_table_name,
+                    table_schema=schema,
                     create=requires_merge,
                     delete=requires_merge,
                 ) as bigquery_stage_table,
@@ -556,7 +558,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         final_table=bigquery_table,
                         stage_table=bigquery_stage_table,
                         merge_key=merge_key,
-                        update_fields=schema,
                     )
 
                 return records_total

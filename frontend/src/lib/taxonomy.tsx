@@ -92,6 +92,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
         },
+        $$heatmap: {
+            label: 'Heatmap',
+            description: 'Heatmap events carry heatmap data to the backend, they do not contribute to event counts.',
+        },
         $copy_autocapture: {
             label: 'Clipboard autocapture',
             description: 'Selected text automatically captured when a user copies or cuts.',
@@ -159,7 +163,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception: {
             label: 'Exception',
-            description: 'Automatically captured exceptions from the client Sentry integration',
+            description: 'Exceptions - an error or unexpected event in your application',
         },
         $web_vitals: {
             label: 'Web Vitals',
@@ -275,16 +279,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $lib_rate_limit_remaining_tokens: {
             label: 'Clientside rate limit remaining tokens',
-            description: (
-                <span>
-                    Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.
-                </span>
-            ),
+            description:
+                'Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.',
             examples: ['100'],
         },
         token: {
             label: 'Token',
-            description: <span>Token used for authentication.</span>,
+            description: 'Token used for authentication.',
             examples: ['ph_abcdefg'],
         },
         $ce_version: {
@@ -331,12 +332,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         // session recording
         $replay_minimum_duration: {
             label: 'Replay config - minimum duration',
-            description: <span>Config for minimum duration before emitting a session recording.</span>,
+            description: 'Config for minimum duration before emitting a session recording.',
             examples: ['1000'],
         },
         $replay_sample_rate: {
             label: 'Replay config - sample rate',
-            description: <span>Config for sampling rate of session recordings.</span>,
+            description: 'Config for sampling rate of session recordings.',
             examples: ['0.1'],
         },
         $console_log_recording_enabled_server_side: {
@@ -352,42 +353,55 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $session_recording_start_reason: {
             label: 'Session recording start reason',
-            description: (
-                <span>
-                    Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to
-                    see on batch exported events which sessions have recordings available.
-                </span>
-            ),
+            description:
+                'Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.',
             examples: ['sampling_override', 'recording_initialized', 'linked_flag_match'],
         },
         $session_recording_canvas_recording: {
             label: 'Session recording canvas recording',
-            description: <span>Session recording canvas capture config.</span>,
+            description: 'Session recording canvas capture config.',
             examples: ['{"enabled": false}'],
         },
         $session_recording_network_payload_capture: {
             label: 'Session recording network payload capture',
-            description: <span>Session recording network payload capture config.</span>,
+            description: 'Session recording network payload capture config.',
             examples: ['{"recordHeaders": false}'],
+        },
+        $configured_session_timeout_ms: {
+            label: 'Configured session timeout',
+            description: 'Configured session timeout in milliseconds.',
+            examples: ['1800000'],
+        },
+        $replay_script_config: {
+            label: 'Replay script config',
+            description: 'Sets an alternative recorder script for the web sdk.',
+            examples: ['{"script": "recorder-next""}'],
         },
         $session_recording_url_trigger_activated_session: {
             label: 'Session recording URL trigger activated session',
-            description: (
-                <span>
-                    Session recording URL trigger activated session config. Used by posthog-js to track URL activation
-                    of session replay.
-                </span>
-            ),
+            description:
+                'Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.',
         },
         $session_recording_url_trigger_status: {
             label: 'Session recording URL trigger status',
-            description: (
-                <span>
-                    Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.
-                </span>
-            ),
+            description:
+                'Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.',
+        },
+        $recording_status: {
+            label: 'Session recording status',
+            description: 'The status of session recording at the time the event was captured',
         },
         // exception tracking
+        $cymbal_errors: {
+            label: 'Exception processing errors',
+            description: 'Errors encountered while trying to process exceptions',
+            system: true,
+        },
+        $exception_list: {
+            label: 'Exception list',
+            description: 'List of one or more associated exceptions',
+        },
+        // TODO - most of the rest of these are legacy, I think?
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
@@ -446,17 +460,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception_capture_endpoint: {
             label: 'Exception capture endpoint',
-            description: <span>Endpoint used by posthog-js exception autocapture.</span>,
+            description: 'Endpoint used by posthog-js exception autocapture.',
             examples: ['/e/'],
         },
         $exception_capture_endpoint_suffix: {
             label: 'Exception capture endpoint',
-            description: <span>Endpoint used by posthog-js exception autocapture.</span>,
+            description: 'Endpoint used by posthog-js exception autocapture.',
             examples: ['/e/'],
         },
         $exception_capture_enabled_server_side: {
             label: 'Exception capture enabled server side',
-            description: <span>Whether exception autocapture was enabled in remote config.</span>,
+            description: 'Whether exception autocapture was enabled in remote config.',
         },
 
         // GeoIP
@@ -1175,7 +1189,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $web_vitals_allowed_metrics: {
             label: 'Web vitals allowed metrics',
-            description: <span>Allowed web vitals metrics config.</span>,
+            description: 'Allowed web vitals metrics config.',
             examples: ['["LCP", "CLS"]'],
         },
 
@@ -1301,72 +1315,72 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $start_timestamp: {
             label: 'Start timestamp',
-            description: <span>The timestamp of the first event from this session.</span>,
+            description: 'The timestamp of the first event from this session.',
             examples: [new Date().toISOString()],
         },
         $end_timestamp: {
             label: 'End timestamp',
-            description: <span>The timestamp of the last event from this session</span>,
+            description: 'The timestamp of the last event from this session',
             examples: [new Date().toISOString()],
         },
         $entry_current_url: {
             label: 'Entry URL',
-            description: <span>The first URL visited in this session</span>,
+            description: 'The first URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $entry_pathname: {
             label: 'Entry pathname',
-            description: <span>The first pathname visited in this session</span>,
+            description: 'The first pathname visited in this session.',
             examples: ['/interesting-article?parameter=true'],
         },
         $end_current_url: {
             label: 'Entry URL',
-            description: <span>The first URL visited in this session</span>,
+            description: 'The first URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $end_pathname: {
             label: 'Entry pathname',
-            description: <span>The first pathname visited in this session</span>,
+            description: 'The first pathname visited in this session.',
             examples: ['/interesting-article?parameter=true'],
         },
         $exit_current_url: {
             label: 'Exit URL',
-            description: <span>The last URL visited in this session</span>,
+            description: 'The last URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $exit_pathname: {
             label: 'Exit pathname',
-            description: <span>The last pathname visited in this session</span>,
+            description: 'The last pathname visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $pageview_count: {
             label: 'Pageview count',
-            description: <span>The number of page view events in this session</span>,
+            description: 'The number of page view events in this session.',
             examples: ['123'],
         },
         $autocapture_count: {
             label: 'Autocapture count',
-            description: <span>The number of autocapture events in this session</span>,
+            description: 'The number of autocapture events in this session.',
             examples: ['123'],
         },
         $screen_count: {
             label: 'Screen count',
-            description: <span>The number of screen events in this session</span>,
+            description: 'The number of screen events in this session.',
             examples: ['123'],
         },
         $channel_type: {
             label: 'Channel type',
-            description: <span>What type of acquisition channel this traffic came from.</span>,
+            description: 'What type of acquisition channel this traffic came from.',
             examples: ['Paid Search', 'Organic Video', 'Direct'],
         },
         $is_bounce: {
             label: 'Is bounce',
-            description: <span>Whether the session was a bounce.</span>,
+            description: 'Whether the session was a bounce.',
             examples: ['true', 'false'],
         },
         $last_external_click_url: {
             label: 'Last external click URL',
-            description: <span>The last external URL clicked in this session</span>,
+            description: 'The last external URL clicked in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $vitals_lcp: {

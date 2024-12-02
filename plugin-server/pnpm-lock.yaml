@@ -118,6 +118,9 @@ dependencies:
   luxon:
     specifier: ^3.4.4
     version: 3.4.4
+  lz4-kafkajs:
+    specifier: 1.0.0
+    version: 1.0.0
   node-fetch:
     specifier: ^2.6.1
     version: 2.6.9
@@ -5178,6 +5181,10 @@ packages:
     engines: {node: '>=8'}
     dev: false
 
+  /cuint@0.2.2:
+    resolution: {integrity: sha512-d4ZVpCW31eWwCMe1YT3ur7mUDnTXbgwyzaL320DrcRT45rfjYxkt5QWLrmOJ+/UEAI2+fQgKe/fCjR8l4TpRgw==}
+    dev: false
+
   /d3-array@2.12.1:
     resolution: {integrity: sha512-B0ErZK/66mHtEsR1TkPEEkwdy+WDesimkM5gpZr5Dsg54BiTA5RXtYW5qTLIAcekaS9xfZrzBLF/OAkB3Qn1YQ==}
     dependencies:
@@ -7958,6 +7965,23 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
+  /lz4-kafkajs@1.0.0:
+    resolution: {integrity: sha512-h6BPUx/yO55Ys30ZLgAl9ps7Rj0PEaMYDZXJGnc5ZqAclPXwp1goi13oalwqsc0QjMaUGBrE1WlmZOlypNN9Aw==}
+    dependencies:
+      lz4: 0.6.5
+    dev: false
+
+  /lz4@0.6.5:
+    resolution: {integrity: sha512-KSZcJU49QZOlJSItaeIU3p8WoAvkTmD9fJqeahQXNu1iQ/kR0/mQLdbrK8JY9MY8f6AhJoMrihp1nu1xDbscSQ==}
+    engines: {node: '>= 0.10'}
+    requiresBuild: true
+    dependencies:
+      buffer: 5.6.0
+      cuint: 0.2.2
+      nan: 2.17.0
+      xxhashjs: 0.2.2
+    dev: false
+
   /magic-string@0.23.2:
     resolution: {integrity: sha512-oIUZaAxbcxYIp4AyLafV6OVKoB3YouZs0UTCJ8mOKBHNyJgGDaMJ4TgA+VylJh6fx7EQCC52XkbURxxG9IoJXA==}
     dependencies:
@@ -10682,6 +10706,12 @@ packages:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
 
+  /xxhashjs@0.2.2:
+    resolution: {integrity: sha512-AkTuIuVTET12tpsVIQo+ZU6f/qDmKuRUcjaqR+OIvm+aCBsZ95i7UVY5WJ9TMsSaZ0DA2WxoZ4acu0sPH+OKAw==}
+    dependencies:
+      cuint: 0.2.2
+    dev: false
+
   /y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
     engines: {node: '>=10'}
@@ -10743,5 +10773,4 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
-    version: 0.1.7
     dev: false

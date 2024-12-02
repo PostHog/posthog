@@ -3,7 +3,7 @@ import json
 import random
 import time
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import pytest
 from django.conf import settings
@@ -13,6 +13,7 @@ from django.http import HttpRequest
 from django.test import TestCase, TransactionTestCase
 from django.test.client import Client
 from freezegun import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -52,19 +53,23 @@ from posthog.test.base import (
 )
 
 
-def make_session_recording_config(overrides: dict | None = None) -> dict:
+def make_session_recording_decide_response(overrides: Optional[dict] = None) -> dict:
+    if overrides is None:
+        overrides = {}
+
     return {
         "endpoint": "/s/",
         "recorderVersion": "v2",
         "consoleLogRecordingEnabled": True,
-        "sampleRate": None,
         "linkedFlag": None,
         "minimumDurationMilliseconds": None,
         "networkPayloadCapture": None,
         "urlTriggers": [],
         "urlBlocklist": [],
+        "scriptConfig": None,
+        "sampleRate": None,
         "eventTriggers": [],
-        **(overrides or {}),
+        **overrides,
     }
 
 
@@ -182,7 +187,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"] == make_session_recording_config()
+        assert response["sessionRecording"] == make_session_recording_decide_response()
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
     def test_user_console_log_opt_in(self, *args):
@@ -193,7 +198,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
 
         response = self._post_decide().json()
-        assert response["sessionRecording"] == make_session_recording_config()
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_performance_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
@@ -319,7 +324,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response["sessionRecording"] == make_session_recording_config(
+        assert response["sessionRecording"] == make_session_recording_decide_response(
             {
                 "urlTriggers": [{"url": "/replay-examples/", "matching": "regex"}],
             }
@@ -334,7 +339,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response["sessionRecording"] == make_session_recording_config(
+        assert response["sessionRecording"] == make_session_recording_decide_response(
             {
                 "urlBlocklist": [{"url": "/replay-examples/iframe", "matching": "regex"}],
             }
@@ -349,7 +354,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response["sessionRecording"] == make_session_recording_config(
+        assert response["sessionRecording"] == make_session_recording_decide_response(
             {"eventTriggers": ["$pageview", "$exception"]}
         )
 
@@ -416,6 +421,85 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["sessionRecording"]["canvasFps"], 3)
         self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.4")
 
+    @parameterized.expand(
+        [
+            [
+                "defaults to none",
+                None,
+                None,
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "must have allowlist",
+                "new-recorder",
+                None,
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "ignores empty allowlist",
+                "new-recorder",
+                [],
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "wild card works",
+                "new-recorder",
+                ["*"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                False,
+            ],
+            [
+                "can have wild card and team id",
+                "new-recorder",
+                ["*"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                True,
+            ],
+            [
+                "allow list can exclude",
+                "new-recorder",
+                ["9999", "9998"],
+                {"scriptConfig": None},
+                False,
+            ],
+            [
+                "allow list can include",
+                "new-recorder",
+                ["9999", "9998"],
+                {"scriptConfig": {"script": "new-recorder"}},
+                True,
+            ],
+        ]
+    )
+    def test_session_recording_script_config(
+        self,
+        _mock_is_connected: Mock,
+        _name: str,
+        rrweb_script_name: str | None,
+        team_allow_list: list[str] | None,
+        expected: dict,
+        include_team_in_allowlist: bool,
+    ) -> None:
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        if team_allow_list and include_team_in_allowlist:
+            team_allow_list.append(f"{self.team.id}")
+
+        with self.settings(
+            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
+            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=",".join(team_allow_list or []),
+        ):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
+
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
@@ -473,7 +557,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="https://random.example.com").json()
-        assert response["sessionRecording"] == make_session_recording_config()
+        assert response["sessionRecording"] == make_session_recording_decide_response()
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
         # Make sure the domain matches exactly
@@ -492,7 +576,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] is False
 
         response = self._post_decide(origin="https://example.com").json()
-        assert response["sessionRecording"] == make_session_recording_config()
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_autocapture_opt_out(self, *args):
         # :TRICKY: Test for regression around caching
@@ -528,19 +612,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
         response = self._post_decide(origin="any.site.com").json()
-        assert response["sessionRecording"] == make_session_recording_config()
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_session_recording_allowed_for_android(self, *args) -> None:
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
 
         response = self._post_decide(origin="any.site.com", user_agent="posthog-android/3.1.0").json()
-        assert response["sessionRecording"] == make_session_recording_config()
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_session_recording_allowed_for_ios(self, *args) -> None:
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
 
         response = self._post_decide(origin="any.site.com", user_agent="posthog-ios/3.1.0").json()
-        assert response["sessionRecording"] == make_session_recording_config()
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
         self._update_team(
@@ -551,7 +635,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
-        assert response["sessionRecording"] == make_session_recording_config()
+        assert response["sessionRecording"] == make_session_recording_decide_response()
 
     @snapshot_postgres_queries
     def test_web_app_queries(self, *args):
@@ -2906,10 +2990,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-        assert response["sessionRecording"] == make_session_recording_config(
-            {
-                "sampleRate": "0.20",
-            }
+        self.assertEqual(
+            response["sessionRecording"],
+            make_session_recording_decide_response(
+                {
+                    "sampleRate": "0.20",
+                }
+            ),
         )
 
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -2928,10 +3015,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with connection.execute_wrapper(QueryTimeoutWrapper()):
             response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-            assert response["sessionRecording"] == make_session_recording_config(
-                {
-                    "sampleRate": "0.20",
-                }
+            self.assertEqual(
+                response["sessionRecording"],
+                make_session_recording_decide_response(
+                    {
+                        "sampleRate": "0.20",
+                    }
+                ),
             )
 
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -3730,8 +3820,14 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
 
-            assert response["sessionRecording"] == make_session_recording_config({"sampleRate": "0.40"})
-
+            self.assertEqual(
+                response["sessionRecording"],
+                make_session_recording_decide_response(
+                    {
+                        "sampleRate": "0.40",
+                    }
+                ),
+            )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(
@@ -3784,7 +3880,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             email=f"test-{random.randint(1, 100000)}@posthog.com",
             password="password",
             first_name="first_name",
-            current_team_id=team.id,
+            current_team=team,
+            current_organization=organization,
         )
         OrganizationMembership.objects.db_manager(dbname).create(
             user=user,
@@ -4700,7 +4797,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(5, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -4941,7 +5038,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
         cache.clear()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -5211,7 +5308,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         client.logout()
         self.client.logout()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
