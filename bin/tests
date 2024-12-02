@@ -37,4 +37,5 @@ else
     TEST_CONCURRENCY="-n $XDIST_WORKERS"
 fi
 
-nodemon -w ./posthog -w ./hogvm/python -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} ${TEST_CONCURRENCY} -s $* --snapshot-update; mypy -p posthog | mypy-baseline filter"
+# we have to disable the cache for mypy because of a bug when it tries to write mimesis package's data to the cache
+nodemon -w ./posthog -w ./hogvm/python -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} ${TEST_CONCURRENCY} -s $* --snapshot-update; mypy -p posthog --cache-dir=/dev/null | mypy-baseline filter"
