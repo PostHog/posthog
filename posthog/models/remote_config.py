@@ -25,13 +25,6 @@ CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
 logger = structlog.get_logger(__name__)
 
 
-# TODO list
-# - Add a listener for when a site app is created/updated/deleted
-# - Add tests to ensure that decide uses this config perfectly
-# - Add JS loader that includes only config and other assets (site apps)
-# - Add JS loader including posthog-js
-# - Some way of detecting change to array.js and triggering a refresh job of all configs
-
 # Load the JS content from the frontend build
 ARRAY_JS_CONTENT_FILE = os.path.join(settings.BASE_DIR, "frontend/dist/array.js")
 ARRAY_JS_CONTENT = open(ARRAY_JS_CONTENT_FILE).read()
@@ -81,7 +74,7 @@ class RemoteConfig(UUIDModel):
                 else False
             ),
             "autocapture_opt_out": bool(team.autocapture_opt_out),
-            "autocaptureExceptions": (
+            "autocapture_exceptions": (
                 {
                     "endpoint": "/e/",
                 }
