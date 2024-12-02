@@ -157,7 +157,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         activeNavbarItemIdRaw: [
-            Scene.SQLEditor as string,
+            Scene.Dashboards as string,
             {
                 persist: true,
             },
