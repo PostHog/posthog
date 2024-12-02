@@ -162,9 +162,7 @@ class FeatureFlagStatusChecker:
                     "value": flag.key,
                 }
             ],
-            select=[
-                "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', 'false') -- Feature Flag Response"
-            ],
+            select=[],
             # We only care if there has been one or more recent call, so ask ClickHouse for one result
             limit=1,
         )
