@@ -116,7 +116,7 @@ export function Bar({
                 style={{
                     flex: `${conversionPercentage} 1 0`,
                     cursor: cursorType,
-                    backgroundColor: getFunnelsColor(step),
+                    backgroundColor: getFunnelsColor(step) || undefined,
                 }}
                 onClick={() => {
                     if (!disabled && onBarClick) {

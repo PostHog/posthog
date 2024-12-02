@@ -47,7 +47,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
     function updateData(): void {
         const days = indexedResults.length > 0 ? indexedResults[0].days : []
 
-        const colorList = indexedResults.map(getTrendsColor)
+        const colorList = indexedResults.map(getTrendsColor) as string[]
 
         setData([
             {

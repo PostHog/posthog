@@ -55,7 +55,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const isPrevious = !!item.compare && item.compare_label === 'previous'
 
     const themeColor = getTrendsColor(item)
-    const mainColor = isPrevious ? `${themeColor}80` : themeColor
+    const mainColor = (isPrevious ? `${themeColor}80` : themeColor) || undefined
 
     return (
         <div key={item.id} className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
