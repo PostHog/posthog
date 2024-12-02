@@ -1,17 +1,16 @@
-import { ErrorTrackingGroup } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema'
 
-import { mergeGroups } from './utils'
+import { mergeIssues } from './utils'
 
-describe('mergeGroups', () => {
+describe('mergeIssues', () => {
     it('arbitrary values', async () => {
-        const primaryGroup: ErrorTrackingGroup = {
+        const primaryIssue: ErrorTrackingIssue = {
+            id: 'primaryId',
             assignee: 400,
             description: 'This is the original description',
-            exception_type: 'TypeError',
-            fingerprint: ['Fingerprint'],
+            name: 'TypeError',
             first_seen: '2024-07-22T13:15:07.074000Z',
             last_seen: '2024-07-20T13:15:50.186000Z',
-            merged_fingerprints: [['ExistingFingerprint']],
             occurrences: 250,
             sessions: 100,
             status: 'active',
@@ -32,15 +31,14 @@ describe('mergeGroups', () => {
             ],
         }
 
-        const mergingGroups: ErrorTrackingGroup[] = [
+        const mergingIssues: ErrorTrackingIssue[] = [
             {
+                id: 'secondId',
                 assignee: 100,
                 description: 'This is another description',
-                exception_type: 'SyntaxError',
-                fingerprint: ['Fingerprint2'],
+                name: 'SyntaxError',
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-20T13:15:50.186000Z',
-                merged_fingerprints: [['NestedFingerprint']],
                 occurrences: 10,
                 sessions: 5,
                 status: 'active',
@@ -61,13 +59,12 @@ describe('mergeGroups', () => {
                 ],
             },
             {
+                id: 'thirdId',
                 assignee: 400,
                 description: 'This is another description',
-                exception_type: 'SyntaxError',
-                fingerprint: ['Fingerprint3'],
+                name: 'SyntaxError',
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
-                merged_fingerprints: [],
                 occurrences: 1,
                 sessions: 1,
                 status: 'active',
@@ -88,13 +85,12 @@ describe('mergeGroups', () => {
                 ],
             },
             {
+                id: 'fourthId',
                 assignee: null,
                 description: 'This is another description',
-                exception_type: 'SyntaxError',
-                fingerprint: ['Fingerprint4'],
+                name: 'SyntaxError',
                 first_seen: '2023-07-22T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
-                merged_fingerprints: [],
                 occurrences: 1000,
                 sessions: 500,
                 status: 'active',
@@ -116,28 +112,19 @@ describe('mergeGroups', () => {
             },
         ]
 
-        const mergedGroup = mergeGroups(primaryGroup, mergingGroups)
+        const mergedIssue = mergeIssues(primaryIssue, mergingIssues)
 
-        expect(mergedGroup).toEqual({
+        expect(mergedIssue).toEqual({
             // retains values from primary group
+            id: 'primaryId',
             assignee: 400,
             description: 'This is the original description',
-            exception_type: 'TypeError',
-            fingerprint: ['Fingerprint'],
+            name: 'TypeError',
             status: 'active',
             // earliest first_seen
             first_seen: '2023-07-22T13:15:07.074Z',
             // latest last_seen
             last_seen: '2024-07-22T13:15:50.186Z',
-            // retains previously merged_fingerprints
-            // adds new fingerprints AND their nested fingerprints
-            merged_fingerprints: [
-                ['ExistingFingerprint'],
-                ['Fingerprint2'],
-                ['NestedFingerprint'],
-                ['Fingerprint3'],
-                ['Fingerprint4'],
-            ],
             // sums counts
             occurrences: 1261,
             sessions: 606,
