@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import posthoganalytics
 from django.conf import settings
 from rest_framework import serializers, status
 from rest_framework.viewsets import ModelViewSet
@@ -76,6 +77,16 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         )
 
         serializer = self.get_serializer(record)
+        posthoganalytics.capture(
+            request.user.distinct_id,
+            "proxy record created",
+            properties={
+                "organization_id": record.organization_id,
+                "proxy_record_id": record.id,
+                "domain": record.domain,
+                "target_cname": record.target_cname,
+            },
+        )
         return Response(serializer.data)
 
     def destroy(self, request, *args, pk=None, **kwargs):
