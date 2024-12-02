@@ -85,7 +85,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             expr = ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
 
         if alias is not None:
-            expr = ast.Alias(alias=alias, expr=expr)
+            return ast.Alias(alias=alias, expr=expr)
 
         return expr
 
