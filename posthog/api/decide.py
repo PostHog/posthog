@@ -300,7 +300,6 @@ def get_decide(request: HttpRequest):
                 try:
                     with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
                         site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
-                        # TODO: test this
                         site_apps += get_decide_site_functions(team, using_database=DATABASE_FOR_FLAG_MATCHING)
                 except Exception:
                     pass
