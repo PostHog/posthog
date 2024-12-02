@@ -144,6 +144,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Data warehouse',
             },
             {
+                value: 'batch_exports',
+                'data-attr': `support-form-target-area-batch-exports`,
+                label: 'Batch exports',
+            },
+            {
                 value: 'feature_flags',
                 'data-attr': `support-form-target-area-feature_flags`,
                 label: 'Feature flags',
