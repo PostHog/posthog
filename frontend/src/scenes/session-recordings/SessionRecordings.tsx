@@ -24,7 +24,6 @@ import { urls } from 'scenes/urls'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
-import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
@@ -196,8 +195,6 @@ function MainPanel(): JSX.Element {
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-            ) : tab === ReplayTabs.Errors ? (
-                <SessionRecordingErrors />
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />
             ) : null}
