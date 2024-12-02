@@ -622,6 +622,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             compareFilter: compareFilter || { compare: false },
                             filterTestAccounts,
+                            conversionGoal,
                             properties: webAnalyticsFilters,
                         },
                         hidePersonsModal: true,
@@ -662,6 +663,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 compareFilter,
                                 limit: 10,
                                 filterTestAccounts,
+                                conversionGoal,
                                 ...(source || {}),
                             },
                             embedded: false,
@@ -862,6 +864,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
+                                                  conversionGoal,
                                                   stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
@@ -1136,6 +1139,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               trendsFilter: {
                                                   display: ChartDisplayType.WorldMap,
                                               },
+                                              conversionGoal,
                                               filterTestAccounts,
                                               properties: webAnalyticsFilters,
                                           },
@@ -1239,7 +1243,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             ),
                         },
                     },
-                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
+                    // Hiding if conversionGoal is set already because values aren't representative
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
                         ? {
                               kind: 'query',
                               tileId: TileId.GOALS,
@@ -1300,6 +1305,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
+                    // TODO: What to do with this one if conversion goal is set? Hide it? Disable it?
                     featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                         ? {
                               kind: 'error_tracking',
