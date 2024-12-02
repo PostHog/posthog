@@ -19,6 +19,8 @@ from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     SELECT_FROM_PERSONS_VIEW,
     SELECT_FROM_PERSONS_VIEW_BACKFILL,
+    SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW,
+    SELECT_FROM_PERSONS_VIEW_NEW,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
@@ -468,6 +470,7 @@ class Producer:
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
         fields: list[BatchExportField] | None = None,
         destination_default_fields: list[BatchExportField] | None = None,
+        use_latest_schema: bool = True,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -478,10 +481,15 @@ class Producer:
 
         if model_name == "persons":
             if is_backfill and full_range[0] is None:
-                query = SELECT_FROM_PERSONS_VIEW_BACKFILL
+                if use_latest_schema:
+                    query = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
+                else:
+                    query = SELECT_FROM_PERSONS_VIEW_BACKFILL
             else:
-                query = SELECT_FROM_PERSONS_VIEW
-
+                if use_latest_schema:
+                    query = SELECT_FROM_PERSONS_VIEW_NEW
+                else:
+                    query = SELECT_FROM_PERSONS_VIEW
         else:
             if parameters.get("exclude_events", None):
                 parameters["exclude_events"] = list(parameters["exclude_events"])
