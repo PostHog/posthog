@@ -282,7 +282,7 @@ multidict==6.0.2
     #   yarl
 multiprocess==0.70.16
     # via datasets
-mypy==1.11.1
+mypy==1.13.0
     # via -r requirements-dev.in
 mypy-baseline==0.7.0
     # via -r requirements-dev.in

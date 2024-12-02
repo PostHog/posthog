@@ -12,7 +12,7 @@
 -c requirements.txt
 
 ruff~=0.6.1
-mypy~=1.11.1
+mypy~=1.13.0
 mypy-baseline~=0.7.0
 mypy-extensions==1.0.0
 datamodel-code-generator==0.26.1
