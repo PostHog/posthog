@@ -26,7 +26,7 @@ const COLORS = {
 }
 
 // Helper function to find nice round numbers for ticks
-function getNiceTickValues(maxAbsValue: number): number[] {
+export function getNiceTickValues(maxAbsValue: number): number[] {
     // Round up maxAbsValue to ensure we cover all values
     maxAbsValue = Math.ceil(maxAbsValue * 10) / 10
 
@@ -48,9 +48,14 @@ function getNiceTickValues(maxAbsValue: number): number[] {
     // Calculate how many baseUnits we need to exceed maxAbsValue
     const unitsNeeded = Math.ceil(maxAbsValue / baseUnit)
 
+    // Determine appropriate number of decimal places based on magnitude
+    const decimalPlaces = Math.max(0, -magnitude + 1)
+
     const ticks: number[] = []
     for (let i = -unitsNeeded; i <= unitsNeeded; i++) {
-        ticks.push(baseUnit * i)
+        // Round each tick value to avoid floating point precision issues
+        const tickValue = Number((baseUnit * i).toFixed(decimalPlaces))
+        ticks.push(tickValue)
     }
     return ticks
 }
@@ -88,36 +93,38 @@ export function DeltaViz(): JSX.Element {
     const allResults = [...(metricResults || [])]
 
     return (
-        <div className="w-full bg-[var(--bg-table)] mb-4 rounded">
-            {allResults.map((results, metricIndex) => {
-                if (!results) {
-                    return null
-                }
+        <div className="w-full overflow-x-auto">
+            <div className="min-w-[800px]">
+                {allResults.map((results, metricIndex) => {
+                    if (!results) {
+                        return null
+                    }
 
-                const isFirstMetric = metricIndex === 0
+                    const isFirstMetric = metricIndex === 0
 
-                return (
-                    <div
-                        key={metricIndex}
-                        className={`w-full border border-border bg-light ${
-                            allResults.length === 1
-                                ? 'rounded'
-                                : isFirstMetric
-                                ? 'rounded-t'
-                                : metricIndex === allResults.length - 1
-                                ? 'rounded-b'
-                                : ''
-                        }`}
-                    >
-                        <Chart
-                            results={results}
-                            variants={variants}
-                            metricType={getMetricType(metricIndex)}
-                            isFirstMetric={isFirstMetric}
-                        />
-                    </div>
-                )
-            })}
+                    return (
+                        <div
+                            key={metricIndex}
+                            className={`w-full border border-border bg-light ${
+                                allResults.length === 1
+                                    ? 'rounded'
+                                    : isFirstMetric
+                                    ? 'rounded-t'
+                                    : metricIndex === allResults.length - 1
+                                    ? 'rounded-b'
+                                    : ''
+                            }`}
+                        >
+                            <Chart
+                                results={results}
+                                variants={variants}
+                                metricType={getMetricType(metricIndex)}
+                                isFirstMetric={isFirstMetric}
+                            />
+                        </div>
+                    )
+                })}
+            </div>
         </div>
     )
 }
@@ -280,7 +287,7 @@ function Chart({
                                 x1={x}
                                 y1={0}
                                 x2={x}
-                                y2={chartSvgHeight}
+                                y2={chartSvgHeight + 20}
                                 stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
                                 strokeWidth={value === 0 ? 1 : 0.5}
                             />
