@@ -755,8 +755,8 @@ class ReplayFiltersEventsSubQuery:
     def person_properties(self) -> PropertyGroup | None:
         person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
         return (
-            PropertyGroup(
-                type=self.property_operand,
+            PropertyGroupFilterValue(
+                type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
                 values=person_property_groups,
             )
             if person_property_groups
