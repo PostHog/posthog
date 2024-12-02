@@ -20,6 +20,7 @@ import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { PipelineBackend } from '../types'
 import { RenderBatchExportIcon } from '../utils'
+import { DESTINATION_TYPES } from './constants'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
 
@@ -48,7 +49,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             {} as Record<string, HogFunctionTemplateType>,
             {
                 loadHogFunctionTemplates: async () => {
-                    const templates = await api.hogFunctions.listTemplates()
+                    const templates = await api.hogFunctions.listTemplates(DESTINATION_TYPES)
                     return templates.results.reduce((acc, template) => {
                         acc[template.id] = template
                         return acc
