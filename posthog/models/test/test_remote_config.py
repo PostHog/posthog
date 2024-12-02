@@ -4,6 +4,7 @@ from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 from posthog.test.base import BaseTest
+from django.utils import timezone
 
 
 class _RemoteConfigBase(BaseTest):
@@ -40,7 +41,7 @@ class TestRemoteConfig(_RemoteConfigBase):
                 "autocapture_opt_out": False,
                 "autocaptureExceptions": False,
                 "analytics": {"endpoint": "/i/v0/e/"},
-                "elements_chain_as_string": False,
+                "elements_chain_as_string": True,
                 "session_recording": False,
                 "surveys": False,
                 "heatmaps": False,
@@ -96,6 +97,26 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.remote_config.refresh_from_db()
         assert self.remote_config.config["autocaptureExceptions"] == {"endpoint": "/e/"}
+
+
+class TestRemoteConfigSync(_RemoteConfigBase):
+    def test_does_not_sync_if_no_changes(self):
+        synced_at = self.remote_config.synced_at
+
+        assert synced_at
+        assert synced_at < timezone.now()
+        self.remote_config.sync()
+        assert synced_at == self.remote_config.synced_at
+
+        self.remote_config.refresh_from_db()  # Ensure the config object is not referentially the same
+        self.remote_config.sync()
+        assert synced_at == self.remote_config.synced_at
+
+    def test_syncs_if_changes(self):
+        synced_at = self.remote_config.synced_at
+        self.remote_config.config["surveys"] = True
+        self.remote_config.sync()
+        assert synced_at < self.remote_config.synced_at  # type: ignore
 
 
 class TestRemoteConfigJS(_RemoteConfigBase):
