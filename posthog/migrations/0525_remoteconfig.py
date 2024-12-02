@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0523_errortrackingsymbolset_content_hash"),
+        ("posthog", "0524_datawarehousejoin_configuration"),
     ]
 
     operations = [
