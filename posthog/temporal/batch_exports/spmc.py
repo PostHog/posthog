@@ -281,15 +281,15 @@ class Consumer:
 class RecordBatchConsumerRetryableExceptionGroup(ExceptionGroup):
     """ExceptionGroup raised when at least one task fails with a retryable exception."""
 
-    def __init__(self, exceptions: collections.abc.Sequence[Exception]):
-        super().__init__("At least one unhandled retryable errors in a RecordBatch consumer TaskGroup", exceptions)
+    def derive(self, excs):
+        return RecordBatchConsumerRetryableExceptionGroup(self.message, excs)
 
 
 class RecordBatchConsumerNonRetryableExceptionGroup(ExceptionGroup):
     """ExceptionGroup raised when all tasks fail with non-retryable exception."""
 
-    def __init__(self, exceptions: collections.abc.Sequence[Exception]):
-        super().__init__("Unhandled non-retryable errors in a RecordBatch consumer TaskGroup", exceptions)
+    def derive(self, excs):
+        return RecordBatchConsumerNonRetryableExceptionGroup(self.message, excs)
 
 
 async def run_consumer_loop(
@@ -361,8 +361,8 @@ async def run_consumer_loop(
         consumer_task.add_done_callback(consumer_done_callback)
         consumer_number += 1
 
-        while not consumer.flush_start_event.is_set() or not consumer_task.done():
-            await asyncio.sleep(0.1)
+        while not consumer.flush_start_event.is_set() and not consumer_task.done():
+            await asyncio.sleep(0)
 
         if consumer_task.done():
             consumer_task_exception = consumer_task.exception()
@@ -388,19 +388,21 @@ async def run_consumer_loop(
             # search for a handful of exception types, so this is a quicker tradeoff
             # as we already have the list of strings for each destination.
             if e.__class__.__name__ in non_retryable_error_types:
-                await logger.aexception(
-                    "Consumer task %s has failed with a non-retryable exception", task, e, exc_info=e
-                )
+                await logger.aexception("Consumer task %s has failed with a non-retryable %s", task, e, exc_info=e)
                 non_retryable.append(e)
 
             else:
-                await logger.aexception("Consumer task %s has failed with a retryable exception", task, e, exc_info=e)
+                await logger.aexception("Consumer task %s has failed with a retryable %s", task, e, exc_info=e)
                 retryable.append(e)
 
     if retryable:
-        raise RecordBatchConsumerRetryableExceptionGroup(retryable + non_retryable)
+        raise RecordBatchConsumerRetryableExceptionGroup(
+            "At least one unhandled retryable errors in a RecordBatch consumer TaskGroup", retryable + non_retryable
+        )
     elif non_retryable:
-        raise RecordBatchConsumerNonRetryableExceptionGroup(retryable + non_retryable)
+        raise RecordBatchConsumerNonRetryableExceptionGroup(
+            "Unhandled non-retryable errors in a RecordBatch consumer TaskGroup", retryable + non_retryable
+        )
 
     await raise_on_task_failure(producer_task)
     await logger.adebug("Successfully consumed all record batches")
