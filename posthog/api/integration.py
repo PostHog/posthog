@@ -128,11 +128,4 @@ class IntegrationViewSet(
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
 
-        accessible_accounts = [
-            {
-                "id": accountId,
-            }
-            for accountId in google_ads.list_google_ads_accessible_accounts()["resourceNames"]
-        ]
-
-        return Response({"accessibleAccounts": accessible_accounts})
+        return Response({"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()})

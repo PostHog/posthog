@@ -6,16 +6,18 @@ import { GoogleAdsConversionActionType, IntegrationType } from '~/types'
 
 import { googleAdsIntegrationLogic } from './googleAdsIntegrationLogic'
 
-const getGoogleAdsAccountOptions = (googleAdsAccounts?: { id: string }[] | null): LemonInputSelectOption[] | null => {
+const getGoogleAdsAccountOptions = (
+    googleAdsAccounts?: { id: string; name: string }[] | null
+): LemonInputSelectOption[] | null => {
     return googleAdsAccounts
-        ? googleAdsAccounts.map((customerId) => ({
-              key: customerId.id.split('/')[1],
+        ? googleAdsAccounts.map((customer) => ({
+              key: customer.id,
               labelComponent: (
                   <span className="flex items-center">
-                      {customerId.id.split('/')[1].replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}
+                      {customer.name} ({customer.id.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')})
                   </span>
               ),
-              label: `${customerId.id.split('/')[1].replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}`,
+              label: `${customer.name} (${customer.id.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')})`,
           }))
         : null
 }

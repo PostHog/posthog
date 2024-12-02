@@ -452,7 +452,7 @@ class GoogleAdsIntegration:
 
         return response.json()
 
-    def list_google_ads_accessible_accounts(self) -> dict:
+    def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
         response = requests.request(
             "GET",
             f"https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
@@ -467,7 +467,38 @@ class GoogleAdsIntegration:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
             raise Exception(f"There was an internal error")
 
-        return response.json()
+        accounts = response.json()
+        accounts_with_name = []
+
+        for account in accounts["resourceNames"]:
+            response = requests.request(
+                "POST",
+                f"https://googleads.googleapis.com/v18/customers/{account.split('/')[1]}/googleAds:searchStream",
+                json={
+                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer FROM customer_client WHERE customer_client.level <= 1"
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                    "developer-token": settings.ADWORDS_DEVELOPER_TOKEN,
+                },
+            )
+
+            if response.status_code != 200:
+                capture_exception(
+                    Exception(f"GoogleAdsIntegration: Failed to retrieve account details: {response.text}")
+                )
+                raise Exception(f"There was an internal error")
+
+            response = response.json()
+            accounts_with_name.append(
+                {
+                    "id": account.split("/")[1],
+                    "name": response[0]["results"][0]["customerClient"].get("descriptiveName", "Google Ads account"),
+                }
+            )
+
+        return accounts_with_name
 
 
 class GoogleCloudIntegration:

@@ -14,7 +14,6 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
         loadGoogleAdsConversionActions: (customerId: string) => customerId,
         loadGoogleAdsAccessibleAccounts: true,
     }),
-
     loaders(({ props }) => ({
         googleAdsConversionActions: [
             null as GoogleAdsConversionActionType[] | null,
@@ -26,7 +25,7 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
             },
         ],
         googleAdsAccessibleAccounts: [
-            null as { id: string }[] | null,
+            null as { id: string; name: string }[] | null,
             {
                 loadGoogleAdsAccessibleAccounts: async () => {
                     const res = await api.integrations.googleAdsAccounts(props.id)
