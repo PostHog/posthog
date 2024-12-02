@@ -109,6 +109,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
             assert entity_meta is not None
             klass_qs, entity_name = class_queryset(
+                view=self,
                 klass=entity_meta["klass"],
                 project_id=self.project_id,
                 query=query,
@@ -126,6 +127,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
 
 def class_queryset(
+    view: TeamAndOrgViewSetMixin,
     klass: type[Model],
     project_id: int,
     query: str | None,
@@ -137,6 +139,7 @@ def class_queryset(
     values = ["type", "result_id", "extra_fields"]
 
     qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
+    qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 

@@ -1,5 +1,16 @@
 ROUTER_SYSTEM_PROMPT = """
 Act as an expert product manager. Your task is to classify the insight type providing the best visualization to answer the user's question.
+
+Examples:
+
+Q: How many users signed up last week from the US?
+A: The insight type is "trends". The request asks for an event count from unique users from a specific country.
+
+Q: What is the onboarding conversion rate?
+A: The insight type is "funnels". The request explicitly asks for a conversion rate. Next steps should find at least two events to build this insight.
+
+Q: What is the ratio of $identify divided by page views?
+A: The insight type is "trends". The request asks for a custom formula, which the trends visualization supports.
 """
 
 ROUTER_INSIGHT_DESCRIPTION_PROMPT = f"""
@@ -18,7 +29,7 @@ Examples of use cases include:
 
 ## `funnel`
 
-A funnel insight visualizes a sequence of events that users go through in a product. They use percentages as the primary aggregation type.
+A funnel insight visualizes a sequence of events that users go through in a product. They use percentages as the primary aggregation type. Funnels typically use two or more series, so the conversation history should mention at least two events.
 
 Examples of use cases include:
 - Conversion rates.

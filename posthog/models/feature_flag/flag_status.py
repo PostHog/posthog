@@ -29,7 +29,7 @@ class FeatureFlagStatusChecker:
     def __init__(
         self,
         feature_flag_id: str,
-        # The amount of time considered "recent" for the purposes of determining staleness .
+        # The amount of time considered "recent" for the purposes of determining staleness.
         stale_window: str = "-30d",
     ):
         self.feature_flag_id = feature_flag_id
@@ -53,7 +53,7 @@ class FeatureFlagStatusChecker:
         if self.is_flag_unevaluated_recently(flag):
             return FeatureFlagStatus.INACTIVE, "Flag has not been evaluated recently"
 
-        return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be actively called"
+        return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be active"
 
     def is_flag_fully_enabled(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
         # If flag is not active, it is not enabled. This flag may still be stale,
@@ -84,9 +84,9 @@ class FeatureFlagStatusChecker:
                 flag
             )
         if multivariate and is_multivariate_flag_fully_enabled:
-            return True, f'Currently, this flag will always use the variant "{fully_enabled_variant_name}"'
+            return True, f'This flag will always use the variant "{fully_enabled_variant_name}"'
         elif self.is_boolean_flag_fully_enabled(flag):
-            return True, 'Currently, this boolean flag will always evaluate to "true"'
+            return True, 'This boolean flag will always evaluate to "true"'
 
         return False, ""
 
@@ -96,9 +96,9 @@ class FeatureFlagStatusChecker:
         #
         # Alternatively, if there is a release condition set to 100% and it has a
         # variant override, the flag is fully enabled.
-        fully_enabled_variant_key = None
+        fully_enabled_variant_key: str | None = None
         some_release_condition_fully_enabled = False
-        fully_enabled_release_condition_variant_override = None
+        fully_enabled_release_condition_variant_override: str | None = None
 
         multivariate = flag.filters.get("multivariate", None)
         variants = multivariate.get("variants", [])
@@ -114,7 +114,7 @@ class FeatureFlagStatusChecker:
                     fully_enabled_release_condition_variant_override or release_condition.get("variant", None)
                 )
 
-        fully_enabled_variant = fully_enabled_release_condition_variant_override or fully_enabled_variant_key
+        fully_enabled_variant = fully_enabled_release_condition_variant_override or fully_enabled_variant_key or ""
         return some_release_condition_fully_enabled and (
             fully_enabled_release_condition_variant_override is not None or fully_enabled_variant_key is not None
         ), fully_enabled_variant
@@ -162,9 +162,7 @@ class FeatureFlagStatusChecker:
                     "value": flag.key,
                 }
             ],
-            select=[
-                "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', 'false') -- Feature Flag Response"
-            ],
+            select=[],
             # We only care if there has been one or more recent call, so ask ClickHouse for one result
             limit=1,
         )
