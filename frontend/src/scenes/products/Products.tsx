@@ -81,7 +81,7 @@ export function Products(): JSX.Element {
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-bg-3000 h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
+        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-bg-3000">
             <>
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-8">

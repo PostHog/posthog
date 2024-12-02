@@ -1,5 +1,8 @@
 import asyncio
 import typing
+import dataclasses
+import collections.abc
+import abc
 
 from temporalio import activity
 
@@ -20,7 +23,7 @@ class Heartbeater:
             maintained while in the context manager to avoid garbage collection.
     """
 
-    def __init__(self, details: tuple[typing.Any, ...] = (), factor: int = 12):
+    def __init__(self, details: tuple[typing.Any, ...] = (), factor: int = 120):
         self._details: tuple[typing.Any, ...] = details
         self.factor = factor
         self.heartbeat_task: asyncio.Task | None = None
@@ -35,6 +38,10 @@ class Heartbeater:
     def details(self, details: tuple[typing.Any, ...]) -> None:
         """Set tuple to be passed as heartbeat details."""
         self._details = details
+
+    def set_from_heartbeat_details(self, details: "HeartbeatDetails") -> None:
+        """Set `HeartbeatDetails` to be passed as heartbeat details."""
+        self._details = tuple(details.serialize_details())
 
     async def __aenter__(self):
         """Enter managed heartbeatting context."""
@@ -82,3 +89,116 @@ class Heartbeater:
 
         self.heartbeat_task = None
         self.heartbeat_on_shutdown_task = None
+
+
+class EmptyHeartbeatError(Exception):
+    """Raised when an activity heartbeat is empty.
+
+    This is also the error we expect when no heartbeatting is happening, as the sequence will be empty.
+    """
+
+    def __init__(self):
+        super().__init__(f"Heartbeat details sequence is empty")
+
+
+class NotEnoughHeartbeatValuesError(Exception):
+    """Raised when an activity heartbeat doesn't contain the right amount of values we expect."""
+
+    def __init__(self, details_len: int, expected: int):
+        super().__init__(f"Not enough values in heartbeat details (expected {expected}, got {details_len})")
+
+
+class HeartbeatParseError(Exception):
+    """Raised when an activity heartbeat cannot be parsed into it's expected types."""
+
+    def __init__(self, field: str):
+        super().__init__(f"Parsing {field} from heartbeat details encountered an error")
+
+
+@dataclasses.dataclass
+class HeartbeatDetails(metaclass=abc.ABCMeta):
+    """Details included in every heartbeat.
+
+    If an activity requires tracking progress, this should be subclassed to include
+    the attributes that are required for said activity. The main methods to implement
+    when subclassing are `deserialize_details` and `serialize_details`. Both should
+    deserialize from and serialize to a generic sequence or tuple, respectively.
+
+    Attributes:
+        _remaining: Any remaining values in the heartbeat_details tuple that we do
+            not parse.
+    """
+
+    _remaining: collections.abc.Sequence[typing.Any]
+
+    @property
+    def total_details(self) -> int:
+        """The total number of details that we have parsed + those remaining to parse."""
+        return (len(dataclasses.fields(self.__class__)) - 1) + len(self._remaining)
+
+    @classmethod
+    @abc.abstractmethod
+    def deserialize_details(cls, details: collections.abc.Sequence[typing.Any]) -> dict[str, typing.Any]:
+        """Deserialize `HeartbeatDetails` from a generic sequence of details.
+
+        This base class implementation just returns all details as `_remaining`.
+        Subclasses first call this method, and then peek into `_remaining` and
+        extract the details they need. For now, subclasses can only rely on the
+        order in which details are serialized but in the future we may need a
+        more robust way of identifying details.
+
+        Arguments:
+            details: A collection of details as returned by
+                `temporalio.activity.info().heartbeat_details`
+        """
+        return {"_remaining": details}
+
+    @abc.abstractmethod
+    def serialize_details(self) -> tuple[typing.Any, ...]:
+        """Serialize `HeartbeatDetails` to a tuple.
+
+        Since subclasses rely on the order details are serialized, subclasses
+        should be careful here to maintain a consistent serialization order. For
+        example, `_remaining` should always be placed last.
+
+        Returns:
+            A tuple of serialized details.
+        """
+        return (self._remaining,)
+
+    @classmethod
+    def from_activity(cls, activity):
+        """Instantiate this class from a Temporal Activity."""
+        details = activity.info().heartbeat_details
+        return cls.from_activity_details(details)
+
+    @classmethod
+    def from_activity_details(cls, details):
+        parsed = cls.deserialize_details(details)
+        return cls(**parsed)
+
+
+@dataclasses.dataclass
+class DataImportHeartbeatDetails(HeartbeatDetails):
+    """Data import heartbeat details.
+
+    Attributes:
+        endpoint: The endpoint we are importing data from.
+        cursor: The cursor we are using to paginate through the endpoint.
+    """
+
+    endpoint: str
+    cursor: str
+
+    @classmethod
+    def from_activity(cls, activity):
+        """Attempt to initialize DataImportHeartbeatDetails from an activity's info."""
+        details = activity.info().heartbeat_details
+
+        if len(details) == 0:
+            raise EmptyHeartbeatError()
+
+        if len(details) != 2:
+            raise NotEnoughHeartbeatValuesError(len(details), 2)
+
+        return cls(endpoint=details[0], cursor=details[1], _remaining=details[2:])

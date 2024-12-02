@@ -72,7 +72,9 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQuery
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
-            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team, modifiers)
+            team_id=team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
         pretty=True,
     )

@@ -10,7 +10,7 @@ from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
-class TestToolkit(TaxonomyAgentToolkit):
+class DummyToolkit(TaxonomyAgentToolkit):
     def _get_tools(self) -> list[ToolkitTool]:
         return self._default_tools
 
@@ -69,7 +69,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_retrieve_entity_properties(self):
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
 
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="test", property_type="String"
@@ -100,14 +100,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_entity_properties("person"),
             "Properties do not exist in the taxonomy for the entity person.",
         )
 
     def test_retrieve_entity_property_values(self):
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "$session_duration"),
             "30, 146, 2 and many more distinct values.",
@@ -148,7 +148,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "5, 4, 3, 2, 1 and 1 more distinct value.",
         )
 
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
@@ -192,18 +192,18 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
 
     def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_event_properties("pageview"),
             "Properties do not exist in the taxonomy for the event pageview.",
         )
 
     def test_empty_events(self):
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_event_properties("test"), "Properties do not exist in the taxonomy for the event test."
         )
@@ -220,7 +220,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         self.assertEqual(
             toolkit.retrieve_event_properties("event1"),
             "Properties do not exist in the taxonomy for the event event1.",
@@ -228,7 +228,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_event_properties(self):
         self._create_taxonomy()
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         prompt = toolkit.retrieve_event_properties("event1")
 
         self.assertIn(
@@ -250,7 +250,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_event_property_values(self):
         self._create_taxonomy()
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
 
         self.assertIn('"Chrome"', toolkit.retrieve_event_property_values("event1", "$browser"))
         self.assertIn('"Firefox"', toolkit.retrieve_event_property_values("event1", "$browser"))
@@ -264,7 +264,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_enrich_props_with_descriptions(self):
-        toolkit = TestToolkit(self.team)
+        toolkit = DummyToolkit(self.team)
         res = toolkit._enrich_props_with_descriptions("event", [("$geoip_city_name", "String")])
         self.assertEqual(len(res), 1)
         prop, type, description = res[0]

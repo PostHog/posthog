@@ -4,7 +4,7 @@ import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind, RetentionQuery } from '~/queries/schema'
 
 export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): ActorsQuery {
-    const group = query.aggregation_group_type_index !== undefined
+    const group = query.aggregation_group_type_index != null
     const selectActor = group ? 'group' : 'person'
     const totalIntervals = (query.retentionFilter.totalIntervals || 11) - selectedInterval
     const periodName = query.retentionFilter.period?.toLowerCase() ?? 'day'

@@ -179,10 +179,8 @@ export const FEATURE_FLAGS = {
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
     SQL_EDITOR: 'sql-editor', // owner: @EDsCODE #team-data-warehouse
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
-    REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
-    REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
@@ -233,6 +231,8 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_MIGRATION_DISABLE_UI: 'experiments-migration-disable-ui', // owner: @jurajmajerik #team-experiments
     FEATURE_MANAGEMENT_UI: 'feature-management-ui', // owner: @haven #team-feature-flags
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
+    WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION: 'web-analytics-warn-custom-event-no-session', // owner: @robbie-c #team-web-analytics
+    TWO_FACTOR_UI: 'two-factor-ui', // owner: @zach
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

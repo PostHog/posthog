@@ -300,9 +300,15 @@ def get_mysql_schemas(
     user: str,
     password: str,
     schema: str,
+    using_ssl: bool,
     ssh_tunnel: SSHTunnel,
 ) -> dict[str, list[tuple[str, str]]]:
     def get_schemas(mysql_host: str, mysql_port: int):
+        ssl_ca: str | None = None
+
+        if using_ssl:
+            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
         connection = pymysql.connect(
             host=mysql_host,
             port=mysql_port,
@@ -310,7 +316,7 @@ def get_mysql_schemas(
             user=user,
             password=password,
             connect_timeout=5,
-            ssl_ca="/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt",
+            ssl_ca=ssl_ca,
         )
 
         with connection.cursor() as cursor:
@@ -403,11 +409,12 @@ def get_sql_schemas_for_source_type(
     password: str,
     schema: str,
     ssh_tunnel: SSHTunnel,
+    using_ssl: bool = True,
 ) -> dict[str, list[tuple[str, str]]]:
     if source_type == ExternalDataSource.Type.POSTGRES:
         schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
     elif source_type == ExternalDataSource.Type.MYSQL:
-        schemas = get_mysql_schemas(host, port, database, user, password, schema, ssh_tunnel)
+        schemas = get_mysql_schemas(host, port, database, user, password, schema, using_ssl, ssh_tunnel)
     elif source_type == ExternalDataSource.Type.MSSQL:
         schemas = get_mssql_schemas(host, port, database, user, password, schema, ssh_tunnel)
     else:

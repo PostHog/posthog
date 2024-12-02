@@ -166,8 +166,7 @@ export const urls = {
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     errorTracking: (): string => '/error_tracking',
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
-    errorTrackingGroup: (fingerprint: string): string =>
-        `/error_tracking/${fingerprint === ':fingerprint' ? fingerprint : encodeURIComponent(fingerprint)}`,
+    errorTrackingIssue: (id: string): string => `/error_tracking/${id}`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,

@@ -34,6 +34,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
     start_produce_batch_export_record_batches,
 )
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -52,10 +57,6 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
-from posthog.temporal.common.utils import (
-    BatchExportHeartbeatDetails,
-    should_resume_from_activity_heartbeat,
-)
 
 logger = structlog.get_logger()
 
@@ -113,7 +114,7 @@ def get_bigquery_fields_from_record_schema(
 
 
 @dataclasses.dataclass
-class BigQueryHeartbeatDetails(BatchExportHeartbeatDetails):
+class BigQueryHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The BigQuery batch export details included in every heartbeat."""
 
     pass
@@ -172,16 +173,25 @@ class BigQueryClient(bigquery.Client):
         project_id: str,
         dataset_id: str,
         table_id: str,
-        table_schema: list[bigquery.SchemaField],
         not_found_ok: bool = True,
     ) -> None:
         """Delete a table in BigQuery."""
         fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
-        table = bigquery.Table(fully_qualified_name, schema=table_schema)
+        table = bigquery.Table(fully_qualified_name)
 
         await asyncio.to_thread(self.delete_table, table, not_found_ok=not_found_ok)
 
         return None
+
+    async def aget_table(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table_id: str,
+    ) -> bigquery.Table:
+        """Get a table in BigQuery."""
+        fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
+        return await asyncio.to_thread(self.get_table, fully_qualified_name)
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -195,25 +205,23 @@ class BigQueryClient(bigquery.Client):
         delete: bool = True,
         create: bool = True,
     ) -> collections.abc.AsyncGenerator[bigquery.Table, None]:
-        """Manage a table in BigQuery by ensure it exists while in context."""
+        """Manage a table in BigQuery by ensuring it exists while in context."""
         if create is True:
             table = await self.acreate_table(project_id, dataset_id, table_id, table_schema, exists_ok)
         else:
-            fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
-            table = bigquery.Table(fully_qualified_name, schema=table_schema)
+            table = await self.aget_table(project_id, dataset_id, table_id)
 
         try:
             yield table
         finally:
             if delete is True:
-                await self.adelete_table(project_id, dataset_id, table_id, table_schema, not_found_ok)
+                await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
 
     async def amerge_person_tables(
         self,
         final_table: bigquery.Table,
         stage_table: bigquery.Table,
         merge_key: collections.abc.Iterable[bigquery.SchemaField],
-        update_fields: collections.abc.Iterable[bigquery.SchemaField] | None = None,
         person_version_key: str = "person_version",
         person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
@@ -231,12 +239,7 @@ class BigQueryClient(bigquery.Client):
         values = ""
         field_names = ""
 
-        if not update_fields:
-            update_clause_fields = final_table.schema
-        else:
-            update_clause_fields = update_fields
-
-        for n, field in enumerate(update_clause_fields):
+        for n, field in enumerate(final_table.schema):
             if n > 0:
                 update_clause += ", "
                 values += ", "
@@ -366,12 +369,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
+        _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
+        if details is None:
+            details = BigQueryHeartbeatDetails()
 
-        if should_resume is True and details is not None:
-            data_interval_start: str | None = details.last_inserted_at.isoformat()
-        else:
-            data_interval_start = inputs.data_interval_start
+        done_ranges: list[DateRange] = details.done_ranges
 
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None and "batch_export_model" in {
@@ -392,17 +394,23 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
 
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        full_range = (data_interval_start, data_interval_end)
         queue, produce_task = start_produce_batch_export_record_batches(
             client=client,
             model_name=model_name,
             is_backfill=inputs.is_backfill,
             team_id=inputs.team_id,
-            interval_start=data_interval_start,
-            interval_end=inputs.data_interval_end,
+            full_range=full_range,
+            done_ranges=done_ranges,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             fields=fields,
             destination_default_fields=bigquery_default_fields(),
+            use_latest_schema=True,
             extra_query_parameters=extra_query_parameters,
         )
 
@@ -469,17 +477,17 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         with bigquery_client(inputs) as bq_client:
             async with (
                 bq_client.managed_table(
-                    inputs.project_id,
-                    inputs.dataset_id,
-                    inputs.table_id,
-                    schema,
+                    project_id=inputs.project_id,
+                    dataset_id=inputs.dataset_id,
+                    table_id=inputs.table_id,
+                    table_schema=schema,
                     delete=False,
                 ) as bigquery_table,
                 bq_client.managed_table(
-                    inputs.project_id,
-                    inputs.dataset_id,
-                    stage_table_name,
-                    schema,
+                    project_id=inputs.project_id,
+                    dataset_id=inputs.dataset_id,
+                    table_id=stage_table_name,
+                    table_schema=schema,
                     create=requires_merge,
                     delete=requires_merge,
                 ) as bigquery_stage_table,
@@ -490,7 +498,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     records_since_last_flush: int,
                     bytes_since_last_flush: int,
                     flush_counter: int,
-                    last_inserted_at,
+                    last_date_range,
                     last: bool,
                     error: Exception | None,
                 ):
@@ -508,7 +516,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
-                    heartbeater.details = (str(last_inserted_at),)
+                    details.track_done_range(last_date_range, data_interval_start)
+                    heartbeater.set_from_heartbeat_details(details)
 
                 flush_tasks = []
                 while not queue.empty() or not produce_task.done():
@@ -535,6 +544,9 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 await raise_on_produce_task_failure(produce_task)
                 await logger.adebug("Successfully consumed all record batches")
 
+                details.complete_done_ranges(inputs.data_interval_end)
+                heartbeater.set_from_heartbeat_details(details)
+
                 records_total = functools.reduce(operator.add, (task.result() for task in flush_tasks))
 
                 if requires_merge:
@@ -546,7 +558,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         final_table=bigquery_table,
                         stage_table=bigquery_stage_table,
                         merge_key=merge_key,
-                        update_fields=schema,
                     )
 
                 return records_total

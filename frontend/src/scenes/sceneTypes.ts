@@ -10,7 +10,7 @@ export enum Scene {
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
-    ErrorTrackingGroup = 'ErrorTrackingGroup',
+    ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',

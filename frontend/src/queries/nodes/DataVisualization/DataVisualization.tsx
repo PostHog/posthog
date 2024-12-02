@@ -13,6 +13,7 @@ import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataW
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
@@ -26,7 +27,7 @@ import {
     NodeKind,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, ExporterFormat, InsightLogicProps } from '~/types'
+import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
@@ -54,6 +55,7 @@ interface DataTableVisualizationProps {
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
     readOnly?: boolean
+    exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
 }
@@ -78,10 +80,15 @@ export function DataTableVisualization({
     }
 
     const vizKey = insightVizDataNodeKey(insightProps)
+    const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
+    const { insightMode } = useValues(insightSceneLogic)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: vizKey,
         query,
-        insightLogicProps: insightProps,
+        dashboardId: insightProps.dashboardId,
+        dataNodeCollectionId,
+        loadPriority: insightProps.loadPriority,
+        insightMode,
         setQuery,
         cachedResults,
         variablesOverride,
@@ -92,9 +99,12 @@ export function DataTableVisualization({
         key: vizKey,
         cachedResults,
         loadPriority: insightProps.loadPriority,
-        dataNodeCollectionId: insightVizDataCollectionId(insightProps, key),
+        dataNodeCollectionId,
         variablesOverride,
     }
+
+    const { insightProps: insightLogicProps } = useValues(insightLogic)
+    const { exportContext } = useValues(insightDataLogic(insightLogicProps))
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -112,6 +122,7 @@ export function DataTableVisualization({
                                 context={context}
                                 cachedResults={cachedResults}
                                 readOnly={readOnly}
+                                exportContext={exportContext}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -123,8 +134,6 @@ export function DataTableVisualization({
 
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
     const { readOnly } = props
-    const { insightProps } = useValues(insightLogic)
-    const { exportContext } = useValues(insightDataLogic(insightProps))
 
     const {
         query,
@@ -228,7 +237,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                         tooltip="Visualization settings"
                                     />
 
-                                    {exportContext && (
+                                    {props.exportContext && (
                                         <ExportButton
                                             disabledReason={
                                                 visualizationType != ChartDisplayType.ActionsTable &&
@@ -238,11 +247,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                             items={[
                                                 {
                                                     export_format: ExporterFormat.CSV,
-                                                    export_context: exportContext,
+                                                    export_context: props.exportContext,
                                                 },
                                                 {
                                                     export_format: ExporterFormat.XLSX,
-                                                    export_context: exportContext,
+                                                    export_context: props.exportContext,
                                                 },
                                             ]}
                                         />
