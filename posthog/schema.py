@@ -5786,6 +5786,7 @@ class AnyResponseType(
             HogQLAutocompleteResponse,
             Any,
             EventsQueryResponse,
+            ErrorTrackingQueryResponse,
         ]
     ]
 ):
@@ -5797,6 +5798,7 @@ class AnyResponseType(
         HogQLAutocompleteResponse,
         Any,
         EventsQueryResponse,
+        ErrorTrackingQueryResponse,
     ]
 
 
