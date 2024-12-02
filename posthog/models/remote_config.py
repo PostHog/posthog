@@ -78,8 +78,10 @@ class RemoteConfig(UUIDModel):
                 else False
             ),
             "analytics": {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT},
-            "elements_chain_as_string": True,
         }
+
+        if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
+            config["elements_chain_as_string"] = True
 
         # MARK: Session Recording
         session_recording_config_response: bool | dict = False

@@ -3639,6 +3639,24 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert response.status_code == 200
             assert "__preview_ingestion_endpoints" not in response.json()
 
+    def test_decide_element_chain_as_string(self, *args):
+        self.client.logout()
+        with self.settings(
+            ELEMENT_CHAIN_AS_STRING_TEAMS={str(self.team.id)}, ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS={"0"}
+        ):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue("elementsChainAsString" in response.json())
+            self.assertTrue(response.json()["elementsChainAsString"])
+
+        with self.settings(
+            ELEMENT_CHAIN_AS_STRING_TEAMS={str(self.team.id)},
+            ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS={str(self.team.id)},
+        ):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse("elementsChainAsString" in response.json())
+
     def test_decide_default_identified_only(self, *args):
         self.client.logout()
         with self.settings(DEFAULT_IDENTIFIED_ONLY_TEAM_ID_MIN=str(1000000)):

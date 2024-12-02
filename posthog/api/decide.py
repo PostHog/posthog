@@ -263,6 +263,9 @@ def get_decide(request: HttpRequest):
                 if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
                     response["__preview_ingestion_endpoints"] = True
 
+            if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
+                response["elementsChainAsString"] = True
+
             response["elementsChainAsString"] = True
             response["sessionRecording"] = _session_recording_config_response(request, team, token)
 
