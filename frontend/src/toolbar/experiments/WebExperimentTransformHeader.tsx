@@ -28,8 +28,7 @@ export function WebExperimentTransformHeader({
 
             {transform.selector && <SelectorCount selector={transform.selector} />}
 
-            {/*Only show the remove button if there's more than one transform*/}
-            {experimentForm?.variants && experimentForm.variants[variant].transforms.length > 1 && (
+            {experimentForm?.variants && (
                 <LemonButton
                     icon={<IconTrash />}
                     size="small"

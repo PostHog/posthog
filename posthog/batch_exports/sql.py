@@ -80,6 +80,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         p.properties AS properties,
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
+        p.created_at AS created_at,
         multiIf(
             (
                 pd._timestamp >= {{interval_start:DateTime64}}
@@ -140,6 +141,7 @@ CREATE OR REPLACE VIEW persons_batch_export_backfill ON CLUSTER {settings.CLICKH
         p.properties AS properties,
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
+        p.created_at AS created_at,
         multiIf(
             pd._timestamp < {{interval_end:DateTime64}}
                 AND NOT p._timestamp < {{interval_end:DateTime64}},
@@ -170,6 +172,7 @@ CREATE OR REPLACE VIEW persons_batch_export_backfill ON CLUSTER {settings.CLICKH
             id,
             max(version) AS version,
             argMax(properties, person.version) AS properties,
+            argMax(created_at, person.version) AS created_at,
             argMax(_timestamp, person.version) AS _timestamp
         FROM
             person
