@@ -2,9 +2,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ElementType } from '~/types'
 
-export function autocaptureToImage(
-    elements: ElementType[]
-): null | { src: string | undefined; width: string | undefined; height: string | undefined } {
+interface AutocapturedImage {
+    src: string | undefined
+    width: string | undefined
+    height: string | undefined
+}
+
+export function autocaptureToImage(elements: ElementType[]): null | AutocapturedImage {
     const find = elements.find((el) => el.tag_name === 'img')
     const image = {
         src: find?.attributes?.attr__src,
@@ -14,8 +18,7 @@ export function autocaptureToImage(
     return image.src ? image : null
 }
 
-export function AutocaptureImageTab({ elements }: { elements: ElementType[] }): JSX.Element | null {
-    const img = autocaptureToImage(elements)
+export function AutocaptureImage({ img }: { img: AutocapturedImage }): JSX.Element | null {
     if (img) {
         return (
             <div className="flex bg-bg-3000 items-center justify-center relative border-2">
@@ -36,6 +39,19 @@ export function AutocaptureImageTab({ elements }: { elements: ElementType[] }): 
     return null
 }
 
+export function AutocaptureImageTab({ elements }: { elements: ElementType[] }): JSX.Element | null {
+    const img = autocaptureToImage(elements)
+    if (img) {
+        return (
+            <div className="flex bg-bg-3000 items-center justify-center relative border-2 w-full">
+                <AutocaptureImage img={img} />
+            </div>
+        )
+    }
+
+    return null
+}
+
 export function AutocapturePreviewImage({
     elements,
     imgPreviewHeight = '40',
@@ -46,7 +62,7 @@ export function AutocapturePreviewImage({
     const img = autocaptureToImage(elements)
     if (img) {
         return (
-            <Tooltip title={<AutocaptureImageTab elements={elements} />}>
+            <Tooltip title={<AutocaptureImage img={img} />}>
                 <img
                     className="max-h-10"
                     src={img.src}
