@@ -225,7 +225,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert len(mock_summary_lister.call_args_list) == 0
         assert len(mock_query_lister.call_args_list) == 1
         query_passed_to_mock: RecordingsQuery = mock_query_lister.call_args_list[0][0][0]
-        console_filter = cast(LogEntryPropertyFilter, query_passed_to_mock.console_log_filters[0])
+        maybe_the_filter = (
+            query_passed_to_mock.console_log_filters[0] if query_passed_to_mock.console_log_filters else None
+        )
+        assert maybe_the_filter is not None
+        console_filter = cast(LogEntryPropertyFilter, maybe_the_filter)
         assert console_filter.value == ["warn", "error"]
         assert mock_capture.call_args_list[0] == call(
             self.user.distinct_id,
