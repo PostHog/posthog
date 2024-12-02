@@ -128,7 +128,6 @@ class InputsItemSerializer(serializers.Serializer):
                     if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                         compiler = JavaScriptCompiler()
                         code = transpile_template_code(value, compiler)
-                        # TODO: we're not really using it. keep?
                         attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                         if "bytecode" in attrs:
                             del attrs["bytecode"]
