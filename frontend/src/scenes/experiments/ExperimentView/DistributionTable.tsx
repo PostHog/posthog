@@ -1,23 +1,141 @@
 import '../Experiment.scss'
 
-import { IconFlag } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconBalance, IconFlag } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTableColumns,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { MultivariateFlagVariant, SidePanelTab } from '~/types'
+import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
+import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
 
+export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { experiment, experimentLoading, isDistributionModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeDistributionModal, updateExperiment } = useActions(experimentLogic({ experimentId }))
+
+    const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
+    const { featureFlag, areVariantRolloutsValid, variantRolloutSum } = useValues(_featureFlagLogic)
+    const { setFeatureFlagFilters, distributeVariantsEqually, saveSidebarExperimentFeatureFlag } =
+        useActions(_featureFlagLogic)
+
+    const handleRolloutPercentageChange = (index: number, value: number | undefined): void => {
+        if (!featureFlag?.filters?.multivariate || !value) {
+            return
+        }
+
+        const updatedVariants = featureFlag.filters.multivariate.variants.map((variant, i) =>
+            i === index ? { ...variant, rollout_percentage: value } : variant
+        )
+
+        setFeatureFlagFilters(
+            {
+                ...featureFlag.filters,
+                multivariate: { ...featureFlag.filters.multivariate, variants: updatedVariants },
+            },
+            null
+        )
+    }
+
+    return (
+        <LemonModal
+            isOpen={isDistributionModalOpen}
+            onClose={closeDistributionModal}
+            width={600}
+            title="Change experiment distribution"
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={closeDistributionModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => {
+                            saveSidebarExperimentFeatureFlag(featureFlag)
+                            updateExperiment({ holdout_id: experiment.holdout_id })
+                            closeDistributionModal()
+                        }}
+                        type="primary"
+                        loading={experimentLoading}
+                        disabled={!areVariantRolloutsValid}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <LemonBanner type="info">
+                    Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware
+                    of how changes will affect your experiment.
+                </LemonBanner>
+
+                <div>
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="font-semibold mb-0">Variant Distribution</h3>
+                        <LemonButton
+                            size="small"
+                            onClick={distributeVariantsEqually}
+                            tooltip="Redistribute variant rollout percentages equally"
+                            icon={<IconBalance />}
+                        >
+                            Distribute equally
+                        </LemonButton>
+                    </div>
+
+                    <LemonTable
+                        dataSource={featureFlag?.filters?.multivariate?.variants || []}
+                        columns={[
+                            {
+                                title: 'Variant',
+                                dataIndex: 'key',
+                                render: (value) => <span className="font-semibold">{value}</span>,
+                            },
+                            {
+                                title: 'Rollout Percentage',
+                                dataIndex: 'rollout_percentage',
+                                render: (_, record, index) => (
+                                    <LemonInput
+                                        type="number"
+                                        value={record.rollout_percentage}
+                                        onChange={(value) => handleRolloutPercentageChange(index, value)}
+                                        min={0}
+                                        max={100}
+                                        suffix={<span>%</span>}
+                                    />
+                                ),
+                            },
+                        ]}
+                    />
+
+                    {!areVariantRolloutsValid && (
+                        <p className="text-danger mt-2">
+                            Percentage rollouts must sum to 100 (currently {variantRolloutSum}).
+                        </p>
+                    )}
+                </div>
+                <HoldoutSelector />
+            </div>
+        </LemonModal>
+    )
+}
+
 export function DistributionTable(): JSX.Element {
+    const { openDistributionModal } = useActions(experimentLogic)
     const { experimentId, experiment, experimentResults } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const onSelectElement = (variant: string): void => {
         LemonDialog.open({
@@ -64,6 +182,9 @@ export function DistributionTable(): JSX.Element {
             key: 'variant_screenshot',
             title: 'Screenshot',
             render: function Key(_, item): JSX.Element {
+                if (item.key === `holdout-${experiment.holdout?.id}`) {
+                    return <div className="h-16" />
+                }
                 return (
                     <div className="my-2">
                         <VariantScreenshot variantKey={item.key} rolloutPercentage={item.rollout_percentage} />
@@ -98,6 +219,23 @@ export function DistributionTable(): JSX.Element {
         })
     }
 
+    const holdoutData = experiment.holdout
+        ? [
+              {
+                  key: `holdout-${experiment.holdout.id}`,
+                  rollout_percentage: experiment.holdout.filters[0].rollout_percentage,
+              } as MultivariateFlagVariant,
+          ]
+        : []
+
+    const variantData = (experiment.feature_flag?.filters.multivariate?.variants || []).map((variant) => ({
+        ...variant,
+        rollout_percentage:
+            variant.rollout_percentage * ((100 - (experiment.holdout?.filters[0].rollout_percentage || 0)) / 100),
+    }))
+
+    const tableData = [...variantData, ...holdoutData]
+
     return (
         <div>
             <div className="flex">
@@ -110,7 +248,7 @@ export function DistributionTable(): JSX.Element {
                         <LemonButton
                             icon={<IconFlag />}
                             onClick={() => {
-                                openSidePanel(SidePanelTab.ExperimentFeatureFlag)
+                                openDistributionModal()
                                 reportExperimentReleaseConditionsViewed(experiment.id)
                             }}
                             type="secondary"
@@ -122,10 +260,17 @@ export function DistributionTable(): JSX.Element {
                     </div>
                 </div>
             </div>
+            {experiment.holdout && (
+                <LemonBanner type="info" className="mb-4">
+                    This experiment has a holdout group of {experiment.holdout.filters[0].rollout_percentage}%. The
+                    variants are modified to show their relative rollout percentage.
+                </LemonBanner>
+            )}
             <LemonTable
                 loading={false}
                 columns={columns}
-                dataSource={experiment.feature_flag?.filters.multivariate?.variants || []}
+                dataSource={tableData}
+                rowClassName={(item) => (item.key === `holdout-${experiment.holdout?.id}` ? 'bg-mid' : '')}
             />
         </div>
     )

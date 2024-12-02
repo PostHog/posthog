@@ -41,6 +41,7 @@ class Experiment(models.Model):
     variants = models.JSONField(default=dict, null=True, blank=True)
 
     metrics = models.JSONField(default=list, null=True, blank=True)
+    metrics_secondary = models.JSONField(default=list, null=True, blank=True)
     saved_metrics: models.ManyToManyField = models.ManyToManyField(
         "ExperimentSavedMetric", blank=True, related_name="experiments", through="ExperimentToSavedMetric"
     )

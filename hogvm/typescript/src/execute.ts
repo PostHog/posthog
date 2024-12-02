@@ -43,12 +43,12 @@ export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOp
     throw new HogVMException('Unexpected async function call: ' + response.asyncFunctionName)
 }
 
-export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): Promise<any> {
+export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): Promise<ExecResult> {
     let vmState: VMState | undefined = undefined
     while (true) {
         const response = exec(vmState ?? bytecode, options)
         if (response.finished) {
-            return response.result
+            return response
         }
         if (response.error) {
             throw response.error
@@ -282,7 +282,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
         if (!options?.external?.regex?.match) {
             throw new HogVMException('Set options.external.regex.match for RegEx support')
         }
-        return options.external.regex.match
+        return (regex: string, value: string): boolean => regex && value ? !!options.external?.regex?.match(regex, value) : false
     }
 
     const logTelemetry = (): void => {
@@ -306,7 +306,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
             frame.ip,
             typeof chunkBytecode[frame.ip] === 'number'
                 ? String(chunkBytecode[frame.ip]) +
-                  (operations[chunkBytecode[frame.ip]] ? `/${operations[chunkBytecode[frame.ip]]}` : '')
+                (operations[chunkBytecode[frame.ip]] ? `/${operations[chunkBytecode[frame.ip]]}` : '')
                 : '???',
             debug,
         ])
@@ -316,32 +316,31 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
 
     const nextOp = options?.telemetry
         ? () => {
-              ops += 1
-              logTelemetry()
-              if ((ops & 31) === 0) {
-                  checkTimeout()
-              }
-          }
+            ops += 1
+            logTelemetry()
+            if ((ops & 31) === 0) {
+                checkTimeout()
+            }
+        }
         : () => {
-              ops += 1
-              if ((ops & 31) === 0) {
-                  checkTimeout()
-              }
-          }
+            ops += 1
+            if ((ops & 31) === 0) {
+                checkTimeout()
+            }
+        }
 
     try {
         while (true) {
             // Return or jump back to the previous call frame if ran out of bytecode to execute in this one
             if (frame.ip >= chunkBytecode.length) {
                 const lastCallFrame = callStack.pop()
+                // Also ran out of call frames. We're done.
                 if (!lastCallFrame || callStack.length === 0) {
-                    if (stack.length > 1) {
-                        throw new HogVMException('Invalid bytecode. More than one value left on stack')
-                    }
                     return {
-                        result: stack.length > 0 ? popStack() : null,
+                        // Don't pop the stack if we're in repl mode
+                        result: options?.repl ? undefined : stack.length > 0 ? popStack() : null,
                         finished: true,
-                        state: { ...getVMState(), bytecodes: {}, stack: [], callStack: [], upvalues: [] },
+                        state: getVMState(),
                     } satisfies ExecResult
                 }
                 stackKeepFirstElements(lastCallFrame.stackStart)
@@ -596,7 +595,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                 case Operation.TUPLE:
                     temp = next()
                     tempArray = spliceStack2(stack.length - temp, temp)
-                    ;(tempArray as any).__isHogTuple = true
+                        ; (tempArray as any).__isHogTuple = true
                     pushStack(tempArray)
                     break
                 case Operation.JUMP:
@@ -739,8 +738,8 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             const args =
                                 version === 0
                                     ? Array(temp)
-                                          .fill(null)
-                                          .map(() => popStack())
+                                        .fill(null)
+                                        .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
                             if (args.length !== 1) {
                                 throw new HogVMException(`Function ${name} requires exactly 1 argument`)
@@ -772,8 +771,8 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             const args =
                                 version === 0
                                     ? Array(temp)
-                                          .fill(null)
-                                          .map(() => popStack())
+                                        .fill(null)
+                                        .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
                             pushStack(convertJSToHog(options.functions[name](...args.map((v) => convertHogToJS(v)))))
                         } else if (
@@ -790,8 +789,8 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             const args =
                                 version === 0
                                     ? Array(temp)
-                                          .fill(null)
-                                          .map(() => popStack())
+                                        .fill(null)
+                                        .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
 
                             frame.ip += 1 // resume at the next address after async returns
@@ -810,8 +809,8 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             const args =
                                 version === 0
                                     ? Array(temp)
-                                          .fill(null)
-                                          .map(() => popStack())
+                                        .fill(null)
+                                        .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
                             pushStack(STL[name].fn(args, name, options))
                         } else if (name in BYTECODE_STL) {

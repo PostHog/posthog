@@ -24,6 +24,8 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -35,8 +37,9 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
     APIScopePermission,
+    AccessControlPermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
@@ -57,20 +60,38 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        if request.method in CREATE_METHODS:
+        if view.action in CREATE_ACTIONS:
             try:
                 organization = get_organization_from_view(view)
             except ValueError:
                 return False
 
             if not request.data.get("is_demo"):
-                # if we're not requesting to make a demo project
-                # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
-                # and the org isn't allowed to make multiple projects
-                if organization.teams.exclude(is_demo=True).count() >= 1 and not organization.is_feature_available(
+                has_organization_projects_feature = organization.is_feature_available(
                     AvailableFeature.ORGANIZATIONS_PROJECTS
-                ):
-                    return False
+                )
+                current_non_demo_project_count = organization.teams.exclude(is_demo=True).count()
+
+                allowed_project_count = next(
+                    (
+                        feature.get("limit")
+                        for feature in organization.available_product_features or []
+                        if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
+                    ),
+                    None,
+                )
+
+                if has_organization_projects_feature:
+                    # If allowed_project_count is None then the user is allowed unlimited projects
+                    if allowed_project_count is None:
+                        return True
+                    # Check current limit against allowed limit
+                    if current_non_demo_project_count >= allowed_project_count:
+                        return False
+                else:
+                    # If the org doesn't have the feature, they can only have one non-demo project
+                    if current_non_demo_project_count >= 1:
+                        return False
             else:
                 # if we ARE requesting to make a demo project
                 # but the org already has a demo project
@@ -111,6 +132,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_network_payload_capture_config",
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
+            "session_recording_event_trigger_config",
             "session_replay_config",
             "survey_config",
             "recording_domains",
@@ -121,7 +143,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         ]
 
 
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
     effective_membership_level = serializers.SerializerMethodField()
@@ -167,6 +189,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_network_payload_capture_config",
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
+            "session_recording_event_trigger_config",
             "session_replay_config",
             "survey_config",
             "effective_membership_level",
@@ -187,6 +210,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "capture_dead_clicks",
+            "user_access_level",
         )
         read_only_fields = (
             "id",
@@ -202,9 +226,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_modifiers",
             "person_on_events_querying_enabled",
             "live_events_token",
+            "user_access_level",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+        # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
@@ -424,7 +450,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return updated_team
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
@@ -461,6 +487,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
+            AccessControlPermission,
             PremiumMultiProjectPermissions,
             *self.permission_classes,
         ]

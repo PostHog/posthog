@@ -79,6 +79,7 @@ export function PlayerSidebar(): JSX.Element {
                                 label: capitalizeFirstLetter(tabId),
                             }))}
                             barClassName="mb-0"
+                            size="small"
                         />
                         <div className="flex flex-1 border-b shrink-0" />
                         <div className="flex gap-1 border-b end">

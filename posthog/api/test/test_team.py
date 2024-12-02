@@ -1284,3 +1284,63 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             {team_in_other_org.id},
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
+
+    def test_can_create_team_with_valid_project_limit(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": "Organizations Projects",
+                "limit": 5,
+            }
+        ]
+        self.organization.save()
+        self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Team.objects.count(), 2)
+
+    def test_cant_create_team_when_at_project_limit(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": "Organizations Projects",
+                "limit": 1,
+            }
+        ]
+        self.organization.save()
+        self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        self.assertEqual(response.status_code, 403)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
+            },
+            response_data,
+        )
+        self.assertEqual(Team.objects.count(), 1)
+
+    def test_can_create_team_with_unlimited_projects_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Organizations Projects", "limit": None}
+        ]
+        self.organization.save()
+        self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Team.objects.count(), 2)
+
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project 2"})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Team.objects.count(), 3)

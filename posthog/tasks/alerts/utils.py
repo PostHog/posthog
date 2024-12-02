@@ -84,27 +84,29 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
 
 
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
-    subject = f"PostHog alert {alert.name} check failed to evaluate"
-    campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    alert_url = f"{insight_url}?alert_id={alert.id}"
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=subject,
-        template_name="alert_check_failed_to_evaluate",
-        template_context={
-            "alert_error": error,
-            "insight_url": insight_url,
-            "insight_name": alert.insight.name,
-            "alert_url": alert_url,
-            "alert_name": alert.name,
-        },
-    )
-    targets = alert.subscribed_users.all().values_list("email", flat=True)
-    if not targets:
-        raise RuntimeError(f"no targets configured for the alert {alert.id}")
-    for target in targets:
-        message.add_recipient(email=target)
+    logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
 
-    logger.info(f"Send notifications about alert checking error", alert_id=alert.id)
-    message.send()
+    # TODO: uncomment this after checking errors sent
+    # subject = f"PostHog alert {alert.name} check failed to evaluate"
+    # campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
+    # insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    # alert_url = f"{insight_url}?alert_id={alert.id}"
+    # message = EmailMessage(
+    #     campaign_key=campaign_key,
+    #     subject=subject,
+    #     template_name="alert_check_failed_to_evaluate",
+    #     template_context={
+    #         "alert_error": error,
+    #         "insight_url": insight_url,
+    #         "insight_name": alert.insight.name,
+    #         "alert_url": alert_url,
+    #         "alert_name": alert.name,
+    #     },
+    # )
+    # targets = alert.subscribed_users.all().values_list("email", flat=True)
+    # if not targets:
+    #     raise RuntimeError(f"no targets configured for the alert {alert.id}")
+    # for target in targets:
+    #     message.add_recipient(email=target)
+
+    # message.send()

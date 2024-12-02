@@ -2,23 +2,32 @@ use aws_sdk_s3::primitives::ByteStreamError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
+
+use crate::hack::js_data::JsDataError;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Serde error: {0}")]
-    SerdeError(#[from] serde_json::Error),
+    #[error(transparent)]
+    UnhandledError(#[from] UnhandledError),
+    #[error(transparent)]
+    ResolutionError(#[from] FrameError),
+}
+
+#[derive(Debug, Error)]
+pub enum UnhandledError {
     #[error("Config error: {0}")]
     ConfigError(#[from] envconfig::Error),
     #[error("Kafka error: {0}")]
     KafkaError(#[from] KafkaError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
-    #[error(transparent)]
-    ResolutionError(#[from] ResolutionError),
-    #[error(transparent)]
-    S3Error(#[from] aws_sdk_s3::Error),
+    #[error("S3 error: {0}")]
+    S3Error(#[from] Box<aws_sdk_s3::Error>),
     #[error(transparent)]
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
+    #[error("Unhandled serde error: {0}")]
+    SerdeError(#[from] serde_json::Error),
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
@@ -28,7 +37,7 @@ pub enum Error {
 // some provider (e.g. we fail to look up a sourcemap), we can return the correct error in the future
 // without hitting their infra again (by storing it in PG).
 #[derive(Debug, Error, Serialize, Deserialize)]
-pub enum ResolutionError {
+pub enum FrameError {
     #[error(transparent)]
     JavaScript(#[from] JsResolveErr),
 }
@@ -41,6 +50,9 @@ pub enum JsResolveErr {
     // We failed to parse a found source map
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(String),
+    // We failed to parse a found source map cache
+    #[error("Invalid source map cache: {0}")]
+    InvalidSourceMapCache(String),
     // We found and parsed the source map, but couldn't find our frames token in it
     #[error("Token not found for frame: {0}:{1}:{2}")]
     TokenNotFound(String, u32, u32),
@@ -73,11 +85,27 @@ pub enum JsResolveErr {
     // For redirect loops or too many redirects
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
+    #[error("JSDataError: {0}")]
+    JSDataError(#[from] JsDataError),
+}
+
+#[derive(Debug, Error)]
+pub enum EventError {
+    #[error("Wrong event type: {0} for event {1}")]
+    WrongEventType(String, Uuid),
+    #[error("No properties: {0}")]
+    NoProperties(Uuid),
+    #[error("Invalid properties: {0}, serde error: {1}")]
+    InvalidProperties(Uuid, String),
+    #[error("No exception list: {0}")]
+    NoExceptionList(Uuid),
+    #[error("Empty exception list: {0}")]
+    EmptyExceptionList(Uuid),
 }
 
 impl From<JsResolveErr> for Error {
     fn from(e: JsResolveErr) -> Self {
-        ResolutionError::JavaScript(e).into()
+        FrameError::JavaScript(e).into()
     }
 }
 
@@ -109,5 +137,11 @@ impl From<reqwest::Error> for JsResolveErr {
 
         // Fallback for any other errors
         JsResolveErr::NetworkError(e.to_string())
+    }
+}
+
+impl From<aws_sdk_s3::Error> for UnhandledError {
+    fn from(e: aws_sdk_s3::Error) -> Self {
+        UnhandledError::S3Error(Box::new(e))
     }
 }

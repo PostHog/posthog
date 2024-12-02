@@ -8,6 +8,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProjectType } from '~/types'
 
+import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
 import { userLogic } from './userLogic'
 
@@ -19,7 +20,7 @@ export const projectLogic = kea<projectLogicType>([
         deleteProjectFailure: true,
     }),
     connect(() => ({
-        actions: [userLogic, ['loadUser', 'switchTeam']],
+        actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -57,6 +58,8 @@ export const projectLogic = kea<projectLogicType>([
                     )) as ProjectType
                     breakpoint()
 
+                    // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic
+                    actions.loadCurrentOrganization()
                     actions.loadUser()
 
                     Object.keys(payload).map((property) => {
@@ -75,7 +78,12 @@ export const projectLogic = kea<projectLogicType>([
                     return patchedProject
                 },
                 createProject: async ({ name }: { name: string }) => {
-                    return await api.create('api/projects/', { name })
+                    try {
+                        return await api.create('api/projects/', { name })
+                    } catch (error: any) {
+                        lemonToast.error('Failed to create project')
+                        return values.currentProject
+                    }
                 },
             },
         ],
