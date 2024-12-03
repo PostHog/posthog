@@ -11,6 +11,8 @@ export function DestinationTag({ status }: { status: HogFunctionTemplateStatus }
             return <LemonTag type="completion">Beta</LemonTag>
         case 'stable':
             return <LemonTag type="highlight">New</LemonTag> // Once Hog Functions are fully released we can remove the new label
+        case 'client-side':
+            return <LemonTag type="success">Client-Side</LemonTag>
         default:
             return status ? <LemonTag type="highlight">{capitalizeFirstLetter(status)}</LemonTag> : null
     }

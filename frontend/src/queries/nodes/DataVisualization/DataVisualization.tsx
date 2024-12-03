@@ -197,6 +197,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     <>
                         <HogQLQueryEditor
                             query={query.source}
+                            queryResponse={response ?? undefined}
                             setQuery={setQuerySource}
                             embedded
                             onChange={setEditorQuery}

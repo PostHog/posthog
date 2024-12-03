@@ -3,7 +3,7 @@ import { actions, afterMount, connect, kea, key, path, props, reducers, selector
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
@@ -23,7 +23,7 @@ export const functionsTableLogic = kea<functionsTableLogicType>([
     props({} as FunctionsTableLogicProps),
     key((props: FunctionsTableLogicProps) => props.type ?? 'destination'),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [projectLogic, ['currentProjectId']],
     }),
     actions({
         deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
@@ -48,11 +48,11 @@ export const functionsTableLogic = kea<functionsTableLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: pagination?
-                    return (await api.hogFunctions.list({ type: props.type ?? 'destination' })).results
+                    return (await api.hogFunctions.list(undefined, props.type ?? 'destination')).results
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
-                        endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
+                        endpoint: `projects/${values.currentProjectId}/hog_functions`,
                         object: {
                             id: hogFunction.id,
                             name: hogFunction.name,

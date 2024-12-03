@@ -30,6 +30,7 @@ use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
 pub type TeamId = i32;
+pub type ProjectId = i32;
 pub type PersonId = i32;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
@@ -74,7 +75,7 @@ pub struct GroupTypeMapping {
 /// These mappings are ingested via the plugin server.
 #[derive(Clone)]
 pub struct GroupTypeMappingCache {
-    team_id: TeamId,
+    project_id: ProjectId,
     failed_to_fetch_flags: bool,
     group_types_to_indexes: HashMap<String, GroupTypeIndex>,
     group_indexes_to_types: HashMap<GroupTypeIndex, String>,
@@ -82,9 +83,9 @@ pub struct GroupTypeMappingCache {
 }
 
 impl GroupTypeMappingCache {
-    pub fn new(team_id: TeamId, reader: PostgresReader) -> Self {
+    pub fn new(project_id: ProjectId, reader: PostgresReader) -> Self {
         GroupTypeMappingCache {
-            team_id,
+            project_id,
             failed_to_fetch_flags: false,
             group_types_to_indexes: HashMap::new(),
             group_indexes_to_types: HashMap::new(),
@@ -103,9 +104,8 @@ impl GroupTypeMappingCache {
             return Ok(self.group_types_to_indexes.clone());
         }
 
-        let team_id = self.team_id;
         let mapping = match self
-            .fetch_group_type_mapping(self.reader.clone(), team_id)
+            .fetch_group_type_mapping(self.reader.clone(), self.project_id)
             .await
         {
             Ok(mapping) if !mapping.is_empty() => mapping,
@@ -163,18 +163,18 @@ impl GroupTypeMappingCache {
     async fn fetch_group_type_mapping(
         &mut self,
         reader: PostgresReader,
-        team_id: TeamId,
+        project_id: ProjectId,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
         let mut conn = reader.as_ref().get_connection().await?;
 
         let query = r#"
             SELECT group_type, group_type_index 
             FROM posthog_grouptypemapping 
-            WHERE team_id = $1
+            WHERE project_id = $1
         "#;
 
         let rows = sqlx::query_as::<_, GroupTypeMapping>(query)
-            .bind(team_id)
+            .bind(project_id)
             .fetch_all(&mut *conn)
             .await?;
 

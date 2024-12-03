@@ -260,6 +260,7 @@
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
          "posthog_hogfunction"."inputs_schema",
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
@@ -508,6 +509,19 @@
          AND "posthog_pluginsourcefile"."filename" = 'site.ts'
          AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
          AND "posthog_pluginconfig"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.25
+  '''
+  SELECT "posthog_hogfunction"."id",
+         "posthog_hogfunction"."updated_at",
+         "posthog_hogfunction"."type"
+  FROM "posthog_hogfunction"
+  WHERE ("posthog_hogfunction"."enabled"
+         AND "posthog_hogfunction"."team_id" = 99999
+         AND "posthog_hogfunction"."transpiled" IS NOT NULL
+         AND "posthog_hogfunction"."type" IN ('site_destination',
+                                              'site_app'))
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
@@ -785,6 +799,7 @@
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
          "posthog_hogfunction"."inputs_schema",
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
@@ -1082,6 +1097,7 @@
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
          "posthog_hogfunction"."inputs_schema",
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
@@ -1473,6 +1489,7 @@
          "posthog_hogfunction"."icon_url",
          "posthog_hogfunction"."hog",
          "posthog_hogfunction"."bytecode",
+         "posthog_hogfunction"."transpiled",
          "posthog_hogfunction"."inputs_schema",
          "posthog_hogfunction"."inputs",
          "posthog_hogfunction"."encrypted_inputs",
@@ -1578,5 +1595,18 @@
          AND "posthog_pluginsourcefile"."filename" = 'site.ts'
          AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
          AND "posthog_pluginconfig"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecide.test_web_app_queries.6
+  '''
+  SELECT "posthog_hogfunction"."id",
+         "posthog_hogfunction"."updated_at",
+         "posthog_hogfunction"."type"
+  FROM "posthog_hogfunction"
+  WHERE ("posthog_hogfunction"."enabled"
+         AND "posthog_hogfunction"."team_id" = 99999
+         AND "posthog_hogfunction"."transpiled" IS NOT NULL
+         AND "posthog_hogfunction"."type" IN ('site_destination',
+                                              'site_app'))
   '''
 # ---
