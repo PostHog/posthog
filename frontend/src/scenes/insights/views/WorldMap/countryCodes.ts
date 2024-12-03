@@ -56,11 +56,10 @@ export function countryCodeToFlag(countryCode: string): string {
  * one country - such as the Netherlands.
  *
  * For most cases we can simply uppercase the language and that's the country code,
- * but there are some exceptions listed inside `languageCodeToCountryCode`
+ * but there are some exceptions listed inside `languageCodeToEmojiFlag`
  */
 export function languageCodeToFlag(languageCode: string): string {
-    const countryCode = languageCodeToCountryCode[languageCode] ?? languageCode.toLocaleUpperCase()
-    return countryCodeToFlag(countryCode)
+    return languageCodeToEmojiFlag[languageCode] ?? countryCodeToFlag(languageCode.toLocaleUpperCase())
 }
 
 export const countryCodeToName: Record<string, string> = {
@@ -517,13 +516,13 @@ export const languageCodeToName: Record<string, string> = {
 
 // This is only used as a fallback for some languages that don't usually
 // come in the locale-country format (such as nl-NL usually being presented simply as nl)
-// but that can't simply be translated to a country by capitalizing the locale
-const languageCodeToCountryCode: Record<string, string> = {
-    ar: 'SA', // Arabic -> Saudi Arabia, tricky, there's no good representation for the "default Arab country"
-    af: 'ZA', // Afrikaans -> South Africa
-    ta: 'IN', // Tamil -> India
-    eu: 'ES', // Basque -> Spain, tricky, but there's no better flag than the Spanish one, we could move to custom SVGs if we wanted to solve this
-    cy: 'GB', // Welsh -> UK
-    ne: 'NP', // Nepali -> Nepal
-    zz: '', // Unknown Language -> No Emoji
+// but that can't simply be translated to a flag by capitalizing the locale
+const languageCodeToEmojiFlag: Record<string, string> = {
+    ar: '🇪🇬', // Arabic -> Egypt, tricky, there's no good representation for the "default Arab country", the Egyptian variant is the most commonly understood
+    af: '🇿🇦', // Afrikaans -> South Africa
+    ta: '🇮🇳', // Tamil -> India
+    eu: '🇪🇸', // Basque -> Spain, tricky, but there's no better flag than the Spanish one, we could move to custom SVGs if we wanted to solve this
+    cy: '🏴󠁧󠁢󠁷󠁬󠁳󠁿', // Welsh -> Wales
+    ne: '🇳🇵', // Nepali -> Nepal
+    zz: '🇺🇳', // Unknown Language -> UN flag?
 }
