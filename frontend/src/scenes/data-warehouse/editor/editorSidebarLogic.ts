@@ -14,6 +14,7 @@ import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries
 import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { viewLinkLogic } from '../viewLinkLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import type { editorSidebarLogicType } from './editorSidebarLogicType'
 import { multitabEditorLogic } from './multitabEditorLogic'
@@ -50,7 +51,14 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
             databaseTableListLogic,
             ['posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
-        actions: [editorSceneLogic, ['selectSchema'], dataWarehouseViewsLogic, ['deleteDataWarehouseSavedQuery']],
+        actions: [
+            editorSceneLogic,
+            ['selectSchema'],
+            dataWarehouseViewsLogic,
+            ['deleteDataWarehouseSavedQuery'],
+            viewLinkLogic,
+            ['selectSourceTable', 'toggleJoinTableModal'],
+        ],
     }),
     selectors(({ actions }) => ({
         contents: [
@@ -85,6 +93,15 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         onClick: () => {
                             actions.selectSchema(table)
                         },
+                        menuItems: [
+                            {
+                                label: 'Add join',
+                                onClick: () => {
+                                    actions.selectSourceTable(table.name)
+                                    actions.toggleJoinTableModal()
+                                },
+                            },
+                        ],
                     })),
                     onAdd: () => {
                         router.actions.push(urls.pipeline(PipelineTab.Sources))
@@ -107,6 +124,15 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         onClick: () => {
                             actions.selectSchema(table)
                         },
+                        menuItems: [
+                            {
+                                label: 'Add join',
+                                onClick: () => {
+                                    actions.selectSourceTable(table.name)
+                                    actions.toggleJoinTableModal()
+                                },
+                            },
+                        ],
                     })),
                 } as SidebarCategory,
                 {
@@ -133,6 +159,13 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                     multitabEditorLogic({
                                         key: `hogQLQueryEditor/${router.values.location.pathname}`,
                                     }).actions.createTab(savedQuery.query.query, savedQuery)
+                                },
+                            },
+                            {
+                                label: 'Add join',
+                                onClick: () => {
+                                    actions.selectSourceTable(savedQuery.name)
+                                    actions.toggleJoinTableModal()
                                 },
                             },
                             {

@@ -1,23 +1,25 @@
 import { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ModelMarker } from 'lib/monaco/codeEditorLogic'
 import { editor, MarkerSeverity, Uri } from 'monaco-editor'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { performQuery } from '~/queries/query'
-import { HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLMetadataResponse, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataVisualizationNode } from '~/queries/schema'
 import { DataWarehouseSavedQuery } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
-
 export interface MultitabEditorLogicProps {
     key: string
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    onRunQuery?: (query: string) => void
+    onQueryInputChange?: (query: string) => void
+    sourceQuery: DataVisualizationNode
 }
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
@@ -53,7 +55,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: true,
         saveAsView: true,
         saveAsViewSubmit: (name: string) => ({ name }),
-        reloadMetadata: true,
         setMetadata: (query: string, metadata: HogQLMetadataResponse) => ({ query, metadata }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
@@ -273,8 +274,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             }
         },
-        setQueryInput: () => {
+        setQueryInput: ({ queryInput }) => {
             actions.updateState()
+            props.onQueryInputChange?.(queryInput)
         },
         updateState: async (_, breakpoint) => {
             await breakpoint(100)
@@ -288,6 +290,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
         runQuery: ({ queryOverride }) => {
+            if (!queryOverride) {
+                props.onRunQuery?.(values.queryInput)
+            }
+
             if (values.activeQuery === queryOverride || values.activeQuery === values.queryInput) {
                 dataNodeLogic({
                     key: values.activeTabKey,
@@ -324,25 +330,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: values.queryInput,
             }
             await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
-        },
-        reloadMetadata: async (_, breakpoint) => {
-            const model = props.editor?.getModel()
-            if (!model || !props.monaco) {
-                return
-            }
-            await breakpoint(300)
-            const query = values.queryInput
-            if (query === '') {
-                return
-            }
-
-            const response = await performQuery<HogQLMetadata>({
-                kind: NodeKind.HogQLMetadata,
-                language: HogLanguage.hogQL,
-                query: query,
-            })
-            breakpoint()
-            actions.setMetadata(query, response)
         },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
             const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId)
@@ -385,9 +372,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }).mount()
             }
         },
-        queryInput: () => {
-            actions.reloadMetadata()
-        },
     })),
     selectors({
         activeTabKey: [(s) => [s.activeModelUri], (activeModelUri) => `hogQLQueryEditor/${activeModelUri?.uri.path}`],
@@ -405,5 +389,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     : null
             },
         ],
+    }),
+    afterMount(({ props, values }) => {
+        props.onQueryInputChange?.(values.queryInput)
     }),
 ])

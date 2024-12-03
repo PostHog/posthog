@@ -213,7 +213,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             </div>
                             <div className="flex gap-4 items-center">
                                 <div className="flex gap-4 items-center flex-wrap">
-                                    <AddVariableButton />
+                                    {showEditingUI && <AddVariableButton />}
 
                                     {sourceFeatures.has(QueryFeature.dateRangePicker) &&
                                         !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene

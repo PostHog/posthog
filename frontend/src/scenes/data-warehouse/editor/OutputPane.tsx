@@ -3,40 +3,32 @@ import 'react-data-grid/lib/styles.css'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
-import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
 import { AddVariableButton } from '~/queries/nodes/DataVisualization/Components/Variables/AddVariableButton'
-import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import { VariablesForInsight } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
-import {
-    dataVisualizationLogic,
-    DataVisualizationLogicProps,
-} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { DataVisualizationNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema'
-import { ChartDisplayType, ExporterFormat, ItemMode } from '~/types'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema'
+import { ChartDisplayType, ExporterFormat } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -66,6 +58,10 @@ export function OutputPane({
     const { editingView, queryInput } = useValues(
         multitabEditorLogic({
             key: codeEditorKey,
+            sourceQuery: {
+                kind: NodeKind.HogQLQuery,
+                query,
+            },
         })
     )
     const { isDarkModeOn } = useValues(themeLogic)
@@ -94,6 +90,8 @@ export function OutputPane({
             ...insightProps,
         })
     )
+
+    const vizKey = `SQLEditorScene`
 
     const columns = useMemo(() => {
         return (
@@ -142,8 +140,8 @@ export function OutputPane({
                 </div>
             ) : (
                 <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
-                    <DataTableVisualizationContent
-                        activeTab={activeTab}
+                    <InternalDataTableVisualization
+                        uniqueKey={vizKey}
                         query={{
                             kind: NodeKind.DataVisualizationNode,
                             source: {
@@ -152,6 +150,8 @@ export function OutputPane({
                             },
                         }}
                         setQuery={setQuery}
+                        context={{}}
+                        cachedResults={undefined}
                     />
                 </div>
             )
@@ -162,6 +162,9 @@ export function OutputPane({
 
     return (
         <div className="flex flex-col w-full flex-1 bg-bg-3000">
+            <div>
+                <VariablesForInsight />
+            </div>
             <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[55px]">
                 <LemonTabs
                     activeKey={activeTab}
@@ -178,6 +181,21 @@ export function OutputPane({
                     ]}
                 />
                 <div className="flex gap-4">
+                    <AddVariableButton />
+
+                    <DateRange
+                        key="date-range"
+                        query={{
+                            kind: NodeKind.HogQLQuery,
+                            query,
+                        }}
+                        setQuery={(query) => {
+                            if (query.kind === NodeKind.HogQLQuery) {
+                                setQuery(query)
+                            }
+                        }}
+                    />
+
                     {editingView ? (
                         <>
                             <LemonButton
@@ -214,58 +232,6 @@ export function OutputPane({
     )
 }
 
-function DataTableVisualizationContent({
-    query,
-    setQuery,
-    activeTab,
-}: {
-    query: DataVisualizationNode
-    setQuery: (query: DataVisualizationNode) => void
-    activeTab: OutputTab
-}): JSX.Element {
-    const vizKey = `SQLEditorScene.${activeTab}`
-    const dataVisualizationLogicProps: DataVisualizationLogicProps = {
-        key: vizKey,
-        query,
-        dashboardId: undefined,
-        dataNodeCollectionId: vizKey,
-        insightMode: ItemMode.Edit,
-        loadPriority: undefined,
-        setQuery,
-        cachedResults: undefined,
-        variablesOverride: undefined,
-    }
-
-    const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
-        key: vizKey,
-        cachedResults: undefined,
-        loadPriority: undefined,
-        dataNodeCollectionId: vizKey,
-        variablesOverride: undefined,
-    }
-
-    return (
-        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <BindLogic logic={variablesLogic} props={{ key: dataVisualizationLogicProps.key, readOnly: false }}>
-                        <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                            <InternalDataTableVisualization
-                                uniqueKey={vizKey}
-                                query={query}
-                                setQuery={setQuery}
-                                context={{}}
-                                cachedResults={undefined}
-                            />
-                        </BindLogic>
-                    </BindLogic>
-                </BindLogic>
-            </BindLogic>
-        </BindLogic>
-    )
-}
-
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
     const logic = insightLogic({
         dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
@@ -278,7 +244,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         visualizationType,
         showEditingUI,
         showResultControls,
-        sourceFeatures,
         response,
         responseLoading,
         responseError,
@@ -287,11 +252,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } = useValues(dataVisualizationLogic)
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-
-    const setQuerySource = useCallback(
-        (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
-        [props.setQuery]
-    )
 
     let component: JSX.Element | null = null
 
@@ -361,21 +321,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <div className="flex gap-4 items-center" />
                             <div className="flex gap-4 items-center">
                                 <div className="flex gap-4 items-center flex-wrap">
-                                    <AddVariableButton />
-
-                                    {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene
-                                            <DateRange
-                                                key="date-range"
-                                                query={query.source}
-                                                setQuery={(query) => {
-                                                    if (query.kind === NodeKind.HogQLQuery) {
-                                                        setQuerySource(query)
-                                                    }
-                                                }}
-                                            />
-                                        )}
-
                                     <TableDisplay />
 
                                     <LemonButton
@@ -413,8 +358,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         </div>
                     </>
                 )}
-
-                <VariablesForInsight />
             </div>
         </div>
     )
