@@ -134,6 +134,7 @@ function InternalQueryWindow({ setQuery, query }: InternalQueryWindowProps): JSX
                 sourceQuery={query.source}
                 promptError={null}
                 codeEditorProps={{
+                    queryKey: codeEditorKey,
                     onChange: (v) => {
                         setQueryInput(v ?? '')
                     },

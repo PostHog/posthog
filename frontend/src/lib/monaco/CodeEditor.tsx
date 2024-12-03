@@ -35,6 +35,10 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
 }
 let codeEditorIndex = 0
 
+export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>): void {
+    ;(model as any).codeEditorLogic = builtCodeEditorLogic
+}
+
 function initEditor(
     monaco: Monaco,
     editor: importedEditor.IStandaloneCodeEditor,
@@ -44,7 +48,9 @@ function initEditor(
 ): void {
     // This gives autocomplete access to the specific editor
     const model = editor.getModel()
-    ;(model as any).codeEditorLogic = builtCodeEditorLogic
+    if (model) {
+        initModel(model, builtCodeEditorLogic)
+    }
 
     if (editorProps?.language === 'hog') {
         initHogLanguage(monaco)
