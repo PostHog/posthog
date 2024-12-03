@@ -26,6 +26,7 @@ from posthog.schema import (
     ActionsNode,
     ChartDisplayType,
     DataWarehouseNode,
+    DataWarehousePropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
@@ -60,7 +61,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.modifiers = modifiers
         self.limit_context = limit_context
 
-    def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
         events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
@@ -73,7 +74,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_wrapper_query(
         self, events_query: ast.SelectQuery, breakdown: Breakdown
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if not breakdown.enabled:
             return events_query
 
@@ -312,7 +313,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _outer_select_query(
         self, breakdown: Breakdown, inner_query: ast.SelectQuery
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         total_array = parse_expr(
             """
             arrayMap(
@@ -453,7 +454,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ) or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_select_query(
-        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery
+        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
@@ -699,8 +700,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 filters.append(property_to_expr(property, self.team))
 
         # Properties
-        if self.query.properties is not None and self.query.properties != [] and not is_data_warehouse_series:
-            filters.append(property_to_expr(self.query.properties, self.team))
+        if self.query.properties is not None and self.query.properties != []:
+            if is_data_warehouse_series:
+                data_warehouse_properties = [
+                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
+                ]
+                if data_warehouse_properties:
+                    filters.append(property_to_expr(data_warehouse_properties, self.team))
+            else:
+                filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:

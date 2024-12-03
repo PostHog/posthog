@@ -421,13 +421,15 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toString": HogQLFunctionMeta(
         "toString",
         1,
-        1,
+        2,
         signatures=[
             ((IntegerType(),), StringType()),
             ((StringType(),), StringType()),
             ((FloatType(),), StringType()),
             ((DateType(),), StringType()),
+            ((DateType(), StringType()), StringType()),
             ((DateTimeType(),), StringType()),
+            ((DateTimeType(), StringType()), StringType()),
         ],
     ),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
@@ -874,6 +876,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "JSONExtractArrayRaw": HogQLFunctionMeta("JSONExtractArrayRaw", 1, None),
     "JSONExtractKeysAndValues": HogQLFunctionMeta("JSONExtractKeysAndValues", 1, 3),
     "JSONExtractKeysAndValuesRaw": HogQLFunctionMeta("JSONExtractKeysAndValuesRaw", 1, None),
+    "JSON_VALUE": HogQLFunctionMeta("JSON_VALUE", 2, None),
     # in
     "in": HogQLFunctionMeta("in", 2, 2),
     "notIn": HogQLFunctionMeta("notIn", 2, 2),
@@ -1004,6 +1007,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "argMaxMerge": HogQLFunctionMeta("argMaxMerge", 1, 1, aggregate=True),
     "avgState": HogQLFunctionMeta("avgState", 1, 1, aggregate=True),
     "avgMerge": HogQLFunctionMeta("avgMerge", 1, 1, aggregate=True),
+    "avgMergeIf": HogQLFunctionMeta("avgMergeIf", 2, 2, aggregate=True),
     "avgWeighted": HogQLFunctionMeta("avgWeighted", 2, 2, aggregate=True),
     "avgWeightedIf": HogQLFunctionMeta("avgWeightedIf", 3, 3, aggregate=True),
     "avgArray": HogQLFunctionMeta("avgArrayOrNull", 1, 1, aggregate=True),

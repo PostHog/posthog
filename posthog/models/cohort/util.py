@@ -7,6 +7,8 @@ from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.queries.util import PersonPropertiesMode
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -83,8 +85,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str
         cast(dict, cohort.query), team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
 
-    select_queries: list[ast.SelectQuery] = [query] if isinstance(query, ast.SelectQuery) else query.select_queries
-    for select_query in select_queries:
+    for select_query in extract_select_queries(query):
         columns: dict[str, ast.Expr] = {}
         for expr in select_query.select:
             if isinstance(expr, ast.Alias):
@@ -142,6 +143,21 @@ def get_count_operator(count_operator: Optional[str]) -> str:
         return "<"
     elif count_operator == "eq" or count_operator == "exact" or count_operator is None:
         return "="
+    else:
+        raise ValidationError("count_operator must be gte, lte, eq, or None")
+
+
+def get_count_operator_ast(count_operator: Optional[str]) -> ast.CompareOperationOp:
+    if count_operator == "gte":
+        return ast.CompareOperationOp.GtEq
+    elif count_operator == "lte":
+        return ast.CompareOperationOp.LtEq
+    elif count_operator == "gt":
+        return ast.CompareOperationOp.Gt
+    elif count_operator == "lt":
+        return ast.CompareOperationOp.Lt
+    elif count_operator == "eq" or count_operator == "exact" or count_operator is None:
+        return ast.CompareOperationOp.Eq
     else:
         raise ValidationError("count_operator must be gte, lte, eq, or None")
 

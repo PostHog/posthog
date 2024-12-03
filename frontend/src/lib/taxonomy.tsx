@@ -92,6 +92,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
         },
+        $$heatmap: {
+            label: 'Heatmap',
+            description: 'Heatmap events carry heatmap data to the backend, they do not contribute to event counts.',
+        },
         $copy_autocapture: {
             label: 'Clipboard autocapture',
             description: 'Selected text automatically captured when a user copies or cuts.',
@@ -153,9 +157,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Rageclick',
             description: 'A user has rapidly and repeatedly clicked in a single place',
         },
+        $dead_click: {
+            label: 'Dead click',
+            description: 'A user has clicked on something that is probably not clickable',
+        },
         $exception: {
             label: 'Exception',
-            description: 'Automatically captured exceptions from the client Sentry integration',
+            description: 'Exceptions - an error or unexpected event in your application',
         },
         $web_vitals: {
             label: 'Web Vitals',
@@ -164,27 +172,27 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
-            description: 'When a user opens the app either for the first time or from the foreground.',
+            description: 'When a user opens the mobile app either for the first time or from the foreground.',
         },
         'Application Backgrounded': {
             label: 'Application Backgrounded',
-            description: 'When a user puts the app in the background.',
+            description: 'When a user puts the mobile app in the background.',
         },
         'Application Updated': {
             label: 'Application Updated',
-            description: 'When a user upgrades the app.',
+            description: 'When a user upgrades mobile the app.',
         },
         'Application Installed': {
             label: 'Application Installed',
-            description: 'When a user installs the app.',
+            description: 'When a user installs mobile the app.',
         },
         'Application Became Active': {
             label: 'Application Became Active',
-            description: 'When a user puts the app in the foreground.',
+            description: 'When a user puts the mobile app in the foreground.',
         },
         'Deep Link Opened': {
             label: 'Deep Link Opened',
-            description: 'When a user opens the app via a deep link.',
+            description: 'When a user opens the mobile app via a deep link.',
         },
     },
     elements: {
@@ -215,8 +223,20 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     metadata: {
         distinct_id: {
             label: 'Distinct ID',
-            description: 'The current distinct ID of the user',
+            description: 'The current distinct ID of the user.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
+        timestamp: {
+            label: 'Timestamp',
+            description: 'Time the event happened.',
+            examples: ['2023-05-20T15:30:00Z'],
+            system: true,
+        },
+        event: {
+            label: 'Event',
+            description: 'The name of the event.',
+            examples: ['$pageview'],
+            system: true,
         },
     },
     event_properties: {
@@ -259,16 +279,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $lib_rate_limit_remaining_tokens: {
             label: 'Clientside rate limit remaining tokens',
-            description: (
-                <span>
-                    Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.
-                </span>
-            ),
+            description:
+                'Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.',
             examples: ['100'],
         },
         token: {
             label: 'Token',
-            description: <span>Token used for authentication.</span>,
+            description: 'Token used for authentication.',
             examples: ['ph_abcdefg'],
         },
         $ce_version: {
@@ -315,12 +332,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         // session recording
         $replay_minimum_duration: {
             label: 'Replay config - minimum duration',
-            description: <span>Config for minimum duration before emitting a session recording.</span>,
+            description: 'Config for minimum duration before emitting a session recording.',
             examples: ['1000'],
         },
         $replay_sample_rate: {
             label: 'Replay config - sample rate',
-            description: <span>Config for sampling rate of session recordings.</span>,
+            description: 'Config for sampling rate of session recordings.',
             examples: ['0.1'],
         },
         $console_log_recording_enabled_server_side: {
@@ -336,42 +353,55 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $session_recording_start_reason: {
             label: 'Session recording start reason',
-            description: (
-                <span>
-                    Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to
-                    see on batch exported events which sessions have recordings available.
-                </span>
-            ),
+            description:
+                'Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.',
             examples: ['sampling_override', 'recording_initialized', 'linked_flag_match'],
         },
         $session_recording_canvas_recording: {
             label: 'Session recording canvas recording',
-            description: <span>Session recording canvas capture config.</span>,
+            description: 'Session recording canvas capture config.',
             examples: ['{"enabled": false}'],
         },
         $session_recording_network_payload_capture: {
             label: 'Session recording network payload capture',
-            description: <span>Session recording network payload capture config.</span>,
+            description: 'Session recording network payload capture config.',
             examples: ['{"recordHeaders": false}'],
+        },
+        $configured_session_timeout_ms: {
+            label: 'Configured session timeout',
+            description: 'Configured session timeout in milliseconds.',
+            examples: ['1800000'],
+        },
+        $replay_script_config: {
+            label: 'Replay script config',
+            description: 'Sets an alternative recorder script for the web sdk.',
+            examples: ['{"script": "recorder-next""}'],
         },
         $session_recording_url_trigger_activated_session: {
             label: 'Session recording URL trigger activated session',
-            description: (
-                <span>
-                    Session recording URL trigger activated session config. Used by posthog-js to track URL activation
-                    of session replay.
-                </span>
-            ),
+            description:
+                'Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.',
         },
         $session_recording_url_trigger_status: {
             label: 'Session recording URL trigger status',
-            description: (
-                <span>
-                    Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.
-                </span>
-            ),
+            description:
+                'Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.',
+        },
+        $recording_status: {
+            label: 'Session recording status',
+            description: 'The status of session recording at the time the event was captured',
         },
         // exception tracking
+        $cymbal_errors: {
+            label: 'Exception processing errors',
+            description: 'Errors encountered while trying to process exceptions',
+            system: true,
+        },
+        $exception_list: {
+            label: 'Exception list',
+            description: 'List of one or more associated exceptions',
+        },
+        // TODO - most of the rest of these are legacy, I think?
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
@@ -430,17 +460,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception_capture_endpoint: {
             label: 'Exception capture endpoint',
-            description: <span>Endpoint used by posthog-js exception autocapture.</span>,
+            description: 'Endpoint used by posthog-js exception autocapture.',
             examples: ['/e/'],
         },
         $exception_capture_endpoint_suffix: {
             label: 'Exception capture endpoint',
-            description: <span>Endpoint used by posthog-js exception autocapture.</span>,
+            description: 'Endpoint used by posthog-js exception autocapture.',
             examples: ['/e/'],
         },
         $exception_capture_enabled_server_side: {
             label: 'Exception capture enabled server side',
-            description: <span>Whether exception autocapture was enabled in remote config.</span>,
+            description: 'Whether exception autocapture was enabled in remote config.',
         },
 
         // GeoIP
@@ -746,9 +776,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             system: true,
         },
         $timestamp: {
-            label: 'Timestamp',
-            description: 'Time the event happened.',
-            examples: [new Date().toISOString()],
+            label: 'Timestamp (deprecated)',
+            description:
+                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
+            examples: ['2023-05-20T15:30:00Z'],
+            system: true,
         },
         $sent_at: {
             label: 'Sent At',
@@ -901,6 +933,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Feature Flag Response',
             description: 'What the call to feature flag responded with.',
             examples: ['true', 'false'],
+        },
+        $feature_flag_payload: {
+            label: 'Feature Flag Response Payload',
+            description: 'The JSON payload that the call to feature flag responded with (if any)',
+            examples: ['{"variant": "test"}'],
         },
         $feature_flag: {
             label: 'Feature Flag',
@@ -1157,7 +1194,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $web_vitals_allowed_metrics: {
             label: 'Web vitals allowed metrics',
-            description: <span>Allowed web vitals metrics config.</span>,
+            description: 'Allowed web vitals metrics config.',
             examples: ['["LCP", "CLS"]'],
         },
 
@@ -1216,6 +1253,55 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Surveys Activated',
             description: 'The surveys that were activated for this event.',
         },
+        $process_person_profile: {
+            label: 'Person Profile processing flag',
+            description: 'The setting from an SDK to control whether an event has person processing enabled',
+        },
+        $dead_clicks_enabled_server_side: {
+            label: 'Dead clicks enabled server side',
+            description: 'Whether dead clicks were enabled in remote config',
+        },
+        $dead_click_scroll_delay_ms: {
+            label: 'Dead click scroll delay in milliseconds',
+            description: 'The delay between a click and the next scroll event',
+        },
+        $dead_click_mutation_delay_ms: {
+            label: 'Dead click mutation delay in milliseconds',
+            description: 'The delay between a click and the next mutation event',
+        },
+        $dead_click_absolute_delay_ms: {
+            label: 'Dead click absolute delay in milliseconds',
+            description: 'The delay between a click and having seen no activity at all',
+        },
+        $dead_click_selection_changed_delay_ms: {
+            label: 'Dead click selection changed delay in milliseconds',
+            description: 'The delay between a click and the next text selection change event',
+        },
+        $dead_click_last_mutation_timestamp: {
+            label: 'Dead click last mutation timestamp',
+            description: 'debug signal time of the last mutation seen by dead click autocapture',
+        },
+        $dead_click_event_timestamp: {
+            label: 'Dead click event timestamp',
+            description: 'debug signal time of the event that triggered dead click autocapture',
+        },
+        $dead_click_scroll_timeout: {
+            label: 'Dead click scroll timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for a scroll event',
+        },
+        $dead_click_mutation_timeout: {
+            label: 'Dead click mutation timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for a mutation event',
+        },
+        $dead_click_absolute_timeout: {
+            label: 'Dead click absolute timeout',
+            description: 'whether the dead click autocapture passed the threshold for waiting for any activity',
+        },
+        $dead_click_selection_changed_timeout: {
+            label: 'Dead click selection changed timeout',
+            description:
+                'whether the dead click autocapture passed the threshold for waiting for a text selection change event',
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
@@ -1234,72 +1320,72 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $start_timestamp: {
             label: 'Start timestamp',
-            description: <span>The timestamp of the first event from this session.</span>,
+            description: 'The timestamp of the first event from this session.',
             examples: [new Date().toISOString()],
         },
         $end_timestamp: {
             label: 'End timestamp',
-            description: <span>The timestamp of the last event from this session</span>,
+            description: 'The timestamp of the last event from this session',
             examples: [new Date().toISOString()],
         },
         $entry_current_url: {
             label: 'Entry URL',
-            description: <span>The first URL visited in this session</span>,
+            description: 'The first URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $entry_pathname: {
             label: 'Entry pathname',
-            description: <span>The first pathname visited in this session</span>,
+            description: 'The first pathname visited in this session.',
             examples: ['/interesting-article?parameter=true'],
         },
         $end_current_url: {
             label: 'Entry URL',
-            description: <span>The first URL visited in this session</span>,
+            description: 'The first URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $end_pathname: {
             label: 'Entry pathname',
-            description: <span>The first pathname visited in this session</span>,
+            description: 'The first pathname visited in this session.',
             examples: ['/interesting-article?parameter=true'],
         },
         $exit_current_url: {
             label: 'Exit URL',
-            description: <span>The last URL visited in this session</span>,
+            description: 'The last URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $exit_pathname: {
             label: 'Exit pathname',
-            description: <span>The last pathname visited in this session</span>,
+            description: 'The last pathname visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $pageview_count: {
             label: 'Pageview count',
-            description: <span>The number of page view events in this session</span>,
+            description: 'The number of page view events in this session.',
             examples: ['123'],
         },
         $autocapture_count: {
             label: 'Autocapture count',
-            description: <span>The number of autocapture events in this session</span>,
+            description: 'The number of autocapture events in this session.',
             examples: ['123'],
         },
         $screen_count: {
             label: 'Screen count',
-            description: <span>The number of screen events in this session</span>,
+            description: 'The number of screen events in this session.',
             examples: ['123'],
         },
         $channel_type: {
             label: 'Channel type',
-            description: <span>What type of acquisition channel this traffic came from.</span>,
+            description: 'What type of acquisition channel this traffic came from.',
             examples: ['Paid Search', 'Organic Video', 'Direct'],
         },
         $is_bounce: {
             label: 'Is bounce',
-            description: <span>Whether the session was a bounce.</span>,
+            description: 'Whether the session was a bounce.',
             examples: ['true', 'false'],
         },
         $last_external_click_url: {
             label: 'Last external click URL',
-            description: <span>The last external URL clicked in this session</span>,
+            description: 'The last external URL clicked in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $vitals_lcp: {
@@ -1368,8 +1454,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINI
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
 
-CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = {}
-
 for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)) {
     if (PERSON_PROPERTIES_ADAPTED_FROM_EVENT.has(key) || key.startsWith('$geoip_')) {
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = {
@@ -1400,7 +1484,6 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
-            examples: 'examples' in value ? value.examples : undefined,
         }
     }
 }
@@ -1492,6 +1575,25 @@ export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'slack_service_available',
     'commit_sha',
 ]
+
+export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
+    $pageview: ['$current_url', 'title', '$referrer'],
+    $pageleave: ['$current_url', 'title', '$referrer'],
+    $groupidentify: ['$group_type', '$group_key', '$group_set'],
+    $screen: ['$screen_name'],
+    $web_vitals: [
+        '$web_vitals_FCP_value',
+        '$web_vitals_CLS_value',
+        '$web_vitals_INP_value',
+        '$web_vitals_LCP_value',
+        '$web_vitals_FCP_event',
+        '$web_vitals_CLS_event',
+        '$web_vitals_INP_event',
+        '$web_vitals_LCP_event',
+    ],
+    $set: ['$set', '$set_once'],
+}
+export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
 export function isCoreFilter(key: string): boolean {

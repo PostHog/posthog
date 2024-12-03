@@ -55,7 +55,6 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
         userIntent: undefined,
         dataAttributes: ['data-attr'],
         apiURL: '/',
-        jsURL: 'http://localhost:8234/',
         userEmail: 'foobar@posthog.com',
     }
     useToolbarStyles()
@@ -68,7 +67,6 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
                 },
                 toolbarParams: {
                     toolbarVersion: 'toolbar',
-                    jsURL: 'http://localhost:8234/',
                 },
                 isAuthenticated: props.unauthenticated ?? true,
                 supportedCompression: ['gzip', 'gzip-js', 'lz64'],
@@ -141,6 +139,12 @@ export const EventsDebuggerEmpty = (): JSX.Element => {
 }
 
 export const Experiments = (): JSX.Element => {
+    return <BasicTemplate menu="experiments" />
+}
+
+export const ExperimentsDisabledInParent = (): JSX.Element => {
+    // fake that the host site posthog config disables web experiments
+    window.parent.posthog = { config: { disable_web_experiments: true } }
     return <BasicTemplate menu="experiments" />
 }
 

@@ -6,6 +6,7 @@ import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperation
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import entity_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -143,6 +144,7 @@ class SessionRecordingListFromFilters:
             team=self._team,
             query_type="SessionRecordingListQuery",
             modifiers=self._hogql_query_modifiers,
+            settings=HogQLGlobalSettings(allow_experimental_analyzer=False),  # This needs to be turned on eventually
         )
 
         return SessionRecordingQueryResult(
@@ -328,7 +330,7 @@ class PersonsPropertiesSubQuery:
         self._filter = filter
         self._ttl_days = ttl_days
 
-    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         if self.person_properties and not poe_is_active(self._team):
             return parse_select(
                 """
@@ -383,7 +385,7 @@ HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
         self._filter = filter
         self._ttl_days = ttl_days
 
-    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         if self.cohort_properties:
             return parse_select(
                 self.raw_cohort_to_distinct_id,
@@ -433,7 +435,7 @@ class PersonsIdCompareOperation:
                 right=q,
             )
 
-    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         if not self._filter.person_uuid:
             return None
 
@@ -529,14 +531,14 @@ class ReplayFiltersEventsSubQuery:
             group_by=[ast.Field(chain=["$session_id"])],
         )
 
-    def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
         use_poe = poe_is_active(self._team) and self.person_properties
         if self._filter.entities or self.event_properties or self.group_properties or use_poe:
             return self._select_from_events(ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])))
         else:
             return None
 
-    def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self._select_from_events(ast.Call(name="groupUniqArray", args=[ast.Field(chain=["uuid"])]))
 
     def get_event_ids_for_session(self) -> SessionRecordingQueryResult:

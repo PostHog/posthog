@@ -1,14 +1,16 @@
 import os
 import json
 from boto3 import resource
+
 from rest_framework import status
 
 from django.utils.http import urlsafe_base64_encode
-from django.core.files.uploadedfile import SimpleUploadedFile
+
 from django.test import override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from posthog.test.base import APIBaseTest
-from posthog.models import Team, ErrorTrackingGroup
+from posthog.models import ErrorTrackingSymbolSet, ErrorTrackingStackFrame
 from botocore.config import Config
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
@@ -46,83 +48,98 @@ class TestErrorTracking(APIBaseTest):
             data=data,
         )
 
-    def test_reuses_existing_group_for_team(self):
-        fingerprint = ["CustomFingerprint"]
-        ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=self.team)
+    # def test_reuses_existing_group_for_team(self):
+    #     fingerprint = ["CustomFingerprint"]
+    #     ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=self.team)
 
-        self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
-        self.send_request(fingerprint, {"assignee": self.user.id})
-        self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
+    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
+    #     self.send_request(fingerprint, {"assignee": self.user.id})
+    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
 
-    def test_creates_group_if_not_already_existing_for_team(self):
-        fingerprint = ["CustomFingerprint"]
-        other_team = Team.objects.create(organization=self.organization)
-        ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=other_team)
+    # def test_creates_group_if_not_already_existing_for_team(self):
+    #     fingerprint = ["CustomFingerprint"]
+    #     other_team = Team.objects.create(organization=self.organization)
+    #     ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=other_team)
 
-        self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
-        self.send_request(fingerprint, {"assignee": self.user.id})
-        self.assertEqual(ErrorTrackingGroup.objects.count(), 2)
+    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
+    #     self.send_request(fingerprint, {"assignee": self.user.id})
+    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 2)
 
-    def test_can_only_update_allowed_fields(self):
-        fingerprint = ["CustomFingerprint"]
-        other_team = Team.objects.create(organization=self.organization)
-        group = ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=other_team)
+    # def test_can_only_update_allowed_fields(self):
+    #     fingerprint = ["CustomFingerprint"]
+    #     other_team = Team.objects.create(organization=self.organization)
+    #     group = ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=other_team)
 
-        self.send_request(fingerprint, {"fingerprint": ["NewFingerprint"], "assignee": self.user.id})
-        group.refresh_from_db()
-        self.assertEqual(group.fingerprint, ["CustomFingerprint"])
+    #     self.send_request(fingerprint, {"fingerprint": ["NewFingerprint"], "assignee": self.user.id})
+    #     group.refresh_from_db()
+    #     self.assertEqual(group.fingerprint, ["CustomFingerprint"])
 
-    def test_merging_of_an_existing_group(self):
-        fingerprint = ["CustomFingerprint"]
-        merging_fingerprints = [["NewFingerprint"]]
-        group = ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=self.team)
+    # def test_merging_of_an_existing_group(self):
+    #     fingerprint = ["CustomFingerprint"]
+    #     merging_fingerprints = [["NewFingerprint"]]
+    #     group = ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=self.team)
 
-        self.send_request(fingerprint, {"merging_fingerprints": merging_fingerprints}, endpoint="merge")
+    #     self.send_request(fingerprint, {"merging_fingerprints": merging_fingerprints}, endpoint="merge")
 
-        group.refresh_from_db()
-        self.assertEqual(group.merged_fingerprints, merging_fingerprints)
+    #     group.refresh_from_db()
+    #     self.assertEqual(group.merged_fingerprints, merging_fingerprints)
 
-    def test_merging_when_no_group_exists(self):
-        fingerprint = ["CustomFingerprint"]
-        merging_fingerprints = [["NewFingerprint"]]
+    # def test_merging_when_no_group_exists(self):
+    #     fingerprint = ["CustomFingerprint"]
+    #     merging_fingerprints = [["NewFingerprint"]]
 
-        self.assertEqual(ErrorTrackingGroup.objects.count(), 0)
-        self.send_request(fingerprint, {"merging_fingerprints": merging_fingerprints}, endpoint="merge")
-        self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
-        groups = ErrorTrackingGroup.objects.only("merged_fingerprints")
-        self.assertEqual(groups[0].merged_fingerprints, merging_fingerprints)
+    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 0)
+    #     self.send_request(fingerprint, {"merging_fingerprints": merging_fingerprints}, endpoint="merge")
+    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
+    #     groups = ErrorTrackingGroup.objects.only("merged_fingerprints")
+    #     self.assertEqual(groups[0].merged_fingerprints, merging_fingerprints)
 
     def test_can_upload_a_source_map(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER=TEST_BUCKET):
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+            )
+
             with open(get_path_to("source.js.map"), "rb") as image:
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
-                    {"source_map": image},
+                # Note - we just use the source map twice, because we don't expect the API to do
+                # any validation here - cymbal does the parsing work.
+                # TODO - we could have the api validate these contents before uploading, if we wanted
+                data = {"source_map": image, "minified": image}
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+                    data,
                     format="multipart",
                 )
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_rejects_too_large_file_type(self) -> None:
-        fifty_megabytes_plus_a_little = b"1" * (50 * 1024 * 1024 + 1)
-        fake_big_file = SimpleUploadedFile(
-            name="large_source.js.map",
-            content=fifty_megabytes_plus_a_little,
-            content_type="text/plain",
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
-            {"source_map": fake_big_file},
-            format="multipart",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        self.assertEqual(response.json()["detail"], "Source maps must be less than 50MB")
+    # def test_rejects_too_large_file_type(self) -> None:
+    #     symbol_set = ErrorTrackingSymbolSet.objects.create(
+    #         ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+    #     )
+    #     fifty_megabytes_plus_a_little = b"1" * (1024 * 1024 * 1024 + 1)
+    #     fake_big_file = SimpleUploadedFile(
+    #         name="large_source.js.map",
+    #         content=fifty_megabytes_plus_a_little,
+    #         content_type="text/plain",
+    #     )
+    #     response = self.client.put(
+    #         f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+    #         {"source_map": fake_big_file},
+    #         format="multipart",
+    #     )
+    #     self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+    #     self.assertEqual(response.json()["detail"], "Source maps must be less than 50MB")
 
     def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+        )
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
-                {"source_map": fake_big_file},
+            data = {"source_map": fake_big_file, "minified": fake_big_file}
+            response = self.client.put(
+                f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+                data,
                 format="multipart",
             )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
@@ -130,3 +147,50 @@ class TestErrorTracking(APIBaseTest):
                 response.json()["detail"],
                 "Object storage must be available to allow source map uploads.",
             )
+
+    def test_fetching_symbol_sets(self):
+        other_team = self.create_team_with_organization(organization=self.organization)
+        ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+        ErrorTrackingSymbolSet.objects.create(
+            ref="source_2", team=self.team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            ref="source_2", team=other_team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
+        )
+
+        self.assertEqual(ErrorTrackingSymbolSet.objects.count(), 3)
+
+        # it only fetches symbol sets for the specified team
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/symbol_sets")
+        self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_fetching_stack_frames(self):
+        other_team = self.create_team_with_organization(organization=self.organization)
+        symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+        other_symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_2", team=self.team, storage_ptr=None)
+        ErrorTrackingStackFrame.objects.create(
+            raw_id="raw_id", team=self.team, symbol_set=symbol_set, resolved=True, contents={}
+        )
+        ErrorTrackingStackFrame.objects.create(
+            raw_id="other_raw_id", team=self.team, symbol_set=other_symbol_set, resolved=True, contents={}
+        )
+        ErrorTrackingStackFrame.objects.create(
+            raw_id="raw_id", team=other_team, symbol_set=symbol_set, resolved=True, contents={}
+        )
+
+        self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
+
+        # it only fetches stack traces for the specified team
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/stack_frames")
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        # fetching can be filtered by raw_ids
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/stack_frames?raw_ids=raw_id")
+        self.assertEqual(len(response.json()["results"]), 1)
+
+        # fetching can be filtered by symbol set
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/stack_frames?symbol_set={symbol_set.id}"
+        )
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)

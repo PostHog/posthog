@@ -24,7 +24,7 @@ def _expr(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Ex
 def _select(
     s: str,
     placeholders: Optional[dict[str, ast.Expr]] = None,
-) -> ast.SelectQuery | ast.SelectUnionQuery:
+) -> ast.SelectQuery | ast.SelectSetQuery:
     parsed = parse_select(s, placeholders=placeholders)
     return parsed
 

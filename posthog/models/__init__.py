@@ -24,12 +24,18 @@ from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatu
 from .cohort import Cohort, CohortPeople
 from .comment import Comment
 from .dashboard import Dashboard
+from .dashboard_templates import DashboardTemplate
 from .dashboard_tile import DashboardTile, Text
 from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import ErrorTrackingGroup, ErrorTrackingIssueFingerprint
+from .error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
+)
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -94,13 +100,16 @@ __all__ = [
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
+    "DashboardTemplate",
     "DeletionType",
     "EarlyAccessFeature",
     "Element",
     "ElementGroup",
     "Entity",
-    "ErrorTrackingGroup",
-    "ErrorTrackingIssueFingerprint",
+    "ErrorTrackingIssue",
+    "ErrorTrackingIssueFingerprintV2",
+    "ErrorTrackingStackFrame",
+    "ErrorTrackingSymbolSet",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -118,6 +127,7 @@ __all__ = [
     "InsightViewed",
     "InstanceSetting",
     "Integration",
+    "InviteExpiredException",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",

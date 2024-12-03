@@ -40,10 +40,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(timestamp, toDateTime64('2023-10-01 12:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-01 17:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 12:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-01 17:00:00.000000', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -55,7 +55,7 @@
                max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
-        WHERE equals(session_replay_events.team_id, 2)
+        WHERE equals(session_replay_events.team_id, 99999)
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -108,10 +108,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(timestamp, toDateTime64('2023-09-30 16:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-01 16:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-09-30 16:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-01 16:00:00.000000', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -123,7 +123,7 @@
                max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
-        WHERE equals(session_replay_events.team_id, 2)
+        WHERE equals(session_replay_events.team_id, 99999)
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -176,10 +176,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 3)) AS e
   LEFT JOIN
@@ -191,7 +191,7 @@
                max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
-        WHERE equals(session_replay_events.team_id, 2)
+        WHERE equals(session_replay_events.team_id, 99999)
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -244,10 +244,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -259,7 +259,7 @@
                max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
-        WHERE equals(session_replay_events.team_id, 2)
+        WHERE equals(session_replay_events.team_id, 99999)
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -312,10 +312,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -327,7 +327,7 @@
                max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
-        WHERE equals(session_replay_events.team_id, 2)
+        WHERE equals(session_replay_events.team_id, 99999)
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -380,10 +380,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -395,7 +395,7 @@
                max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
-        WHERE equals(session_replay_events.team_id, 2)
+        WHERE equals(session_replay_events.team_id, 99999)
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -448,10 +448,10 @@
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 2)
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -463,7 +463,7 @@
                max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
                session_replay_events.session_id AS session_id
         FROM session_replay_events
-        WHERE equals(session_replay_events.team_id, 2)
+        WHERE equals(session_replay_events.team_id, 99999)
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,

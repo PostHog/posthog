@@ -6,6 +6,7 @@ from django.urls import include
 from django.urls.conf import path
 
 from ee.api import integration
+from .api.rbac import organization_resource_access, role
 
 from .api import (
     authentication,
@@ -15,8 +16,6 @@ from .api import (
     feature_flag_role_access,
     hooks,
     license,
-    organization_resource_access,
-    role,
     sentry_stats,
     subscription,
 )
@@ -49,6 +48,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
+    # Start: routes to be deprecated
     project_feature_flags_router.register(
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
@@ -61,6 +61,7 @@ def extend_api_router() -> None:
         "organization_resource_access",
         ["organization_id"],
     )
+    # End: routes to be deprecated
     register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
     register_grandfathered_environment_nested_viewset(
         r"explicit_members",

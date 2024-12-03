@@ -90,10 +90,10 @@ class Action(models.Model):
 
     def refresh_bytecode(self):
         from posthog.hogql.property import action_to_expr
-        from posthog.hogql.bytecode import create_bytecode
+        from posthog.hogql.compiler.bytecode import create_bytecode
 
         try:
-            new_bytecode = create_bytecode(action_to_expr(self))
+            new_bytecode = create_bytecode(action_to_expr(self)).bytecode
             if new_bytecode != self.bytecode or self.bytecode_error is not None:
                 self.bytecode = new_bytecode
                 self.bytecode_error = None

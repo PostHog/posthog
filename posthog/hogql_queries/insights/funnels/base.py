@@ -5,7 +5,7 @@ from typing import Any, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.clickhouse.materialized_columns.column import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
@@ -532,7 +532,7 @@ class FunnelBase(ABC):
 
         return ast.JoinExpr(
             join_type="INNER JOIN",
-            table=ast.SelectUnionQuery(select_queries=cohort_queries),
+            table=ast.SelectSetQuery.create_from_queries(cohort_queries, "UNION ALL"),
             alias="cohort_join",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
@@ -634,6 +634,7 @@ class FunnelBase(ABC):
             ],
             select_from=ast.JoinExpr(table=select_query),
             group_by=[ast.Field(chain=["final_prop"])],
+            limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
 
     def _get_steps_conditions(self, length: int) -> ast.Expr:

@@ -51,8 +51,12 @@ export function Destinations(): JSX.Element {
         </>
     )
 }
+export type DestinationsTableProps = {
+    hideFeedback?: boolean
+    hideAddDestinationButton?: boolean
+}
 
-export function DestinationsTable(): JSX.Element {
+export function DestinationsTable({ hideFeedback, hideAddDestinationButton }: DestinationsTableProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(pipelineDestinationsLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
@@ -60,7 +64,7 @@ export function DestinationsTable(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <DestinationsFilters />
+            <DestinationsFilters hideFeedback={hideFeedback} hideAddDestinationButton={hideAddDestinationButton} />
 
             <LemonTable
                 dataSource={filteredDestinations}
@@ -117,7 +121,7 @@ export function DestinationsTable(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Weekly volume',
+                        title: 'Last 7 days',
                         render: function RenderSuccessRate(_, destination) {
                             return (
                                 <Link

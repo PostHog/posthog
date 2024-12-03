@@ -2,6 +2,7 @@ from copy import deepcopy
 from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
 
@@ -151,9 +152,10 @@ class TraversingVisitor(Visitor[None]):
         for expr in (node.window_exprs or {}).values():
             self.visit(expr)
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        for expr in node.select_queries:
-            self.visit(expr)
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        self.visit(node.initial_select_query)
+        for expr in node.subsequent_select_queries:
+            self.visit(expr.select_query)
 
     def visit_lambda_argument_type(self, node: ast.LambdaArgumentType):
         pass
@@ -174,7 +176,7 @@ class TraversingVisitor(Visitor[None]):
         for expr in node.columns.values():
             self.visit(expr)
 
-    def visit_select_union_query_type(self, node: ast.SelectUnionQueryType):
+    def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
         for type in node.types:
             self.visit(type)
 
@@ -600,12 +602,16 @@ class CloningVisitor(Visitor[Any]):
             view_name=node.view_name,
         )
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        return ast.SelectUnionQuery(
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        return ast.SelectSetQuery(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            select_queries=[self.visit(expr) for expr in node.select_queries],
+            initial_select_query=self.visit(node.initial_select_query),
+            subsequent_select_queries=[
+                SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
+                for expr in node.subsequent_select_queries
+            ],
         )
 
     def visit_window_expr(self, node: ast.WindowExpr):

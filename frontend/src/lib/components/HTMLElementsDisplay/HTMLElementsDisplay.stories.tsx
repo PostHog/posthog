@@ -181,6 +181,10 @@ export function ReadOnlyDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} />
 }
 
+export function SmallReadOnlyDisplay(): JSX.Element {
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} size="small" />
+}
+
 export function WithoutCentralHighlightDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} />
 }
@@ -211,4 +215,16 @@ export function EditableDisplayWithPreselection(): JSX.Element {
 
 export function WithUniquenessCheck(): JSX.Element {
     return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} editable={true} checkUniqueness={true} />
+}
+
+export function SmallWithUniquenessCheck(): JSX.Element {
+    return (
+        <HTMLElementsDisplay
+            elements={EXAMPLE_ELEMENTS}
+            highlight={false}
+            editable={true}
+            checkUniqueness={true}
+            size="small"
+        />
+    )
 }

@@ -19,6 +19,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
@@ -35,7 +36,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 def execute_hogql_query(
-    query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
+    query: Union[str, ast.SelectQuery, ast.SelectSetQuery],
     team: Team,
     *,
     query_type: str = "hogql_query",
@@ -65,7 +66,7 @@ def execute_hogql_query(
     metadata: Optional[HogQLMetadataResponse] = None
 
     with timings.measure("query"):
-        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
+        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectSetQuery):
             select_query = query
             query = None
         else:
@@ -105,10 +106,7 @@ def execute_hogql_query(
             select_query = replace_placeholders(select_query, placeholders)
 
     with timings.measure("max_limit"):
-        select_queries = (
-            select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
-        )
-        for one_query in select_queries:
+        for one_query in extract_select_queries(select_query):
             if one_query.limit is None:
                 one_query.limit = ast.Constant(value=get_default_limit_for_context(limit_context))
 
@@ -138,8 +136,8 @@ def execute_hogql_query(
             )
             print_columns = []
             columns_query = (
-                select_query_hogql.select_queries[0]
-                if isinstance(select_query_hogql, ast.SelectUnionQuery)
+                next(extract_select_queries(select_query_hogql))
+                if isinstance(select_query_hogql, ast.SelectSetQuery)
                 else select_query_hogql
             )
             for node in columns_query.select:

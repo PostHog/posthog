@@ -1,6 +1,6 @@
 from typing import Optional
 from posthog.models.action.action import Action
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr, ast
 from posthog.models.team.team import Team
@@ -87,7 +87,7 @@ def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
-        filters["bytecode"] = create_bytecode(compile_filters_expr(filters, team, actions))
+        filters["bytecode"] = create_bytecode(compile_filters_expr(filters, team, actions)).bytecode
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except Exception as e:

@@ -97,7 +97,7 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {
-                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "1",
                 "DEBUG": "1",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
@@ -160,6 +160,13 @@
             "justMyCode": true
         },
         {
+            "name": "Frontend: Debug Jest Tests",
+            "type": "node-terminal",
+            "command": "pnpm test:unit --runInBand",
+            "request": "launch",
+            "cwd": "${workspaceFolder}"
+        },
+        {
             "name": "(lldb) Attach",
             "type": "cppdbg",
             "request": "attach",
@@ -183,6 +190,23 @@
             "purpose": ["debug-test"],
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Jest Current File",
+            "program": "${workspaceFolder}/node_modules/jest/bin/jest.js",
+            "args": ["--detectOpenHandles", "${relativeFile}"],
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "runtimeExecutable": "${env:HOME}/.nvm/versions/node/${input:pickVersion}/bin/node"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "pickVersion",
+            "type": "command",
+            "command": "extension.node-version"
         }
     ],
     "compounds": [

@@ -1,11 +1,11 @@
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
+import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { useCallback } from 'react'
+import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
@@ -34,22 +34,16 @@ export function Timestamp(): JSX.Element {
     }, [timestampFormat])
 
     return (
-        <LemonButton data-attr="recording-timestamp" onClick={rotateTimestampFormat} active>
-            <span className="text-center whitespace-nowrap font-mono">
+        <LemonButton data-attr="recording-timestamp" onClick={rotateTimestampFormat} active size="xsmall">
+            <span className="text-center whitespace-nowrap font-mono text-xs">
                 {timestampFormat === TimestampFormat.Relative ? (
-                    <>
-                        {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
-                        {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
-                    </>
+                    <div className="flex gap-0.5">
+                        <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
+                        <span>/</span>
+                        <span>{colonDelimitedDuration(endTimeSeconds, fixedUnits)}</span>
+                    </div>
                 ) : currentTimestamp ? (
-                    `${(timestampFormat === TimestampFormat.UTC
-                        ? dayjs(currentTimestamp).tz('UTC')
-                        : dayjs(currentTimestamp)
-                    ).format('DD/MM/YYYY, HH:mm:ss')} ${
-                        timestampFormat === TimestampFormat.UTC
-                            ? 'UTC'
-                            : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())
-                    }`
+                    <SimpleTimeLabel startTime={currentTimestamp} isUTC={timestampFormat === TimestampFormat.UTC} />
                 ) : (
                     '--/--/----, 00:00:00'
                 )}
@@ -93,7 +87,8 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
         >
             <LemonButton
                 data-attr={`seek-skip-${direction}`}
-                size="small"
+                size="xsmall"
+                noPadding={true}
                 onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
             >
                 <div className="PlayerControlSeekIcon">

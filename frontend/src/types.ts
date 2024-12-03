@@ -35,6 +35,8 @@ import { QueryContext } from '~/queries/types'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ExperimentFunnelsQuery,
+    ExperimentTrendsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -163,6 +165,7 @@ export enum AvailableFeature {
     DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
+    ALERTS = 'alerts',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -484,6 +487,7 @@ export interface SessionRecordingAIConfig {
 }
 
 export interface ProjectType extends ProjectBasicType {
+    product_description: string | null
     created_at: string
 }
 
@@ -502,6 +506,7 @@ export interface TeamType extends TeamBasicType {
     // These fields in the database accept null values and were previously set to NULL by default
     capture_console_log_opt_in: boolean | null
     capture_performance_opt_in: boolean | null
+    capture_dead_clicks: boolean | null
     // a string representation of the decimal value between 0 and 1
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
@@ -516,6 +521,8 @@ export interface TeamType extends TeamBasicType {
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_event_trigger_config?: string[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -544,6 +551,13 @@ export interface TeamType extends TeamBasicType {
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers
+    product_intents?: ProductIntentType[]
+}
+
+export interface ProductIntentType {
+    product_type: string
+    created_at: string
+    onboarding_completed_at?: string
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -610,13 +624,14 @@ export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
+export type ExperimentIdType = number | 'new' | 'web'
 /* sync with posthog-js */
 export interface ToolbarParams {
     apiURL?: string
-    jsURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
     actionId?: number
+    experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
     source?: ToolbarSource
     toolbarVersion?: ToolbarVersion
@@ -673,7 +688,6 @@ export enum ReplayTabs {
     Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
-    Errors = 'errors',
 }
 
 export enum ExperimentsTabs {
@@ -873,6 +887,7 @@ export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinTy
 export type RecordingConsoleLogV2 = {
     timestamp: number
     windowId: string | undefined
+    windowNumber?: number | '?' | undefined
     level: LogLevel
     content: string
     // JS code associated with the log - implicitly the empty array when not provided
@@ -981,8 +996,7 @@ export enum SessionRecordingSidebarStacking {
     Horizontal = 'horizontal',
 }
 
-export enum SessionRecordingPlayerTab {
-    ALL = 'all',
+export enum FilterableInspectorListItemTypes {
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
@@ -1607,6 +1621,10 @@ export interface BillingTierType {
     up_to: number | null
 }
 
+export interface BillingTrialType {
+    length: number
+}
+
 export interface BillingProductV2Type {
     type: string
     usage_key: string | null
@@ -1639,6 +1657,7 @@ export interface BillingProductV2Type {
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
+    trial?: BillingTrialType
 }
 
 export interface BillingProductV2AddonType {
@@ -1669,6 +1688,7 @@ export interface BillingProductV2AddonType {
     features: BillingFeatureType[]
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
+    trial?: BillingTrialType
 }
 export interface BillingType {
     customer_id: string
@@ -1696,6 +1716,12 @@ export interface BillingType {
     discount_percent?: number
     discount_amount_usd?: string
     amount_off_expires_at?: Dayjs
+    trial?: {
+        type: 'autosubscribe' | 'standard'
+        status: 'active' | 'expired' | 'cancelled' | 'converted'
+        target: 'paid' | 'teams' | 'enterprise'
+        expires_at: string
+    }
 }
 
 export interface BillingPlanType {
@@ -2167,7 +2193,8 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
-export type BreakdownKeyType = string | number | (string | number)[] | null
+// eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
 /**
  * Legacy breakdown.
@@ -2330,7 +2357,7 @@ export interface PathsFilterType extends FilterType {
     /** @asType integer */
     step_limit?: number // Paths Step Limit
     path_replacements?: boolean
-    local_path_cleaning_filters?: PathCleaningFilter[]
+    local_path_cleaning_filters?: PathCleaningFilter[] | null
     /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
     /** @asType integer */
@@ -2344,9 +2371,11 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
+export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
+
 export interface RetentionEntity {
     id?: string | number // TODO: Fix weird typing issues
-    kind?: NodeKind.ActionsNode | NodeKind.EventsNode
+    kind?: RetentionEntityKind
     name?: string
     type?: EntityType
     /**  @asType integer */
@@ -2738,6 +2767,11 @@ export interface Survey {
     iteration_start_dates?: string[]
     current_iteration?: number | null
     current_iteration_start_date?: string
+    response_sampling_start_date?: string | null
+    response_sampling_interval_type?: string | null
+    response_sampling_interval?: number | null
+    response_sampling_limit?: number | null
+    response_sampling_daily_limits?: string[] | null
 }
 
 export enum SurveyUrlMatchType {
@@ -3179,6 +3213,7 @@ export enum PropertyDefinitionType {
     Group = 'group',
     Session = 'session',
     LogEntry = 'log_entry',
+    Meta = 'meta',
 }
 
 export interface PropertyDefinition {
@@ -3234,14 +3269,22 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export interface ExperimentMetric {
+    type: string
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+}
+
 export interface Experiment {
-    id: number | 'new'
+    id: ExperimentIdType
     name: string
+    type?: string
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
-    filters: FilterType
+    filters: TrendsFilterType | FunnelsFilterType
+    metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -3249,7 +3292,7 @@ export interface Experiment {
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
-        variant_screenshot_media_ids?: Record<string, string>
+        variant_screenshot_media_ids?: Record<string, string[]>
     }
     start_date?: string | null
     end_date?: string | null
@@ -3286,15 +3329,16 @@ interface BaseExperimentResults {
 }
 
 export interface _TrendsExperimentResults extends BaseExperimentResults {
-    insight: TrendResult[]
+    insight: Record<string, any>[]
     filters: TrendsFilterType
+    exposure_filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
     credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
-    insight: FunnelStep[][]
+    insight: Record<string, any>[]
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
     last_refresh?: string | null
@@ -3813,6 +3857,37 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
+export type APIScopeObject =
+    | 'action'
+    | 'activity_log'
+    | 'annotation'
+    | 'batch_export'
+    | 'cohort'
+    | 'dashboard'
+    | 'dashboard_template'
+    | 'early_access_feature'
+    | 'event_definition'
+    | 'experiment'
+    | 'export'
+    | 'feature_flag'
+    | 'group'
+    | 'insight'
+    | 'query'
+    | 'notebook'
+    | 'organization'
+    | 'organization_member'
+    | 'person'
+    | 'plugin'
+    | 'project'
+    | 'property_definition'
+    | 'session_recording'
+    | 'session_recording_playlist'
+    | 'sharing_configuration'
+    | 'subscription'
+    | 'survey'
+    | 'user'
+    | 'webhook'
+
 export interface OrganizationResourcePermissionType {
     id: string
     resource: Resource
@@ -3977,6 +4052,10 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
+    configuration?: {
+        experiments_optimized?: boolean
+        experiments_timestamp_key?: string | null
+    }
 }
 
 export enum DataWarehouseSettingsTab {
@@ -3995,6 +4074,7 @@ export const externalDataSources = [
     'Salesforce',
     'Vitally',
     'BigQuery',
+    'Chargebee',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4346,7 +4426,6 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    ExperimentFeatureFlag = 'experiment-feature-flag',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4379,6 +4458,7 @@ export interface SourceFieldSwitchGroupConfig {
     label: string
     default: string | number | boolean
     fields: SourceFieldConfig[]
+    caption?: string
 }
 
 export interface SourceFieldFileUploadConfig {
@@ -4435,6 +4515,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.PRODUCT_ANALYTICS
     | ProductKey.SESSION_REPLAY
     | ProductKey.FEATURE_FLAGS
+    | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS

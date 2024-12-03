@@ -1,5 +1,6 @@
 import re
 import uuid
+from typing import cast
 
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
@@ -25,7 +26,6 @@ from posthog.clickhouse.client.execute_async import (
 )
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import report_user_action
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -41,7 +41,11 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
 )
-from posthog.schema import HumanMessage, QueryRequest, QueryResponseAlternative, QueryStatusResponse
+from posthog.schema import (
+    QueryRequest,
+    QueryResponseAlternative,
+    QueryStatusResponse,
+)
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -179,23 +183,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def chat(self, request: Request, *args, **kwargs):
         assert request.user is not None
         validated_body = Conversation.model_validate(request.data)
-        assistant = Assistant(self.team)
-
-        def generate():
-            last_message = None
-            for message in assistant.stream(validated_body):
-                last_message = message
-                yield f"data: {message}\n\n"
-
-            human_message = validated_body.messages[-1].root
-            if isinstance(human_message, HumanMessage):
-                report_user_action(
-                    request.user,  # type: ignore
-                    "chat with ai",
-                    {"prompt": human_message.content, "response": last_message},
-                )
-
-        return StreamingHttpResponse(generate(), content_type=ServerSentEventRenderer.media_type)
+        assistant = Assistant(self.team, validated_body, cast(User, request.user))
+        return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
