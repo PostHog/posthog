@@ -323,7 +323,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 kind: NodeKind.HogQLQuery,
                 query: values.queryInput,
             }
-            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
+
+            const logic = dataNodeLogic({
+                key: values.activeTabKey,
+                query: {
+                    kind: NodeKind.HogQLQuery,
+                    query: values.queryInput,
+                },
+            })
+
+            const types = logic.values.response?.types ?? []
+
+            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query, types })
         },
         reloadMetadata: async (_, breakpoint) => {
             const model = props.editor?.getModel()

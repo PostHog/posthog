@@ -174,6 +174,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "enabled": False,
             "hog": "fetch(inputs.url);",
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "inputs", 1, 2, 2, "fetch", 1, 35],
+            "transpiled": None,
             "inputs_schema": [],
             "inputs": {},
             "filters": {"bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29]},
@@ -985,3 +986,99 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=email")
         assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?types=destination,email")
+        assert len(response.json()["results"]) == 2
+
+    def test_create_hog_function_with_site_app_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site App Function",
+                "hog": "export function onLoad() { console.log('Hello, site_app'); }",
+                "type": "site_app",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is None
+        assert "Hello, site_app" in response.json()["transpiled"]
+
+    def test_create_hog_function_with_site_destination_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site Destination Function",
+                "hog": "export function onLoad() { console.log('Hello, site_destination'); }",
+                "type": "site_destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is None
+        assert "Hello, site_destination" in response.json()["transpiled"]
+
+    def test_transpiled_field_not_populated_for_other_types(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Regular Function",
+                "hog": "fetch(inputs.url);",
+                "type": "destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["bytecode"] is not None
+        assert response.json()["transpiled"] is None
+
+    def test_create_hog_function_with_invalid_typescript(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Invalid Site App Function",
+                "hog": "export function onLoad() { console.log('Missing closing brace');",
+                "type": "site_app",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "detail" in response.json()
+        assert "Error in TypeScript code" in response.json()["detail"]
+
+    def test_create_typescript_destination_with_inputs(self):
+        payload = {
+            "name": "TypeScript Destination Function",
+            "hog": "export function onLoad() { console.log(inputs.message); }",
+            "type": "site_destination",
+            "inputs_schema": [
+                {"key": "message", "type": "string", "label": "Message", "required": True},
+            ],
+            "inputs": {
+                "message": {
+                    "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data=payload,
+        )
+        result = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert result["bytecode"] is None
+        assert "Hello, TypeScript" in result["transpiled"]
+        inputs = result["inputs"]
+        inputs["message"]["transpiled"]["stl"].sort()
+        assert result["inputs"] == {
+            "message": {
+                "transpiled": {
+                    "code": 'concat("Hello, TypeScript ", arrayMap(__lambda((a) => a), [1, 2, 3]), "!")',
+                    "lang": "ts",
+                    "stl": sorted(["__lambda", "concat", "arrayMap"]),
+                },
+                "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+            }
+        }

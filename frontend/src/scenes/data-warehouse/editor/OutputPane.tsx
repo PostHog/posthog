@@ -190,6 +190,7 @@ export function OutputPane({
                                             kind: NodeKind.HogQLQuery,
                                             query: queryInput,
                                         },
+                                        types: response?.types ?? [],
                                     })
                                 }
                             >
