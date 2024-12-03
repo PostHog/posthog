@@ -233,6 +233,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_MULTIPLE_METRICS: 'experiments-multiple-metrics', // owner: @jurajmajerik #team-experiments
     WEB_ANALYTICS_WARN_CUSTOM_EVENT_NO_SESSION: 'web-analytics-warn-custom-event-no-session', // owner: @robbie-c #team-web-analytics
     TWO_FACTOR_UI: 'two-factor-ui', // owner: @zach
+    SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -4591,7 +4591,16 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
-export type HogFunctionTypeType = 'destination' | 'email' | 'sms' | 'push' | 'activity' | 'alert' | 'broadcast'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'site_destination'
+    | 'site_app'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'activity'
+    | 'alert'
+    | 'broadcast'
 
 export type HogFunctionType = {
     id: string
@@ -4613,7 +4622,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
+export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
 export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
 
 export type HogFunctionConfigurationType = Omit<

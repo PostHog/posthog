@@ -1764,11 +1764,17 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(params?: {
-            filters?: any
-            type?: HogFunctionTypeType
-        }): Promise<PaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest().hogFunctions().withQueryString(params).get()
+        async list(
+            filters?: any,
+            type?: HogFunctionTypeType | HogFunctionTypeType[]
+        ): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest()
+                .hogFunctions()
+                .withQueryString({
+                    filters: filters,
+                    ...(type ? (Array.isArray(type) ? { types: type.join(',') } : { type }) : {}),
+                })
+                .get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).get()
@@ -1797,10 +1803,12 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-        async listTemplates(type?: HogFunctionTypeType): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+        async listTemplates(
+            type?: HogFunctionTypeType | HogFunctionTypeType[]
+        ): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             return new ApiRequest()
                 .hogFunctionTemplates()
-                .withQueryString({ type: type ?? 'destination' })
+                .withQueryString(Array.isArray(type) ? { types: type.join(',') } : { type: type ?? 'destination' })
                 .get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {

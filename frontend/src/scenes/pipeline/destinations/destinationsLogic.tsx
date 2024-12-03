@@ -29,6 +29,7 @@ import {
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
+import { getDestinationTypes } from './constants'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 
@@ -166,8 +167,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
-                    // TODO: Support pagination?
-                    return (await api.hogFunctions.list({ type: 'destination' })).results
+                    const destinationTypes = getDestinationTypes(!!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS])
+                    return (await api.hogFunctions.list(undefined, destinationTypes)).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {
