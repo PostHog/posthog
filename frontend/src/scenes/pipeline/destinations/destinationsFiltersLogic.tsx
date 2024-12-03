@@ -7,9 +7,10 @@ import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
+import { HogFunctionTypeType } from '~/types'
+
 import { PipelineBackend } from '../types'
 import type { destinationsFiltersLogicType } from './destinationsFiltersLogicType'
-import { PipelineDestinationsLogicProps } from './destinationsLogic'
 
 export type DestinationsFilters = {
     search?: string
@@ -18,9 +19,13 @@ export type DestinationsFilters = {
     showPaused?: boolean
 }
 
+export interface DestinationsFiltersLogicProps {
+    types: HogFunctionTypeType[]
+}
+
 export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'destinationsFiltersLogic']),
-    props({} as PipelineDestinationsLogicProps),
+    props({} as DestinationsFiltersLogicProps),
     key((props) => props.types.join(',') ?? ''),
     connect({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],

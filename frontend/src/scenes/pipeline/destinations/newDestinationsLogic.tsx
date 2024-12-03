@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
@@ -39,6 +39,8 @@ export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
+    props({} as PipelineDestinationsLogicProps),
+    key((props) => props.types.join(',') ?? ''),
     connect(({ types }: PipelineDestinationsLogicProps) => ({
         values: [
             userLogic,

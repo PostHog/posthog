@@ -27,6 +27,7 @@ import {
     Destination,
     FunctionDestination,
     PipelineBackend,
+    SiteApp,
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
@@ -232,7 +233,14 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
         destinations: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user, s.featureFlags],
-            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user, featureFlags): Destination[] => {
+            (
+                pluginConfigs,
+                plugins,
+                batchExportConfigs,
+                hogFunctions,
+                user,
+                featureFlags
+            ): (Destination | SiteApp)[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
@@ -273,7 +281,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         filteredDestinations: [
             (s) => [s.filters, s.destinations, s.destinationsFuse],
-            (filters, destinations, destinationsFuse): Destination[] => {
+            (filters, destinations, destinationsFuse): (Destination | SiteApp)[] => {
                 const { search, showPaused, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
@@ -290,7 +298,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         hiddenDestinations: [
             (s) => [s.destinations, s.filteredDestinations],
-            (destinations, filteredDestinations): Destination[] => {
+            (destinations, filteredDestinations): (Destination | SiteApp)[] => {
                 return destinations.filter((dest) => !filteredDestinations.includes(dest))
             },
         ],
