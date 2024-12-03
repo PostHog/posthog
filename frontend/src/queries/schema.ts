@@ -92,7 +92,6 @@ export enum NodeKind {
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
-    WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
@@ -127,7 +126,6 @@ export type AnyDataNode =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
-    | WebTopClicksQuery
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
@@ -155,7 +153,6 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
-    | WebTopClicksQuery
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
@@ -617,7 +614,6 @@ export interface DataTableNode
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
-                    | WebTopClicksQuery
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
@@ -638,7 +634,6 @@ export interface DataTableNode
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebExternalClicksTableQuery
-        | WebTopClicksQuery
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
@@ -1818,17 +1813,6 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<Web
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
-
-export interface WebTopClicksQuery extends WebAnalyticsQueryBase<WebTopClicksQueryResponse> {
-    kind: NodeKind.WebTopClicksQuery
-}
-export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
-    types?: unknown[]
-    columns?: unknown[]
-    samplingRate?: SamplingRate
-}
-
-export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
