@@ -1321,7 +1321,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
