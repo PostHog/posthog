@@ -121,6 +121,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     else:
         query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
+        query = re.sub(r"(team|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query)
+        query = re.sub(r"(team|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query)
         query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"99999 as \1_id\2", query)
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
