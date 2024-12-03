@@ -368,24 +368,12 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
                 logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
             case AlertState.ERRORED:
                 logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
-                # TODO: uncomment this after checking errors sent
                 send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
                 assert breaches is not None
                 send_notifications_for_breaches(alert, breaches)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
-
-        capture_ph_event(
-            user.distinct_id,
-            "alert check failed",
-            properties={
-                "alert_id": alert.id,
-                "error": error_message,
-                "traceback": traceback.format_exc(),
-            },
-        )
-
         logger.exception(error_message, exc_info=err)
         capture_exception(Exception(error_message))
 
