@@ -124,6 +124,10 @@ export function percentage(
     maximumFractionDigits: number = 2,
     fixedPrecision: boolean = false
 ): string {
+    if (division === Infinity) {
+        return '∞%'
+    }
+
     return division.toLocaleString('en-US', {
         style: 'percent',
         maximumFractionDigits,
@@ -236,7 +240,14 @@ export const cohortOperatorMap: Record<string, string> = {
     not_in: 'user not in',
 }
 
+export const stickinessOperatorMap: Record<string, string> = {
+    exact: 'Exactly',
+    gte: 'At least',
+    lte: 'At most (but at least once)',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
+    ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
