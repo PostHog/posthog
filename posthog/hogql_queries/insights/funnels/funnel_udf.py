@@ -1,7 +1,7 @@
 from typing import cast, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.schema import BreakdownType, BreakdownAttributionType
@@ -184,7 +184,7 @@ class FunnelUDF(FunnelBase):
         """,
             {"s": s},
         )
-
+        s.settings = HogQLQuerySettings(join_algorithm="direct,parallel_hash,hash,full_sorting_merge")
         return cast(ast.SelectQuery, s)
 
     def _get_funnel_person_step_condition(self) -> ast.Expr:
@@ -294,4 +294,5 @@ class FunnelUDF(FunnelBase):
             select_from=select_from,
             order_by=order_by,
             where=where,
+            settings=HogQLQuerySettings(join_algorithm="direct,parallel_hash,hash,full_sorting_merge"),
         )

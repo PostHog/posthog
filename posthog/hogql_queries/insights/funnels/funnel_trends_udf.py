@@ -195,6 +195,7 @@ class FunnelTrendsUDF(FunnelTrends):
             """,
                 {"fill_query": fill_query, "inner_select": inner_select},
             )
+        s.settings = HogQLQuerySettings(join_algorithm="direct,parallel_hash,hash,full_sorting_merge")
         return cast(ast.SelectQuery, s)
 
     def _matching_events(self):
@@ -254,4 +255,5 @@ class FunnelTrendsUDF(FunnelTrends):
             select_from=select_from,
             order_by=order_by,
             where=where,
+            settings=HogQLQuerySettings(join_algorithm="direct,parallel_hash,hash,full_sorting_merge"),
         )

@@ -58,7 +58,7 @@ def default_settings() -> dict:
     # We default to three memory bound join operations, in decreasing order of speed
     # The merge algorithms are not memory bound, and can be selectively used in places where it makes sense
     return {
-        "join_algorithm": "direct,parallel_hash,hash,full_sorting_merge",
+        "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
         # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
         # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
