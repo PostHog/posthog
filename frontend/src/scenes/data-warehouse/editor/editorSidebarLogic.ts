@@ -117,6 +117,15 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         onClick: () => {
                             actions.selectSchema(table)
                         },
+                        menuItems: [
+                            {
+                                label: 'Add join',
+                                onClick: () => {
+                                    actions.selectSourceTable(table.name)
+                                    actions.toggleJoinTableModal()
+                                },
+                            },
+                        ],
                     })),
                     onAdd: () => {
                         router.actions.push(urls.pipeline(PipelineTab.Sources))
@@ -139,6 +148,15 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         onClick: () => {
                             actions.selectSchema(table)
                         },
+                        menuItems: [
+                            {
+                                label: 'Add join',
+                                onClick: () => {
+                                    actions.selectSourceTable(table.name)
+                                    actions.toggleJoinTableModal()
+                                },
+                            },
+                        ],
                     })),
                 } as SidebarCategory,
                 {
