@@ -236,14 +236,16 @@ HAVING and(
         end = self.query_date_range.date_to_as_hogql()
 
         def current_period_aggregate(function_name, column_name, alias, params=None):
-            return self.period_aggregate(
-                function_name, column_name, mid, end, alias=alias, params=params, compare=self.query.compare
-            )
+            if not self.query.compare:
+                return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
+
+            return self.period_aggregate(function_name, column_name, mid, end, alias=alias, params=params)
 
         def previous_period_aggregate(function_name, column_name, alias, params=None):
-            return self.period_aggregate(
-                function_name, column_name, start, mid, alias=alias, params=params, compare=self.query.compare
-            )
+            if not self.query.compare:
+                return ast.Alias(alias=alias, expr=ast.Constant(value=None))
+
+            return self.period_aggregate(function_name, column_name, start, mid, alias=alias, params=params)
 
         if self.query.conversionGoal:
             select = [

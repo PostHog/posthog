@@ -57,32 +57,29 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
-    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None, compare=False):
-        if compare:
-            expr = ast.Call(
-                name=function_name + "If",
-                params=params,
-                args=[
-                    ast.Field(chain=[column_name]),
-                    ast.Call(
-                        name="and",
-                        args=[
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.GtEq,
-                                left=ast.Field(chain=["start_timestamp"]),
-                                right=start,
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Lt,
-                                left=ast.Field(chain=["start_timestamp"]),
-                                right=end,
-                            ),
-                        ],
-                    ),
-                ],
-            )
-        else:
-            expr = ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
+    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None):
+        expr = ast.Call(
+            name=function_name + "If",
+            params=params,
+            args=[
+                ast.Field(chain=[column_name]),
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=start,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Lt,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=end,
+                        ),
+                    ],
+                ),
+            ],
+        )
 
         if alias is not None:
             return ast.Alias(alias=alias, expr=expr)
